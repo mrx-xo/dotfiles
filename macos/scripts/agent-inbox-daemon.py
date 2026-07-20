@@ -45,8 +45,8 @@ def keychain_token():
         return None
 
 
-def load_secrets():
-    """Return (token, allowed_chat_id): Keychain first, then env, then ENV_FILE."""
+def load_config():
+    """Merged config dict: environment first, then ENV_FILE lines."""
     env = dict(os.environ)
     if ENV_FILE.is_file():
         for line in ENV_FILE.read_text().splitlines():
@@ -54,6 +54,11 @@ def load_secrets():
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")
                 env.setdefault(key.strip(), val.strip())
+    return env
+
+
+def load_secrets(env):
+    """Return (token, allowed_chat_id): Keychain first, then env/ENV_FILE."""
     token = keychain_token() or env.get("TELEGRAM_BOT_TOKEN")
     if not token:
         sys.exit(f"no bot token: add to Keychain (service agent-inbox-token), "
@@ -65,7 +70,11 @@ def load_secrets():
                  f"set it in the environment or {ENV_FILE}")
 
 
-TOKEN, ALLOWED = load_secrets()
+_CONFIG = load_config()
+TOKEN, ALLOWED = load_secrets(_CONFIG)
+# Screenshots can contain secrets; don't hoard them forever. 0 disables.
+RETENTION_DAYS = int(_CONFIG.get("AGENT_INBOX_RETENTION_DAYS", "7"))
+SWEEP_INTERVAL = 3600  # seconds between retention sweeps
 API = f"https://api.telegram.org/bot{TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{TOKEN}"
 
@@ -99,6 +108,40 @@ def pick_file(msg):
     return None, None
 
 
+def ack(message_id, text):
+    """Reply in the chat so the phone confirms delivery. Best-effort only."""
+    try:
+        api_get("sendMessage",
+                {"chat_id": ALLOWED, "text": text,
+                 "reply_to_message_id": message_id},
+                timeout=30)
+    except Exception as e:
+        log.warning("ack failed: %s", e)
+
+
+def sweep():
+    """Delete inbox images older than RETENTION_DAYS and day-old stale temps.
+    Never touches .offset (dotfile, but explicitly guarded anyway)."""
+    now = time.time()
+    removed = 0
+    for f in INBOX.iterdir():
+        if not f.is_file() or f == OFFSET_F:
+            continue
+        try:
+            age = now - f.stat().st_mtime
+            if f.name.startswith(".tmp-") and age > 86400:
+                f.unlink()
+                removed += 1
+            elif (RETENTION_DAYS > 0 and not f.name.startswith(".")
+                  and age > RETENTION_DAYS * 86400):
+                f.unlink()
+                removed += 1
+        except OSError as e:
+            log.warning("sweep: could not remove %s: %s", f.name, e)
+    if removed:
+        log.info("sweep: removed %d file(s) older than %dd", removed, RETENTION_DAYS)
+
+
 def download(file_id, ext):
     meta = api_get("getFile", {"file_id": file_id}, timeout=60)
     file_path = meta["result"]["file_path"]
@@ -116,9 +159,14 @@ def download(file_id, ext):
 def main():
     INBOX.mkdir(parents=True, exist_ok=True)
     offset = load_offset()
-    log.info("started; offset=%s inbox=%s allowed_chat=%s", offset, INBOX, ALLOWED)
+    last_sweep = 0.0
+    log.info("started; offset=%s inbox=%s allowed_chat=%s retention=%dd",
+             offset, INBOX, ALLOWED, RETENTION_DAYS)
     while True:
         try:
+            if time.time() - last_sweep > SWEEP_INTERVAL:
+                sweep()
+                last_sweep = time.time()
             r = api_get("getUpdates",
                         {"timeout": POLL_TIMEOUT, "offset": offset + 1,
                          "allowed_updates": json.dumps(["message"])},
@@ -135,7 +183,8 @@ def main():
                     continue
                 file_id, ext = pick_file(msg)
                 if file_id:
-                    download(file_id, ext)
+                    final = download(file_id, ext)
+                    ack(msg.get("message_id"), f"✓ {final.name}")
         except urllib.error.HTTPError as e:
             if e.code == 409:
                 log.error("409 from getUpdates: a webhook is set on this bot; "

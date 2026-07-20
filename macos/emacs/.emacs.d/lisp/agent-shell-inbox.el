@@ -22,6 +22,7 @@
 ;; before elpaca has activated packages (same reason agent-shell-refs.el
 ;; doesn't require it).  Every entry point runs inside an agent-shell
 ;; buffer, so agent-shell and shell-maker are guaranteed loaded by then.
+(require 'cl-lib)
 (require 'filenotify)
 (require 'seq)
 
@@ -51,6 +52,13 @@ inserted path is not quoted."
   "Only files matching this (and not dotfiles) are treated as incoming images."
   :type 'regexp)
 
+(defcustom agent-shell-inbox-grace-seconds 60
+  "On arm, immediately attach a never-attached image younger than this.
+Covers the \"screenshot landed right before/after the arm timed out\"
+case: re-arming scoops it up instead of ignoring it as already-seen.
+Set to 0 to disable."
+  :type 'integer)
+
 (defvar agent-shell-inbox--armed-buffer nil
   "Target buffer while armed, else nil.")
 (defvar agent-shell-inbox--deadline nil
@@ -62,6 +70,10 @@ inserted path is not quoted."
   "Inbox filenames snapshotted at arm time.")
 (defvar agent-shell-inbox--busy-notified nil
   "Non-nil once the busy-shell message has been shown for the current arm.")
+(defvar agent-shell-inbox--multi nil
+  "Non-nil while armed in multi-image mode (attach every image until timeout).")
+(defvar agent-shell-inbox--attached nil
+  "Filenames attached at any point this session (for the grace pickup).")
 
 (defun agent-shell-inbox-armed-p (&optional buffer)
   "Return non-nil if BUFFER (default: current) is the armed target."
@@ -110,18 +122,27 @@ retries until it goes idle (or the arm times out)."
               (setq agent-shell-inbox--busy-notified t)
               (message "agent-shell-inbox: %s busy; will attach when idle"
                        (buffer-name buf)))
-          (agent-shell-inbox-disarm)
-          (condition-case err
-              (progn
-                (agent-shell-insert
-                 :text (agent-shell-inbox--attachment-text image-path)
-                 :shell-buffer buf
-                 :no-focus t)
-                (message "agent-shell-inbox: attached %s to %s"
-                         (file-name-nondirectory image-path) (buffer-name buf)))
-            (error
-             (message "agent-shell-inbox: attach failed (%s); %s left in inbox"
-                      (error-message-string err) image-path))))))))
+          (let ((name (file-name-nondirectory image-path)))
+            (if agent-shell-inbox--multi
+                ;; Multi mode: stay armed until timeout/manual disarm; mark
+                ;; this file seen so the poll doesn't re-attach it forever.
+                (progn
+                  (cl-pushnew name agent-shell-inbox--seen :test #'equal)
+                  (setq agent-shell-inbox--busy-notified nil))
+              (agent-shell-inbox-disarm))
+            (push name agent-shell-inbox--attached)
+            (condition-case err
+                (progn
+                  (agent-shell-insert
+                   :text (agent-shell-inbox--attachment-text image-path)
+                   :shell-buffer buf
+                   :no-focus t)
+                  (message "agent-shell-inbox: attached %s to %s%s"
+                           name (buffer-name buf)
+                           (if agent-shell-inbox--multi " (still armed)" "")))
+              (error
+               (message "agent-shell-inbox: attach failed (%s); %s left in inbox"
+                        (error-message-string err) image-path)))))))))
 
 (defun agent-shell-inbox--poll ()
   ;; Doubles as the modeline ticker: the countdown segment only rerenders
@@ -146,11 +167,35 @@ would always reject."
                  (string-match-p agent-shell-inbox-image-regexp path))
         (agent-shell-inbox--attach path)))))
 
+(defun agent-shell-inbox--grace-pickup ()
+  "Attach the newest never-attached image younger than the grace window.
+Timestamped filenames sort chronologically, so `string>' picks newest."
+  (when (> agent-shell-inbox-grace-seconds 0)
+    (when-let* ((recent (seq-filter
+                         (lambda (f)
+                           (and (not (member (file-name-nondirectory f)
+                                             agent-shell-inbox--attached))
+                                (when-let* ((mtime (file-attribute-modification-time
+                                                    (file-attributes f))))
+                                  (< (float-time (time-subtract nil mtime))
+                                     agent-shell-inbox-grace-seconds))))
+                         (agent-shell-inbox--images))))
+      (let ((path (car (sort (copy-sequence recent) #'string>))))
+        ;; Drop it from the seen-snapshot so the poll keeps retrying it
+        ;; if the shell is busy right now (attach re-adds it in multi mode).
+        (setq agent-shell-inbox--seen
+              (delete (file-name-nondirectory path) agent-shell-inbox--seen))
+        (agent-shell-inbox--attach path)))))
+
 ;;;###autoload
-(defun agent-shell-inbox-arm ()
+(defun agent-shell-inbox-arm (&optional multi)
   "Arm the inbox watcher against the current agent-shell buffer (one-shot).
-If this buffer is already armed, disarm instead (toggle)."
-  (interactive)
+If this buffer is already armed, disarm instead (toggle).  With prefix
+arg MULTI, stay armed and attach every incoming image until the timeout
+or a manual disarm.  An image that arrived within
+`agent-shell-inbox-grace-seconds' and was never attached is picked up
+immediately."
+  (interactive "P")
   (unless (derived-mode-p 'agent-shell-mode)
     (user-error "Not in an agent-shell buffer"))
   (if (agent-shell-inbox-armed-p)
@@ -162,6 +207,7 @@ If this buffer is already armed, disarm instead (toggle)."
       (make-directory agent-shell-inbox-directory t))
     (setq agent-shell-inbox--armed-buffer (current-buffer)
           agent-shell-inbox--deadline (time-add nil agent-shell-inbox-timeout)
+          agent-shell-inbox--multi (and multi t)
           agent-shell-inbox--busy-notified nil
           agent-shell-inbox--seen (mapcar #'file-name-nondirectory
                                           (agent-shell-inbox--images))
@@ -179,8 +225,12 @@ If this buffer is already armed, disarm instead (toggle)."
             (file-notify-add-watch agent-shell-inbox-directory '(change)
                                    #'agent-shell-inbox--fn-callback)))
     (force-mode-line-update t)
-    (message "agent-shell-inbox: armed for %s — send a screenshot (%.0fs timeout)"
-             (buffer-name) agent-shell-inbox-timeout)))
+    (message "agent-shell-inbox: armed%s for %s — send a screenshot (%.0fs timeout)"
+             (if agent-shell-inbox--multi " [multi]" "")
+             (buffer-name) agent-shell-inbox-timeout)
+    ;; A screenshot that landed moments ago (e.g. just after a previous
+    ;; arm timed out) would otherwise be invisible to the seen-snapshot.
+    (agent-shell-inbox--grace-pickup)))
 
 (defun agent-shell-inbox-disarm ()
   "Disarm the inbox watcher (idempotent)."
@@ -193,6 +243,7 @@ If this buffer is already armed, disarm instead (toggle)."
     (ignore-errors (file-notify-rm-watch agent-shell-inbox--fn-descriptor)))
   (setq agent-shell-inbox--armed-buffer nil
         agent-shell-inbox--deadline nil
+        agent-shell-inbox--multi nil
         agent-shell-inbox--poll-timer nil
         agent-shell-inbox--timeout-timer nil
         agent-shell-inbox--fn-descriptor nil

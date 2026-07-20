@@ -2054,7 +2054,9 @@ The package's 1s poll timer forces modeline updates, so this ticks."
         (when (and (fboundp 'agent-shell-inbox-armed-p)
                    (agent-shell-inbox-armed-p))
           (let ((left (agent-shell-inbox-remaining-seconds)))
-            (propertize (format " 📷 %d:%02d" (/ left 60) (% left 60))
+            (propertize (format " 📷%s %d:%02d"
+                                (if (bound-and-true-p agent-shell-inbox--multi) "+" "")
+                                (/ left 60) (% left 60))
                         'face 'shadow
                         'help-echo "Waiting for a phone screenshot — click to disarm"
                         'mouse-face 'mode-line-highlight
