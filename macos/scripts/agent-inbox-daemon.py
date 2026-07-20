@@ -7,13 +7,16 @@ Design (see ~/.dotfiles/docs/phone-screenshot-ez-send.md):
 - Allowlist of one chat id: every other sender is dropped.
 - Pure stdlib (urllib) on purpose — runs under /usr/bin/python3 with no venv.
 
-Secrets come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_CHAT_ID)
-or, when unset, from KEY=VALUE lines in ~/.config/agent-inbox/env (chmod 600).
+The bot token comes from the macOS Keychain (service "agent-inbox-token"),
+falling back to the TELEGRAM_BOT_TOKEN env var or ~/.config/agent-inbox/env
+(chmod 600, KEY=VALUE lines). The chat ID isn't a secret and comes from the
+env var or env file.
 """
 import json
 import logging
 import os
 import pathlib
+import subprocess
 import sys
 import time
 import urllib.error
@@ -31,19 +34,35 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("agent-inbox")
 
 
+def keychain_token():
+    """Bot token from the login Keychain, or None if absent/unavailable."""
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", "agent-inbox-token", "-w"],
+            capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def load_secrets():
-    """Return (token, allowed_chat_id) from env, falling back to ENV_FILE."""
+    """Return (token, allowed_chat_id): Keychain first, then env, then ENV_FILE."""
     env = dict(os.environ)
-    if "TELEGRAM_BOT_TOKEN" not in env and ENV_FILE.is_file():
+    if ENV_FILE.is_file():
         for line in ENV_FILE.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")
                 env.setdefault(key.strip(), val.strip())
+    token = keychain_token() or env.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        sys.exit(f"no bot token: add to Keychain (service agent-inbox-token), "
+                 f"the environment, or {ENV_FILE}")
     try:
-        return env["TELEGRAM_BOT_TOKEN"], int(env["TELEGRAM_ALLOWED_CHAT_ID"])
-    except KeyError as e:
-        sys.exit(f"missing {e.args[0]}: set it in the environment or {ENV_FILE}")
+        return token, int(env["TELEGRAM_ALLOWED_CHAT_ID"])
+    except (KeyError, ValueError):
+        sys.exit(f"missing/invalid TELEGRAM_ALLOWED_CHAT_ID: "
+                 f"set it in the environment or {ENV_FILE}")
 
 
 TOKEN, ALLOWED = load_secrets()

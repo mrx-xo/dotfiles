@@ -96,6 +96,15 @@ for pl in com.marcosandrade.emacsdaemon.plist com.marcosandrade.emacsclient.plis
     sed "s|__HOME__|$HOME|g" "$DOTDIR/emacs/$pl" > "$HOME/Library/LaunchAgents/$pl"
 done
 
+# agent-inbox daemon (phone screenshots → agent-shell; docs/phone-screenshot-ez-send.md).
+# Needs one-time secrets on a new machine: bot token in the Keychain
+# (security add-generic-password -s agent-inbox-token -w) and
+# TELEGRAM_ALLOWED_CHAT_ID in ~/.config/agent-inbox/env.
+mkdir -p "$HOME/Library/Logs/agent-inbox"
+rm -f "$HOME/Library/LaunchAgents/com.marx.agent-inbox.plist"
+sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.agent-inbox.plist" \
+    > "$HOME/Library/LaunchAgents/com.marx.agent-inbox.plist"
+
 # ── 6. Emacs ─────────────────────────────────────────────
 step "Setting up Emacs..."
 if [ ! -d "$HOME/.emacs.d" ]; then
