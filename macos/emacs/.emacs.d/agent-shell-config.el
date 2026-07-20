@@ -995,6 +995,11 @@ the session picker, then spawns shells staggered 3s apart."
         (agent-shell-attention-mode 1))
 
 
+      ;; Agent Shell Inbox - phone screenshots land in an armed buffer's prompt
+      ;; (daemon: macos/scripts/agent-inbox-daemon.py; design doc:
+      ;;  docs/phone-screenshot-ez-send.md)
+      (require 'agent-shell-inbox)
+
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)
       (with-eval-after-load 'agent-shell
@@ -1170,6 +1175,8 @@ the session picker, then spawns shells staggered 3s apart."
                    major-pane-next-tab
                    major-pane-prev-tab
                    major-pane-new-chat
+                   major-pane-close-conversation
+                   major-pane-close-all-conversations
                    major-pane-exclude-buffer
                    major-pane-swap-buffer
                    major-pane-set-label

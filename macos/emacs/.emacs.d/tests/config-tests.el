@@ -201,6 +201,13 @@
   (should (fboundp 'mr-x/agent-shell-in-project))
   (should (fboundp 'mr-x/focus-ai-window)))
 
+(ert-deftest config-test-agent-shell-inbox ()
+  "Phone-screenshot inbox package should be loaded with its entry points."
+  (should (featurep 'agent-shell-inbox))
+  (should (fboundp 'agent-shell-inbox-arm))
+  (should (fboundp 'agent-shell-inbox-disarm))
+  (should (fboundp 'agent-shell-inbox-armed-p)))
+
 (ert-deftest config-test-mr-x-agent-shell-input-functions ()
   "Agent shell input helpers should be defined."
   (should (fboundp 'mr-x/agent-shell-smart-insert))

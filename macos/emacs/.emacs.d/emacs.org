@@ -2048,8 +2048,23 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
                                                #'agent-shell-refs-preview)
                                    map))))
 
+      (doom-modeline-def-segment agent-shell-inbox
+        "Show 📷 with a countdown while armed for an incoming phone screenshot.
+The package's 1s poll timer forces modeline updates, so this ticks."
+        (when (and (fboundp 'agent-shell-inbox-armed-p)
+                   (agent-shell-inbox-armed-p))
+          (let ((left (agent-shell-inbox-remaining-seconds)))
+            (propertize (format " 📷 %d:%02d" (/ left 60) (% left 60))
+                        'face 'shadow
+                        'help-echo "Waiting for a phone screenshot — click to disarm"
+                        'mouse-face 'mode-line-highlight
+                        'local-map (let ((map (make-sparse-keymap)))
+                                     (define-key map [mode-line mouse-1]
+                                                 #'agent-shell-inbox-disarm)
+                                     map)))))
+
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar modals buffer-info agent-shell-refs)
+        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
         '(buffer-position))
 
       (with-eval-after-load 'nerd-icons
@@ -2641,6 +2656,7 @@ constantly, so only invoke it when Hammerspoon is actually running."
         "d h" '((lambda () (interactive) (dired "~/")) :wk "Dired home")
         "d r" '((lambda () (interactive) (dired "~/roaming")) :wk "Dired roaming")
         "d e" '((lambda () (interactive) (dired "~/.dotfiles")) :wk "Dired dotfiles")
+        "d s" '((lambda () (interactive) (dired "~/shared")) :wk "Dired shared")
         "d w" '((lambda () (interactive) (dired "/ssh:vengeance:/c/Users/mnand/dotfiles/")) :wk "Dired Windows dotfiles")
         "d H" '(dired-omit-mode :wk "Dired Omit Mode")
         "d p" '(dired-preview-global-mode :wk "Toggle preview")
@@ -2787,6 +2803,7 @@ projectile projects appended below."
         "c d" '(agent-shell-send-dwim :wk "Send DWIM (region/error)")
         "c s" '(major-pane-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
+        "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -6114,6 +6131,11 @@ the session picker, then spawns shells staggered 3s apart."
         (setq agent-shell-attention-notify-function #'mr-x/agent-shell-notify)
         (agent-shell-attention-mode 1))
 
+
+      ;; Agent Shell Inbox - phone screenshots land in an armed buffer's prompt
+      ;; (daemon: macos/scripts/agent-inbox-daemon.py; design doc:
+      ;;  docs/phone-screenshot-ez-send.md)
+      (require 'agent-shell-inbox)
 
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)

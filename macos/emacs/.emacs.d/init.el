@@ -152,9 +152,6 @@
       ;;   (advice-add 'org-meta-return :after #'my/org-meta-return-auto-checkbox)
 
 
-
-
-
   	(setq org-highlight-latex-and-related '(latex))
 
   					      ; org- habit setup
@@ -1806,277 +1803,292 @@ All Mdox tooling (scaffolder, linter) derives from this spec.")
 
 
 
-  (use-package all-the-icons
-    :ensure t
-    :if (display-graphic-p)
-    :config
-    ;; all-the-icons ships its own fonts (not the Nerd fonts); auto-install
-    ;; them on a fresh machine so icons render instead of tofu boxes.
-    (unless (find-font (font-spec :family "all-the-icons"))
-      (all-the-icons-install-fonts t)))
+    (use-package all-the-icons
+      :ensure t
+      :if (display-graphic-p)
+      :config
+      ;; all-the-icons ships its own fonts (not the Nerd fonts); auto-install
+      ;; them on a fresh machine so icons render instead of tofu boxes.
+      (unless (find-font (font-spec :family "all-the-icons"))
+        (all-the-icons-install-fonts t)))
 
-  (use-package doom-themes
-    :ensure t
-    :config
-    (load-theme 'doom-gruvbox)
-    ;; Match VSCode gruvbox JSX/TSX highlighting
-    ;; Reference: https://github.com/jdinhify/vscode-theme-gruvbox
-    ;; Colors: aqua2=#8ec07c, blue2=#83a598, yellow2=#fabd2f, fg2=#d5c4a1, fg4=#a89984
-    (custom-set-faces
-     ;; JSX tags should be aqua like VSCode (entity.name.tag -> aqua2)
-     '(typescript-ts-jsx-tag-face ((t (:foreground "#8ec07c"))))
-     ;; JSX attributes (type, placeholder, onChange) should be yellow (yellow2)
-     '(typescript-ts-jsx-attribute-face ((t (:foreground "#fabd2f"))))
-     ;; Functions aqua in VSCode gruvbox (entity.name.function -> yellow2, but called -> aqua2)
-     '(font-lock-function-name-face ((t (:foreground "#8ec07c"))))
-     '(font-lock-function-call-face ((t (:foreground "#8ec07c"))))
-     ;; Properties/members (e.target.value) should be blue (blue2)
-     '(font-lock-property-use-face ((t (:foreground "#83a598"))))
-     '(font-lock-property-name-face ((t (:foreground "#83a598"))))
-     ;; Variable references (isActive, count, etc.) should be blue (variable -> blue2)
-     '(font-lock-variable-use-face ((t (:foreground "#83a598"))))
-     ;; Operators (=, =>, etc.) should be aqua (keyword.operator -> aqua2)
-     '(font-lock-operator-face ((t (:foreground "#8ec07c"))))
-     ;; Brackets/braces {} should be lighter (brace -> fg2)
-     '(font-lock-bracket-face ((t (:foreground "#d5c4a1"))))
-     ;; General punctuation (fg4)
-     '(font-lock-punctuation-face ((t (:foreground "#a89984"))))
-     '(font-lock-delimiter-face ((t (:foreground "#a89984"))))
-     ;; JSX tag delimiters <, >, </,  /> should be blue (punctuation.definition.tag -> blue2)
-     '(jsx-tag-delimiter-face ((t (:foreground "#83a598"))))))
+    (use-package doom-themes
+      :ensure t
+      :config
+      (load-theme 'doom-gruvbox)
+      ;; Match VSCode gruvbox JSX/TSX highlighting
+      ;; Reference: https://github.com/jdinhify/vscode-theme-gruvbox
+      ;; Colors: aqua2=#8ec07c, blue2=#83a598, yellow2=#fabd2f, fg2=#d5c4a1, fg4=#a89984
+      (custom-set-faces
+       ;; JSX tags should be aqua like VSCode (entity.name.tag -> aqua2)
+       '(typescript-ts-jsx-tag-face ((t (:foreground "#8ec07c"))))
+       ;; JSX attributes (type, placeholder, onChange) should be yellow (yellow2)
+       '(typescript-ts-jsx-attribute-face ((t (:foreground "#fabd2f"))))
+       ;; Functions aqua in VSCode gruvbox (entity.name.function -> yellow2, but called -> aqua2)
+       '(font-lock-function-name-face ((t (:foreground "#8ec07c"))))
+       '(font-lock-function-call-face ((t (:foreground "#8ec07c"))))
+       ;; Properties/members (e.target.value) should be blue (blue2)
+       '(font-lock-property-use-face ((t (:foreground "#83a598"))))
+       '(font-lock-property-name-face ((t (:foreground "#83a598"))))
+       ;; Variable references (isActive, count, etc.) should be blue (variable -> blue2)
+       '(font-lock-variable-use-face ((t (:foreground "#83a598"))))
+       ;; Operators (=, =>, etc.) should be aqua (keyword.operator -> aqua2)
+       '(font-lock-operator-face ((t (:foreground "#8ec07c"))))
+       ;; Brackets/braces {} should be lighter (brace -> fg2)
+       '(font-lock-bracket-face ((t (:foreground "#d5c4a1"))))
+       ;; General punctuation (fg4)
+       '(font-lock-punctuation-face ((t (:foreground "#a89984"))))
+       '(font-lock-delimiter-face ((t (:foreground "#a89984"))))
+       ;; JSX tag delimiters <, >, </,  /> should be blue (punctuation.definition.tag -> blue2)
+       '(jsx-tag-delimiter-face ((t (:foreground "#83a598"))))))
 
-  ;; Define custom face for JSX tag delimiters
-  (defface jsx-tag-delimiter-face
-    '((t (:foreground "#83a598")))
-    "Face for JSX tag delimiters like < > /> </"
-    :group 'font-lock-faces)
+    ;; Define custom face for JSX tag delimiters
+    (defface jsx-tag-delimiter-face
+      '((t (:foreground "#83a598")))
+      "Face for JSX tag delimiters like < > /> </"
+      :group 'font-lock-faces)
 
-  ;; Enable extra tree-sitter font-lock features for TSX/TS (like VSCode)
-  (defun mr-x/tsx-ts-mode-setup ()
-    "Enable additional font-lock features for tsx-ts-mode."
-    ;; Enable extra font-lock features (function, bracket, delimiter, operator)
-    (treesit-font-lock-recompute-features '(function bracket delimiter operator) nil)
-    ;; Add custom tree-sitter rules
-    (let ((lang (if (eq major-mode 'tsx-ts-mode) 'tsx 'typescript)))
-      (setq treesit-font-lock-settings
-        (append treesit-font-lock-settings
-          (treesit-font-lock-rules
-            ;; Member access properties (e.target.value)
-            :language lang
-            :feature 'property
-            :override t
-            '((member_expression
-               property: (property_identifier) @font-lock-property-use-face))
-            ;; Variable references should be blue (like VSCode gruvbox)
-            :language lang
-            :feature 'variable-reference
-            :override nil
-            '((identifier) @font-lock-variable-use-face))
-          ;; JSX tag delimiters - only for tsx
-          (when (eq lang 'tsx)
+    ;; Enable extra tree-sitter font-lock features for TSX/TS (like VSCode)
+    (defun mr-x/tsx-ts-mode-setup ()
+      "Enable additional font-lock features for tsx-ts-mode."
+      ;; Enable extra font-lock features (function, bracket, delimiter, operator)
+      (treesit-font-lock-recompute-features '(function bracket delimiter operator) nil)
+      ;; Add custom tree-sitter rules
+      (let ((lang (if (eq major-mode 'tsx-ts-mode) 'tsx 'typescript)))
+        (setq treesit-font-lock-settings
+          (append treesit-font-lock-settings
             (treesit-font-lock-rules
-              :language 'tsx
-              :feature 'jsx-delimiter
+              ;; Member access properties (e.target.value)
+              :language lang
+              :feature 'property
               :override t
-              '(;; Opening tag: <div>
-                (jsx_opening_element "<" @jsx-tag-delimiter-face)
-                (jsx_opening_element ">" @jsx-tag-delimiter-face)
-                ;; Closing tag: </div>
-                (jsx_closing_element "</" @jsx-tag-delimiter-face)
-                (jsx_closing_element ">" @jsx-tag-delimiter-face)
-                ;; Self-closing: <Input />
-                (jsx_self_closing_element "<" @jsx-tag-delimiter-face)
-                (jsx_self_closing_element "/>" @jsx-tag-delimiter-face)))))))
-    ;; Add custom features to feature list level 3
-    (unless (memq 'variable-reference (nth 2 treesit-font-lock-feature-list))
-      (setf (nth 2 treesit-font-lock-feature-list)
-            (cons 'variable-reference (nth 2 treesit-font-lock-feature-list))))
-    (treesit-font-lock-recompute-features '(variable-reference) nil)
-    ;; Enable jsx-delimiter feature (tsx only)
-    (when (eq major-mode 'tsx-ts-mode)
-      (unless (memq 'jsx-delimiter (nth 2 treesit-font-lock-feature-list))
+              '((member_expression
+                 property: (property_identifier) @font-lock-property-use-face))
+              ;; Variable references should be blue (like VSCode gruvbox)
+              :language lang
+              :feature 'variable-reference
+              :override nil
+              '((identifier) @font-lock-variable-use-face))
+            ;; JSX tag delimiters - only for tsx
+            (when (eq lang 'tsx)
+              (treesit-font-lock-rules
+                :language 'tsx
+                :feature 'jsx-delimiter
+                :override t
+                '(;; Opening tag: <div>
+                  (jsx_opening_element "<" @jsx-tag-delimiter-face)
+                  (jsx_opening_element ">" @jsx-tag-delimiter-face)
+                  ;; Closing tag: </div>
+                  (jsx_closing_element "</" @jsx-tag-delimiter-face)
+                  (jsx_closing_element ">" @jsx-tag-delimiter-face)
+                  ;; Self-closing: <Input />
+                  (jsx_self_closing_element "<" @jsx-tag-delimiter-face)
+                  (jsx_self_closing_element "/>" @jsx-tag-delimiter-face)))))))
+      ;; Add custom features to feature list level 3
+      (unless (memq 'variable-reference (nth 2 treesit-font-lock-feature-list))
         (setf (nth 2 treesit-font-lock-feature-list)
-              (cons 'jsx-delimiter (nth 2 treesit-font-lock-feature-list))))
-      (treesit-font-lock-recompute-features '(jsx-delimiter) nil))
-    (font-lock-flush))
-  (add-hook 'tsx-ts-mode-hook #'mr-x/tsx-ts-mode-setup)
-  (add-hook 'typescript-ts-mode-hook #'mr-x/tsx-ts-mode-setup)
+              (cons 'variable-reference (nth 2 treesit-font-lock-feature-list))))
+      (treesit-font-lock-recompute-features '(variable-reference) nil)
+      ;; Enable jsx-delimiter feature (tsx only)
+      (when (eq major-mode 'tsx-ts-mode)
+        (unless (memq 'jsx-delimiter (nth 2 treesit-font-lock-feature-list))
+          (setf (nth 2 treesit-font-lock-feature-list)
+                (cons 'jsx-delimiter (nth 2 treesit-font-lock-feature-list))))
+        (treesit-font-lock-recompute-features '(jsx-delimiter) nil))
+      (font-lock-flush))
+    (add-hook 'tsx-ts-mode-hook #'mr-x/tsx-ts-mode-setup)
+    (add-hook 'typescript-ts-mode-hook #'mr-x/tsx-ts-mode-setup)
 
-  (use-package doom-modeline
-    :ensure t
-    :init (doom-modeline-mode 1)
-    :custom
-    ;; Make modeline smaller and cleaner
-    (doom-modeline-height 25)  ; Smaller height (default is 25)
-    (doom-modeline-bar-width 3)  ; Thinner bar
-    
-    ;; Remove encoding to save space
-    (doom-modeline-buffer-encoding nil)  ; Remove encoding indicator
-    
-    ;; Other space-saving options
-    (doom-modeline-indent-info nil)  ; Remove indentation info
-    (doom-modeline-minor-modes nil)  ; Hide minor modes (they take lots of space)
-    (doom-modeline-buffer-file-name-style 'truncate-upto-root)  ; Shorter file paths
-    
-    ;; Keep useful stuff
-    (doom-modeline-major-mode-icon t)  ; Keep major mode icon
-    (doom-modeline-major-mode-color-icon t)  ; Colorful icons
-    (doom-modeline-buffer-state-icon t)  ; Modified/saved state
-    (doom-modeline-buffer-modification-icon t)  ; Show if modified
-    (doom-modeline-lsp t)  ; Keep LSP indicator
-    (doom-modeline-github nil)  ; Remove github notifications (saves space)
-    (doom-modeline-persp-name nil)  ; Remove perspective name if not using
-    (doom-modeline-modal-modern-icon nil)  ; Your existing setting
-    
-    ;; Performance
-    (doom-modeline-checker-simple-format t)  ; Simpler error format
-    (doom-modeline-env-version nil)  ; Don't show environment version
-    (doom-modeline-unicode-fallback t)  ; Use unicode when icons unavailable
+    (use-package doom-modeline
+      :ensure t
+      :init (doom-modeline-mode 1)
+      :custom
+      ;; Make modeline smaller and cleaner
+      (doom-modeline-height 25)  ; Smaller height (default is 25)
+      (doom-modeline-bar-width 3)  ; Thinner bar
+      
+      ;; Remove encoding to save space
+      (doom-modeline-buffer-encoding nil)  ; Remove encoding indicator
+      
+      ;; Other space-saving options
+      (doom-modeline-indent-info nil)  ; Remove indentation info
+      (doom-modeline-minor-modes nil)  ; Hide minor modes (they take lots of space)
+      (doom-modeline-buffer-file-name-style 'truncate-upto-root)  ; Shorter file paths
+      
+      ;; Keep useful stuff
+      (doom-modeline-major-mode-icon t)  ; Keep major mode icon
+      (doom-modeline-major-mode-color-icon t)  ; Colorful icons
+      (doom-modeline-buffer-state-icon t)  ; Modified/saved state
+      (doom-modeline-buffer-modification-icon t)  ; Show if modified
+      (doom-modeline-lsp t)  ; Keep LSP indicator
+      (doom-modeline-github nil)  ; Remove github notifications (saves space)
+      (doom-modeline-persp-name nil)  ; Remove perspective name if not using
+      (doom-modeline-modal-modern-icon nil)  ; Your existing setting
+      
+      ;; Performance
+      (doom-modeline-checker-simple-format t)  ; Simpler error format
+      (doom-modeline-env-version nil)  ; Don't show environment version
+      (doom-modeline-unicode-fallback t)  ; Use unicode when icons unavailable
 
-    :config
-    ;; Commented out to prevent modeline shrinking when frame loses focus
-    ;; (set-face-attribute 'mode-line nil :height 0.9)
-    ;; (set-face-attribute 'mode-line-inactive nil :height 0.9)
-    
-    ;; Minimal modeline for agent-shell (just evil state, buffer name, line number)
-    (doom-modeline-def-segment agent-shell-refs
-      "Show 📎N when refs are attached in agent-shell."
-      (when (and (derived-mode-p 'agent-shell-mode)
-                 (bound-and-true-p agent-shell-refs--list))
-        (propertize (format " 📎%d" (length agent-shell-refs--list))
-                    'face 'agent-shell-refs-modeline-face
-                    'help-echo "Attached references — click to preview"
-                    'mouse-face 'mode-line-highlight
-                    'local-map (let ((map (make-sparse-keymap)))
-                                 (define-key map [mode-line mouse-1]
-                                             #'agent-shell-refs-preview)
-                                 map))))
+      :config
+      ;; Commented out to prevent modeline shrinking when frame loses focus
+      ;; (set-face-attribute 'mode-line nil :height 0.9)
+      ;; (set-face-attribute 'mode-line-inactive nil :height 0.9)
+      
+      ;; Minimal modeline for agent-shell (just evil state, buffer name, line number)
+      (doom-modeline-def-segment agent-shell-refs
+        "Show 📎N when refs are attached in agent-shell."
+        (when (and (derived-mode-p 'agent-shell-mode)
+                   (bound-and-true-p agent-shell-refs--list))
+          (propertize (format " 📎%d" (length agent-shell-refs--list))
+                      'face 'agent-shell-refs-modeline-face
+                      'help-echo "Attached references — click to preview"
+                      'mouse-face 'mode-line-highlight
+                      'local-map (let ((map (make-sparse-keymap)))
+                                   (define-key map [mode-line mouse-1]
+                                               #'agent-shell-refs-preview)
+                                   map))))
 
-    (doom-modeline-def-modeline 'agent-shell-minimal
-      '(bar modals buffer-info agent-shell-refs)
-      '(buffer-position))
+      (doom-modeline-def-segment agent-shell-inbox
+        "Show 📷 with a countdown while armed for an incoming phone screenshot.
+The package's 1s poll timer forces modeline updates, so this ticks."
+        (when (and (fboundp 'agent-shell-inbox-armed-p)
+                   (agent-shell-inbox-armed-p))
+          (let ((left (agent-shell-inbox-remaining-seconds)))
+            (propertize (format " 📷 %d:%02d" (/ left 60) (% left 60))
+                        'face 'shadow
+                        'help-echo "Waiting for a phone screenshot — click to disarm"
+                        'mouse-face 'mode-line-highlight
+                        'local-map (let ((map (make-sparse-keymap)))
+                                     (define-key map [mode-line mouse-1]
+                                                 #'agent-shell-inbox-disarm)
+                                     map)))))
 
-    (with-eval-after-load 'nerd-icons
-      (add-to-list 'nerd-icons-mode-icon-alist
-                   '(agent-shell-mode nerd-icons-mdicon "nf-md-robot_happy"
-                                      :face nerd-icons-silver :height 1.2)))
+      (doom-modeline-def-modeline 'agent-shell-minimal
+        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(buffer-position))
 
-    (add-hook 'agent-shell-mode-hook
-              (lambda ()
-                (doom-modeline-set-modeline 'agent-shell-minimal)
-                (face-remap-add-relative 'default :background "#1d2021"))))
+      (with-eval-after-load 'nerd-icons
+        (add-to-list 'nerd-icons-mode-icon-alist
+                     '(agent-shell-mode nerd-icons-mdicon "nf-md-robot_happy"
+                                        :face nerd-icons-silver :height 1.2)))
 
-
-  ;; (set-face-attribute 'default nil :font "JuliaMono" :height 280)
-
-  (defun mr-x/general-setup ()
-    (display-line-numbers-mode 1))
-
-  (defun mr-x/new-scratch ()
-    "Create a new scratch buffer with a unique name."
-    (interactive)
-    (let ((n 1)
-          bufname)
-      (while (progn
-               (setq bufname (format "*scratch<%d>*" n))
-               (get-buffer bufname))
-        (setq n (1+ n)))
-      (switch-to-buffer (get-buffer-create bufname))
-      (org-mode)))
-
-  (defun mr-x/surf-web ()
-    "Open xwidget-webkit with Google."
-    (interactive)
-    (xwidget-webkit-browse-url "https://google.com"))
-
-  (defun mr-x/surf-web-other-window ()
-    "Open xwidget-webkit with Google in other window."
-    (interactive)
-    (split-window-right)
-    (other-window 1)
-    (xwidget-webkit-browse-url "https://google.com"))
-
-  (defun mr-x/surf-link-at-point ()
-    "Open URL at point in xwidget-webkit."
-    (interactive)
-    (if-let ((url (thing-at-point 'url)))
-        (xwidget-webkit-browse-url url)
-      (message "No URL at point")))
-
-  (defun mr-x/surf-url-other-window ()
-    "Prompt for URL and open in other window."
-    (interactive)
-    (split-window-right)
-    (other-window 1)
-    (call-interactively #'xwidget-webkit-browse-url))
+      (add-hook 'agent-shell-mode-hook
+                (lambda ()
+                  (doom-modeline-set-modeline 'agent-shell-minimal)
+                  (face-remap-add-relative 'default :background "#1d2021"))))
 
 
-   (use-package xwwp
-     :ensure t
-     :after evil
-     :custom
-     (xwwp-follow-link-completion-system 'default)
-     :config
-     (evil-define-key 'normal xwidget-webkit-mode-map
-       "f" 'xwwp-follow-link))
+    ;; (set-face-attribute 'default nil :font "JuliaMono" :height 280)
+
+    (defun mr-x/general-setup ()
+      (display-line-numbers-mode 1))
+
+    (defun mr-x/new-scratch ()
+      "Create a new scratch buffer with a unique name."
+      (interactive)
+      (let ((n 1)
+            bufname)
+        (while (progn
+                 (setq bufname (format "*scratch<%d>*" n))
+                 (get-buffer bufname))
+          (setq n (1+ n)))
+        (switch-to-buffer (get-buffer-create bufname))
+        (org-mode)))
+
+    (defun mr-x/surf-web ()
+      "Open xwidget-webkit with Google."
+      (interactive)
+      (xwidget-webkit-browse-url "https://google.com"))
+
+    (defun mr-x/surf-web-other-window ()
+      "Open xwidget-webkit with Google in other window."
+      (interactive)
+      (split-window-right)
+      (other-window 1)
+      (xwidget-webkit-browse-url "https://google.com"))
+
+    (defun mr-x/surf-link-at-point ()
+      "Open URL at point in xwidget-webkit."
+      (interactive)
+      (if-let ((url (thing-at-point 'url)))
+          (xwidget-webkit-browse-url url)
+        (message "No URL at point")))
+
+    (defun mr-x/surf-url-other-window ()
+      "Prompt for URL and open in other window."
+      (interactive)
+      (split-window-right)
+      (other-window 1)
+      (call-interactively #'xwidget-webkit-browse-url))
 
 
-  (add-hook 'text-mode-hook #'mr-x/general-setup)
-  (add-hook 'prog-mode-hook #'mr-x/general-setup)
+     (use-package xwwp
+       :ensure t
+       :after evil
+       :custom
+       (xwwp-follow-link-completion-system 'default)
+       :config
+       (evil-define-key 'normal xwidget-webkit-mode-map
+         "f" 'xwwp-follow-link))
+
+
+    (add-hook 'text-mode-hook #'mr-x/general-setup)
+    (add-hook 'prog-mode-hook #'mr-x/general-setup)
+
+  
+
+  					  ; opacity - same value for focused and unfocused (consistent transparency)
+    (set-frame-parameter (selected-frame) 'alpha '(80 80))
+    (add-to-list 'default-frame-alist '(alpha-background . 20))
+
+    (defun my/clone-buffer-to-new-frame ()
+      "Spawn a new frame showing the current buffer."
+      (interactive)
+      (let ((buf (current-buffer)))
+        (select-frame-set-input-focus (make-frame))
+        (switch-to-buffer buf)))
+    (global-set-key (kbd "s-M-E") #'my/clone-buffer-to-new-frame)
+
+  					  ; keybindings section
+    (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
+    (global-set-key (kbd "C-<escape>") #'universal-argument)
+    (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
+    (global-set-key (kbd "<escape>") 'keyboard-escape-quit) ; Make ESC quit prompts
+    (global-set-key (kbd "C-c l") #'org-store-link) ; Suggested Key-binding from org-manual
+    (global-set-key (kbd "C-c a") #'org-agenda) ; Suggested Key-binding from org-manual
+    (global-set-key (kbd "C-c c") #'org-capture) ; Suggested Key-binding from org-manual
 
 
 
-					  ; opacity - same value for focused and unfocused (consistent transparency)
-  (set-frame-parameter (selected-frame) 'alpha '(80 80))
-  (add-to-list 'default-frame-alist '(alpha-background . 20))
-
-  (defun my/clone-buffer-to-new-frame ()
-    "Spawn a new frame showing the current buffer."
-    (interactive)
-    (let ((buf (current-buffer)))
-      (select-frame-set-input-focus (make-frame))
-      (switch-to-buffer buf)))
-  (global-set-key (kbd "s-M-E") #'my/clone-buffer-to-new-frame)
-
-					  ; keybindings section
-  (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
-  (global-set-key (kbd "C-<escape>") #'universal-argument)
-  (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
-  (global-set-key (kbd "<escape>") 'keyboard-escape-quit) ; Make ESC quit prompts
-  (global-set-key (kbd "C-c l") #'org-store-link) ; Suggested Key-binding from org-manual
-  (global-set-key (kbd "C-c a") #'org-agenda) ; Suggested Key-binding from org-manual
-  (global-set-key (kbd "C-c c") #'org-capture) ; Suggested Key-binding from org-manual
 
 
 
 
+    (setq inhibit-startup-message t) ; Disable the startup message
+    (scroll-bar-mode -1) ; Disable the visible scrollbar
+    (tool-bar-mode -1)   ; Disable the toolbar
+    (tooltip-mode -1)    ; Disable tooltips
+    (menu-bar-mode -1)   ; Disable the menu bar
+    (set-fringe-mode 10) ; Give some breathing room
 
+  ;; Disable native fullscreen behavior
+  (setq ns-use-native-fullscreen nil)
 
+  ;; Make new frames tile properly instead of floating
+  (setq ns-pop-up-frames nil)
 
-  (setq inhibit-startup-message t) ; Disable the startup message
-  (scroll-bar-mode -1) ; Disable the visible scrollbar
-  (tool-bar-mode -1)   ; Disable the toolbar
-  (tooltip-mode -1)    ; Disable tooltips
-  (menu-bar-mode -1)   ; Disable the menu bar
-  (set-fringe-mode 10) ; Give some breathing room
+  ;; Prevent Emacs from resizing frames
+  (setq frame-resize-pixelwise t)
 
-;; Disable native fullscreen behavior
-(setq ns-use-native-fullscreen nil)
-
-;; Make new frames tile properly instead of floating
-(setq ns-pop-up-frames nil)
-
-;; Prevent Emacs from resizing frames
-(setq frame-resize-pixelwise t)
-
-;; Secondary emacsclient frames get title bars with frame number
-(defvar mr-x/frame-counter 0)
-(add-hook 'server-after-make-frame-hook
-          (lambda ()
-            (cl-incf mr-x/frame-counter)
-            (set-frame-parameter nil 'undecorated-round nil)
-            (set-frame-parameter nil 'title
-              (format "Emacs #%d" mr-x/frame-counter))))
+  ;; Secondary emacsclient frames get title bars with frame number
+  (defvar mr-x/frame-counter 0)
+  (add-hook 'server-after-make-frame-hook
+            (lambda ()
+              (cl-incf mr-x/frame-counter)
+              (set-frame-parameter nil 'undecorated-round nil)
+              (set-frame-parameter nil 'title
+                (format "Emacs #%d" mr-x/frame-counter))))
 
 
 
@@ -2531,6 +2543,7 @@ constantly, so only invoke it when Hammerspoon is actually running."
         "d h" '((lambda () (interactive) (dired "~/")) :wk "Dired home")
         "d r" '((lambda () (interactive) (dired "~/roaming")) :wk "Dired roaming")
         "d e" '((lambda () (interactive) (dired "~/.dotfiles")) :wk "Dired dotfiles")
+        "d s" '((lambda () (interactive) (dired "~/shared")) :wk "Dired shared")
         "d w" '((lambda () (interactive) (dired "/ssh:vengeance:/c/Users/mnand/dotfiles/")) :wk "Dired Windows dotfiles")
         "d H" '(dired-omit-mode :wk "Dired Omit Mode")
         "d p" '(dired-preview-global-mode :wk "Toggle preview")
@@ -2677,6 +2690,7 @@ projectile projects appended below."
         "c d" '(agent-shell-send-dwim :wk "Send DWIM (region/error)")
         "c s" '(major-pane-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
+        "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -2791,6 +2805,8 @@ projectile projects appended below."
       (mr-x/leader-def
         "&" '(:ignore t :wk "Pane")
         "& n" '(major-pane-new-chat :wk "New chat")
+        "& k" '(major-pane-close-conversation :wk "Close conversation")
+        "& K" '(major-pane-close-all-conversations :wk "Close all")
         "& f" '((lambda () (interactive)
                   (let ((current-prefix-arg '(4)))
                     (call-interactively #'major-pane-toggle)))
@@ -3367,37 +3383,37 @@ where make-frame would otherwise error with \"Unknown terminal type\"."
   (dolist (mode '(text-mode-hook prog-mode-hook conf-mode-hook Info-mode-hook))
     (add-hook mode (lambda () (display-line-numbers-mode 1))))
 
-(use-package tramp
-  :ensure nil
-  :defer t
-  :config
-  ;; PTY by default — gives remote hosts an interactive shell so TRAMP
-  ;; can find a prompt.  Windows/ConPTY needs pipe mode to avoid escape
-  ;; code pollution, so we scope that per-host via advice.
-  (defun mr-x/tramp-windows-pipe-a (orig-fun vec)
-    "Use pipe instead of PTY for hosts whose shell pollutes the PTY.
+  (use-package tramp
+    :ensure nil
+    :defer t
+    :config
+    ;; PTY by default — gives remote hosts an interactive shell so TRAMP
+    ;; can find a prompt.  Windows/ConPTY needs pipe mode to avoid escape
+    ;; code pollution, so we scope that per-host via advice.
+    (defun mr-x/tramp-windows-pipe-a (orig-fun vec)
+      "Use pipe instead of PTY for hosts whose shell pollutes the PTY.
 Windows/ConPTY emits escape codes; mrx runs zsh with a fancy PS1 that
 TRAMP can't match under a PTY — both need pipe mode."
-    (let ((tramp-process-connection-type
-           (if (string-match-p "vengeance\\|100\\.67\\.67\\.61\\|mrx"
-                                (tramp-file-name-host vec))
-               nil    ; pipe — avoids ConPTY / fancy-prompt escape codes
-             t)))    ; PTY  — interactive shell for other Linux hosts
-      (funcall orig-fun vec)))
-  (advice-add 'tramp-maybe-open-connection :around #'mr-x/tramp-windows-pipe-a)
-  (setq tramp-use-ssh-controlmaster-options nil)
-  ;; Don't let vc-mode check version control over TRAMP
-  (setq vc-ignore-dir-regexp
-        (format "%s\\|%s" vc-ignore-dir-regexp tramp-file-name-regexp))
-  ;; Disable auto-revert for remote files
-  (setq auto-revert-remote-files nil)
-  ;; Disable projectile for remote files
-  (defun mr-x/projectile-ignore-remote-a (orig-fn &rest args)
-    "Skip `projectile-project-root' on remote files."
-    (unless (file-remote-p default-directory)
-      (apply orig-fn args)))
-  (with-eval-after-load 'projectile
-    (advice-add 'projectile-project-root :around #'mr-x/projectile-ignore-remote-a)))
+      (let ((tramp-process-connection-type
+             (if (string-match-p "vengeance\\|100\\.67\\.67\\.61\\|mrx"
+                                  (tramp-file-name-host vec))
+                 nil    ; pipe — avoids ConPTY / fancy-prompt escape codes
+               t)))    ; PTY  — interactive shell for other Linux hosts
+        (funcall orig-fun vec)))
+    (advice-add 'tramp-maybe-open-connection :around #'mr-x/tramp-windows-pipe-a)
+    (setq tramp-use-ssh-controlmaster-options nil)
+    ;; Don't let vc-mode check version control over TRAMP
+    (setq vc-ignore-dir-regexp
+          (format "%s\\|%s" vc-ignore-dir-regexp tramp-file-name-regexp))
+    ;; Disable auto-revert for remote files
+    (setq auto-revert-remote-files nil)
+    ;; Disable projectile for remote files
+    (defun mr-x/projectile-ignore-remote-a (orig-fn &rest args)
+      "Skip `projectile-project-root' on remote files."
+      (unless (file-remote-p default-directory)
+        (apply orig-fn args)))
+    (with-eval-after-load 'projectile
+      (advice-add 'projectile-project-root :around #'mr-x/projectile-ignore-remote-a)))
 
 
 ;; Vertico + Consult + Orderless + Marginalia + Embark
