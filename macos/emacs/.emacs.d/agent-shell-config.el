@@ -1140,26 +1140,11 @@ the session picker, then spawns shells staggered 3s apart."
         (agent-recall-search-function 'deadgrep)
         (agent-recall-browse-sort 'modified-desc)
         (agent-recall-browse-preview t)
-        :hook (agent-shell-mode . agent-recall-track-sessions)
-        :config
-        ;; Make agent-recall resume/browse display in the agent-panel
-        ;; instead of a random pop-to-buffer window.
-        (advice-add 'agent-recall--display-buffer :override
-                    (lambda (buffer)
-                      (let ((win (and (boundp 'major-pane--pinned-buffer)
-                                      (buffer-live-p major-pane--pinned-buffer)
-                                      (get-buffer-window major-pane--pinned-buffer))))
-                        (when (boundp 'major-pane--pinned-buffer)
-                          (setq major-pane--pinned-buffer buffer))
-                        (if win
-                            (set-window-buffer win buffer)
-                          ;; Tag the freshly-created window as the pane slot
-                          ;; so the banner machinery lights it up.
-                          (display-buffer buffer
-                                          `((display-buffer-in-direction)
-                                            (direction . left)
-                                            (window-width . 0.30)
-                                            (window-parameters . ((major-pane . t))))))))))
+        :hook (agent-shell-mode . agent-recall-track-sessions))
+        ;; Resume/browse placement needs no advice: agent-recall funnels
+        ;; display through `agent-recall--display-buffer' (a plain
+        ;; pop-to-buffer), which the "Claude Agent @" display-buffer-alist
+        ;; entry routes into the major-pane.
 
       (use-package major-pane
         :ensure nil
@@ -1171,6 +1156,10 @@ the session picker, then spawns shells staggered 3s apart."
         (global-set-key (kbd "s-i") #'major-pane-toggle)
         (global-set-key (kbd "s-M-<right>") #'major-pane-next-tab)
         (global-set-key (kbd "s-M-<left>") #'major-pane-prev-tab)
+        ;; Not a command, so it can't go in :commands — autoloaded by hand
+        ;; so the display-buffer-alist entry (set early in init) can route
+        ;; agent buffers into the pane before major-pane loads.
+        (autoload 'major-pane-display-buffer-action "major-pane")
         :commands (major-pane-toggle
                    major-pane-next-tab
                    major-pane-prev-tab

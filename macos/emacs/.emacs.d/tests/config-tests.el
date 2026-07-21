@@ -671,4 +671,12 @@
   "Modes we manually bind must be excluded from evil-collection."
   (should-not (memq 'vterm evil-collection-mode-list)))
 
+(ert-deftest config-test-major-pane-display-routing ()
+  "Agent conversations must route into the major-pane via display-buffer-alist.
+Covers all display paths: agent-shell, agent-recall resume, pop-to-buffer."
+  (should (fboundp 'major-pane-display-buffer-action))
+  (let ((entry (assoc "Claude Agent @" display-buffer-alist)))
+    (should entry)
+    (should (memq 'major-pane-display-buffer-action (cadr entry)))))
+
 ;;; config-tests.el ends here

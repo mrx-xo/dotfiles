@@ -50,6 +50,7 @@
 (use-package cond-let
   :ensure (:host github :repo "tarsius/cond-let"))
 
+
 ;; compat MUST be queued before any package that depends on it (org-modern,
 ;; org-super-agenda, vertico, magit, ...). If it's declared later, elpaca has
 ;; already queued it as a transitive dependency and re-queuing it errors out
@@ -141,16 +142,6 @@
   	      '((checkbox . t)
   	       (indent . nil)
   	       (ordered . nil)))
-
-  	;; doesn't work lol thanks oai
-
-      ;;   (defun my/org-meta-return-auto-checkbox (&rest _)
-      ;; "Extend `M-RET` to insert a checkbox automatically."
-      ;; (when (org-at-item-checkbox-p)
-      ;;   (insert "[ ] ")))
-
-      ;;   (advice-add 'org-meta-return :after #'my/org-meta-return-auto-checkbox)
-
 
   	(setq org-highlight-latex-and-related '(latex))
 
@@ -2370,13 +2361,14 @@ constantly, so only invoke it when Hammerspoon is actually running."
   (global-auto-revert-mode 1)
   (setq global-auto-revert-non-file-buffers t)
 
-  ;; Suppress echo-area messages while the minibuffer is active so they don't
-  ;; clobber what you're typing.  Messages still go to *Messages*.
-  (defun mr-x/suppress-message-in-minibuffer (message)
-    "Swallow MESSAGE display when the minibuffer is in use."
-    (when (minibufferp (window-buffer (minibuffer-window)))
-      t))
-  (add-to-list 'set-message-functions #'mr-x/suppress-message-in-minibuffer)
+  ;; DISABLED — this was swallowing echo-area messages too aggressively.
+  ;; ;; Suppress echo-area messages while the minibuffer is active so they don't
+  ;; ;; clobber what you're typing.  Messages still go to *Messages*.
+  ;; (defun mr-x/suppress-message-in-minibuffer (message)
+  ;;   "Swallow MESSAGE display when the minibuffer is in use."
+  ;;   (when (minibufferp (window-buffer (minibuffer-window)))
+  ;;     t))
+  ;; (add-to-list 'set-message-functions #'mr-x/suppress-message-in-minibuffer)
 
   (use-package highlight
     :ensure t)
@@ -2387,8 +2379,18 @@ constantly, so only invoke it when Hammerspoon is actually running."
                  (display-buffer-no-window)
                  (allow-no-window . t)))
 
-  ;; Agent-shell buffers always display in the major-pane side panel.
-  ;; This covers both sync and async (deferred session) display paths.
+  ;; Agent-shell conversations always land in the major-pane, no matter
+  ;; which code path displays them (agent-shell itself, agent-recall
+  ;; resume, anything calling display-buffer/pop-to-buffer).  The action
+  ;; fn reuses the pane window when visible, creates it otherwise, and
+  ;; keeps major-pane state (chrome, s-i toggle) in sync.  It is
+  ;; autoloaded from major-pane's :init, so this entry is safe even
+  ;; before major-pane loads.
+  (add-to-list 'display-buffer-alist
+               '("Claude Agent @" (major-pane-display-buffer-action)))
+
+  ;; Fallback for code that reads this variable directly; the
+  ;; display-buffer-alist entry above takes precedence when it matches.
   (setq agent-shell-display-action
         '((display-buffer-in-direction)
           (direction . left)

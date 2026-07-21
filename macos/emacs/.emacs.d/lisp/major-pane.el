@@ -7,19 +7,19 @@
 ;; Includes a buffer picker (consult or hydra+posframe) for choosing
 ;; among multiple agent-shell conversations, with per-action config.
 ;;
-;; IMPORTANT — agent-shell-display-action:
-;;   agent-shell defers buffer display when session-strategy is 'prompt.
-;;   The async callback uses `agent-shell-display-action' to decide where
-;;   to show the buffer.  The default (display-buffer-same-window) will
-;;   hijack the current window.  Set it to match major-pane's layout:
+;; IMPORTANT — routing conversations into the pane:
+;;   Many code paths display agent-shell buffers (agent-shell itself,
+;;   agent-recall resume, plain pop-to-buffer callers).  To make ALL of
+;;   them land in the major-pane with state kept in sync, add
+;;   `major-pane-display-buffer-action' to `display-buffer-alist' in
+;;   your USER CONFIG (e.g. emacs.org), not in this file:
 ;;
-;;     (setq agent-shell-display-action
-;;           '((display-buffer-in-direction)
-;;             (direction . left)
-;;             (window-width . 0.30)))
+;;     (add-to-list 'display-buffer-alist
+;;                  '("Claude Agent @" (major-pane-display-buffer-action)))
 ;;
-;;   This belongs in your USER CONFIG (e.g. emacs.org), not in this file.
-;;   See README.md for details.
+;;   Keeping `agent-shell-display-action' set to a matching
+;;   display-buffer-in-direction action is a harmless fallback; the
+;;   alist entry takes precedence whenever it matches.
 
 ;;; Code:
 
@@ -210,6 +210,40 @@ Empty input clears the label."
     (set-window-parameter win 'major-pane t)
     win))
 
+;;;###autoload
+(defun major-pane-display-buffer-action (buffer _alist)
+  "Display-buffer action function: route BUFFER into the major-pane.
+Reuses the pane window when one is visible, creates it otherwise,
+and syncs pane state so chrome and `major-pane-toggle' stay correct.
+Declines (returns nil) for `major-pane--excluded' buffers so
+`display-buffer' falls through to its other actions.
+
+Intended for `display-buffer-alist' (see Commentary):
+
+  (add-to-list \\='display-buffer-alist
+               \\='(\"Claude Agent @\" (major-pane-display-buffer-action)))"
+  (unless (buffer-local-value 'major-pane--excluded buffer)
+    (let* ((existing (seq-find (lambda (w) (window-parameter w 'major-pane))
+                               (window-list)))
+           (win (or existing
+                    ;; Called directly, not via `display-buffer', so the
+                    ;; alist entry pointing back here cannot recurse.
+                    (display-buffer-in-direction
+                     buffer
+                     `((direction . ,major-pane-direction)
+                       (window-width . ,major-pane-width))))))
+      (when win
+        (unless (eq (window-buffer win) buffer)
+          (set-window-buffer win buffer))
+        (set-window-parameter win 'major-pane t)
+        ;; Mark the pane visible, but never demote a full-frame view —
+        ;; in `full' mode the reused window is the full-frame one and
+        ;; the swap behaves like a tab switch.
+        (when (eq 'hidden (major-pane-state-mode major-pane--state))
+          (setf (major-pane-state-mode major-pane--state) 'side))
+        (setf (major-pane-state-active major-pane--state) buffer))
+      win)))
+
 ;;; Pane chrome
 ;;
 ;; Two rows at the top of the major-pane window:
@@ -264,12 +298,48 @@ re-marks the window showing the active conversation."
           (setq pos next)))
       s)))
 
+(defun major-pane--config-option-label (opts id)
+  "Return the pretty name of config option ID's current value in OPTS.
+Falls back to the raw value, or nil when the option is absent."
+  (when-let* ((opt (seq-find (lambda (o) (equal (alist-get :id o) id)) opts))
+              (val (alist-get :current-value opt)))
+    (or (alist-get :name
+                   (seq-find (lambda (choice)
+                               (equal (alist-get :value choice) val))
+                             (alist-get :options opt)))
+        val)))
+
+(defun major-pane--short-model-name (model-id)
+  "Shorten MODEL-ID to its bare family name to save banner room.
+\"claude-fable-5[1m]\" → \"fable\", \"sonnet[1m]\" → \"sonnet\",
+\"claude-haiku-4-5-20251001\" → \"haiku\", \"default\" → \"default\"."
+  (let* ((s (string-remove-prefix "claude-" model-id))
+         (s (replace-regexp-in-string "\\[.*\\]\\'" "" s))
+         ;; Drop version/date segments: everything from the first
+         ;; all-digit dash-token onward ("fable-5" → "fable").
+         (s (replace-regexp-in-string "-[0-9].*\\'" "" s)))
+    (if (string-empty-p s) model-id s)))
+
+(defvar major-pane-short-mode-names
+  '(("Bypass Permissions" . "Bypass")
+    ("Accept Edits" . "Edits")
+    ("Plan Mode" . "Plan"))
+  "Alist shortening permission-mode display names for the banner.")
+
+(defun major-pane--short-mode-name (mode-name)
+  "Return the abbreviated form of MODE-NAME, or MODE-NAME itself."
+  (or (cdr (assoc mode-name major-pane-short-mode-names)) mode-name))
+
 (defun major-pane--format-banner ()
-  "Return a banner: model + context usage + cost from agent-shell state."
+  "Return a banner: model + effort + permission mode + context + cost."
   (let* ((state (buffer-local-value 'agent-shell--state (current-buffer)))
          (opts (alist-get :config-options state))
          (model-opt (seq-find (lambda (o) (equal (alist-get :id o) "model")) opts))
-         (model-val (or (alist-get :current-value model-opt) "?"))
+         (model-val (major-pane--short-model-name
+                     (or (alist-get :current-value model-opt) "?")))
+         (effort-val (major-pane--config-option-label opts "effort"))
+         (mode-val (when-let* ((m (major-pane--config-option-label opts "mode")))
+                     (major-pane--short-mode-name m)))
          (usage (alist-get :usage state))
          (ctx-used (or (alist-get :context-used usage) 0))
          (ctx-size (or (alist-get :context-size usage) 0))
@@ -279,19 +349,29 @@ re-marks the window showing the active conversation."
                     ((>= pct 85) '(:foreground "#fb4934" :weight bold))
                     ((>= pct 60) '(:foreground "#fabd2f" :weight bold))
                     (t '(:foreground "#b8bb26"))))
-         (ctx-str (if (> ctx-size 0)
-                      (format " %s/%s (%.0f%%%%) "
-                              (agent-shell--format-number-compact ctx-used)
-                              (agent-shell--format-number-compact ctx-size)
-                              pct)
-                    " 0/? ")))
+         ;; nil when no usage data yet — segment is omitted entirely.
+         (ctx-str (when (> ctx-size 0)
+                    (format "%s/%s (%.0f%%%%)"
+                            (agent-shell--format-number-compact ctx-used)
+                            (agent-shell--format-number-compact ctx-size)
+                            pct))))
     (let ((sep (propertize " ➤ " 'face '(:foreground "#504945"))))
       (concat
        (propertize (format " %s" model-val)
                    'face '(:foreground "#282828" :weight bold))
-       sep
-       (propertize (string-trim ctx-str)
-                   'face '(:foreground "#3c3836"))
+       (when effort-val
+         (concat sep
+                 (propertize effort-val
+                             'face '(:foreground "#3c3836"))))
+       (when mode-val
+         (concat sep
+                 (propertize mode-val
+                             'face (if (equal mode-val "Bypass")
+                                       '(:foreground "#9d0006" :weight bold)
+                                     '(:foreground "#3c3836")))))
+       (when ctx-str
+         (concat sep
+                 (propertize ctx-str 'face '(:foreground "#3c3836"))))
        (when (> cost 0)
          (concat sep
                  (propertize (format "$%.2f" cost)
@@ -767,19 +847,19 @@ Uses the configured picker style for the `swap-buffer' action."
 
 ;;;###autoload
 (defun major-pane-send-screenshot ()
-  "Capture a screenshot and send it to a picked agent-shell buffer."
+  "Capture a screenshot and send it to the active pane conversation.
+Sends directly to the active conversation without a picker."
   (interactive)
-  (let* ((screenshots-dir (agent-shell--dot-subdir "screenshots"))
+  (let* ((buf (or (major-pane--find-buffer)
+                  (user-error "No agent-shell buffer")))
+         (screenshots-dir (agent-shell--dot-subdir "screenshots"))
          (screenshot-path (agent-shell--capture-screenshot
                            :destination-dir screenshots-dir)))
-    (major-pane-pick-buffer
-     (lambda (buf)
-       (save-window-excursion
-         (agent-shell-insert
-          :text (agent-shell--get-files-context :files (list screenshot-path))
-          :shell-buffer buf
-          :no-focus t)))
-     'send-screenshot)))
+    (save-window-excursion
+      (agent-shell-insert
+       :text (agent-shell--get-files-context :files (list screenshot-path))
+       :shell-buffer buf
+       :no-focus t))))
 
 ;;; Launcher mode
 
