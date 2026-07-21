@@ -3436,6 +3436,19 @@ TRAMP can't match under a PTY — both need pipe mode."
   (define-key vertico-map (kbd "C-k") #'vertico-previous)
   (define-key vertico-map (kbd "C-l") #'vertico-insert))
 
+;; Saner filename completion: RET drills into directories instead of
+;; opening dired, DEL deletes whole path components, and typing ~/ or /
+;; mid-path tidies the shadowed prefix.  Only affects file completion —
+;; RET everywhere else keeps normal accept-and-exit.
+(use-package vertico-directory
+  :ensure nil            ;; ships inside the vertico package
+  :after vertico
+  :bind (:map vertico-map
+         ("RET"   . vertico-directory-enter)
+         ("DEL"   . vertico-directory-delete-char)
+         ("M-DEL" . vertico-directory-delete-word))
+  :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
+
 (use-package orderless
   :ensure t
   :custom
@@ -4602,7 +4615,10 @@ _q_: quit
   (corfu-auto-delay 0.2)         ;; Delay before auto completion
   (corfu-quit-at-boundary nil)   ;; Never quit at completion boundary
   (corfu-quit-no-match t)        ;; Quit when there is no match
-  (corfu-preview-current nil)    ;; Disable current candidate preview
+  (corfu-preview-current 'insert) ;; TAB-and-Go: cycling inserts the candidate
+                                  ;; as a preview; keep typing to accept,
+                                  ;; C-g to undo.  RET stays unbound on purpose
+                                  ;; so it always sends/newlines in agent-shell.
   (corfu-on-exact-match nil)     ;; Configure handling of exact matches
   (corfu-preselect 'prompt)      ;; Don't preselect first candidate
   :bind (:map corfu-map

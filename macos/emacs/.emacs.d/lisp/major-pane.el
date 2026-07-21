@@ -79,6 +79,107 @@ The key t serves as the fallback default."
   :type 'boolean
   :group 'major-pane)
 
+;;; Faces
+;;
+;; All pane chrome styling lives here.  Tweak with `customize-face',
+;; `set-face-attribute', or a theme — render code never hardcodes colors.
+
+(defface major-pane-banner
+  '((t :background "#fabd2f" :foreground "#282828" :weight bold :box nil))
+  "Base face for the banner row (remapped over `tab-line' in the pane)."
+  :group 'major-pane)
+
+(defface major-pane-banner-model
+  '((t :foreground "#282828" :weight bold))
+  "Face for the model name segment in the banner."
+  :group 'major-pane)
+
+(defface major-pane-banner-info
+  '((t :foreground "#3c3836"))
+  "Face for informational banner segments (effort, mode, context, cost)."
+  :group 'major-pane)
+
+(defface major-pane-banner-alert
+  '((t :foreground "#9d0006" :weight bold))
+  "Face for alarming banner segments (e.g. Bypass permission mode)."
+  :group 'major-pane)
+
+(defface major-pane-banner-separator
+  '((t :foreground "#504945"))
+  "Face for the ➤ separators between banner segments."
+  :group 'major-pane)
+
+(defface major-pane-tab-bar
+  '((t :background "#1d2021" :box nil))
+  "Base face for the tab row (remapped over `header-line' in the pane)."
+  :group 'major-pane)
+
+(defface major-pane-tab-active
+  '((t :background "#458588" :foreground "#fbf1c7" :weight bold
+       :box (:line-width (1 . -1) :color "#83a598")))
+  "Face for the active conversation tab."
+  :group 'major-pane)
+
+(defface major-pane-tab-inactive
+  '((t :background "#282828" :foreground "#928374"
+       :box (:line-width (1 . -1) :color "#504945")))
+  "Face for inactive conversation tabs.
+Background is intentionally lighter than `major-pane-tab-bar' so
+tabs read as separate chips; the box draws inside the glyph area
+\(negative vertical width) so it never changes the bar height."
+  :group 'major-pane)
+
+(defface major-pane-icon
+  '((t :foreground "#458588"))
+  "Face remapped over `nerd-icons-silver' to recolor the robot icon in-pane."
+  :group 'major-pane)
+
+(defface major-pane-launcher-title
+  '((t :weight bold :height 1.3))
+  "Face for the launcher panel title."
+  :group 'major-pane)
+
+(defface major-pane-launcher-key
+  '((t :inherit font-lock-keyword-face))
+  "Face for the [n]/[N]/[b] key hints in the launcher panel."
+  :group 'major-pane)
+
+(defface major-pane-dim
+  '((t :inherit font-lock-comment-face))
+  "Face for de-emphasized text (launcher hints, picker overflow,
+dimmed buffer names next to labels)."
+  :group 'major-pane)
+
+(defface major-pane-picker-title
+  '((t :foreground "#83a598" :weight bold :height 1.2))
+  "Face for the hydra picker posframe title."
+  :group 'major-pane)
+
+(defface major-pane-picker-selected
+  '((t :background "#504945" :foreground "#fbf1c7" :weight bold))
+  "Face for the selected row in the hydra picker."
+  :group 'major-pane)
+
+(defface major-pane-picker-item
+  '((t :foreground "#928374"))
+  "Face for unselected rows in the hydra picker."
+  :group 'major-pane)
+
+(defface major-pane-picker-hint
+  '((t :foreground "#665c54" :slant italic))
+  "Face for the keybinding hint line in the hydra picker."
+  :group 'major-pane)
+
+(defface major-pane-picker-frame
+  '((t :background "#1d2021"))
+  "Face whose background colors the hydra picker posframe."
+  :group 'major-pane)
+
+(defface major-pane-picker-border
+  '((t :background "#282828"))
+  "Face whose background colors the hydra picker posframe border."
+  :group 'major-pane)
+
 ;;; State
 
 (cl-defstruct (major-pane-state (:constructor major-pane--make-state))
@@ -171,7 +272,7 @@ should read/write this table for consistent labels everywhere.")
 Shows label + dimmed buffer name if labeled, otherwise just buffer name."
   (let ((label (gethash buf major-pane--labels)))
     (if label
-        (concat label "  " (propertize (buffer-name buf) 'face 'font-lock-comment-face))
+        (concat label "  " (propertize (buffer-name buf) 'face 'major-pane-dim))
       (buffer-name buf))))
 
 ;;;###autoload
@@ -345,41 +446,34 @@ Falls back to the raw value, or nil when the option is absent."
          (ctx-size (or (alist-get :context-size usage) 0))
          (cost (or (alist-get :cost-amount usage) 0.0))
          (pct (if (> ctx-size 0) (/ (* 100.0 ctx-used) ctx-size) 0))
-         (ctx-face (cond
-                    ((>= pct 85) '(:foreground "#fb4934" :weight bold))
-                    ((>= pct 60) '(:foreground "#fabd2f" :weight bold))
-                    (t '(:foreground "#b8bb26"))))
          ;; nil when no usage data yet — segment is omitted entirely.
          (ctx-str (when (> ctx-size 0)
                     (format "%s/%s (%.0f%%%%)"
                             (agent-shell--format-number-compact ctx-used)
                             (agent-shell--format-number-compact ctx-size)
                             pct))))
-    (let ((sep (propertize " ➤ " 'face '(:foreground "#504945"))))
+    (let ((sep (propertize " ➤ " 'face 'major-pane-banner-separator)))
       (concat
-       (propertize (format " %s" model-val)
-                   'face '(:foreground "#282828" :weight bold))
+       (propertize (format " %s" model-val) 'face 'major-pane-banner-model)
        (when effort-val
-         (concat sep
-                 (propertize effort-val
-                             'face '(:foreground "#3c3836"))))
+         (concat sep (propertize effort-val 'face 'major-pane-banner-info)))
        (when mode-val
          (concat sep
                  (propertize mode-val
                              'face (if (equal mode-val "Bypass")
-                                       '(:foreground "#9d0006" :weight bold)
-                                     '(:foreground "#3c3836")))))
+                                       'major-pane-banner-alert
+                                     'major-pane-banner-info))))
        (when ctx-str
-         (concat sep
-                 (propertize ctx-str 'face '(:foreground "#3c3836"))))
+         (concat sep (propertize ctx-str 'face 'major-pane-banner-info)))
        (when (> cost 0)
          (concat sep
                  (propertize (format "$%.2f" cost)
-                             'face '(:foreground "#3c3836"))))
+                             'face 'major-pane-banner-info)))
        " "))))
 
 (defun major-pane--render-tabs ()
-  "Build a header-line-format string showing conversation tabs."
+  "Build a header-line-format string showing conversation tabs.
+Tabs are separated by a 1-char gap that shows the bar background."
   (let* ((convos (major-pane-state-conversations major-pane--state))
          (active (major-pane-state-active major-pane--state)))
     (mapconcat
@@ -397,11 +491,11 @@ Falls back to the raw value, or nil when the option is absent."
                    (select-window win))))))
          (propertize (format " %s " label)
                      'face (if is-active
-                               '(:background "#458588" :foreground "#fbf1c7" :weight bold)
-                             '(:background "#1d2021" :foreground "#928374"))
+                               'major-pane-tab-active
+                             'major-pane-tab-inactive)
                      'mouse-face 'mode-line-highlight
                      'local-map map)))
-     convos "")))
+     convos " ")))
 
 (defun major-pane--enable-pane-chrome ()
   "Set window parameter overrides on the pane window for chrome rendering.
@@ -417,18 +511,15 @@ showing the same buffer."
   ;; Tab-line banner face (buffer-local).
   (unless major-pane--banner-cookie
     (setq major-pane--banner-cookie
-          (face-remap-add-relative 'tab-line
-                                   :background "#fabd2f" :foreground "#282828"
-                                   :weight 'bold :box nil)))
+          (face-remap-add-relative 'tab-line 'major-pane-banner)))
   ;; Header-line (tab row) — match panel background.
   (unless major-pane--header-cookie
     (setq major-pane--header-cookie
-          (face-remap-add-relative 'header-line
-                                   :background "#1d2021" :box nil)))
+          (face-remap-add-relative 'header-line 'major-pane-tab-bar)))
   ;; Recolor robot icon blue when in-pane.
   (when (and (featurep 'nerd-icons) (not major-pane--icon-cookie))
     (setq major-pane--icon-cookie
-          (face-remap-add-relative 'nerd-icons-silver :foreground "#458588"))))
+          (face-remap-add-relative 'nerd-icons-silver 'major-pane-icon))))
 
 (defun major-pane--disable-pane-chrome ()
   "Clear icon recolor.  Window parameter overrides are cleared
@@ -640,12 +731,11 @@ falls back to pattern matching against `buffer-list'."
     (with-current-buffer pbuf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert (propertize "  Pick Buffer"
-                            'face '(:foreground "#83a598" :weight bold :height 1.2))
+        (insert (propertize "  Pick Buffer" 'face 'major-pane-picker-title)
                 "\n\n")
         (when (> above 0)
           (insert (propertize (format "    ^ %d more" above)
-                              'face 'font-lock-comment-face)
+                              'face 'major-pane-dim)
                   "\n"))
         (cl-loop for i from start below end
                  for b = (nth i bufs)
@@ -654,25 +744,27 @@ falls back to pattern matching against `buffer-list'."
                  for prefix = (if selected-p "  > " "    ")
                  do (insert (propertize (concat prefix display)
                                         'face (if selected-p
-                                                  '(:background "#504945"
-                                                    :foreground "#fbf1c7"
-                                                    :weight bold)
-                                                '(:foreground "#928374")))
+                                                  'major-pane-picker-selected
+                                                'major-pane-picker-item))
                             "\n"))
         (when (> below 0)
           (insert (propertize (format "    v %d more" below)
-                              'face 'font-lock-comment-face)
+                              'face 'major-pane-dim)
                   "\n"))
         (insert "\n"
                 (propertize "  j next · k prev · RET confirm · q quit"
-                            'face '(:foreground "#665c54" :slant italic))
+                            'face 'major-pane-picker-hint)
                 "\n")))
     (when (require 'posframe nil t)
       (posframe-show pbuf
                      :position (point)
                      :internal-border-width 16
-                     :internal-border-color "#282828"
-                     :background-color "#1d2021"
+                     :internal-border-color (face-attribute
+                                             'major-pane-picker-border
+                                             :background nil 'default)
+                     :background-color (face-attribute
+                                        'major-pane-picker-frame
+                                        :background nil 'default)
                      :min-width 45
                      :min-height 8))))
 
@@ -890,11 +982,11 @@ Sends directly to the active conversation without a picker."
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert "\n")
-        (insert (propertize "  Agent Shell" 'face '(:weight bold :height 1.3)) "\n\n")
-        (insert "  " (propertize "[n]" 'face 'font-lock-keyword-face) " new chat\n")
-        (insert "  " (propertize "[N]" 'face 'font-lock-keyword-face) " new chat from dir\n")
-        (insert "  " (propertize "[b]" 'face 'font-lock-keyword-face) " browse chats\n\n")
-        (insert (propertize "  [q] quit" 'face 'font-lock-comment-face) "\n"))
+        (insert (propertize "  Agent Shell" 'face 'major-pane-launcher-title) "\n\n")
+        (insert "  " (propertize "[n]" 'face 'major-pane-launcher-key) " new chat\n")
+        (insert "  " (propertize "[N]" 'face 'major-pane-launcher-key) " new chat from dir\n")
+        (insert "  " (propertize "[b]" 'face 'major-pane-launcher-key) " browse chats\n\n")
+        (insert (propertize "  [q] quit" 'face 'major-pane-dim) "\n"))
       (major-pane-launcher-mode)
       (goto-char (point-min)))
     (select-window (major-pane--display buf))))

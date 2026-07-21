@@ -671,6 +671,14 @@
   "Modes we manually bind must be excluded from evil-collection."
   (should-not (memq 'vterm evil-collection-mode-list)))
 
+(ert-deftest config-test-vertico-directory-bindings ()
+  "vertico-directory must own RET/DEL in the minibuffer for file completion."
+  (should (fboundp 'vertico-directory-enter))
+  (should (eq (keymap-lookup vertico-map "RET") 'vertico-directory-enter))
+  (should (eq (keymap-lookup vertico-map "DEL") 'vertico-directory-delete-char))
+  ;; use-package :hook appends "-hook" — that suffixed name is the real var.
+  (should (memq 'vertico-directory-tidy rfn-eshadow-update-overlay-hook)))
+
 (ert-deftest config-test-major-pane-display-routing ()
   "Agent conversations must route into the major-pane via display-buffer-alist.
 Covers all display paths: agent-shell, agent-recall resume, pop-to-buffer."
