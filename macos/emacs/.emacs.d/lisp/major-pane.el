@@ -215,6 +215,32 @@ and the next `major-pane--display' call picks up the change."
 (defvar major-pane--state (major-pane--make-state)
   "The one and only major-pane.")
 
+(defvar major-pane-home-frame nil
+  "When set to a frame, the pane is soft-locked to it.
+Conversations spawned from other frames land in the home frame's
+pane, and `major-pane-toggle' from another frame jumps to the pane
+instead of relocating it.  nil (default) lets the pane follow the
+user across client frames.  Set with `major-pane-set-home-frame'.")
+
+(defun major-pane--home-frame ()
+  "Return the live home frame, or nil.  Auto-clears a dead one."
+  (when major-pane-home-frame
+    (if (frame-live-p major-pane-home-frame)
+        major-pane-home-frame
+      (setq major-pane-home-frame nil))))
+
+;;;###autoload
+(defun major-pane-set-home-frame (&optional clear)
+  "Soft-lock the pane to the selected frame; with prefix CLEAR, unlock.
+While locked: convos spawned on other frames land in the home pane,
+and `major-pane-toggle' elsewhere jumps to it instead of stealing it."
+  (interactive "P")
+  (if clear
+      (progn (setq major-pane-home-frame nil)
+             (message "major-pane: home frame cleared — pane roams freely"))
+    (setq major-pane-home-frame (selected-frame))
+    (message "major-pane: pane locked to this frame (C-u to unlock)")))
+
 (defun major-pane--in-pane-p (buffer)
   "Non-nil when BUFFER is the active conversation in a visible major-pane."
   (and (not (eq 'hidden (major-pane-state-mode major-pane--state)))
@@ -322,8 +348,17 @@ Empty input clears the label."
 ;;; Display
 
 (defun major-pane--display (buffer)
-  "Display BUFFER in the major-pane on the selected frame and return its window.
-If the pane currently lives on another frame, it is moved here first."
+  "Display BUFFER in the major-pane and return its window.
+Normally the pane lands on the selected frame (moving here if it
+lives elsewhere); when `major-pane-home-frame' is set and isn't the
+selected frame, the pane lands on the home frame instead."
+  (let ((home (major-pane--home-frame)))
+    (if (and home (not (eq home (selected-frame))))
+        (with-selected-frame home (major-pane--display-1 buffer))
+      (major-pane--display-1 buffer))))
+
+(defun major-pane--display-1 (buffer)
+  "Display BUFFER in the major-pane on the selected frame; return its window."
   (major-pane--relocate-from-other-frame)
   (let ((win (display-buffer buffer
                              `((display-buffer-in-direction)
@@ -350,22 +385,30 @@ Intended for `display-buffer-alist' (see Commentary):
   (add-to-list \\='display-buffer-alist
                \\='(\"Claude Agent @\" (major-pane-display-buffer-action)))"
   (unless (buffer-local-value 'major-pane--excluded buffer)
-    (let* ((existing (let ((w (seq-find (lambda (w)
+    (let* ((home (major-pane--home-frame))
+           (existing (let ((w (seq-find (lambda (w)
                                           (window-parameter w 'major-pane))
                                         (major-pane--all-windows))))
                        (cond
                         ((null w) nil)
-                        ;; reuse only on the selected frame; a pane on
-                        ;; another frame moves here (single global pane)
+                        ;; reuse on the selected frame...
                         ((eq (window-frame w) (selected-frame)) w)
+                        ;; ...or wherever it sits when locked to home
+                        ((and home (eq (window-frame w) home)) w)
+                        ;; otherwise a pane on another frame moves here
                         (t (major-pane--relocate-from-other-frame) nil))))
            (win (or existing
                     ;; Called directly, not via `display-buffer', so the
                     ;; alist entry pointing back here cannot recurse.
-                    (display-buffer-in-direction
-                     buffer
-                     `((direction . ,major-pane-direction)
-                       (window-width . ,major-pane-width))))))
+                    ;; With a home frame set, the pane is created THERE.
+                    (let ((make (lambda ()
+                                  (display-buffer-in-direction
+                                   buffer
+                                   `((direction . ,major-pane-direction)
+                                     (window-width . ,major-pane-width))))))
+                      (if (and home (not (eq home (selected-frame))))
+                          (with-selected-frame home (funcall make))
+                        (funcall make))))))
       (when win
         (unless (eq (window-buffer win) buffer)
           (set-window-buffer win buffer))
@@ -430,9 +473,12 @@ re-marks the window showing the active conversation."
 Strips chrome/dedication and deletes the window (or buries the buffer
 when it is that frame's only window).  Returns non-nil when a
 foreign-frame pane was removed — the caller then re-displays the pane
-on the selected frame: the single global pane follows the user."
-  (let ((win (major-pane--pane-window)))
-    (when (and win (not (eq (window-frame win) (selected-frame))))
+on the selected frame: the single global pane follows the user.
+Refuses to move a pane that sits on `major-pane-home-frame'."
+  (let ((win (major-pane--pane-window))
+        (home (major-pane--home-frame)))
+    (when (and win (not (eq (window-frame win) (selected-frame)))
+               (not (and home (eq (window-frame win) home))))
       (set-window-parameter win 'major-pane nil)
       (set-window-parameter win 'tab-line-format nil)
       (set-window-parameter win 'header-line-format nil)
@@ -1246,6 +1292,17 @@ the window that was active before the pane was shown."
      ;; No agent-shell buffer: show launcher
      ((not buf)
       (major-pane--show-launcher))
+     ;; Home-locked elsewhere: jump to the pane instead of stealing it
+     ((let ((home (major-pane--home-frame)))
+        (and home (not (eq (selected-frame) home)) (not arg)))
+      (let ((home (major-pane--home-frame)))
+        (select-frame-set-input-focus home)
+        (let ((w (major-pane--pane-window)))
+          (if (and w (eq (window-frame w) home))
+              (select-window w)
+            (setf (major-pane-state-active major-pane--state) buf
+                  (major-pane-state-mode major-pane--state) 'side)
+            (select-window (major-pane--display buf))))))
      ;; C-u: full-frame toggle
      (arg
       (let ((wc (major-pane-state-saved-winconf major-pane--state)))

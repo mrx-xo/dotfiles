@@ -1173,6 +1173,7 @@ the session picker, then spawns shells staggered 3s apart."
                    major-pane-next-tab
                    major-pane-prev-tab
                    major-pane-capture-buffer
+                   major-pane-set-home-frame
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
