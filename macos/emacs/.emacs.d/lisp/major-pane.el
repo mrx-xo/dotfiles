@@ -328,6 +328,11 @@ Empty input clears the label."
                                (direction . ,major-pane-direction)
                                (window-width . ,major-pane-width)))))
     (set-window-parameter win 'major-pane t)
+    ;; Soft dedication: display-buffer won't hijack the pane for other
+    ;; buffers, but set-window-buffer (tab switching) still works, and
+    ;; switch-to-buffer can take over after a prompt (see
+    ;; `switch-to-buffer-in-dedicated-window').
+    (set-window-dedicated-p win 'soft)
     win))
 
 ;;;###autoload
@@ -356,6 +361,7 @@ Intended for `display-buffer-alist' (see Commentary):
         (unless (eq (window-buffer win) buffer)
           (set-window-buffer win buffer))
         (set-window-parameter win 'major-pane t)
+        (set-window-dedicated-p win 'soft)
         ;; Mark the pane visible, but never demote a full-frame view —
         ;; in `full' mode the reused window is the full-frame one and
         ;; the swap behaves like a tab switch.
@@ -666,14 +672,17 @@ When tab-line switching changes the pane window's buffer, sync
           (setf (major-pane-state-active major-pane--state) new)
           (setq active new)))))
   ;; Clear stale pane markers: if a window has the major-pane parameter
-  ;; but is no longer showing a conversation buffer, strip all overrides.
+  ;; but is no longer showing a conversation buffer, strip all overrides
+  ;; and release the dedication — the user deliberately took it over,
+  ;; so let it behave like a normal window from here on.
   (let ((convos (major-pane-state-conversations major-pane--state)))
     (dolist (w (window-list))
       (when (and (window-parameter w 'major-pane)
                  (not (memq (window-buffer w) convos)))
         (set-window-parameter w 'major-pane nil)
         (set-window-parameter w 'tab-line-format nil)
-        (set-window-parameter w 'header-line-format nil))))
+        (set-window-parameter w 'header-line-format nil)
+        (set-window-dedicated-p w nil))))
   ;; Toggle decorations per conversation buffer.
   (dolist (b (major-pane-state-conversations major-pane--state))
     (when (buffer-live-p b)
@@ -725,11 +734,16 @@ buffer in the pane window and focuses it."
   "Remove BUF from conversations, kill it, and update the pane.
 After killing, shows the next conversation or hides the pane."
   (let ((win (major-pane--pane-window)))
+    ;; Release dedication first: killing a buffer shown in a dedicated
+    ;; window deletes the window before we can show the next convo.
+    (when (window-live-p win)
+      (set-window-dedicated-p win nil))
     (when (buffer-live-p buf)
       (kill-buffer buf))
     (when (and win (window-live-p win))
       (if-let ((next (major-pane-state-active major-pane--state)))
-          (set-window-buffer win next)
+          (progn (set-window-buffer win next)
+                 (set-window-dedicated-p win 'soft))
         (setf (major-pane-state-mode major-pane--state) 'hidden)
         (if (= (length (window-list)) 1)
             (bury-buffer)
@@ -1193,6 +1207,12 @@ the window that was active before the pane was shown."
                 (current-window-configuration)
                 (major-pane-state-active major-pane--state) buf
                 (major-pane-state-mode major-pane--state) 'full)
+          ;; The pane window is soft-dedicated; release it so our own
+          ;; switch-to-buffer doesn't hit the dedication prompt.  The
+          ;; saved window configuration restores dedication on the way
+          ;; back to side mode.
+          (when (window-dedicated-p (selected-window))
+            (set-window-dedicated-p (selected-window) nil))
           (switch-to-buffer buf)
           (delete-other-windows))))
      ;; Visible: hide it

@@ -2496,6 +2496,13 @@ constantly, so only invoke it when Hammerspoon is actually running."
   (add-to-list 'display-buffer-alist
                '("Claude Agent @" (major-pane-display-buffer-action)))
 
+  ;; The pane window is soft-dedicated: display-buffer/pop-to-buffer
+  ;; won't hijack it for random buffers (help, grep, magit, ...).
+  ;; 'prompt keeps a deliberate escape hatch — switching buffers while
+  ;; IN the pane asks "undedicate?" instead of erroring, so you can
+  ;; intentionally take the window over with SPC b b + y.
+  (setq switch-to-buffer-in-dedicated-window 'prompt)
+
   ;; Fallback for code that reads this variable directly; the
   ;; display-buffer-alist entry above takes precedence when it matches.
   (setq agent-shell-display-action
