@@ -3802,13 +3802,26 @@ TRAMP can't match under a PTY — both need pipe mode."
     (setq with-editor-emacsclient-executable
           "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"))
 
+  ;; Pane-aware magit display: fullcolumn-most-v1 splits below the
+  ;; selected window and deletes the rest of the column — invoked from
+  ;; the major-pane, that demolishes the conversation (soft dedication
+  ;; only blocks window REUSE, not split-and-delete).  From the pane,
+  ;; route magit to another window instead; elsewhere, fullcolumn as usual.
+  (defun mr-x/magit-display-buffer-pane-aware (buffer)
+    "Display magit BUFFER, keeping it out of the major-pane."
+    (if (window-parameter (selected-window) 'major-pane)
+        (display-buffer buffer '((display-buffer-use-some-window)
+                                 (inhibit-same-window . t)))
+      (magit-display-buffer-fullcolumn-most-v1 buffer)))
+
   (use-package magit
     :ensure t
     :after with-editor
     :commands (magit-status magit-get-current-branch)
     :custom
-    ;; Fullframe by default - magit takes over, restores on quit
-    (magit-display-buffer-function #'magit-display-buffer-fullcolumn-most-v1)
+    ;; Fullframe by default - magit takes over, restores on quit;
+    ;; but never at the major-pane's expense (see wrapper above)
+    (magit-display-buffer-function #'mr-x/magit-display-buffer-pane-aware)
     :init
     ;; Fix for daemon mode - set EDITOR globally so git uses emacsclient
     (setenv "EDITOR" "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient")
