@@ -664,6 +664,7 @@
   "SPC & pane keys must resolve correctly."
   (should (eq (config-test--leader-key "& n") 'major-pane-new-chat))
   (should (eq (config-test--leader-key "& l") 'major-pane-set-label))
+  (should (eq (config-test--leader-key "& b") 'major-pane-capture-buffer))
   (should (eq (config-test--leader-key "& k") 'major-pane-close-conversation))
   (should (eq (config-test--leader-key "& K") 'major-pane-close-all-conversations)))
 

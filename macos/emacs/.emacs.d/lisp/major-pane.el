@@ -1177,6 +1177,20 @@ Only returns a buffer that is in the conversations list."
   (major-pane--pane-window))
 
 ;;;###autoload
+(defun major-pane-capture-buffer (buffer)
+  "Deliberately display BUFFER in the major-pane window.
+The pane's protection deflects automatic takeovers (dedication +
+display actions); this command is the intentional front door.  The
+window sheds its chrome and dedication and behaves like a normal
+window until the pane is next shown."
+  (interactive "bCapture buffer into pane: ")
+  (let ((win (major-pane--pane-window)))
+    (unless win (user-error "No visible major-pane"))
+    (set-window-dedicated-p win nil)
+    (set-window-buffer win buffer)
+    (select-window win)))
+
+;;;###autoload
 (defun major-pane-toggle (&optional arg)
   "Toggle agent-shell side panel and focus it.
 With prefix ARG, toggle full-frame.  Hiding restores focus to

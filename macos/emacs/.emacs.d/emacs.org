@@ -2501,27 +2501,15 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; 'prompt keeps a deliberate escape hatch for STRONG dedication paths.
   (setq switch-to-buffer-in-dedicated-window 'prompt)
 
-  ;; SPC b b / SPC p f / file links from inside the pane end in plain
-  ;; switch-to-buffer, which soft dedication deliberately does NOT block
-  ;; (and strong dedication would break tab switching + consult preview).
-  ;; Rather than fight it, hop to the main area first: from the pane,
-  ;; "open a buffer/file" means "over there", never "replace my convo".
-  (defun mr-x/leave-pane-first (orig &rest args)
-    "Around-advice: move focus out of the major-pane before ORIG runs.
-Only in side mode — full-frame agent view switches in place.
-To deliberately put a buffer IN the pane, use M-x switch-to-buffer
-after undedicating, or just accept the takeover prompt paths."
-    (when (and (fboundp 'major-pane--pane-window)
-               (window-parameter (selected-window) 'major-pane)
-               (eq 'side (major-pane-state-mode major-pane--state)))
-      (let ((other (get-mru-window nil nil t)))
-        (select-window (or (and (window-live-p other) other)
-                           (split-window-right)))))
-    (apply orig args))
-
-  (dolist (cmd '(mr-x/persp-consult-buffer consult-buffer
-                 projectile-find-file find-file))
-    (advice-add cmd :around #'mr-x/leave-pane-first))
+  ;; ...and this flag extends that protection to the ENTIRE
+  ;; switch-to-buffer family (SPC b b, consult-buffer, find-file, file
+  ;; links, everything) in one shot: switching routes through the
+  ;; display-buffer machinery, whose same-window action declines
+  ;; dedicated windows — so from the pane, buffers open in the main
+  ;; area with focus following.  In normal (undedicated) windows the
+  ;; behavior is unchanged.  Deliberate pane takeover: SPC & b
+  ;; (major-pane-capture-buffer).
+  (setq switch-to-buffer-obey-display-actions t)
 
   ;; Fallback for code that reads this variable directly; the
   ;; display-buffer-alist entry above takes precedence when it matches.
@@ -3015,6 +3003,7 @@ projectile projects appended below."
         "&" '(:ignore t :wk "Pane")
         "& n" '(major-pane-new-chat :wk "New chat")
         "& l" '(major-pane-set-label :wk "Label conversation")
+        "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
         "& f" '((lambda () (interactive)
@@ -6452,6 +6441,7 @@ the session picker, then spawns shells staggered 3s apart."
         :commands (major-pane-toggle
                    major-pane-next-tab
                    major-pane-prev-tab
+                   major-pane-capture-buffer
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
