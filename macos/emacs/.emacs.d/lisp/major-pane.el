@@ -146,8 +146,11 @@ The default divider is a pixel-width space, which draws the
   :group 'major-pane)
 
 (defface major-pane-icon
-  '((t :foreground "#458588"))
-  "Face remapped over `nerd-icons-silver' to recolor the robot icon in-pane."
+  '((t :foreground "#458588"))  ; = major-pane-banner background — keep in sync
+  "Face remapped over `nerd-icons-silver' to recolor the robot icon in-pane.
+Covers both the in-buffer robot and the doom-modeline mode icon (both
+inherit `nerd-icons-silver').  Foreground intentionally matches
+`major-pane-banner's background so the icon reads as part of the chrome."
   :group 'major-pane)
 
 (defface major-pane-launcher-title
