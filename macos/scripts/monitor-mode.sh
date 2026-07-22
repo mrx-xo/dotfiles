@@ -21,6 +21,13 @@
 # behind an Anker 310 USB-C->HDMI adapter that passes writes but
 # blocks reads — so current-state comes from a state file for it.
 #
+# A display pointed at another machine is also DISCONNECTED from macOS
+# (betterdisplaycli, needs BetterDisplay.app running + Pro) so the Mac
+# has no phantom desktop for windows/mouse to land on. Verified
+# 2026-07-22: connected=off truly drops it (yabai sees 3 displays);
+# reconnect re-enumerates in ~4-10s; m1ddc can NOT address a display
+# while it's disconnected — hence the connect-first ordering below.
+#
 # S2719DGF VCP 60 input values: DP=15, HDMI1(1.4)=17, HDMI2(2.0)=18
 # Portrait (S2725HS) is Mac-only for now — no PC cable run to it.
 
@@ -57,13 +64,40 @@ input_for() {
   esac
 }
 
+bd_connect() {  # bd_connect <center|right> <on|off>
+  betterdisplaycli set --uuid="$(uuid_for "$1")" --connected="$2" > /dev/null 2>&1
+}
+
+ddc_visible() {  # is the display enumerated Mac-side (addressable by m1ddc)?
+  [[ "$(m1ddc display list 2>/dev/null)" == *"$(uuid_for "$1")"* ]]
+}
+
+wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
+  local i
+  for i in $(seq 1 15); do
+    ddc_visible "$1" && return 0
+    sleep 1
+  done
+  return 1
+}
+
 set_display() {  # set_display <center|right> <mac|pc|work>
+  # DDC only reaches the display while the Mac-side connection is up,
+  # so: ensure connected -> DDC-switch input -> disconnect unless the
+  # target is the Mac itself.
   # The Anker adapter throws transient DDC I/O errors — retry before
   # giving up, and never record state for a flip that didn't happen.
   local try
+  if ! ddc_visible "$1"; then
+    bd_connect "$1" on
+    wait_ddc "$1" || { notify "FAILED: $1 never re-enumerated"; return 1; }
+  fi
   for try in 1 2 3; do
     if m1ddc display "$(uuid_for "$1")" set input "$(input_for "$2")" > /dev/null 2>&1; then
       echo "$2" > "$STATE_DIR/$1"
+      # No phantom desktop: drop the display from macOS while it shows
+      # another machine. (Its DDC becomes unreachable until reconnect.)
+      [ "$2" = mac ] || bd_connect "$1" off
       return 0
     fi
     sleep 0.4
@@ -147,8 +181,10 @@ case "${1:-}" in
     sync_windows
     ;;
   status)
-    echo "center: $(current_machine center)"
-    echo "right:  $(current_machine right)"
+    for d in center right; do
+      if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
+      printf '%-7s %s (%s)\n' "$d:" "$(current_machine "$d")" "$conn"
+    done
     ;;
   *)
     sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'

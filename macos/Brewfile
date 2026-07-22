@@ -4,6 +4,7 @@ tap "felixkratz/formulae"
 tap "koekeishiya/formulae"
 tap "shaunsingh/sfmono-nerd-font-ligaturized"
 tap "oven-sh/bun"
+tap "waydabber/betterdisplay"
 
 # --- CLI Tools ---
 brew "coreutils"
@@ -55,6 +56,10 @@ brew "felixkratz/formulae/sketchybar"
 brew "felixkratz/formulae/borders"
 brew "koekeishiya/formulae/yabai"
 brew "koekeishiya/formulae/skhd"
+
+# --- Monitor input/connection switching (scripts/monitor-mode.sh) ---
+brew "m1ddc"                                  # DDC input switching
+brew "waydabber/betterdisplay/betterdisplaycli"  # display connect/disconnect (app installed manually, Pro licensed)
 
 # --- Media / Utils ---
 brew "mpv"
