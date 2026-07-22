@@ -2391,10 +2391,30 @@ constantly, so only invoke it when Hammerspoon is actually running."
 
   ;; The pane window is soft-dedicated: display-buffer/pop-to-buffer
   ;; won't hijack it for random buffers (help, grep, magit, ...).
-  ;; 'prompt keeps a deliberate escape hatch — switching buffers while
-  ;; IN the pane asks "undedicate?" instead of erroring, so you can
-  ;; intentionally take the window over with SPC b b + y.
+  ;; 'prompt keeps a deliberate escape hatch for STRONG dedication paths.
   (setq switch-to-buffer-in-dedicated-window 'prompt)
+
+  ;; SPC b b / SPC p f / file links from inside the pane end in plain
+  ;; switch-to-buffer, which soft dedication deliberately does NOT block
+  ;; (and strong dedication would break tab switching + consult preview).
+  ;; Rather than fight it, hop to the main area first: from the pane,
+  ;; "open a buffer/file" means "over there", never "replace my convo".
+  (defun mr-x/leave-pane-first (orig &rest args)
+    "Around-advice: move focus out of the major-pane before ORIG runs.
+Only in side mode — full-frame agent view switches in place.
+To deliberately put a buffer IN the pane, use M-x switch-to-buffer
+after undedicating, or just accept the takeover prompt paths."
+    (when (and (fboundp 'major-pane--pane-window)
+               (window-parameter (selected-window) 'major-pane)
+               (eq 'side (major-pane-state-mode major-pane--state)))
+      (let ((other (get-mru-window nil nil t)))
+        (select-window (or (and (window-live-p other) other)
+                           (split-window-right)))))
+    (apply orig args))
+
+  (dolist (cmd '(mr-x/persp-consult-buffer consult-buffer
+                 projectile-find-file find-file))
+    (advice-add cmd :around #'mr-x/leave-pane-first))
 
   ;; Fallback for code that reads this variable directly; the
   ;; display-buffer-alist entry above takes precedence when it matches.
