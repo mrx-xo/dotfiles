@@ -2802,28 +2802,71 @@ Returns a fresh config alist so the original is left untouched."
           (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
           config))
 
+      (defun mr-x/agent-shell--read-preset (&optional char)
+        "Return a preset tuple from `mr-x/agent-shell-presets'.
+Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
+if it matches no preset."
+        (let ((char (or char
+                        (read-char-choice
+                         (concat "Preset  "
+                                 (mapconcat (lambda (p)
+                                              (format "[%c] %s" (nth 0 p) (nth 1 p)))
+                                            mr-x/agent-shell-presets "   ")
+                                 ": ")
+                         (mapcar #'car mr-x/agent-shell-presets)))))
+          (or (assq char mr-x/agent-shell-presets)
+              (user-error "No preset for %c" char))))
+
       (defun mr-x/agent-shell-start-preset (&optional char)
         "Start a fresh agent shell from a launch preset.
 Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
 supplied, then spawns a new shell locked to that model + permission mode."
         (interactive)
         (require 'agent-shell)
-        (let* ((char (or char
-                         (read-char-choice
-                          (concat "Preset  "
-                                  (mapconcat (lambda (p)
-                                               (format "[%c] %s" (nth 0 p) (nth 1 p)))
-                                             mr-x/agent-shell-presets "   ")
-                                  ": ")
-                          (mapcar #'car mr-x/agent-shell-presets))))
-               (preset (or (assq char mr-x/agent-shell-presets)
-                           (user-error "No preset for %c" char)))
+        (let* ((preset (mr-x/agent-shell--read-preset char))
                (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)))
                (shell-buffer (agent-shell--start :config config
                                                  :no-focus t
                                                  :new-session t)))
           (mr-x/agent-shell--display-new shell-buffer)
           (message "Agent preset: %s" (nth 1 preset))))
+
+      (defun mr-x/agent-shell-apply-preset (&optional char)
+        "Apply a preset's model + permission mode to the CURRENT agent shell.
+Reads a preset CHAR from `mr-x/agent-shell-presets' unless supplied, then
+switches the live session's model and session mode to match — no new shell
+is spawned. The two changes are async ACP requests, so they are chained:
+set the model first, then the mode, then report the applied preset."
+        (interactive)
+        (require 'agent-shell)
+        (unless (derived-mode-p 'agent-shell-mode)
+          (user-error "Not in an agent-shell buffer"))
+        (unless (map-nested-elt (agent-shell--state) '(:session :id))
+          (user-error "No active session"))
+        (let* ((preset (mr-x/agent-shell--read-preset char))
+               (label (nth 1 preset))
+               (model-id (nth 2 preset))
+               (mode-id (nth 3 preset))
+               (buffer (current-buffer)))
+          (agent-shell--config-option-set-model-id
+           :model-id model-id
+           :on-success
+           (lambda ()
+             (with-current-buffer buffer
+               (agent-shell--config-option-set-mode-id
+                :mode-id mode-id
+                :on-success
+                (lambda () (message "Agent preset applied: %s" label))))))))
+
+      (defun mr-x/agent-shell-preset-dwim (&optional arg)
+        "Apply a preset to the current chat, or launch a fresh preset shell.
+Bare call applies the preset's model + permission mode to the current
+agent-shell session in place. With prefix ARG (`C-u'), instead spawn a
+fresh shell locked to that preset."
+        (interactive "P")
+        (if arg
+            (call-interactively #'mr-x/agent-shell-start-preset)
+          (call-interactively #'mr-x/agent-shell-apply-preset)))
 
       (defun mr-x/agent-shell-in-project ()
         "Pick a project, then start a new agent shell there.
@@ -2870,7 +2913,7 @@ projectile projects appended below."
         "c C" '(mr-x/agent-shell-roaming :wk "Claude (roaming)")
         "c n" '(mr-x/agent-shell-new-smart :wk "New shell")
         "c N" '(mr-x/agent-shell-in-project :wk "New shell (pick project)")
-        "c P" '(mr-x/agent-shell-start-preset :wk "Launch preset...")
+        "c P" '(mr-x/agent-shell-preset-dwim :wk "Preset in-place (C-u: new shell)")
         "c t" '(mr-x/agent-shell-toggle :wk "Toggle Agent Shell")
         "c w" '(mr-x/focus-ai-window :wk "Focus AI window")
         "c b" '(major-pane-swap-buffer :wk "Swap panel buffer")
