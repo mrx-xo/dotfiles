@@ -1172,6 +1172,7 @@ the session picker, then spawns shells staggered 3s apart."
         :commands (major-pane-toggle
                    major-pane-next-tab
                    major-pane-prev-tab
+                   major-pane-capture-buffer
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
