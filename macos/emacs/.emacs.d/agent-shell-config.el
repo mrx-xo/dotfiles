@@ -14,6 +14,15 @@
                                      ;; Make prompt symbol gruvbox yellow
                                      (face-remap-add-relative 'comint-highlight-prompt
                                                               :foreground "#fabd2f")))
+               (agent-shell-mode . (lambda ()
+                                     ;; Comint marks sent prompts with mouse-face
+                                     ;; `highlight'; doom-gruvbox renders that as a
+                                     ;; loud yellow block on hover.  Replace the
+                                     ;; face buffer-locally with the same subtle
+                                     ;; lift the pane tabs use — background only,
+                                     ;; so the prompt's own text colors survive.
+                                     (face-remap-set-base 'highlight
+                                                          '(:background "#504945"))))
     )
         :config
         ;; Rebind: S-<tab> cycles mode, C-<tab> is free for popper

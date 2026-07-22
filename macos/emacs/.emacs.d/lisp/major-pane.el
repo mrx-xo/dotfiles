@@ -85,27 +85,28 @@ The key t serves as the fallback default."
 ;; `set-face-attribute', or a theme — render code never hardcodes colors.
 
 (defface major-pane-banner
-  '((t :background "#fabd2f" :foreground "#282828" :weight bold :box nil))
-  "Base face for the banner row (remapped over `tab-line' in the pane)."
+  '((t :background "#458588" :foreground "#fbf1c7" :weight bold :box nil))
+  "Base face for the banner row (remapped over `tab-line' in the pane).
+Gruvbox neutral blue with cream ink."
   :group 'major-pane)
 
 (defface major-pane-banner-model
-  '((t :foreground "#282828" :weight bold))
+  '((t :foreground "#fbf1c7" :weight bold))
   "Face for the model name segment in the banner."
   :group 'major-pane)
 
 (defface major-pane-banner-info
-  '((t :foreground "#3c3836"))
+  '((t :foreground "#ebdbb2"))
   "Face for informational banner segments (effort, mode, context, cost)."
   :group 'major-pane)
 
 (defface major-pane-banner-alert
-  '((t :foreground "#9d0006" :weight bold))
+  '((t :foreground "#fb4934" :weight bold))
   "Face for alarming banner segments (e.g. Bypass permission mode)."
   :group 'major-pane)
 
 (defface major-pane-banner-separator
-  '((t :foreground "#504945"))
+  '((t :foreground "#d5c4a1"))
   "Face for the ➤ separators between banner segments."
   :group 'major-pane)
 
@@ -115,20 +116,33 @@ The key t serves as the fallback default."
   :group 'major-pane)
 
 (defface major-pane-tab-active
-  '((t :background "#458588" :foreground "#fbf1c7" :weight bold :box nil))
-  "Face for the active conversation tab."
+  '((t :background "#3c3836" :foreground "#fbf1c7" :weight bold
+       :underline (:color "#fbf1c7" :position 0)
+       :box (:line-width (6 . -1) :color "#3c3836")))
+  "Face for the active conversation tab.
+Dark body with side padding (same-color box) and a cream underline
+along the bottom edge."
   :group 'major-pane)
 
 (defface major-pane-tab-inactive
-  '((t :foreground "#928374" :box nil))
+  '((t :foreground "#7c6f64"
+       :box (:line-width (6 . -1) :color "#1d2021")))
   "Face for inactive conversation tabs.
-No background — they sit flat on `major-pane-tab-bar'; separation
-comes from `major-pane-tab-separator' between tabs."
+Flat on `major-pane-tab-bar'; the invisible box matches the bar so
+tabs get side padding without a visible border."
   :group 'major-pane)
 
 (defface major-pane-tab-separator
-  '((t :foreground "#3c3836"))
-  "Face for the thin │ separator between conversation tabs."
+  '((t :foreground "#3c3836" :background "#3c3836"))
+  "Face for the divider between conversation tabs.
+The default divider is a pixel-width space, which draws the
+:background; the :foreground covers glyph dividers (e.g. │) set via
+`major-pane-tab-divider'."
+  :group 'major-pane)
+
+(defface major-pane-tab-hover
+  '((t :background "#504945" :foreground "#fbf1c7"))
+  "Face for conversation tabs under the mouse."
   :group 'major-pane)
 
 (defface major-pane-icon
@@ -475,8 +489,15 @@ Falls back to the raw value, or nil when the option is absent."
 
 (defvar major-pane-tab-divider nil
   "String drawn between conversation tabs.
-When nil, a │ glyph styled with `major-pane-tab-separator' is used.
-May carry display properties (e.g. a pixel-width space).")
+When nil, a 2-pixel space colored by `major-pane-tab-separator's
+background is used — a true thin divider with no glyph-cell padding.
+Set to any string (e.g. a propertized │) for a glyph divider.")
+
+(defun major-pane--tab-divider ()
+  "Return the divider string drawn between tabs."
+  (or major-pane-tab-divider
+      (propertize " " 'display '(space :width (2))
+                  'face 'major-pane-tab-separator)))
 
 (defun major-pane--render-tab (buf is-active)
   "Return the propertized tab string for BUF.
@@ -494,7 +515,7 @@ IS-ACTIVE selects the active/inactive face."
                 'face (if is-active
                           'major-pane-tab-active
                         'major-pane-tab-inactive)
-                'mouse-face 'mode-line-highlight
+                'mouse-face 'major-pane-tab-hover
                 'local-map map)))
 
 (defun major-pane--render-tabs ()
@@ -510,8 +531,7 @@ guarantee the active tab is on screen."
          ;; all layout math in PIXELS — column math drifts as soon as
          ;; dividers or fillers aren't exact multiples of a char cell
          (avail (if win (window-body-width win t) most-positive-fixnum))
-         (sep (or major-pane-tab-divider
-                  (propertize "│" 'face 'major-pane-tab-separator)))
+         (sep (major-pane--tab-divider))
          (sep-w (string-pixel-width sep))
          (tabs (mapcar (lambda (b) (major-pane--render-tab b (eq b active)))
                        convos))

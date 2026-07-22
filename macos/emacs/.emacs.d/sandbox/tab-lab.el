@@ -83,7 +83,11 @@
   (with-current-buffer buf
     (let ((inhibit-read-only t))
       (erase-buffer)
-      (set (make-local-variable 'agent-shell--state) mr-x/tab-lab-fake-state)
+      ;; copy-tree: agent-shell code may mutate state maps in place, and a
+      ;; shared quoted literal across buffers blows up with
+      ;; "Cannot modify map in-place"
+      (set (make-local-variable 'agent-shell--state)
+           (copy-tree mr-x/tab-lab-fake-state))
       (cl-flet ((ins (text face) (insert (propertize text 'face face))))
         (ins "X " '(:foreground "#fe8019" :weight bold))
         (ins "there's like a gap between the separator and\nthe tab... is there any way to remove that? or nah?\n\n"
@@ -102,12 +106,6 @@
              '(:foreground "#ebdbb2"))))
     (goto-char (point-min))))
 
-(defun mr-x/tab-lab--pixel-divider ()
-  "Use a 2px colored space as the tab divider (vs the │ glyph)."
-  (setq major-pane-tab-divider
-        (propertize " " 'display '(space :width (2))
-                    'face '(:background "#3c3836"))))
-
 ;;;###autoload
 (defun mr-x/tab-lab ()
   "Build (or rebuild) the tab-lab scene: fake convos + visible pane."
@@ -117,7 +115,6 @@
     (let ((buf (get-buffer-create name)))
       (mr-x/tab-lab--fill-convo buf)
       (major-pane--register-conversation buf)))
-  (mr-x/tab-lab--pixel-divider)
   (let ((buf (get-buffer (car mr-x/tab-lab-buffers))))
     (setf (major-pane-state-active major-pane--state) buf
           (major-pane-state-mode major-pane--state) 'side)
@@ -132,33 +129,44 @@
 (defvar mr-x/tab-lab--underline-index -1)
 (defvar mr-x/tab-lab--banner-index -1)
 
+;; NOTE: every style fully specifies :background/:box/:underline/:overline.
+;; Face overrides MERGE with lower layers (the real defface), so any
+;; attribute left out leaks through — e.g. an underline style without an
+;; explicit :background renders on top of the defface's teal block.
 (defconst mr-x/tab-lab-styles
-  `(("default (flat + divider)" . nil)
+  `(("default (real config: cream underline + body)" . nil)
     ("1: VSCode underline"
      . ((major-pane-tab-active
-         . ((t :foreground "#fbf1c7" :weight bold :box nil
-               :underline (:color "#458588"))))
-        (major-pane-tab-inactive . ((t :foreground "#7c6f64" :box nil)))))
+         . ((t :background "#1d2021" :foreground "#fbf1c7" :weight bold
+               :box nil :overline nil :underline (:color "#458588"))))
+        (major-pane-tab-inactive
+         . ((t :background "#1d2021" :foreground "#7c6f64" :weight normal
+               :box nil :overline nil :underline nil)))))
     ("2: underline + body"
      . ((major-pane-tab-active
          . ((t :background "#3c3836" :foreground "#fbf1c7" :weight bold
-               :underline (:color "#fe8019" :position 0)
+               :overline nil :underline (:color "#fe8019" :position 0)
                :box (:line-width (6 . -1) :color "#3c3836"))))
         (major-pane-tab-inactive
-         . ((t :foreground "#7c6f64"
+         . ((t :background "#1d2021" :foreground "#7c6f64" :weight normal
+               :overline nil :underline nil
                :box (:line-width (6 . -1) :color "#1d2021"))))))
     ("3: chunky padded blocks"
      . ((major-pane-tab-active
          . ((t :background "#458588" :foreground "#fbf1c7" :weight bold
+               :overline nil :underline nil
                :box (:line-width (6 . -2) :color "#458588"))))
         (major-pane-tab-inactive
-         . ((t :foreground "#928374"
+         . ((t :background "#1d2021" :foreground "#928374" :weight normal
+               :overline nil :underline nil
                :box (:line-width (6 . -2) :color "#1d2021"))))))
     ("4: ultra minimal"
      . ((major-pane-tab-active
-         . ((t :background "#458588" :foreground "#fbf1c7"
-               :weight bold :box nil)))
-        (major-pane-tab-inactive . ((t :foreground "#a89984" :box nil)))
+         . ((t :background "#458588" :foreground "#fbf1c7" :weight bold
+               :box nil :overline nil :underline nil)))
+        (major-pane-tab-inactive
+         . ((t :background "#1d2021" :foreground "#a89984" :weight normal
+               :box nil :overline nil :underline nil)))
         (major-pane-tab-separator . ((t :foreground "#1d2021")))))))
 
 (defun mr-x/tab-lab-style-cycle ()
@@ -187,11 +195,12 @@
          (hex (cdr entry)))
     (face-spec-set 'major-pane-tab-active
                    `((t :background "#3c3836" :foreground "#fbf1c7" :weight bold
-                        :underline (:color ,hex :position 0)
+                        :overline nil :underline (:color ,hex :position 0)
                         :box (:line-width (6 . -1) :color "#3c3836")))
                    'face-override-spec)
     (face-spec-set 'major-pane-tab-inactive
-                   '((t :foreground "#7c6f64"
+                   '((t :background "#1d2021" :foreground "#7c6f64" :weight normal
+                        :overline nil :underline nil
                         :box (:line-width (6 . -1) :color "#1d2021")))
                    'face-override-spec)
     (force-mode-line-update t)
