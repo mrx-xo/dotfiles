@@ -322,7 +322,9 @@ Empty input clears the label."
 ;;; Display
 
 (defun major-pane--display (buffer)
-  "Display BUFFER in the major-pane and return its window."
+  "Display BUFFER in the major-pane on the selected frame and return its window.
+If the pane currently lives on another frame, it is moved here first."
+  (major-pane--relocate-from-other-frame)
   (let ((win (display-buffer buffer
                              `((display-buffer-in-direction)
                                (direction . ,major-pane-direction)
@@ -348,8 +350,15 @@ Intended for `display-buffer-alist' (see Commentary):
   (add-to-list \\='display-buffer-alist
                \\='(\"Claude Agent @\" (major-pane-display-buffer-action)))"
   (unless (buffer-local-value 'major-pane--excluded buffer)
-    (let* ((existing (seq-find (lambda (w) (window-parameter w 'major-pane))
-                               (window-list)))
+    (let* ((existing (let ((w (seq-find (lambda (w)
+                                          (window-parameter w 'major-pane))
+                                        (major-pane--all-windows))))
+                       (cond
+                        ((null w) nil)
+                        ;; reuse only on the selected frame; a pane on
+                        ;; another frame moves here (single global pane)
+                        ((eq (window-frame w) (selected-frame)) w)
+                        (t (major-pane--relocate-from-other-frame) nil))))
            (win (or existing
                     ;; Called directly, not via `display-buffer', so the
                     ;; alist entry pointing back here cannot recurse.
@@ -395,18 +404,43 @@ Intended for `display-buffer-alist' (see Commentary):
 (defvar-local major-pane--header-cookie nil
   "Face-remap cookie for the header-line (tab row) background.")
 
+(defun major-pane--all-windows ()
+  "All windows across all frames, minibuffers excluded.
+There is ONE global pane for the whole daemon — every window scan
+must be frame-agnostic or each client frame will conclude the pane
+is missing and spawn its own."
+  (apply #'append (mapcar (lambda (f) (window-list f 'nomini))
+                          (frame-list))))
+
 (defun major-pane--pane-window ()
-  "Return the window marked as the major-pane, or nil.
+  "Return the window marked as the major-pane on ANY frame, or nil.
 Self-heals: if the marker was lost (e.g. after `set-window-configuration'),
 re-marks the window showing the active conversation."
   (when (not (eq 'hidden (major-pane-state-mode major-pane--state)))
     (or (seq-find (lambda (w) (window-parameter w 'major-pane))
-                  (window-list))
+                  (major-pane--all-windows))
         (let* ((active (major-pane-state-active major-pane--state))
-               (win (when active (get-buffer-window active))))
+               (win (when active (get-buffer-window active t))))
           (when win
             (set-window-parameter win 'major-pane t)
             win)))))
+
+(defun major-pane--relocate-from-other-frame ()
+  "Remove the pane window when it lives on a frame other than the selected one.
+Strips chrome/dedication and deletes the window (or buries the buffer
+when it is that frame's only window).  Returns non-nil when a
+foreign-frame pane was removed — the caller then re-displays the pane
+on the selected frame: the single global pane follows the user."
+  (let ((win (major-pane--pane-window)))
+    (when (and win (not (eq (window-frame win) (selected-frame))))
+      (set-window-parameter win 'major-pane nil)
+      (set-window-parameter win 'tab-line-format nil)
+      (set-window-parameter win 'header-line-format nil)
+      (set-window-dedicated-p win nil)
+      (if (eq win (frame-root-window (window-frame win)))
+          (with-selected-window win (bury-buffer))
+        (delete-window win))
+      t)))
 
 (defun major-pane--banner-for-tab-line (fmt)
   "Adapt header-line FMT for tab-line: remap click maps from header-line to tab-line."
@@ -666,8 +700,8 @@ When tab-line switching changes the pane window's buffer, sync
     ;; find the conversation that took over.
     (when (and active
                (not (eq 'hidden (major-pane-state-mode major-pane--state)))
-               (not (get-buffer-window active)))
-      (let ((new (seq-find (lambda (b) (get-buffer-window b)) convos)))
+               (not (get-buffer-window active t)))
+      (let ((new (seq-find (lambda (b) (get-buffer-window b t)) convos)))
         (when new
           (setf (major-pane-state-active major-pane--state) new)
           (setq active new)))))
@@ -676,7 +710,7 @@ When tab-line switching changes the pane window's buffer, sync
   ;; and release the dedication — the user deliberately took it over,
   ;; so let it behave like a normal window from here on.
   (let ((convos (major-pane-state-conversations major-pane--state)))
-    (dolist (w (window-list))
+    (dolist (w (major-pane--all-windows))
       (when (and (window-parameter w 'major-pane)
                  (not (memq (window-buffer w) convos)))
         (set-window-parameter w 'major-pane nil)
@@ -745,8 +779,8 @@ After killing, shows the next conversation or hides the pane."
           (progn (set-window-buffer win next)
                  (set-window-dedicated-p win 'soft))
         (setf (major-pane-state-mode major-pane--state) 'hidden)
-        (if (= (length (window-list)) 1)
-            (bury-buffer)
+        (if (eq win (frame-root-window (window-frame win)))
+            (with-selected-window win (bury-buffer))
           (delete-window win))))))
 
 ;;;###autoload
@@ -770,8 +804,8 @@ Otherwise, prompts with the picker."
         (kill-buffer buf)))
     (setf (major-pane-state-mode major-pane--state) 'hidden)
     (when (and win (window-live-p win))
-      (if (= (length (window-list)) 1)
-          (bury-buffer)
+      (if (eq win (frame-root-window (window-frame win)))
+          (with-selected-window win (bury-buffer))
         (delete-window win)))))
 
 ;;; Buffer list
@@ -1197,7 +1231,13 @@ With prefix ARG, toggle full-frame.  Hiding restores focus to
 the window that was active before the pane was shown."
   (interactive "P")
   (let ((buf (major-pane--find-buffer))
-        (win (major-pane--visible-window))
+        ;; A pane visible on ANOTHER frame doesn't count as "visible
+        ;; here": remove it there and fall through to the show branch —
+        ;; the single global pane follows the user across client frames.
+        (win (let ((w (major-pane--visible-window)))
+               (if (and w (not (eq (window-frame w) (selected-frame))))
+                   (progn (major-pane--relocate-from-other-frame) nil)
+                 w)))
         (launcher-win (get-buffer-window major-pane-launcher-buffer-name)))
     (cond
      ;; Launcher is open: close it
@@ -1233,8 +1273,8 @@ the window that was active before the pane was shown."
      (win
       (setf (major-pane-state-active major-pane--state) buf
             (major-pane-state-mode major-pane--state) 'hidden)
-      (if (= (length (window-list)) 1)
-          (bury-buffer)
+      (if (eq win (frame-root-window (window-frame win)))
+          (with-selected-window win (bury-buffer))
         (delete-window win))
       ;; Restore focus to the window that was active before showing.
       (let ((lw (major-pane-state-last-window major-pane--state)))
