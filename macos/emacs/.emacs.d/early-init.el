@@ -8,6 +8,13 @@
 (setq native-comp-async-report-warnings-errors 'silent)
 (setq native-comp-warning-on-missing-source nil)
 
+;; Never load a stale .elc when the .el is newer. Elpaca's builds/ dir
+;; symlinks .el files into sources/, so editing a package repo (e.g.
+;; hacking on agent-shell) leaves the neighboring .elc stale — without
+;; this, Emacs silently keeps running the OLD compiled code. Must be set
+;; here (before any loading) to cover init + all packages.
+(setq load-prefer-newer t)
+
 ;; Performance optimizations
 (setq gc-cons-threshold most-positive-fixnum)
 (setq gc-cons-percentage 0.6)

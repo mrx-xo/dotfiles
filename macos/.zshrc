@@ -226,6 +226,8 @@ alias ports='lsof -iTCP -sTCP:LISTEN -P -n'
 alias ipleak='~/.dotfiles/macos/scripts/ipleak-check.sh'
 alias reload='source ~/.zshrc'
 alias shl='ssh homelab'
+alias shm2='ssh mrx2'
+alias shv='ssh vengeance'
 
 
 # Fix for Emacs native compilation with libgccjit
