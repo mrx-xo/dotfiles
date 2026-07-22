@@ -1957,8 +1957,31 @@ The package's 1s poll timer forces modeline updates, so this ticks."
                                                  #'agent-shell-inbox-disarm)
                                      map)))))
 
+      ;; Main-frame badge: teal ⌂ chip on every modeline of the frame
+      ;; marked by mr-x/decorate-secondary-frame.  Answers "am I in the
+      ;; main frame?" at a glance — the main frame has no title bar to
+      ;; carry any other indicator.
+      (defface mr-x/main-frame-badge-face
+        '((t :background "#458588" :foreground "#fbf1c7" :weight bold))
+        "Face for the ⌂ main-frame modeline badge (matches major-pane banner).")
+
+      (doom-modeline-def-segment main-frame-badge
+        "Show a teal ⌂ chip on windows of the main frame."
+        (when (frame-parameter (selected-frame) 'mr-x-main-frame)
+          (propertize " ⌂ " 'face 'mr-x/main-frame-badge-face
+                      'help-echo "Main frame — pane home")))
+
+      ;; doom-modeline's stock 'main layout with the badge spliced in
+      (doom-modeline-def-modeline 'main
+        '(bar workspace-name window-number main-frame-badge modals matches
+          follow buffer-info remote-host buffer-position word-count parrot
+          selection-info)
+        '(compilation objed-state misc-info persp-name battery grip irc
+          mu4e gnus github debug repl lsp minor-modes input-method
+          indent-info buffer-encoding major-mode process vcs check time))
+
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(bar main-frame-badge modals buffer-info agent-shell-refs agent-shell-inbox)
         '(buffer-position))
 
       (with-eval-after-load 'nerd-icons
@@ -2081,12 +2104,21 @@ The package's 1s poll timer forces modeline updates, so this ticks."
   ;; one keeps the new main clean too.
   (defvar mr-x/frame-counter 0)
   (defun mr-x/decorate-secondary-frame ()
-    "Give secondary client frames a title bar + number; keep the main frame clean."
-    (when (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
-      (cl-incf mr-x/frame-counter)
-      (set-frame-parameter nil 'undecorated-round nil)
-      (set-frame-parameter nil 'title
-                           (format "Emacs #%d" mr-x/frame-counter))))
+    "Sole GUI frame: clean + marked MAIN + pane home.
+Secondary frames: title bar + frame number."
+    (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
+        (progn
+          (cl-incf mr-x/frame-counter)
+          (set-frame-parameter nil 'undecorated-round nil)
+          (set-frame-parameter nil 'title
+                               (format "Emacs #%d" mr-x/frame-counter)))
+      ;; This IS the main frame: queryable identity marker + the
+      ;; major-pane soft-locks here (convos from scratch frames land in
+      ;; this frame's pane; s-i elsewhere jumps to it).  The ⌂ modeline
+      ;; badge renders wherever this parameter is set.
+      (set-frame-parameter nil 'mr-x-main-frame t)
+      (when (boundp 'major-pane-home-frame)
+        (setq major-pane-home-frame (selected-frame)))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
 
