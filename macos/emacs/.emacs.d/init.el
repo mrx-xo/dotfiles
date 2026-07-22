@@ -2074,14 +2074,20 @@ The package's 1s poll timer forces modeline updates, so this ticks."
   ;; Prevent Emacs from resizing frames
   (setq frame-resize-pixelwise t)
 
-  ;; Secondary emacsclient frames get title bars with frame number
+  ;; Secondary emacsclient frames get title bars with a frame number so
+  ;; scratch frames are tellable apart.  The FIRST/main GUI frame stays
+  ;; clean — undecorated, no title.  Guard is "am I the sole GUI frame?"
+  ;; rather than a counter, so closing the main frame and spawning a new
+  ;; one keeps the new main clean too.
   (defvar mr-x/frame-counter 0)
-  (add-hook 'server-after-make-frame-hook
-            (lambda ()
-              (cl-incf mr-x/frame-counter)
-              (set-frame-parameter nil 'undecorated-round nil)
-              (set-frame-parameter nil 'title
-                (format "Emacs #%d" mr-x/frame-counter))))
+  (defun mr-x/decorate-secondary-frame ()
+    "Give secondary client frames a title bar + number; keep the main frame clean."
+    (when (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
+      (cl-incf mr-x/frame-counter)
+      (set-frame-parameter nil 'undecorated-round nil)
+      (set-frame-parameter nil 'title
+                           (format "Emacs #%d" mr-x/frame-counter))))
+  (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
 
 
@@ -2891,6 +2897,7 @@ projectile projects appended below."
         "& n" '(major-pane-new-chat :wk "New chat")
         "& l" '(major-pane-set-label :wk "Label conversation")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
+        "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
         "& f" '((lambda () (interactive)
