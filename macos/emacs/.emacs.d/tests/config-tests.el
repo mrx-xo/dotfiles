@@ -50,6 +50,12 @@
   (should (fboundp 'consult-line))
   (should (fboundp 'embark-act)))
 
+(ert-deftest config-test-bookmark-annotator-installed ()
+  "Custom bookmark annotator (URL fallback for bookmark+) should be registered."
+  (should (fboundp 'mr-x/marginalia-annotate-bookmark))
+  (should (eq (car (alist-get 'bookmark marginalia-annotators))
+              'mr-x/marginalia-annotate-bookmark)))
+
 (ert-deftest config-test-projectile-loaded ()
   "Projectile project management should be loaded."
   (should (featurep 'projectile)))
@@ -654,6 +660,13 @@
   (should (eq (config-test--leader-key "g g") 'magit-status))
   (should (eq (config-test--leader-key "g G") 'mr-x/magit-status-side-window)))
 
+(ert-deftest config-test-leader-pane-keys ()
+  "SPC & pane keys must resolve correctly."
+  (should (eq (config-test--leader-key "& n") 'major-pane-new-chat))
+  (should (eq (config-test--leader-key "& l") 'major-pane-set-label))
+  (should (eq (config-test--leader-key "& k") 'major-pane-close-conversation))
+  (should (eq (config-test--leader-key "& K") 'major-pane-close-all-conversations)))
+
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tier 7 — "Are critical variables bound?"
 ;; Load-order regressions: variables that must exist before other code runs.
@@ -686,5 +699,69 @@ Covers all display paths: agent-shell, agent-recall resume, pop-to-buffer."
   (let ((entry (assoc "Claude Agent @" display-buffer-alist)))
     (should entry)
     (should (memq 'major-pane-display-buffer-action (cadr entry)))))
+
+;; ═══════════════════════════════════════════════════════════════════════════
+;; Tangle freshness — init.el must match a fresh tangle of emacs.org
+;; ═══════════════════════════════════════════════════════════════════════════
+
+(ert-deftest config-test-tangled-output-in-sync ()
+  "init.el and agent-shell-config.el must match a fresh tangle of emacs.org.
+Catches edits to emacs.org made outside Emacs (scripts, agents, git merges)
+where the after-save auto-tangle hook never fired.  Works by copying
+emacs.org into a temp dir, tangling there (targets are relative, so output
+lands in the temp dir), and hashing fresh vs live output."
+  (require 'org)
+  (let* ((src (expand-file-name "emacs.org" user-emacs-directory))
+         (tmpdir (make-temp-file "tangle-sync-" t))
+         (tmp-org (expand-file-name "emacs.org" tmpdir)))
+    (unwind-protect
+        (progn
+          (copy-file src tmp-org)
+          (let ((org-confirm-babel-evaluate nil))
+            (org-babel-tangle-file tmp-org))
+          (dolist (file '("init.el" "agent-shell-config.el"))
+            (ert-info ((format "%s is stale — re-tangle emacs.org (C-c C-v t)" file))
+              (let ((fresh (expand-file-name file tmpdir))
+                    (live (expand-file-name file user-emacs-directory)))
+                (should (file-exists-p fresh))
+                (should (file-exists-p live))
+                (cl-flet ((sha256 (f)
+                            (with-temp-buffer
+                              (insert-file-contents-literally f)
+                              (secure-hash 'sha256 (current-buffer)))))
+                  (should (string= (sha256 fresh) (sha256 live))))))))
+      (delete-directory tmpdir t))))
+
+;; ═══════════════════════════════════════════════════════════════════════════
+;; Byte-compile freshness — no stale .elc anywhere in the config
+;; ═══════════════════════════════════════════════════════════════════════════
+
+(ert-deftest config-test-load-prefer-newer ()
+  "early-init.el must turn on load-prefer-newer so stale .elc files can
+never shadow edited .el sources.  Batch runs skip early-init (it's only
+part of normal startup), so load it here and check the var it sets."
+  (load (expand-file-name "early-init" user-emacs-directory) nil t)
+  (should load-prefer-newer))
+
+(ert-deftest config-test-no-stale-elc ()
+  "No .elc may be older than its .el source.
+Scans elpaca/builds (where .el files are SYMLINKS into sources/ — editing
+a package repo silently strands the neighboring .elc), plus lisp/ and the
+config root.  Stale .elc = the code you're debugging isn't the code
+running.  Fix: M-x elpaca-rebuild <pkg>, or delete the .elc."
+  (let (stale)
+    (dolist (dir (list (expand-file-name "elpaca/builds" user-emacs-directory)
+                       (expand-file-name "lisp" user-emacs-directory)
+                       user-emacs-directory))
+      (when (file-directory-p dir)
+        (dolist (elc (if (string= dir user-emacs-directory)
+                         ;; root: don't recurse (would rescan builds/ + elpaca repos)
+                         (directory-files dir t "\\.elc\\'")
+                       (directory-files-recursively dir "\\.elc\\'")))
+          (let ((el (file-truename (substring elc 0 -1)))) ; resolve symlink → repo source
+            (when (and (file-exists-p el)
+                       (file-newer-than-file-p el elc))
+              (push (file-relative-name elc user-emacs-directory) stale))))))
+    (should-not stale)))
 
 ;;; config-tests.el ends here

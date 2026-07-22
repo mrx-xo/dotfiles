@@ -2718,6 +2718,20 @@ constantly, so only invoke it when Hammerspoon is actually running."
         "s y" '(ytr :wk "YouTube radio"))
 
       ;; Smart new shell: replace window when already in agent-shell
+      (defun mr-x/agent-shell--display-new (shell-buffer)
+        "Show SHELL-BUFFER: replace current window when already in an
+agent-shell, otherwise pop to it. Honours viewport interaction."
+        (if (derived-mode-p 'agent-shell-mode 'agent-shell-viewport-view-mode
+                            'agent-shell-viewport-edit-mode)
+            ;; Already in agent-shell: replace current window
+            (if agent-shell-prefer-viewport-interaction
+                (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
+              (switch-to-buffer shell-buffer))
+          ;; Not in agent-shell: use normal display
+          (if agent-shell-prefer-viewport-interaction
+              (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
+            (pop-to-buffer shell-buffer))))
+
       (defun mr-x/agent-shell-new-smart ()
         "Create new agent shell, replacing current window if already in agent-shell."
         (interactive)
@@ -2729,16 +2743,66 @@ constantly, so only invoke it when Hammerspoon is actually running."
                (shell-buffer (agent-shell--start :config config
                                                  :no-focus t
                                                  :new-session t)))
-          (if (derived-mode-p 'agent-shell-mode 'agent-shell-viewport-view-mode
-                              'agent-shell-viewport-edit-mode)
-              ;; Already in agent-shell: replace current window
-              (if agent-shell-prefer-viewport-interaction
-                  (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-                (switch-to-buffer shell-buffer))
-            ;; Not in agent-shell: use normal display
-            (if agent-shell-prefer-viewport-interaction
-                (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-              (pop-to-buffer shell-buffer)))))
+          (mr-x/agent-shell--display-new shell-buffer)))
+
+      ;; ------------------------------------------------------------------
+      ;; Launch presets: model + permission-mode in one keystroke.
+      ;;
+      ;; Both `:default-model-id' and `:default-session-mode-id' are config-level
+      ;; and applied automatically the instant a session starts (see
+      ;; agent-shell.el's init handler). So a "preset" is nothing more than the
+      ;; preferred config with those two overridden — each spawns a FRESH shell
+      ;; already wearing that model + permission profile.
+      ;;
+      ;; Valid IDs (from the live ACP session, `agent-shell--get-available-*'):
+      ;;   models: "default" (Opus 4.8 1M) "opus[1m]" "claude-fable-5[1m]"
+      ;;           "sonnet" "haiku"
+      ;;   modes:  "auto" "default" "acceptEdits" "plan" "dontAsk"
+      ;;           "bypassPermissions"
+      ;; Add a preset = add one line here.
+      (defvar mr-x/agent-shell-presets
+        '((?f "Fable · Bypass"  "claude-fable-5[1m]" "bypassPermissions")
+          (?o "Opus · Bypass"   "opus[1m]"           "bypassPermissions")
+          (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
+          (?p "Opus · Plan"     "default"            "plan")
+          (?h "Haiku · Auto"    "haiku"              "auto"))
+        "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID).
+Each launches a fresh shell with that model and permission mode.")
+
+      (defun mr-x/agent-shell--config-with (model-id mode-id)
+        "Copy the preferred agent config, overriding model + session mode.
+Returns a fresh config alist so the original is left untouched."
+        (let ((config (copy-alist
+                       (or (and (fboundp 'agent-shell--resolve-preferred-config)
+                                (agent-shell--resolve-preferred-config))
+                           (agent-shell-select-config :prompt "Start new agent: ")
+                           (error "No agent config found")))))
+          (setf (alist-get :default-model-id config) (lambda () model-id))
+          (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
+          config))
+
+      (defun mr-x/agent-shell-start-preset (&optional char)
+        "Start a fresh agent shell from a launch preset.
+Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
+supplied, then spawns a new shell locked to that model + permission mode."
+        (interactive)
+        (require 'agent-shell)
+        (let* ((char (or char
+                         (read-char-choice
+                          (concat "Preset  "
+                                  (mapconcat (lambda (p)
+                                               (format "[%c] %s" (nth 0 p) (nth 1 p)))
+                                             mr-x/agent-shell-presets "   ")
+                                  ": ")
+                          (mapcar #'car mr-x/agent-shell-presets))))
+               (preset (or (assq char mr-x/agent-shell-presets)
+                           (user-error "No preset for %c" char)))
+               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)))
+               (shell-buffer (agent-shell--start :config config
+                                                 :no-focus t
+                                                 :new-session t)))
+          (mr-x/agent-shell--display-new shell-buffer)
+          (message "Agent preset: %s" (nth 1 preset))))
 
       (defun mr-x/agent-shell-in-project ()
         "Pick a project, then start a new agent shell there.
@@ -2785,6 +2849,7 @@ projectile projects appended below."
         "c C" '(mr-x/agent-shell-roaming :wk "Claude (roaming)")
         "c n" '(mr-x/agent-shell-new-smart :wk "New shell")
         "c N" '(mr-x/agent-shell-in-project :wk "New shell (pick project)")
+        "c P" '(mr-x/agent-shell-start-preset :wk "Launch preset...")
         "c t" '(mr-x/agent-shell-toggle :wk "Toggle Agent Shell")
         "c w" '(mr-x/focus-ai-window :wk "Focus AI window")
         "c b" '(major-pane-swap-buffer :wk "Swap panel buffer")
@@ -2922,6 +2987,7 @@ projectile projects appended below."
       (mr-x/leader-def
         "&" '(:ignore t :wk "Pane")
         "& n" '(major-pane-new-chat :wk "New chat")
+        "& l" '(major-pane-set-label :wk "Label conversation")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
         "& f" '((lambda () (interactive)
@@ -3614,7 +3680,24 @@ TRAMP can't match under a PTY — both need pipe mode."
   (use-package marginalia
     :ensure t
     :init
-    (marginalia-mode 1))
+    (marginalia-mode 1)
+    :config
+    ;; Bookmark+ URL bookmarks store the placeholder "   - no file -" in
+    ;; `filename' and the real URL in `location', so marginalia's stock
+    ;; annotator shows the placeholder.  Prefer `location' when filename
+    ;; is missing or the bmkp placeholder.
+    (defun mr-x/marginalia-annotate-bookmark (cand)
+      "Like `marginalia-annotate-bookmark', but show URLs for bookmark+ URL bookmarks."
+      (when-let* ((bm (assoc cand (bound-and-true-p bookmark-alist))))
+        (marginalia--fields
+         ((marginalia--bookmark-type bm) :width 10 :face 'marginalia-type)
+         ((let ((file (bookmark-prop-get bm 'filename)))
+            (if (or (null file) (string-match-p "- no file -" file))
+                (or (bookmark-prop-get bm 'location) "")
+              file))
+          :truncate 0.5 :face 'marginalia-file-name))))
+    (setf (alist-get 'bookmark marginalia-annotators)
+          '(mr-x/marginalia-annotate-bookmark marginalia-annotate-bookmark builtin none)))
 
   (use-package consult
     :ensure t

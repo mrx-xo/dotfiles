@@ -128,6 +128,10 @@ EOF
     echo '' >> "$SANDBOX_DIR/init.el"
     echo ';; Sandbox visual indicator' >> "$SANDBOX_DIR/init.el"
     echo '(load (expand-file-name "sandbox-indicator.el" user-emacs-directory) t)' >> "$SANDBOX_DIR/init.el"
+    # tab-lab: major-pane styling playground (C-c l to build the scene).
+    # The file rides along in the .emacs.d copy; only sandbox init loads it.
+    echo ';; Sandbox tab-lab (major-pane styling playground)' >> "$SANDBOX_DIR/init.el"
+    echo '(load (expand-file-name "sandbox/tab-lab.el" user-emacs-directory) t)' >> "$SANDBOX_DIR/init.el"
 
     echo "Sandbox created with visual indicators."
 fi

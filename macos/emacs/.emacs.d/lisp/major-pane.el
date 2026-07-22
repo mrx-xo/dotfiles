@@ -115,18 +115,20 @@ The key t serves as the fallback default."
   :group 'major-pane)
 
 (defface major-pane-tab-active
-  '((t :background "#458588" :foreground "#fbf1c7" :weight bold
-       :box (:line-width (1 . -1) :color "#83a598")))
+  '((t :background "#458588" :foreground "#fbf1c7" :weight bold :box nil))
   "Face for the active conversation tab."
   :group 'major-pane)
 
 (defface major-pane-tab-inactive
-  '((t :background "#282828" :foreground "#928374"
-       :box (:line-width (1 . -1) :color "#504945")))
+  '((t :foreground "#928374" :box nil))
   "Face for inactive conversation tabs.
-Background is intentionally lighter than `major-pane-tab-bar' so
-tabs read as separate chips; the box draws inside the glyph area
-\(negative vertical width) so it never changes the bar height."
+No background — they sit flat on `major-pane-tab-bar'; separation
+comes from `major-pane-tab-separator' between tabs."
+  :group 'major-pane)
+
+(defface major-pane-tab-separator
+  '((t :foreground "#3c3836"))
+  "Face for the thin │ separator between conversation tabs."
   :group 'major-pane)
 
 (defface major-pane-icon
@@ -471,31 +473,116 @@ Falls back to the raw value, or nil when the option is absent."
                              'face 'major-pane-banner-info)))
        " "))))
 
+(defvar major-pane-tab-divider nil
+  "String drawn between conversation tabs.
+When nil, a │ glyph styled with `major-pane-tab-separator' is used.
+May carry display properties (e.g. a pixel-width space).")
+
+(defun major-pane--render-tab (buf is-active)
+  "Return the propertized tab string for BUF.
+IS-ACTIVE selects the active/inactive face."
+  (let ((map (make-sparse-keymap)))
+    (define-key map [header-line mouse-1]
+      (lambda () (interactive)
+        (when (buffer-live-p buf)
+          (setf (major-pane-state-active major-pane--state) buf)
+          (let ((win (major-pane--pane-window)))
+            (when win
+              (set-window-buffer win buf)
+              (select-window win))))))
+    (propertize (format " %s " (major-pane--tab-label buf))
+                'face (if is-active
+                          'major-pane-tab-active
+                        'major-pane-tab-inactive)
+                'mouse-face 'mode-line-highlight
+                'local-map map)))
+
 (defun major-pane--render-tabs ()
   "Build a header-line-format string showing conversation tabs.
-Tabs are separated by a 1-char gap that shows the bar background."
+When the tabs overflow the pane width, shows a slice that always
+keeps the active tab visible (expanded alternately left/right so it
+stays roughly centered), with dim ‹N / N› overflow counters at the
+edges.  The header-line cannot scroll, so slicing is the only way to
+guarantee the active tab is on screen."
   (let* ((convos (major-pane-state-conversations major-pane--state))
-         (active (major-pane-state-active major-pane--state)))
-    (mapconcat
-     (lambda (buf)
-       (let* ((label (major-pane--tab-label buf))
-              (is-active (eq buf active))
-              (map (make-sparse-keymap)))
-         (define-key map [header-line mouse-1]
-           (lambda () (interactive)
-             (when (buffer-live-p buf)
-               (setf (major-pane-state-active major-pane--state) buf)
-               (let ((win (major-pane--pane-window)))
-                 (when win
-                   (set-window-buffer win buf)
-                   (select-window win))))))
-         (propertize (format " %s " label)
-                     'face (if is-active
-                               'major-pane-tab-active
-                             'major-pane-tab-inactive)
-                     'mouse-face 'mode-line-highlight
-                     'local-map map)))
-     convos " ")))
+         (active (major-pane-state-active major-pane--state))
+         (win (major-pane--pane-window))
+         ;; all layout math in PIXELS — column math drifts as soon as
+         ;; dividers or fillers aren't exact multiples of a char cell
+         (avail (if win (window-body-width win t) most-positive-fixnum))
+         (sep (or major-pane-tab-divider
+                  (propertize "│" 'face 'major-pane-tab-separator)))
+         (sep-w (string-pixel-width sep))
+         (tabs (mapcar (lambda (b) (major-pane--render-tab b (eq b active)))
+                       convos))
+         (total (+ (apply #'+ (mapcar #'string-pixel-width tabs))
+                   (* sep-w (max 0 (1- (length tabs)))))))
+    (if (<= total avail)
+        (mapconcat #'identity tabs sep)
+      (major-pane--render-tab-slice tabs convos active avail sep sep-w))))
+
+(defun major-pane--overflow-marker (count dir)
+  "Return the dim overflow marker string for COUNT tabs in DIR (`left'/`right')."
+  (propertize (if (eq dir 'left) (format "‹%d " count) (format " %d›" count))
+              'face 'major-pane-dim))
+
+(defun major-pane--overflow-markers-px (lo hi n)
+  "Pixels needed by the ‹N / N› markers for slice LO..HI of N tabs."
+  (+ (if (> lo 0)
+         (string-pixel-width (major-pane--overflow-marker lo 'left))
+       0)
+     (if (< hi (1- n))
+         (string-pixel-width (major-pane--overflow-marker (- n 1 hi) 'right))
+       0)))
+
+(defun major-pane--render-tab-slice (tabs convos active avail sep sep-w)
+  "Render an AVAIL-pixel-wide slice of TABS keeping ACTIVE visible.
+Expands alternately right/left from the active tab, reserving only
+the marker pixels actually needed.  Leftover space is filled with a
+truncated preview of the next tab, and the N› counter is pinned to
+the window's right edge so the row always spans the full width."
+  (let* ((n (length tabs))
+         (ai (or (cl-position active convos :test #'eq) 0))
+         (char-w (frame-char-width))
+         (lo ai) (hi ai)
+         (width (string-pixel-width (nth ai tabs)))
+         (grew t)
+         filler)
+    ;; expand alternately right then left while the slice + markers fit
+    (while grew
+      (setq grew nil)
+      (when (< hi (1- n))
+        (let ((w (+ (string-pixel-width (nth (1+ hi) tabs)) sep-w))
+              (mk (major-pane--overflow-markers-px lo (1+ hi) n)))
+          (when (<= (+ width w mk) avail)
+            (setq hi (1+ hi) width (+ width w) grew t))))
+      (when (> lo 0)
+        (let ((w (+ (string-pixel-width (nth (1- lo) tabs)) sep-w))
+              (mk (major-pane--overflow-markers-px (1- lo) hi n)))
+          (when (<= (+ width w mk) avail)
+            (setq lo (1- lo) width (+ width w) grew t)))))
+    ;; fill leftover pixels with a truncated preview of the next tab
+    (when (< hi (1- n))
+      (let* ((mk (major-pane--overflow-markers-px lo hi n))
+             (room-px (- avail width sep-w mk))
+             (room-cols (floor room-px char-w)))
+        (when (>= room-cols 4)
+          (setq filler (truncate-string-to-width
+                        (nth (1+ hi) tabs) room-cols nil nil "…")))))
+    (let ((right-hidden (- n 1 hi)))
+      (concat
+       (when (> lo 0)
+         (major-pane--overflow-marker lo 'left))
+       (mapconcat #'identity (cl-subseq tabs lo (1+ hi)) sep)
+       (when filler (concat sep filler))
+       (when (> right-hidden 0)
+         (let ((marker (major-pane--overflow-marker right-hidden 'right)))
+           (concat
+            ;; stretch glue: pin the counter to the right edge (pixel spec)
+            (propertize " " 'display
+                        `(space :align-to
+                                (- right (,(string-pixel-width marker)))))
+            marker)))))))
 
 (defun major-pane--enable-pane-chrome ()
   "Set window parameter overrides on the pane window for chrome rendering.
