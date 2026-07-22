@@ -7298,6 +7298,19 @@ the session picker, then spawns shells staggered 3s apart."
 
 #+end_src
 
+Pinned @-files with short aliases so inline mentions stay clean: typing
+=@rig= completes like any project file from ANY project, and on submit
+the alias is rewritten to its full path before agent-shell parses
+mentions — so the agent receives the actual file content.  Lives in
+=lisp/agent-shell-pins.el=; add pins to =agent-shell-pins-aliases= there.
+
+#+begin_src emacs-lisp :tangle agent-shell-config.el
+
+;; Pinned @-file aliases (@rig, @emacs-org, …) — see lisp/agent-shell-pins.el
+(require 'agent-shell-pins)
+
+#+end_src
+
 * Nothing Personal
 ** Ledger
 #+begin_src emacs-lisp

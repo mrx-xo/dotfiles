@@ -2020,3 +2020,8 @@ the session picker, then spawns shells staggered 3s apart."
               (when (fboundp 'evil-insert-state)
                 (evil-insert-state))))))
 
+
+
+;; Pinned @-file aliases (@rig, @emacs-org, …) — see lisp/agent-shell-pins.el
+(require 'agent-shell-pins)
+
