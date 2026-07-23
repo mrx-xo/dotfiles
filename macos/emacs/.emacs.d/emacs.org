@@ -2056,23 +2056,73 @@ The package's 1s poll timer forces modeline updates, so this ticks."
                                                  #'agent-shell-inbox-disarm)
                                      map)))))
 
-      ;; Main-frame badge: teal ⌂ chip on every modeline of the frame
-      ;; marked by mr-x/decorate-secondary-frame.  Answers "am I in the
-      ;; main frame?" at a glance — the main frame has no title bar to
-      ;; carry any other indicator.
-      (defface mr-x/main-frame-badge-face
-        '((t :background "#458588" :foreground "#fbf1c7" :weight bold))
-        "Face for the ⌂ main-frame modeline badge (matches major-pane banner).")
+      ;; Modal indicator: the evil state as a plain, slightly enlarged
+      ;; letter (n/i/v/r/o/m/e) colored by the state face — no icon, no
+      ;; box, always renders regardless of font.  `doom-modeline--evil'
+      ;; ships as a `defsubst' that the compiled `modals' segment inlined,
+      ;; so we must clear the inline property AND rebuild the segment for
+      ;; our override to take effect.
+      (put 'doom-modeline--evil 'byte-optimizer nil)
+      (defun doom-modeline--evil ()
+        "The current evil state as a plain, slightly enlarged letter."
+        (when (bound-and-true-p evil-local-mode)
+          (let-alist (cond
+                      ((evil-normal-state-p)   '((face . doom-modeline-evil-normal-state)   (ltr . "n")))
+                      ((evil-emacs-state-p)    '((face . doom-modeline-evil-emacs-state)    (ltr . "e")))
+                      ((evil-insert-state-p)   '((face . doom-modeline-evil-insert-state)   (ltr . "i")))
+                      ((evil-motion-state-p)   '((face . doom-modeline-evil-motion-state)   (ltr . "m")))
+                      ((evil-visual-state-p)   '((face . doom-modeline-evil-visual-state)   (ltr . "v")))
+                      ((evil-operator-state-p) '((face . doom-modeline-evil-operator-state) (ltr . "o")))
+                      ((evil-replace-state-p)  '((face . doom-modeline-evil-replace-state)  (ltr . "r")))
+                      (t                       '((face . doom-modeline-evil-user-state)     (ltr . "u"))))
+            (propertize .ltr
+                        'face `(:inherit ,(doom-modeline-face .face) :height 1.25)
+                        'help-echo (evil-state-property evil-state :name t)))))
 
-      (doom-modeline-def-segment main-frame-badge
-        "Show a teal ⌂ chip on windows of the main frame."
-        (when (frame-parameter (selected-frame) 'mr-x-main-frame)
-          (propertize " ⌂ " 'face 'mr-x/main-frame-badge-face
-                      'help-echo "Main frame — pane home")))
+      ;; Rebuild the stock `modals' segment so it calls our override
+      ;; through the symbol instead of the inlined original.
+      (doom-modeline-def-segment modals
+        "Displays modal editing state.
+Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
+        (when doom-modeline-modal
+          (let* ((evil (doom-modeline--evil))
+                 (ow (doom-modeline--overwrite))
+                 (god (doom-modeline--god))
+                 (ryo (doom-modeline--ryo))
+                 (xf (doom-modeline--xah-fly-keys))
+                 (boon (doom-modeline--boon))
+                 (meow (doom-modeline--meow))
+                 (vsep (doom-modeline-vspc))
+                 (sep (and (or evil ow god ryo xf boon meow) (doom-modeline-spc))))
+            (concat sep
+                    (and evil (concat evil (and (or ow god ryo xf boon meow) vsep)))
+                    (and ow (concat ow (and (or god ryo xf boon meow) vsep)))
+                    (and god (concat god (and (or ryo xf boon meow) vsep)))
+                    (and ryo (concat ryo (and (or xf boon meow) vsep)))
+                    (and xf (concat xf (and (or boon meow) vsep)))
+                    (and boon (concat boon (and meow vsep)))
+                    meow
+                    sep))))
 
-      ;; doom-modeline's stock 'main layout with the badge spliced in
+      ;; Modeline color scheme "Deep Sea": near-black bg, aqua-blue file
+      ;; name + project pill, muted path.  Re-applied after any theme
+      ;; change so `load-theme' can't clobber it.
+      (defun mr-x/apply-modeline-scheme (&rest _)
+        "Recolor the modeline to the Deep Sea gruvbox scheme."
+        (set-face-attribute 'mode-line-active nil :background "#1d2021")
+        (set-face-attribute 'mode-line        nil :background "#1d2021")
+        (dolist (f '(doom-modeline-buffer-file doom-modeline-buffer-modified mode-line-buffer-id))
+          (when (facep f) (set-face-attribute f nil :foreground "#83a598")))
+        (when (facep 'doom-modeline-project-dir)
+          (set-face-attribute 'doom-modeline-project-dir nil :foreground "#83a598"))
+        (when (facep 'doom-modeline-buffer-path)
+          (set-face-attribute 'doom-modeline-buffer-path nil :foreground "#a89984")))
+      (mr-x/apply-modeline-scheme)
+      (add-hook 'enable-theme-functions #'mr-x/apply-modeline-scheme)
+
+      ;; doom-modeline's stock 'main layout
       (doom-modeline-def-modeline 'main
-        '(bar workspace-name window-number main-frame-badge modals matches
+        '(bar workspace-name window-number modals matches
           follow buffer-info remote-host buffer-position word-count parrot
           selection-info)
         '(compilation objed-state misc-info persp-name battery grip irc
@@ -2080,7 +2130,7 @@ The package's 1s poll timer forces modeline updates, so this ticks."
           indent-info buffer-encoding major-mode process vcs check time))
 
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar main-frame-badge modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
         '(buffer-position))
 
       (with-eval-after-load 'nerd-icons
@@ -2091,7 +2141,17 @@ The package's 1s poll timer forces modeline updates, so this ticks."
       (add-hook 'agent-shell-mode-hook
                 (lambda ()
                   (doom-modeline-set-modeline 'agent-shell-minimal)
-                  (face-remap-add-relative 'default :background "#1d2021"))))
+                  ;; chat pane sits a shade below the frame's #1d2021
+                  (face-remap-add-relative 'default :background "#101112")))
+
+      ;; Code rendering harmonized with the dark pane: the orange inline
+      ;; chips and fenced blocks drop their warm #3c3836 boxes for quiet
+      ;; dark panels sitting just above the pane bg.  agent-shell owns
+      ;; these faces, so set them once it has loaded.
+      (with-eval-after-load 'agent-shell
+        (set-face-attribute 'agent-shell-markdown-inline-code nil :background "#26292b")
+        (set-face-attribute 'agent-shell-markdown-source-block nil :background "#1a1d1e")
+        (set-face-attribute 'agent-shell-markdown-source-block-language nil :background "#1a1d1e")))
 
 
     ;; (set-face-attribute 'default nil :font "JuliaMono" :height 280)
@@ -2213,9 +2273,11 @@ Secondary frames: title bar + frame number."
                                (format "Emacs #%d" mr-x/frame-counter)))
       ;; This IS the main frame: queryable identity marker + the
       ;; major-pane soft-locks here (convos from scratch frames land in
-      ;; this frame's pane; s-i elsewhere jumps to it).  The ⌂ modeline
-      ;; badge renders wherever this parameter is set.
+      ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
+      ;; darker #1d2021 background so it's tellable apart from scratch
+      ;; frames at a glance (agent-shell panes go a shade darker still).
       (set-frame-parameter nil 'mr-x-main-frame t)
+      (set-frame-parameter nil 'background-color "#1d2021")
       (when (boundp 'major-pane-home-frame)
         (setq major-pane-home-frame (selected-frame)))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
@@ -4854,10 +4916,17 @@ If the buffers already exist, kills them first."
       (expand-file-name "etc/agent-recall-transcript.js" user-emacs-directory))
 
     (defun mr-x/agent-recall-transcript-p ()
-      "Return non-nil if current buffer is an agent-shell transcript."
-      (and (buffer-file-name)
-           (fboundp 'agent-recall--transcript-file-p)
-           (agent-recall--transcript-file-p (buffer-file-name))))
+      "Return non-nil if current buffer is an agent-shell transcript.
+Matches by path via agent-recall when available, otherwise sniffs the
+\"# Agent Shell Transcript\" header line every transcript starts with,
+so cleaned/copied transcripts outside .agent-shell/transcripts/ still
+get the transcript preview styling."
+      (or (and (buffer-file-name)
+               (fboundp 'agent-recall--transcript-file-p)
+               (agent-recall--transcript-file-p (buffer-file-name)))
+          (save-excursion
+            (goto-char (point-min))
+            (looking-at-p "# Agent Shell Transcript"))))
 
     ;; Override the enable function to include custom CSS
     ;; and inject transcript JS when viewing agent-shell transcripts.

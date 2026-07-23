@@ -1957,23 +1957,73 @@ The package's 1s poll timer forces modeline updates, so this ticks."
                                                  #'agent-shell-inbox-disarm)
                                      map)))))
 
-      ;; Main-frame badge: teal ⌂ chip on every modeline of the frame
-      ;; marked by mr-x/decorate-secondary-frame.  Answers "am I in the
-      ;; main frame?" at a glance — the main frame has no title bar to
-      ;; carry any other indicator.
-      (defface mr-x/main-frame-badge-face
-        '((t :background "#458588" :foreground "#fbf1c7" :weight bold))
-        "Face for the ⌂ main-frame modeline badge (matches major-pane banner).")
+      ;; Modal indicator: the evil state as a plain, slightly enlarged
+      ;; letter (n/i/v/r/o/m/e) colored by the state face — no icon, no
+      ;; box, always renders regardless of font.  `doom-modeline--evil'
+      ;; ships as a `defsubst' that the compiled `modals' segment inlined,
+      ;; so we must clear the inline property AND rebuild the segment for
+      ;; our override to take effect.
+      (put 'doom-modeline--evil 'byte-optimizer nil)
+      (defun doom-modeline--evil ()
+        "The current evil state as a plain, slightly enlarged letter."
+        (when (bound-and-true-p evil-local-mode)
+          (let-alist (cond
+                      ((evil-normal-state-p)   '((face . doom-modeline-evil-normal-state)   (ltr . "n")))
+                      ((evil-emacs-state-p)    '((face . doom-modeline-evil-emacs-state)    (ltr . "e")))
+                      ((evil-insert-state-p)   '((face . doom-modeline-evil-insert-state)   (ltr . "i")))
+                      ((evil-motion-state-p)   '((face . doom-modeline-evil-motion-state)   (ltr . "m")))
+                      ((evil-visual-state-p)   '((face . doom-modeline-evil-visual-state)   (ltr . "v")))
+                      ((evil-operator-state-p) '((face . doom-modeline-evil-operator-state) (ltr . "o")))
+                      ((evil-replace-state-p)  '((face . doom-modeline-evil-replace-state)  (ltr . "r")))
+                      (t                       '((face . doom-modeline-evil-user-state)     (ltr . "u"))))
+            (propertize .ltr
+                        'face `(:inherit ,(doom-modeline-face .face) :height 1.25)
+                        'help-echo (evil-state-property evil-state :name t)))))
 
-      (doom-modeline-def-segment main-frame-badge
-        "Show a teal ⌂ chip on windows of the main frame."
-        (when (frame-parameter (selected-frame) 'mr-x-main-frame)
-          (propertize " ⌂ " 'face 'mr-x/main-frame-badge-face
-                      'help-echo "Main frame — pane home")))
+      ;; Rebuild the stock `modals' segment so it calls our override
+      ;; through the symbol instead of the inlined original.
+      (doom-modeline-def-segment modals
+        "Displays modal editing state.
+Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
+        (when doom-modeline-modal
+          (let* ((evil (doom-modeline--evil))
+                 (ow (doom-modeline--overwrite))
+                 (god (doom-modeline--god))
+                 (ryo (doom-modeline--ryo))
+                 (xf (doom-modeline--xah-fly-keys))
+                 (boon (doom-modeline--boon))
+                 (meow (doom-modeline--meow))
+                 (vsep (doom-modeline-vspc))
+                 (sep (and (or evil ow god ryo xf boon meow) (doom-modeline-spc))))
+            (concat sep
+                    (and evil (concat evil (and (or ow god ryo xf boon meow) vsep)))
+                    (and ow (concat ow (and (or god ryo xf boon meow) vsep)))
+                    (and god (concat god (and (or ryo xf boon meow) vsep)))
+                    (and ryo (concat ryo (and (or xf boon meow) vsep)))
+                    (and xf (concat xf (and (or boon meow) vsep)))
+                    (and boon (concat boon (and meow vsep)))
+                    meow
+                    sep))))
 
-      ;; doom-modeline's stock 'main layout with the badge spliced in
+      ;; Modeline color scheme "Deep Sea": near-black bg, aqua-blue file
+      ;; name + project pill, muted path.  Re-applied after any theme
+      ;; change so `load-theme' can't clobber it.
+      (defun mr-x/apply-modeline-scheme (&rest _)
+        "Recolor the modeline to the Deep Sea gruvbox scheme."
+        (set-face-attribute 'mode-line-active nil :background "#1d2021")
+        (set-face-attribute 'mode-line        nil :background "#1d2021")
+        (dolist (f '(doom-modeline-buffer-file doom-modeline-buffer-modified mode-line-buffer-id))
+          (when (facep f) (set-face-attribute f nil :foreground "#83a598")))
+        (when (facep 'doom-modeline-project-dir)
+          (set-face-attribute 'doom-modeline-project-dir nil :foreground "#83a598"))
+        (when (facep 'doom-modeline-buffer-path)
+          (set-face-attribute 'doom-modeline-buffer-path nil :foreground "#a89984")))
+      (mr-x/apply-modeline-scheme)
+      (add-hook 'enable-theme-functions #'mr-x/apply-modeline-scheme)
+
+      ;; doom-modeline's stock 'main layout
       (doom-modeline-def-modeline 'main
-        '(bar workspace-name window-number main-frame-badge modals matches
+        '(bar workspace-name window-number modals matches
           follow buffer-info remote-host buffer-position word-count parrot
           selection-info)
         '(compilation objed-state misc-info persp-name battery grip irc
@@ -1981,7 +2031,7 @@ The package's 1s poll timer forces modeline updates, so this ticks."
           indent-info buffer-encoding major-mode process vcs check time))
 
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar main-frame-badge modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
         '(buffer-position))
 
       (with-eval-after-load 'nerd-icons
@@ -1992,7 +2042,17 @@ The package's 1s poll timer forces modeline updates, so this ticks."
       (add-hook 'agent-shell-mode-hook
                 (lambda ()
                   (doom-modeline-set-modeline 'agent-shell-minimal)
-                  (face-remap-add-relative 'default :background "#1d2021"))))
+                  ;; chat pane sits a shade below the frame's #1d2021
+                  (face-remap-add-relative 'default :background "#101112")))
+
+      ;; Code rendering harmonized with the dark pane: the orange inline
+      ;; chips and fenced blocks drop their warm #3c3836 boxes for quiet
+      ;; dark panels sitting just above the pane bg.  agent-shell owns
+      ;; these faces, so set them once it has loaded.
+      (with-eval-after-load 'agent-shell
+        (set-face-attribute 'agent-shell-markdown-inline-code nil :background "#26292b")
+        (set-face-attribute 'agent-shell-markdown-source-block nil :background "#1a1d1e")
+        (set-face-attribute 'agent-shell-markdown-source-block-language nil :background "#1a1d1e")))
 
 
     ;; (set-face-attribute 'default nil :font "JuliaMono" :height 280)
@@ -2114,9 +2174,11 @@ Secondary frames: title bar + frame number."
                                (format "Emacs #%d" mr-x/frame-counter)))
       ;; This IS the main frame: queryable identity marker + the
       ;; major-pane soft-locks here (convos from scratch frames land in
-      ;; this frame's pane; s-i elsewhere jumps to it).  The ⌂ modeline
-      ;; badge renders wherever this parameter is set.
+      ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
+      ;; darker #1d2021 background so it's tellable apart from scratch
+      ;; frames at a glance (agent-shell panes go a shade darker still).
       (set-frame-parameter nil 'mr-x-main-frame t)
+      (set-frame-parameter nil 'background-color "#1d2021")
       (when (boundp 'major-pane-home-frame)
         (setq major-pane-home-frame (selected-frame)))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
@@ -4613,158 +4675,165 @@ _q_: quit
   :ensure t)
 
 
-(use-package markdown-mode
-  :ensure t
-  ;; Don't register .md here - poly-markdown-mode handles it (with code block highlighting)
-  :custom
-  (markdown-command "pandoc")
-  :config
-  ;; Gruvbox-styled markdown faces (matches preview CSS)
-  (custom-set-faces
-   ;; Headings - orange
-   '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
-   '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
-   '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
-   '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
-   '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
-   '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
-   ;; Code - aqua
-   '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
-   '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
-   '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
-   ;; Links - blue
-   '(markdown-link-face ((t (:foreground "#83a598"))))
-   '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
-   ;; Bold/Italic - yellow/purple
-   '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
-   '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
-   ;; Lists - green
-   '(markdown-list-face ((t (:foreground "#b8bb26"))))
-   ;; Blockquote - gray
-   '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
-   ;; Markup characters - dimmed
-   '(markdown-markup-face ((t (:foreground "#665c54"))))))
+  (use-package markdown-mode
+    :ensure t
+    ;; Don't register .md here - poly-markdown-mode handles it (with code block highlighting)
+    :custom
+    (markdown-command "pandoc")
+    :config
+    ;; Gruvbox-styled markdown faces (matches preview CSS)
+    (custom-set-faces
+     ;; Headings - orange
+     '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+     '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+     '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+     '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+     '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
+     '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
+     ;; Code - aqua
+     '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+     '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+     '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+     ;; Links - blue
+     '(markdown-link-face ((t (:foreground "#83a598"))))
+     '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
+     ;; Bold/Italic - yellow/purple
+     '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
+     '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
+     ;; Lists - green
+     '(markdown-list-face ((t (:foreground "#b8bb26"))))
+     ;; Blockquote - gray
+     '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
+     ;; Markup characters - dimmed
+     '(markdown-markup-face ((t (:foreground "#665c54"))))))
 
-;; Syntax highlighting in markdown code blocks
-(use-package polymode
-  :ensure t)
-
-(use-package poly-markdown
-  :ensure t
-  :after (polymode markdown-mode)
-  :mode ("\\.md\\'" . poly-markdown-mode)
-  :config
-  ;; Suppress org-element parser errors in polymode indirect buffers
-  ;; (org-mode chokes on markdown ** syntax in ```org code blocks)
-  (add-to-list 'warning-suppress-types '(org-element)))
-
-(use-package markdown-xwidget
-  :ensure (:host github
-           :repo "cfclrk/markdown-xwidget"
-           :files (:defaults "resources"))
-  :after markdown-mode
-  :bind (:map markdown-mode-map
-         ("C-c C-c x" . markdown-xwidget-preview-mode))
-  :custom
-  (markdown-xwidget-code-block-theme "gruvbox-dark-medium")
-  (markdown-xwidget-github-theme "dark")
-  :config
-  ;; Custom CSS files for markdown preview
-  (defvar mr-x/markdown-gruvbox-css-file
-    (expand-file-name "etc/markdown-gruvbox-claude.css" user-emacs-directory))
-  (defvar mr-x/agent-recall-css-file
-    (expand-file-name "etc/agent-recall-transcript.css" user-emacs-directory))
-  (defvar mr-x/agent-recall-js-file
-    (expand-file-name "etc/agent-recall-transcript.js" user-emacs-directory))
-
-  (defun mr-x/agent-recall-transcript-p ()
-    "Return non-nil if current buffer is an agent-shell transcript."
-    (and (buffer-file-name)
-         (fboundp 'agent-recall--transcript-file-p)
-         (agent-recall--transcript-file-p (buffer-file-name))))
-
-  ;; Override the enable function to include custom CSS
-  ;; and inject transcript JS when viewing agent-shell transcripts.
-  ;; The original function overwrites markdown-css-paths with only 2 files,
-  ;; so we must override it to include our custom CSS from the start.
-  (defun markdown-xwidget-preview-mode--enable ()
-    "Enable `markdown-xwidget-preview-mode' with custom CSS."
-    (let* ((github-theme (markdown-xwidget-github-css-path
-                          markdown-xwidget-github-theme))
-           (code-block-theme (markdown-xwidget-highlightjs-css-path
-                              markdown-xwidget-code-block-theme))
-           (header-html (markdown-xwidget-header-html
-                         markdown-xwidget-mermaid-theme))
-           (command (or markdown-xwidget-command markdown-command))
-           (is-transcript (mr-x/agent-recall-transcript-p))
-           (custom-css (if is-transcript
-                           mr-x/agent-recall-css-file
-                         mr-x/markdown-gruvbox-css-file)))
-
-      (if (not (featurep 'xwidget-internal))
-          (user-error "This Emacs does not support xwidgets!"))
-
-      ;; Save original and set CSS paths with appropriate custom CSS
-      (setq markdown-xwidget--markdown-css-paths-original markdown-css-paths)
-      (setq markdown-css-paths (list github-theme code-block-theme custom-css))
-
-      ;; Temporarily set markdown-command
-      (setq markdown-xwidget--markdown-command-original markdown-command)
-      (setq markdown-command command)
-
-      ;; Temporarily set markdown-live-preview-window-function
-      ;; Use xwidget-preview but display in same window
-      (setq markdown-xwidget--markdown-live-preview-window-function-original
-            markdown-live-preview-window-function)
-      (setq markdown-live-preview-window-function
-            (lambda (file)
-              (let ((buf (markdown-xwidget-preview file)))
-                (display-buffer buf '(display-buffer-same-window))
-                buf)))
-
-      ;; Temporarily set markdown-xhtml-header-content
-      ;; For transcripts, append the DOM-restructuring script
-      (setq markdown-xwidget--markdown-xhtml-header-content-original
-            markdown-xhtml-header-content)
-      (setq markdown-xhtml-header-content
-            (if is-transcript
-                (concat header-html
-                        "\n<script>\n"
-                        "window.addEventListener('load', function() {\n"
-                        (with-temp-buffer
-                          (insert-file-contents mr-x/agent-recall-js-file)
-                          (buffer-string))
-                        "\n});\n</script>")
-              header-html)))
-
-    (markdown-live-preview-mode 1))
+  ;; Syntax highlighting in markdown code blocks
+  (use-package polymode
+    :ensure t)
   
-  ;; Redirect preview HTML files to a dedicated directory
-  (defvar mr-x/markdown-preview-directory
-    (expand-file-name "var/markdown-previews" user-emacs-directory)
-    "Directory for markdown preview HTML files.")
-  
-  (defun mr-x/markdown-export-file-name-redirect (orig-fn &optional extension)
-    "Redirect markdown export files to `mr-x/markdown-preview-directory'."
-    (when-let ((original (funcall orig-fn extension)))
-      (unless (file-exists-p mr-x/markdown-preview-directory)
-        (make-directory mr-x/markdown-preview-directory t))
-      (expand-file-name (file-name-nondirectory original)
-                        mr-x/markdown-preview-directory)))
-  
-  (advice-add 'markdown-export-file-name :around
-              #'mr-x/markdown-export-file-name-redirect))
+  (use-package poly-markdown
+    :ensure t
+    :after (polymode markdown-mode)
+    :mode ("\\.md\\'" . poly-markdown-mode)
+    :config
+    ;; Suppress org-element parser errors in polymode indirect buffers
+    ;; (org-mode chokes on markdown ** syntax in ```org code blocks)
+    (add-to-list 'warning-suppress-types '(org-element)))
 
-  ;; Export markdown to gruvbox-themed PDF via pandoc
-  (defun my/md-to-pdf ()
-    "Export current markdown buffer to gruvbox PDF."
-    (interactive)
-    (let* ((input (buffer-file-name))
-           (output (concat (file-name-sans-extension input) ".pdf"))
-           (script (expand-file-name "~/roaming/futura-renaissance/pax-paints/to-pdf.sh")))
-      (save-buffer)
-      (shell-command (format "%s %s %s" script (shell-quote-argument input) (shell-quote-argument output)))
-      (message "Exported: %s" output)))
+  (use-package markdown-xwidget
+    :ensure (:host github
+             :repo "cfclrk/markdown-xwidget"
+             :files (:defaults "resources"))
+    :after markdown-mode
+    :bind (:map markdown-mode-map
+           ("C-c C-c x" . markdown-xwidget-preview-mode))
+    :custom
+    (markdown-xwidget-code-block-theme "gruvbox-dark-medium")
+    (markdown-xwidget-github-theme "dark")
+    :config
+    ;; Custom CSS files for markdown preview
+    (defvar mr-x/markdown-gruvbox-css-file
+      (expand-file-name "etc/markdown-gruvbox-claude.css" user-emacs-directory))
+    (defvar mr-x/agent-recall-css-file
+      (expand-file-name "etc/agent-recall-transcript.css" user-emacs-directory))
+    (defvar mr-x/agent-recall-js-file
+      (expand-file-name "etc/agent-recall-transcript.js" user-emacs-directory))
+
+    (defun mr-x/agent-recall-transcript-p ()
+      "Return non-nil if current buffer is an agent-shell transcript.
+Matches by path via agent-recall when available, otherwise sniffs the
+\"# Agent Shell Transcript\" header line every transcript starts with,
+so cleaned/copied transcripts outside .agent-shell/transcripts/ still
+get the transcript preview styling."
+      (or (and (buffer-file-name)
+               (fboundp 'agent-recall--transcript-file-p)
+               (agent-recall--transcript-file-p (buffer-file-name)))
+          (save-excursion
+            (goto-char (point-min))
+            (looking-at-p "# Agent Shell Transcript"))))
+
+    ;; Override the enable function to include custom CSS
+    ;; and inject transcript JS when viewing agent-shell transcripts.
+    ;; The original function overwrites markdown-css-paths with only 2 files,
+    ;; so we must override it to include our custom CSS from the start.
+    (defun markdown-xwidget-preview-mode--enable ()
+      "Enable `markdown-xwidget-preview-mode' with custom CSS."
+      (let* ((github-theme (markdown-xwidget-github-css-path
+                            markdown-xwidget-github-theme))
+             (code-block-theme (markdown-xwidget-highlightjs-css-path
+                                markdown-xwidget-code-block-theme))
+             (header-html (markdown-xwidget-header-html
+                           markdown-xwidget-mermaid-theme))
+             (command (or markdown-xwidget-command markdown-command))
+             (is-transcript (mr-x/agent-recall-transcript-p))
+             (custom-css (if is-transcript
+                             mr-x/agent-recall-css-file
+                           mr-x/markdown-gruvbox-css-file)))
+
+        (if (not (featurep 'xwidget-internal))
+            (user-error "This Emacs does not support xwidgets!"))
+
+        ;; Save original and set CSS paths with appropriate custom CSS
+        (setq markdown-xwidget--markdown-css-paths-original markdown-css-paths)
+        (setq markdown-css-paths (list github-theme code-block-theme custom-css))
+
+        ;; Temporarily set markdown-command
+        (setq markdown-xwidget--markdown-command-original markdown-command)
+        (setq markdown-command command)
+
+        ;; Temporarily set markdown-live-preview-window-function
+        ;; Use xwidget-preview but display in same window
+        (setq markdown-xwidget--markdown-live-preview-window-function-original
+              markdown-live-preview-window-function)
+        (setq markdown-live-preview-window-function
+              (lambda (file)
+                (let ((buf (markdown-xwidget-preview file)))
+                  (display-buffer buf '(display-buffer-same-window))
+                  buf)))
+
+        ;; Temporarily set markdown-xhtml-header-content
+        ;; For transcripts, append the DOM-restructuring script
+        (setq markdown-xwidget--markdown-xhtml-header-content-original
+              markdown-xhtml-header-content)
+        (setq markdown-xhtml-header-content
+              (if is-transcript
+                  (concat header-html
+                          "\n<script>\n"
+                          "window.addEventListener('load', function() {\n"
+                          (with-temp-buffer
+                            (insert-file-contents mr-x/agent-recall-js-file)
+                            (buffer-string))
+                          "\n});\n</script>")
+                header-html)))
+
+      (markdown-live-preview-mode 1))
+    
+    ;; Redirect preview HTML files to a dedicated directory
+    (defvar mr-x/markdown-preview-directory
+      (expand-file-name "var/markdown-previews" user-emacs-directory)
+      "Directory for markdown preview HTML files.")
+    
+    (defun mr-x/markdown-export-file-name-redirect (orig-fn &optional extension)
+      "Redirect markdown export files to `mr-x/markdown-preview-directory'."
+      (when-let ((original (funcall orig-fn extension)))
+        (unless (file-exists-p mr-x/markdown-preview-directory)
+          (make-directory mr-x/markdown-preview-directory t))
+        (expand-file-name (file-name-nondirectory original)
+                          mr-x/markdown-preview-directory)))
+    
+    (advice-add 'markdown-export-file-name :around
+                #'mr-x/markdown-export-file-name-redirect))
+
+    ;; Export markdown to gruvbox-themed PDF via pandoc
+    (defun my/md-to-pdf ()
+      "Export current markdown buffer to gruvbox PDF."
+      (interactive)
+      (let* ((input (buffer-file-name))
+             (output (concat (file-name-sans-extension input) ".pdf"))
+             (script (expand-file-name "~/roaming/futura-renaissance/pax-paints/to-pdf.sh")))
+        (save-buffer)
+        (shell-command (format "%s %s %s" script (shell-quote-argument input) (shell-quote-argument output)))
+        (message "Exported: %s" output)))
 
 
 
