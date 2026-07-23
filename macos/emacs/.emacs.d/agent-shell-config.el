@@ -1031,7 +1031,9 @@ the session picker, then spawns shells staggered 3s apart."
          "c x c" '(agent-shell-refs-clear :wk "Clear refs")
          "c x p" '(agent-shell-refs-preview :wk "Preview refs")
          "c x d" '(agent-shell-refs-remove :wk "Remove ref")
-         "c g" '(goose-scope :wk "Goose scope panel")))
+         ;; Lowercase g starts a local Goose convo; capital G watches it.
+         "c g" '(mr-x/goose-local-start :wk "Goose convo (local)")
+         "c G" '(goose-scope :wk "Goose scope panel")))
 
 
       ;; Agent Shell Tool Group - Collapse consecutive tool calls under foldable headers
@@ -1147,6 +1149,7 @@ the session picker, then spawns shells staggered 3s apart."
         :custom
         (agent-recall-search-paths '("~"))
         (agent-recall-search-function 'deadgrep)
+        (agent-recall-consult-sort-order 'date-descending)
         (agent-recall-browse-sort 'modified-desc)
         (agent-recall-browse-preview t)
         :hook (agent-shell-mode . agent-recall-track-sessions))
@@ -1177,15 +1180,24 @@ the session picker, then spawns shells staggered 3s apart."
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
+                   major-pane-eject-conversation
+                   major-pane-adopt-conversation
                    major-pane-exclude-buffer
                    major-pane-swap-buffer
                    major-pane-set-label
                    major-pane-pick-buffer
-                   major-pane-send-region
-                   major-pane-send-region-no-switch
-                   major-pane-send-file
-                   major-pane-send-other-file
-                   major-pane-send-screenshot))
+                   major-pane-goto-conversation))
+
+      ;; Send commands (region/file/screenshot → conversation) live in
+      ;; lisp/mr-x-agent-send.el — content routing, not pane management.
+      ;; They use major-pane only for the picker and goto.
+      (use-package mr-x-agent-send
+        :ensure nil
+        :commands (mr-x/agent-send-region
+                   mr-x/agent-send-region-no-switch
+                   mr-x/agent-send-file
+                   mr-x/agent-send-other-file
+                   mr-x/agent-send-screenshot))
 
       (use-package agent-shell-macext
         :ensure (:host github :repo "cxa/agent-shell-macext")
