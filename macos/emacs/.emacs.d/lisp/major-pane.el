@@ -163,6 +163,14 @@ inherit `nerd-icons-silver').  Foreground intentionally matches
 `major-pane-banner's background so the icon reads as part of the chrome."
   :group 'major-pane)
 
+(defface major-pane-conversation
+  '((t :background "#101112"))
+  "Face remapped over `default' in registered conversations.
+A shade below the frame's #1d2021 so pane members read as a distinct
+surface.  Applied on register and removed on unregister (kill, eject),
+so ejected or excluded agent-shell buffers keep the frame background."
+  :group 'major-pane)
+
 (defface major-pane-launcher-title
   '((t :weight bold :height 1.3))
   "Face for the launcher panel title."
@@ -278,13 +286,32 @@ or the `major-pane-buffer-pattern' name fallback; the
                   major-pane-modes)
            (string-match-p major-pane-buffer-pattern (buffer-name buffer)))))
 
+(defvar-local major-pane--bg-cookie nil
+  "Face-remap cookie for the `major-pane-conversation' background.")
+
+(defun major-pane--apply-conversation-background (buffer)
+  "Remap BUFFER's `default' face to `major-pane-conversation'."
+  (with-current-buffer buffer
+    (unless major-pane--bg-cookie
+      (setq major-pane--bg-cookie
+            (face-remap-add-relative 'default 'major-pane-conversation)))))
+
+(defun major-pane--remove-conversation-background (buffer)
+  "Restore BUFFER's normal `default' face."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when major-pane--bg-cookie
+        (face-remap-remove-relative major-pane--bg-cookie)
+        (setq major-pane--bg-cookie nil)))))
+
 (defun major-pane--register-conversation (buffer)
   "Append BUFFER to the conversations list if eligible.
 Does nothing when BUFFER is already registered or excluded."
   (when (and (major-pane--conversation-p buffer)
              (not (memq buffer (major-pane-state-conversations major-pane--state))))
     (setf (major-pane-state-conversations major-pane--state)
-          (append (major-pane-state-conversations major-pane--state) (list buffer)))))
+          (append (major-pane-state-conversations major-pane--state) (list buffer)))
+    (major-pane--apply-conversation-background buffer)))
 
 (defun major-pane--unregister-conversation ()
   "Remove the current buffer from the conversations list.
@@ -296,6 +323,7 @@ if it was last).  When no conversations remain, clear active."
     (when pos
       (setf (major-pane-state-conversations major-pane--state)
             (delq buf convos))
+      (major-pane--remove-conversation-background buf)
       (remhash buf major-pane--labels)
       (when (eq buf (major-pane-state-active major-pane--state))
         (let ((remaining (major-pane-state-conversations major-pane--state)))
