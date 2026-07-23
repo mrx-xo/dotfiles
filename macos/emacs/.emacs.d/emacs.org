@@ -2713,34 +2713,15 @@ Secondary frames keep =*scratch*= as before.
 
 #+begin_src emacs-lisp
 
-  (defun mr-x/fetch--center ()
-    "Center the *fetch* content in its window.
-Horizontal via a buffer-local `line-prefix', vertical via blank
-lines above the content.  Registered on a buffer-local
-`window-configuration-change-hook', so it re-centers whenever the
-buffer is displayed or the window is resized."
-    (when-let ((win (get-buffer-window (current-buffer))))
-      (let ((inhibit-read-only t)
-            (width 0)
-            height)
-        (save-excursion
-          ;; Strip any previous vertical padding, then measure content.
-          (goto-char (point-min))
-          (skip-chars-forward "\n")
-          (delete-region (point-min) (point))
-          (goto-char (point-min))
-          (while (not (eobp))
-            (end-of-line)
-            (setq width (max width (current-column)))
-            (forward-line 1))
-          (setq height (count-lines (point-min) (point-max)))
-          (setq-local line-prefix
-                      (make-string
-                       (max 0 (/ (- (window-body-width win) width) 2)) ?\s))
-          (goto-char (point-min))
-          (insert (make-string
-                   (max 0 (/ (- (window-body-height win) height) 2)) ?\n)))
-        (set-buffer-modified-p nil))))
+  (defvar-local mr-x/fetch--logo nil
+    "Raw ANSI logo lines for the current *fetch* buffer.")
+  (defvar-local mr-x/fetch--info nil
+    "Raw ANSI info lines for the current *fetch* buffer.")
+  (defvar-local mr-x/fetch--mode nil
+    "Current splash layout: `wide', `stack' or `logo'.")
+
+  (defconst mr-x/fetch--gap 3
+    "Columns between logo and info in the wide layout.")
 
   (defun mr-x/fetch--run (&rest args)
     "Run fastfetch with ARGS, returning raw (ANSI-coded) output."
@@ -2752,39 +2733,48 @@ buffer is displayed or the window is resized."
     "Display width of S with ANSI escape codes ignored."
     (string-width (ansi-color-filter-apply s)))
 
-  (defun mr-x/fetch--compose ()
+  (defun mr-x/fetch--block-width (lines)
+    "Widest visible line in LINES."
+    (apply #'max (mapcar #'mr-x/fetch--visible-width lines)))
+
+  (defun mr-x/fetch--parts ()
+    "Run fastfetch twice and store raw logo/info lines buffer-locally.
+fastfetch does its side-by-side layout with cursor-movement escapes,
+which ansi-color strips rather than interprets — fetching the parts
+separately lets us do the column math (and responsive layouts) here."
+    (let ((trim "\\(?:\e\\[[0-9;]*m\\|[ \t\n]\\)+\\'"))
+      (setq mr-x/fetch--logo
+            (split-string
+             (replace-regexp-in-string
+              trim "" (replace-regexp-in-string
+                       "\e\\[[0-9;]*[ABCDG]" ""
+                       (mr-x/fetch--run "--structure" "break")))
+             "\n"))
+      (setq mr-x/fetch--info
+            (split-string
+             (replace-regexp-in-string
+              trim "" (mr-x/fetch--run
+                       "--logo" "none" "--structure"
+                       "title:separator:os:kernel:uptime:packages:shell:cpu:memory"))
+             "\n"))))
+
+  (defun mr-x/fetch--compose-wide ()
     "Logo and info side by side as one raw ANSI string.
-fastfetch normally does this layout with cursor-movement escapes,
-which ansi-color strips rather than interprets — so run it twice
-(logo only, info only) and do the column math here.  The logo's SGR
-color state spans lines, so carry it across the interleaved info
-text and reset at each line end."
-    (let* ((logo-raw (replace-regexp-in-string
-                      "\e\\[[0-9;]*[ABCDG]" ""
-                      (mr-x/fetch--run "--structure" "break")))
-           (info-raw (mr-x/fetch--run
-                      "--logo" "none" "--structure"
-                      "title:separator:os:kernel:uptime:packages:shell:cpu:memory"))
-           (trim "\\(?:\e\\[[0-9;]*m\\|[ \t\n]\\)+\\'")
-           (logo-lines (split-string
-                        (replace-regexp-in-string trim "" logo-raw) "\n"))
-           (info-lines (split-string
-                        (replace-regexp-in-string trim "" info-raw) "\n"))
-           (logo-width (apply #'max (mapcar #'mr-x/fetch--visible-width
-                                            logo-lines)))
-           (gap 3)
-           (state "")
-           out)
-      (dotimes (i (max (length logo-lines) (length info-lines)))
-        (let ((ll (or (nth i logo-lines) ""))
-              (il (or (nth i info-lines) ""))
+The logo's SGR color state spans lines, so carry it across the
+interleaved info text and reset at each line end."
+    (let ((logo-width (mr-x/fetch--block-width mr-x/fetch--logo))
+          (state "")
+          out)
+      (dotimes (i (max (length mr-x/fetch--logo) (length mr-x/fetch--info)))
+        (let ((ll (or (nth i mr-x/fetch--logo) ""))
+              (il (or (nth i mr-x/fetch--info) ""))
               (pos 0))
           (push (if (string-empty-p il)
                     (concat state ll "\e[0m")
                   (concat state ll "\e[0m"
                           (make-string (+ (- logo-width
                                              (mr-x/fetch--visible-width ll))
-                                          gap)
+                                          mr-x/fetch--gap)
                                        ?\s)
                           il))
                 out)
@@ -2796,28 +2786,109 @@ text and reset at each line end."
               (setq state (concat state (match-string 0 ll)))))))
       (concat (mapconcat #'identity (nreverse out) "\n") "\n")))
 
+  (defun mr-x/fetch--compose-stack (with-info)
+    "Logo with the info block below it (when WITH-INFO non-nil).
+Each block is centered within the combined width."
+    (let* ((lw (mr-x/fetch--block-width mr-x/fetch--logo))
+           (iw (if with-info (mr-x/fetch--block-width mr-x/fetch--info) 0))
+           (bw (max lw iw))
+           (lpad (make-string (/ (- bw lw) 2) ?\s))
+           (ipad (make-string (/ (- bw iw) 2) ?\s)))
+      (concat (mapconcat (lambda (l) (concat lpad l))
+                         mr-x/fetch--logo "\n")
+              "\e[0m\n"
+              (when with-info
+                (concat "\n"
+                        (mapconcat (lambda (l) (concat ipad l))
+                                   mr-x/fetch--info "\n")
+                        "\n")))))
+
+  (defun mr-x/fetch--desired-mode (win)
+    "Layout that fits WIN: side-by-side, stacked, or logo-only.
+The apple never goes — logo-only is the floor even when it clips."
+    (cond ((>= (window-body-width win)
+               (+ (mr-x/fetch--block-width mr-x/fetch--logo)
+                  mr-x/fetch--gap
+                  (mr-x/fetch--block-width mr-x/fetch--info)))
+           'wide)
+          ((>= (window-body-height win)
+               (+ (length mr-x/fetch--logo) 1 (length mr-x/fetch--info)))
+           'stack)
+          (t 'logo)))
+
+  (defun mr-x/fetch--render ()
+    "Erase and re-insert the splash for the current layout mode."
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      ;; ansi-color colorizes via overlays here, which erase-buffer
+      ;; leaves behind — clear them before re-running.
+      (remove-overlays)
+      (insert (pcase mr-x/fetch--mode
+                ('wide (mr-x/fetch--compose-wide))
+                ('stack (mr-x/fetch--compose-stack t))
+                (_ (mr-x/fetch--compose-stack nil))))
+      (ansi-color-apply-on-region (point-min) (point-max))
+      (goto-char (point-min))))
+
+  (defun mr-x/fetch--center (win)
+    "Center the buffer content in WIN.
+Horizontal via a buffer-local `line-prefix', vertical via blank
+lines above the content."
+    (let ((inhibit-read-only t)
+          (width 0)
+          height)
+      (save-excursion
+        ;; Strip any previous vertical padding, then measure content.
+        (goto-char (point-min))
+        (skip-chars-forward "\n")
+        (delete-region (point-min) (point))
+        (goto-char (point-min))
+        (while (not (eobp))
+          (end-of-line)
+          (setq width (max width (current-column)))
+          (forward-line 1))
+        (setq height (count-lines (point-min) (point-max)))
+        (setq-local line-prefix
+                    (make-string
+                     (max 0 (/ (- (window-body-width win) width) 2)) ?\s))
+        (goto-char (point-min))
+        (insert (make-string
+                 (max 0 (/ (- (window-body-height win) height) 2)) ?\n)))
+      (set-buffer-modified-p nil)))
+
+  (defun mr-x/fetch--layout ()
+    "Fit the splash to its window; runs on window-configuration changes.
+Wide window → logo and info side by side; too narrow → info drops
+below the logo; too short for that stack → info goes entirely and
+the apple stands alone (absolute minimum)."
+    (when-let ((win (get-buffer-window (current-buffer))))
+      (when mr-x/fetch--logo
+        (let ((want (mr-x/fetch--desired-mode win)))
+          (unless (eq want mr-x/fetch--mode)
+            (setq mr-x/fetch--mode want)
+            (mr-x/fetch--render))))
+      (mr-x/fetch--center win)))
+
   (defun mr-x/fetch-buffer ()
     "Return a fresh *fetch* buffer with fastfetch system info.
 Falls back to a one-liner if fastfetch isn't installed."
     (let ((buf (get-buffer-create "*fetch*")))
       (with-current-buffer buf
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          ;; ansi-color is configured to colorize via overlays, which
-          ;; erase-buffer leaves behind — clear them before re-running.
-          (remove-overlays)
-          (if (executable-find "fastfetch")
-              (progn
-                (require 'ansi-color)
-                (insert (mr-x/fetch--compose))
-                (ansi-color-apply-on-region (point-min) (point-max)))
-            (insert (format "%s@%s · Emacs %s\n"
-                            (user-login-name) (system-name) emacs-version)))
-          (goto-char (point-min)))
+        ;; special-mode first — it kills local variables and hooks.
         (special-mode)
-        ;; special-mode kills local variables/hooks — register after it.
         (setq-local truncate-lines t)  ;; never wrap the splash
-        (add-hook 'window-configuration-change-hook #'mr-x/fetch--center nil t))
+        (add-hook 'window-configuration-change-hook #'mr-x/fetch--layout nil t)
+        (if (executable-find "fastfetch")
+            (progn
+              (require 'ansi-color)
+              (mr-x/fetch--parts)
+              (setq mr-x/fetch--mode 'wide)
+              (mr-x/fetch--render))
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (format "%s@%s · Emacs %s\n"
+                            (user-login-name) (system-name) emacs-version))
+            (goto-char (point-min)))))
       buf))
 
   ;; Main (sole GUI) frame lands on the fetch splash; secondary frames
