@@ -252,4 +252,20 @@ if (Test-Path $syncthing) {
     Write-Host "Syncthing not found (scoop install syncthing) - skipping autostart." -ForegroundColor Yellow
 }
 
+# ---------------------------------------------------------------------------
+# Machine identity (fleet-wide convention, see machines/ in the repo root).
+# ~/.config/machine-id is the source of truth read by `whereami` and agents
+# landing here over SSH (which get Git Bash, where $HOME/.config resolves).
+# MACHINE_ID is also set as a user env var so PowerShell sessions see it.
+# ---------------------------------------------------------------------------
+$configDir = "$env:USERPROFILE\.config"
+if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Force -Path $configDir | Out-Null }
+$machineIdFile = "$configDir\machine-id"
+if (-not (Test-Path $machineIdFile)) {
+    # -NoNewline + ASCII: Git Bash `cat` chokes on BOM/CRLF from Set-Content defaults
+    [System.IO.File]::WriteAllText($machineIdFile, "vengeance`n", [System.Text.Encoding]::ASCII)
+    Write-Host "Wrote $machineIdFile (vengeance)" -ForegroundColor Green
+}
+[Environment]::SetEnvironmentVariable("MACHINE_ID", "vengeance", "User")
+
 Write-Host "`nDone. Your live configs now point at the repo." -ForegroundColor Cyan

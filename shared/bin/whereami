@@ -1,0 +1,36 @@
+#!/bin/sh
+# whereami — print this machine's identity + agent-facing facts.
+#
+# The one command an agent (or human) runs after landing on a box:
+#   $ whereami
+#   machine-id: mrx2
+#   <contents of the facts file>
+#
+# Identity source of truth: ~/.config/machine-id (one word, written by
+# bootstrap). Facts come from the dotfiles repo (machines/<id>.md) when the
+# repo is cloned here, else from a locally deployed ~/.config/machine-facts.md
+# (used on boxes like home-lab that don't clone the repo).
+
+ID_FILE="$HOME/.config/machine-id"
+ID=$(cat "$ID_FILE" 2>/dev/null)
+
+if [ -z "$ID" ]; then
+    echo "machine-id: unknown (no $ID_FILE)"
+    echo "hostname:   $(hostname)"
+    echo
+    echo "Set it up: echo '<id>' > $ID_FILE   # e.g. mrx, mrx2, vengeance, home-lab"
+    exit 1
+fi
+
+echo "machine-id: $ID"
+
+for f in "$HOME/.dotfiles/machines/$ID.md" "$HOME/.config/machine-facts.md"; do
+    if [ -f "$f" ]; then
+        echo
+        cat "$f"
+        exit 0
+    fi
+done
+
+echo "(no facts file found — expected ~/.dotfiles/machines/$ID.md or ~/.config/machine-facts.md)"
+exit 1

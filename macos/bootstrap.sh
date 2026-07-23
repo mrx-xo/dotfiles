@@ -77,6 +77,7 @@ if [ "$REPO_ROOT" != "$HOME/.dotfiles" ]; then
 fi
 
 ln -sf "$DOTDIR/.zshrc" "$HOME/.zshrc"
+ln -sf "$DOTDIR/.zshenv" "$HOME/.zshenv"
 ln -sf "$DOTDIR/yabai/yabairc" "$HOME/.yabairc"
 ln -sf "$DOTDIR/skhd/skhdrc" "$HOME/.skhdrc"
 ln -sf "$DOTDIR/sketchybar" "$HOME/.config/sketchybar"
@@ -84,6 +85,21 @@ ln -sf "$DOTDIR/borders" "$HOME/.config/borders"
 ln -sfn "$DOTDIR/ghostty" "$HOME/.config/ghostty"
 ln -sfn "$DOTDIR/nvim" "$HOME/.config/nvim"
 ln -sf "$DOTDIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
+
+# whereami — fleet-wide machine identity helper (shared/, not macos/)
+mkdir -p "$HOME/.local/bin"
+ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
+
+# ── Machine identity ─────────────────────────────────────
+# ~/.config/machine-id is the fleet-wide source of truth for "which machine
+# am I on" — read by ~/.zshenv (exports MACHINE_ID), `whereami`, and any
+# agent that lands here over SSH. Facts files live in machines/<id>.md.
+if [ ! -f "$HOME/.config/machine-id" ]; then
+    DEFAULT_ID="$(scutil --get ComputerName 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+    read -r -p "Machine id for this box [${DEFAULT_ID}]: " MACHINE_ID_INPUT
+    echo "${MACHINE_ID_INPUT:-$DEFAULT_ID}" > "$HOME/.config/machine-id"
+    echo "Wrote ~/.config/machine-id: $(cat "$HOME/.config/machine-id")"
+fi
 
 # Emacs LaunchAgents — generated from templates, not symlinked: launchd can't
 # expand ~ or env vars in ProgramArguments, so bake this machine's $HOME into

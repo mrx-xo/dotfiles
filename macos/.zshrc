@@ -58,8 +58,14 @@ export LSCOLORS="gxfxcxdxbxegedabagacad"
 alias ls='ls -G'
 
 
-# Per-machine prompt name: override in ~/.zshrc.local (see .zshrc.local.example)
-PROMPT_NAME="${PROMPT_NAME:-MrX2}"
+# Per-machine prompt name, derived from machine identity.
+# MACHINE_ID is exported in ~/.zshenv (source of truth: ~/.config/machine-id).
+# Run `whereami` for the full facts file. ~/.zshrc.local can still override.
+case "${MACHINE_ID:-unknown}" in
+  mrx)  PROMPT_NAME="${PROMPT_NAME:-MrX}" ;;
+  mrx2) PROMPT_NAME="${PROMPT_NAME:-MrX2}" ;;
+  *)    PROMPT_NAME="${PROMPT_NAME:-${MACHINE_ID:-?}}" ;;
+esac
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local
 PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f %F{212}𐆖%f "
 

@@ -5,14 +5,14 @@
 # Wakes the M4 via the always-on home server (WoL relay over Tailscale),
 # waits for boot + tailnet reconnect, then opens the acp-mobile UI.
 #
-# Prereqs on the home server: `wakeonlan` installed, SSH reachable over
-# Tailscale as "homeserver" (set up an ~/.ssh/config Host entry).
+# Prereqs on the home server: `wakeonlan` installed (verified 2026-07-22),
+# SSH reachable as "homelab" (the fleet alias — see machines/home-lab.md).
 set -euo pipefail
 
 # M4 wired Ethernet (en8, USB 10/100/1G/2.5G LAN) — the interface holding
 # the default route. Re-check with: networksetup -listallhardwareports
 M4_MAC="98:fc:84:e9:ab:e7"
-HOMESERVER="${HOMESERVER:-homeserver}"
+HOMESERVER="${HOMESERVER:-homelab}"
 LINK_URL="${ACP_LINK_URL:-http://mrx.tail9179e0.ts.net:8090}"
 
 ssh "$HOMESERVER" "wakeonlan $M4_MAC"
