@@ -2816,6 +2816,7 @@ Falls back to a one-liner if fastfetch isn't installed."
           (goto-char (point-min)))
         (special-mode)
         ;; special-mode kills local variables/hooks — register after it.
+        (setq-local truncate-lines t)  ;; never wrap the splash
         (add-hook 'window-configuration-change-hook #'mr-x/fetch--center nil t))
       buf))
 
