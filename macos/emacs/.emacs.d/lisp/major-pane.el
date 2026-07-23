@@ -42,8 +42,18 @@
   :type '(choice (const left) (const right))
   :group 'major-pane)
 
-(defcustom major-pane-buffer-pattern "Claude Agent @"
-  "Regex pattern to identify agent-shell buffers."
+(defcustom major-pane-modes '(agent-shell-mode)
+  "Major modes whose buffers count as pane conversations.
+Derived modes match too.  The authoritative membership signal —
+`major-pane-buffer-pattern' is only a mode-free fallback (fake
+buffers in tests/labs, buffers created before their mode is set)."
+  :type '(repeat symbol)
+  :group 'major-pane)
+
+(defcustom major-pane-buffer-pattern "Agent @ "
+  "Regex fallback identifying agent conversation buffers by name.
+agent-shell names buffers \"<Agent> Agent @ <project>\" for every
+agent type (Claude, Goose, ...), so this matches them all."
   :type 'string
   :group 'major-pane)
 
@@ -247,16 +257,25 @@ and `major-pane-toggle' elsewhere jumps to it instead of stealing it."
        (eq buffer (major-pane-state-active major-pane--state))))
 
 (defvar-local major-pane--excluded nil
-  "When non-nil, this buffer is invisible to `major-pane-toggle'.")
+  "When non-nil, this buffer is invisible to `major-pane-toggle'.
+The symbol `ejected' means the user sent it out of the pane with
+`major-pane-eject-conversation' (and it can be adopted back);
+any other non-nil value marks a deliberately hidden background
+session (see `major-pane-exclude-buffer').")
 
 
 ;;; Conversations lifecycle
 
 (defun major-pane--conversation-p (buffer)
-  "Non-nil when BUFFER is an agent-shell buffer eligible for the conversations list."
+  "Non-nil when BUFFER is eligible for the conversations list.
+Membership: any mode in `major-pane-modes' (derived modes included),
+or the `major-pane-buffer-pattern' name fallback; the
+`major-pane--excluded' flag vetoes either."
   (and (buffer-live-p buffer)
        (not (buffer-local-value 'major-pane--excluded buffer))
-       (or (eq (buffer-local-value 'major-mode buffer) 'agent-shell-mode)
+       (or (apply #'provided-mode-derived-p
+                  (buffer-local-value 'major-mode buffer)
+                  major-pane-modes)
            (string-match-p major-pane-buffer-pattern (buffer-name buffer)))))
 
 (defun major-pane--register-conversation (buffer)
@@ -303,7 +322,11 @@ prompts for a label."
                          (unless (string-empty-p input)
                            (puthash buf input major-pane--labels)))))))))
 
-(add-hook 'agent-shell-mode-hook #'major-pane--on-agent-shell-mode)
+;; Register on every mode in `major-pane-modes' — derived modes fire the
+;; parent's hook too, so agent-shell derivatives are covered by the one
+;; entry; genuinely foreign modes added to the list get their own hook.
+(dolist (mode major-pane-modes)
+  (add-hook (intern (format "%s-hook" mode)) #'major-pane--on-agent-shell-mode))
 
 ;;; Labels
 
@@ -314,11 +337,15 @@ should read/write this table for consistent labels everywhere.")
 
 (defun major-pane--display-name (buf)
   "Return display name for buffer BUF.
-Shows label + dimmed buffer name if labeled, otherwise just buffer name."
+Shows label + dimmed buffer name if labeled, otherwise just buffer
+name.  Ejected conversations get a dim ⏏ suffix."
   (let ((label (gethash buf major-pane--labels)))
-    (if label
-        (concat label "  " (propertize (buffer-name buf) 'face 'major-pane-dim))
-      (buffer-name buf))))
+    (concat
+     (if label
+         (concat label "  " (propertize (buffer-name buf) 'face 'major-pane-dim))
+       (buffer-name buf))
+     (when (eq 'ejected (buffer-local-value 'major-pane--excluded buf))
+       (propertize "  ⏏ ejected" 'face 'major-pane-dim)))))
 
 ;;;###autoload
 (defun major-pane-set-label ()
@@ -854,6 +881,104 @@ Otherwise, prompts with the picker."
           (with-selected-window win (bury-buffer))
         (delete-window win)))))
 
+;;; Eject / adopt
+;;
+;; Ejecting sends a conversation OUT of the pane into the main window
+;; area: it is unregistered (tabs, toggle, pickers, and the
+;; display-buffer routing all ignore it) and shown in a regular
+;; window, where it behaves like any other buffer.  Adopting is the
+;; inverse: the buffer re-registers and returns to the pane.
+
+(defun major-pane--eject-target-window ()
+  "Return a main-area window on the selected frame for an ejected buffer.
+Prefers the most recently used non-pane window; when the pane is the
+only window, splits a main area off beside it."
+  (or (seq-find (lambda (w) (not (window-parameter w 'major-pane)))
+                (sort (window-list (selected-frame) 'nomini)
+                      (lambda (a b) (> (window-use-time a)
+                                       (window-use-time b)))))
+      (split-window (frame-root-window)
+                    nil
+                    (if (eq major-pane-direction 'left) 'right 'left))))
+
+(defun major-pane--do-eject (buf)
+  "Unregister BUF from the pane and display it in a main window."
+  (let* ((win (major-pane--pane-window))
+         (was-shown (and (window-live-p win) (eq (window-buffer win) buf))))
+    (with-current-buffer buf
+      ;; Keep the label across eject so adopting back restores it
+      ;; (unregister clears it).
+      (let ((label (gethash buf major-pane--labels)))
+        (major-pane--unregister-conversation)
+        (when label (puthash buf label major-pane--labels)))
+      (setq-local major-pane--excluded 'ejected)
+      (major-pane--disable-pane-chrome))
+    (when was-shown
+      (set-window-dedicated-p win nil)
+      (if-let ((next (major-pane-state-active major-pane--state)))
+          (progn (set-window-buffer win next)
+                 (set-window-dedicated-p win 'soft))
+        ;; Last conversation left: retire the pane.
+        (setf (major-pane-state-mode major-pane--state) 'hidden
+              (major-pane-state-saved-winconf major-pane--state) nil)
+        (set-window-parameter win 'major-pane nil)
+        (set-window-parameter win 'tab-line-format nil)
+        (set-window-parameter win 'header-line-format nil)
+        (unless (eq win (frame-root-window (window-frame win)))
+          (delete-window win))))
+    (select-window (major-pane--eject-target-window))
+    (switch-to-buffer buf)))
+
+;;;###autoload
+(defun major-pane-eject-conversation ()
+  "Eject a conversation from the major-pane into the main window area.
+The buffer is unregistered — pane tabs, `major-pane-toggle', the
+pickers, and the display-buffer routing all ignore it from here on —
+and shown in a regular (non-pane) window, creating one when the pane
+is alone on the frame.  When focus is in the pane, ejects the active
+conversation; otherwise prompts with the picker.  Bring it back with
+`major-pane-adopt-conversation'."
+  (interactive)
+  (if (major-pane--in-pane-p (current-buffer))
+      (major-pane--do-eject (current-buffer))
+    (major-pane-pick-buffer #'major-pane--do-eject 'eject)))
+
+(defun major-pane--do-adopt (buf)
+  "Re-register ejected BUF and display it in the pane.
+Main windows that showed BUF switch back to their previous buffer.
+Returns the pane window."
+  (with-current-buffer buf
+    (setq-local major-pane--excluded nil))
+  (major-pane--register-conversation buf)
+  (let ((win (major-pane-display-buffer-action buf nil)))
+    ;; Don't leave the conversation duplicated in a main window.
+    (dolist (w (get-buffer-window-list buf nil t))
+      (unless (window-parameter w 'major-pane)
+        (switch-to-prev-buffer w)))
+    win))
+
+;;;###autoload
+(defun major-pane-adopt-conversation ()
+  "Bring an ejected conversation back into the major-pane.
+Inverse of `major-pane-eject-conversation'.  Only buffers ejected by
+that command are offered — deliberately hidden background sessions
+\(`major-pane-exclude-buffer') stay hidden.  When called from an
+ejected buffer, adopts it directly; otherwise prompts."
+  (interactive)
+  (let* ((cands (seq-filter
+                 (lambda (b)
+                   (eq 'ejected (buffer-local-value 'major-pane--excluded b)))
+                 (buffer-list)))
+         (buf (cond
+               ((memq (current-buffer) cands) (current-buffer))
+               ((null cands) (user-error "No ejected agent-shell buffers"))
+               ((= 1 (length cands)) (car cands))
+               (t (major-pane--completing-read-buffer
+                   "Adopt conversation: " cands)))))
+    (let ((win (major-pane--do-adopt buf)))
+      (when (window-live-p win)
+        (select-window win)))))
+
 ;;; Buffer list
 
 ;;;###autoload
@@ -869,11 +994,15 @@ should never show up as a switchable panel buffer."
 
 (defun major-pane--buffer-list ()
   "Return list of agent-shell buffers, excluding hidden ones.
-Uses `agent-shell-buffers' (MRU order) when available,
+Ejected conversations (`major-pane-eject-conversation') stay
+listed — they are real conversations that just live outside the
+pane, so the send pickers can still reach them.  Deliberately
+hidden background sessions (`major-pane-exclude-buffer') are
+dropped.  Uses `agent-shell-buffers' (MRU order) when available,
 falls back to pattern matching against `buffer-list'."
   (seq-filter
    (lambda (b)
-     (not (buffer-local-value 'major-pane--excluded b)))
+     (memq (buffer-local-value 'major-pane--excluded b) '(nil ejected)))
    (if (fboundp 'agent-shell-buffers)
        (agent-shell-buffers)
      (seq-filter
@@ -1061,101 +1190,42 @@ Uses the configured picker style for the `swap-buffer' action."
   (let ((win (major-pane--visible-window)))
     (major-pane-pick-buffer
      (lambda (buf)
-       (setf (major-pane-state-active major-pane--state) buf)
-       (if win
-           (set-window-buffer win buf)
-         (major-pane--display buf)))
+       ;; Swapping to an ejected conversation adopts it back — showing
+       ;; an unregistered buffer in the pane would break pane state.
+       (if (eq 'ejected (buffer-local-value 'major-pane--excluded buf))
+           (major-pane--do-adopt buf)
+         (setf (major-pane-state-active major-pane--state) buf)
+         (if win
+             (set-window-buffer win buf)
+           (major-pane--display buf))))
      'swap-buffer)))
 
-;;; Send wrappers
+;;; Going to a conversation
 ;;
-;; These wrap upstream send commands with the picker so you can choose
-;; which agent-shell buffer receives the content.  When only one buffer
-;; exists, the picker is skipped and the send happens immediately.
+;; Public entry point for other packages (e.g. agent-send.el) that
+;; need to focus a conversation without knowing whether it lives in
+;; the pane or was ejected to the main area.
 
 ;;;###autoload
-(defun major-pane-send-region ()
-  "Send region to a picked agent-shell buffer and switch to it."
-  (interactive)
-  (let ((win (major-pane--visible-window)))
-    (major-pane-pick-buffer
-     (lambda (buf)
-       (save-window-excursion
-         (agent-shell-insert
-          :text (agent-shell--get-region-context
-                 :deactivate t
-                 :agent-cwd (with-current-buffer buf (agent-shell-cwd)))
-          :shell-buffer buf
-          :no-focus t))
-       (setf (major-pane-state-active major-pane--state) buf)
-       (if win
-           (progn (set-window-buffer win buf)
-                  (select-window win))
-         (select-window (major-pane--display buf))))
-     'send-region)))
-
-;;;###autoload
-(defun major-pane-send-region-no-switch ()
-  "Send region to a picked agent-shell buffer without switching."
-  (interactive)
-  (major-pane-pick-buffer
-   (lambda (buf)
-     (save-window-excursion
-       (agent-shell-insert
-        :text (agent-shell--get-region-context
-               :deactivate t
-               :agent-cwd (with-current-buffer buf (agent-shell-cwd)))
-        :shell-buffer buf
-        :no-focus t)))
-   'send-region))
-
-;;;###autoload
-(defun major-pane-send-file ()
-  "Send current file to a picked agent-shell buffer."
-  (interactive)
-  (let ((files (or (agent-shell--buffer-files)
-                   (when (buffer-file-name)
-                     (list (buffer-file-name)))
-                   (list (completing-read "Send file: " (agent-shell--project-files)))
-                   (user-error "No file to send"))))
-    (major-pane-pick-buffer
-     (lambda (buf)
-       (save-window-excursion
-         (agent-shell-insert
-          :text (agent-shell--get-files-context :files files)
-          :shell-buffer buf
-          :no-focus t)))
-     'send-file)))
-
-;;;###autoload
-(defun major-pane-send-other-file ()
-  "Prompt for a file and send it to a picked agent-shell buffer."
-  (interactive)
-  (let ((files (list (completing-read "Send file: " (agent-shell--project-files)))))
-    (major-pane-pick-buffer
-     (lambda (buf)
-       (save-window-excursion
-         (agent-shell-insert
-          :text (agent-shell--get-files-context :files files)
-          :shell-buffer buf
-          :no-focus t)))
-     'send-file)))
-
-;;;###autoload
-(defun major-pane-send-screenshot ()
-  "Capture a screenshot and send it to the active pane conversation.
-Sends directly to the active conversation without a picker."
-  (interactive)
-  (let* ((buf (or (major-pane--find-buffer)
-                  (user-error "No agent-shell buffer")))
-         (screenshots-dir (agent-shell--dot-subdir "screenshots"))
-         (screenshot-path (agent-shell--capture-screenshot
-                           :destination-dir screenshots-dir)))
-    (save-window-excursion
-      (agent-shell-insert
-       :text (agent-shell--get-files-context :files (list screenshot-path))
-       :shell-buffer buf
-       :no-focus t))))
+(defun major-pane-goto-conversation (buf)
+  "Focus conversation BUF wherever it lives.
+A registered conversation becomes the active tab in the pane,
+showing the pane when hidden.  An ejected conversation is focused
+in its main-area window, creating one when the buffer is buried."
+  (if (eq 'ejected (buffer-local-value 'major-pane--excluded buf))
+      (let ((bwin (get-buffer-window buf t)))
+        (if bwin
+            (select-window bwin)
+          (select-window (major-pane--eject-target-window))
+          (switch-to-buffer buf)))
+    (setf (major-pane-state-active major-pane--state) buf)
+    (let ((win (major-pane--visible-window)))
+      (if win
+          (progn (set-window-buffer win buf)
+                 (select-window win))
+        (when (eq 'hidden (major-pane-state-mode major-pane--state))
+          (setf (major-pane-state-mode major-pane--state) 'side))
+        (select-window (major-pane--display buf))))))
 
 ;;; Launcher mode
 

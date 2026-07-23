@@ -2424,8 +2424,23 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; keeps major-pane state (chrome, s-i toggle) in sync.  It is
   ;; autoloaded from major-pane's :init, so this entry is safe even
   ;; before major-pane loads.
+  (defun mr-x/agent-pane-buffer-p (buffer-name _action)
+    "display-buffer-alist condition matching agent conversation buffers.
+Real membership: any `major-pane-modes' (derived included) buffer —
+covers every agent type (Claude, Goose, ...).  The \"Agent @ \" name
+match is a mode-free fallback.  Deliberately package-free: this runs
+inside display-buffer before major-pane may be loaded."
+    (let ((buf (get-buffer buffer-name)))
+      (and buf
+           (or (apply #'provided-mode-derived-p
+                      (buffer-local-value 'major-mode buf)
+                      (if (boundp 'major-pane-modes)
+                          major-pane-modes
+                        '(agent-shell-mode)))
+               (string-match-p "Agent @ " buffer-name)))))
+
   (add-to-list 'display-buffer-alist
-               '("Claude Agent @" (major-pane-display-buffer-action)))
+               '(mr-x/agent-pane-buffer-p (major-pane-display-buffer-action)))
 
   ;; The pane window is soft-dedicated: display-buffer/pop-to-buffer
   ;; won't hijack it for random buffers (help, grep, magit, ...).
@@ -2848,12 +2863,12 @@ projectile projects appended below."
         "c , t s" '(mr-x/taskmaster-summary :wk "Summary")
         "c , t a" '(mr-x/taskmaster-add-task :wk "Add task")
         "c p" '(agent-shell-yank-dwim :wk "Paste (smart)")
-        "c r" '(major-pane-send-region-no-switch :wk "Send region (stay)")
-        "c R" '(major-pane-send-region :wk "Send region (go)")
-        "c f" '(major-pane-send-file :wk "Send file")
-        "c F" '(major-pane-send-other-file :wk "Send other file")
+        "c r" '(mr-x/agent-send-region-no-switch :wk "Send region (stay)")
+        "c R" '(mr-x/agent-send-region :wk "Send region (go)")
+        "c f" '(mr-x/agent-send-file :wk "Send file")
+        "c F" '(mr-x/agent-send-other-file :wk "Send other file")
         "c d" '(agent-shell-send-dwim :wk "Send DWIM (region/error)")
-        "c s" '(major-pane-send-screenshot :wk "Send screenshot")
+        "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
@@ -2975,6 +2990,8 @@ projectile projects appended below."
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
+        "& e" '(major-pane-eject-conversation :wk "Eject to main window")
+        "& a" '(major-pane-adopt-conversation :wk "Adopt back into pane")
         "& f" '((lambda () (interactive)
                   (let ((current-prefix-arg '(4)))
                     (call-interactively #'major-pane-toggle)))

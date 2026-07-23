@@ -634,9 +634,9 @@
 (ert-deftest config-test-leader-agent-shell-send ()
   "SPC c send commands must resolve correctly."
   (should (eq (config-test--leader-key "c p") 'agent-shell-yank-dwim))
-  (should (eq (config-test--leader-key "c r") 'major-pane-send-region-no-switch))
-  (should (eq (config-test--leader-key "c R") 'major-pane-send-region))
-  (should (eq (config-test--leader-key "c f") 'major-pane-send-file))
+  (should (eq (config-test--leader-key "c r") 'mr-x/agent-send-region-no-switch))
+  (should (eq (config-test--leader-key "c R") 'mr-x/agent-send-region))
+  (should (eq (config-test--leader-key "c f") 'mr-x/agent-send-file))
   (should (eq (config-test--leader-key "c d") 'agent-shell-send-dwim)))
 
 (ert-deftest config-test-leader-agent-shell-permissions ()
@@ -667,7 +667,9 @@
   (should (eq (config-test--leader-key "& b") 'major-pane-capture-buffer))
   (should (eq (config-test--leader-key "& h") 'major-pane-set-home-frame))
   (should (eq (config-test--leader-key "& k") 'major-pane-close-conversation))
-  (should (eq (config-test--leader-key "& K") 'major-pane-close-all-conversations)))
+  (should (eq (config-test--leader-key "& K") 'major-pane-close-all-conversations))
+  (should (eq (config-test--leader-key "& e") 'major-pane-eject-conversation))
+  (should (eq (config-test--leader-key "& a") 'major-pane-adopt-conversation)))
 
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tier 7 — "Are critical variables bound?"
@@ -696,11 +698,17 @@
 
 (ert-deftest config-test-major-pane-display-routing ()
   "Agent conversations must route into the major-pane via display-buffer-alist.
-Covers all display paths: agent-shell, agent-recall resume, pop-to-buffer."
+Covers all display paths and ALL agent types (Claude, Goose, ...)."
   (should (fboundp 'major-pane-display-buffer-action))
-  (let ((entry (assoc "Claude Agent @" display-buffer-alist)))
+  (should (fboundp 'mr-x/agent-pane-buffer-p))
+  (let ((entry (assoc 'mr-x/agent-pane-buffer-p display-buffer-alist)))
     (should entry)
-    (should (memq 'major-pane-display-buffer-action (cadr entry)))))
+    (should (memq 'major-pane-display-buffer-action (cadr entry))))
+  ;; the name fallback must cover every agent type's naming convention
+  (dolist (name '("Claude Agent @ proj" "Goose Agent @ proj"))
+    (should (with-temp-buffer
+              (rename-buffer name t)
+              (mr-x/agent-pane-buffer-p (buffer-name) nil)))))
 
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tangle freshness — init.el must match a fresh tangle of emacs.org
