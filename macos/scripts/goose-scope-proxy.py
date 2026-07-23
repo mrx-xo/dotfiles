@@ -12,7 +12,8 @@ The Emacs `*goose-scope*` panel tails the NDJSON file and renders per-turn
 timelines from it.
 
 Env knobs:
-  GOOSE_SCOPE_UPSTREAM  where the real Ollama lives   (default http://mrx2:11434)
+  GOOSE_SCOPE_UPSTREAM  where the real Ollama lives   (default http://vengeance:11434;
+                        set http://mrx2:11434 to fall back to the Air)
   GOOSE_SCOPE_PORT      local listen port             (default 11435)
   GOOSE_SCOPE_LOG       NDJSON output path            (default ~/.local/state/goose-scope/events.ndjson)
 """
@@ -25,7 +26,7 @@ import time
 import threading
 from urllib.parse import urlparse
 
-UPSTREAM = os.environ.get("GOOSE_SCOPE_UPSTREAM", "http://mrx2:11434")
+UPSTREAM = os.environ.get("GOOSE_SCOPE_UPSTREAM", "http://vengeance:11434")
 LISTEN_PORT = int(os.environ.get("GOOSE_SCOPE_PORT", "11435"))
 LOG_PATH = os.environ.get(
     "GOOSE_SCOPE_LOG",
