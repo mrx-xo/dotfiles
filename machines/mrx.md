@@ -11,7 +11,8 @@
 - Runs **acp-multiplex + acp-mobile** (remote agent access over Tailscale, web UI :8090)
 - Controls the physical monitors via DDC (`monitor-mode.sh` — routes displays
   between MrX / VENGEANCE / work laptop; macro pad F17-F19)
-- Can wake VENGEANCE via WoL (`vengeance-wake.sh`)
+- Can wake VENGEANCE via WoL (`vengeance-wake.sh`) and MrX2 via
+  `mrx2-wake.sh` (add `relay` arg to send via homelab when off-LAN)
 
 ## Sync boundaries (IMPORTANT)
 

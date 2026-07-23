@@ -34,6 +34,14 @@
 - May lack the plain "Iosevka" font — Emacs font cond-chain falls back to
   Nerd Font builds
 
+## Waking this machine (it sleeps a lot)
+
+- WoL target: Wi-Fi MAC `14:7f:ce:c8:9d:8a`, usually `192.168.1.190`
+- From MrX: `mrx2-wake.sh` (or `mrx2-wake.sh relay` via homelab from off-LAN)
+- From anywhere: `ssh homelab "wakeonlan 14:7f:ce:c8:9d:8a"`
+- Wakes in ~2s from normal sleep; deep standby (hours on battery) may not
+  wake — `womp` is only guaranteed on AC (`sudo pmset -b womp 1` to change)
+
 ## Reaching other machines
 
 - MrX: check `~/.ssh/config` on this machine for the alias/route back
