@@ -2118,8 +2118,9 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   
 
   					  ; opacity - same value for focused and unfocused (consistent transparency)
-    (set-frame-parameter (selected-frame) 'alpha '(80 80))
-    (add-to-list 'default-frame-alist '(alpha-background . 20))
+    ;; Transparency off for now — uncomment to bring it back.
+    ;; (set-frame-parameter (selected-frame) 'alpha '(80 80))
+    ;; (add-to-list 'default-frame-alist '(alpha-background . 20))
 
     (defun my/clone-buffer-to-new-frame ()
       "Spawn a new frame showing the current buffer."
