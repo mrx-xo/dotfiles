@@ -2712,6 +2712,89 @@ Secondary frames keep =*scratch*= as before.
 
 #+begin_src emacs-lisp
 
+  (defun mr-x/fetch--center ()
+    "Center the *fetch* content in its window.
+Horizontal via a buffer-local `line-prefix', vertical via blank
+lines above the content.  Registered on a buffer-local
+`window-configuration-change-hook', so it re-centers whenever the
+buffer is displayed or the window is resized."
+    (when-let ((win (get-buffer-window (current-buffer))))
+      (let ((inhibit-read-only t)
+            (width 0)
+            height)
+        (save-excursion
+          ;; Strip any previous vertical padding, then measure content.
+          (goto-char (point-min))
+          (skip-chars-forward "\n")
+          (delete-region (point-min) (point))
+          (goto-char (point-min))
+          (while (not (eobp))
+            (end-of-line)
+            (setq width (max width (current-column)))
+            (forward-line 1))
+          (setq height (count-lines (point-min) (point-max)))
+          (setq-local line-prefix
+                      (make-string
+                       (max 0 (/ (- (window-body-width win) width) 2)) ?\s))
+          (goto-char (point-min))
+          (insert (make-string
+                   (max 0 (/ (- (window-body-height win) height) 2)) ?\n)))
+        (set-buffer-modified-p nil))))
+
+  (defun mr-x/fetch--run (&rest args)
+    "Run fastfetch with ARGS, returning raw (ANSI-coded) output."
+    (with-temp-buffer
+      (apply #'call-process "fastfetch" nil t nil "--pipe" "false" args)
+      (buffer-string)))
+
+  (defun mr-x/fetch--visible-width (s)
+    "Display width of S with ANSI escape codes ignored."
+    (string-width (ansi-color-filter-apply s)))
+
+  (defun mr-x/fetch--compose ()
+    "Logo and info side by side as one raw ANSI string.
+fastfetch normally does this layout with cursor-movement escapes,
+which ansi-color strips rather than interprets — so run it twice
+(logo only, info only) and do the column math here.  The logo's SGR
+color state spans lines, so carry it across the interleaved info
+text and reset at each line end."
+    (let* ((logo-raw (replace-regexp-in-string
+                      "\e\\[[0-9;]*[ABCDG]" ""
+                      (mr-x/fetch--run "--structure" "break")))
+           (info-raw (mr-x/fetch--run
+                      "--logo" "none" "--structure"
+                      "title:separator:os:kernel:uptime:packages:shell:cpu:memory"))
+           (trim "\\(?:\e\\[[0-9;]*m\\|[ \t\n]\\)+\\'")
+           (logo-lines (split-string
+                        (replace-regexp-in-string trim "" logo-raw) "\n"))
+           (info-lines (split-string
+                        (replace-regexp-in-string trim "" info-raw) "\n"))
+           (logo-width (apply #'max (mapcar #'mr-x/fetch--visible-width
+                                            logo-lines)))
+           (gap 3)
+           (state "")
+           out)
+      (dotimes (i (max (length logo-lines) (length info-lines)))
+        (let ((ll (or (nth i logo-lines) ""))
+              (il (or (nth i info-lines) ""))
+              (pos 0))
+          (push (if (string-empty-p il)
+                    (concat state ll "\e[0m")
+                  (concat state ll "\e[0m"
+                          (make-string (+ (- logo-width
+                                             (mr-x/fetch--visible-width ll))
+                                          gap)
+                                       ?\s)
+                          il))
+                out)
+          ;; Update carried SGR state from this logo line.
+          (while (string-match "\e\\[\\([0-9;]*\\)m" ll pos)
+            (setq pos (match-end 0))
+            (if (member (match-string 1 ll) '("" "0"))
+                (setq state "")
+              (setq state (concat state (match-string 0 ll)))))))
+      (concat (mapconcat #'identity (nreverse out) "\n") "\n")))
+
   (defun mr-x/fetch-buffer ()
     "Return a fresh *fetch* buffer with fastfetch system info.
 Falls back to a one-liner if fastfetch isn't installed."
@@ -2724,18 +2807,15 @@ Falls back to a one-liner if fastfetch isn't installed."
           (remove-overlays)
           (if (executable-find "fastfetch")
               (progn
-                ;; Trimmed structure — logo + the rows worth glancing at,
-                ;; skipping fastfetch's default noise (every display, disk,
-                ;; gpu, battery, host, terminal).
-                (call-process "fastfetch" nil buf nil "--pipe" "false"
-                              "--structure"
-                              "title:separator:os:kernel:uptime:packages:shell:cpu:memory")
                 (require 'ansi-color)
+                (insert (mr-x/fetch--compose))
                 (ansi-color-apply-on-region (point-min) (point-max)))
             (insert (format "%s@%s · Emacs %s\n"
                             (user-login-name) (system-name) emacs-version)))
           (goto-char (point-min)))
-        (special-mode))
+        (special-mode)
+        ;; special-mode kills local variables/hooks — register after it.
+        (add-hook 'window-configuration-change-hook #'mr-x/fetch--center nil t))
       buf))
 
   ;; Main (sole GUI) frame lands on the fetch splash; secondary frames
