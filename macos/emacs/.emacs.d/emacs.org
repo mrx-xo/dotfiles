@@ -2724,7 +2724,12 @@ Falls back to a one-liner if fastfetch isn't installed."
           (remove-overlays)
           (if (executable-find "fastfetch")
               (progn
-                (call-process "fastfetch" nil buf nil "--pipe" "false")
+                ;; Trimmed structure — logo + the rows worth glancing at,
+                ;; skipping fastfetch's default noise (every display, disk,
+                ;; gpu, battery, host, terminal).
+                (call-process "fastfetch" nil buf nil "--pipe" "false"
+                              "--structure"
+                              "title:separator:os:kernel:uptime:packages:shell:cpu:memory")
                 (require 'ansi-color)
                 (ansi-color-apply-on-region (point-min) (point-max)))
             (insert (format "%s@%s · Emacs %s\n"
