@@ -2039,11 +2039,14 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
                      '(agent-shell-mode nerd-icons-mdicon "nf-md-robot_happy"
                                         :face nerd-icons-silver :height 1.2)))
 
+      ;; The dark #101112 chat-pane background is NOT set here: it belongs
+      ;; to pane membership, not the mode.  major-pane remaps `default' to
+      ;; `major-pane-conversation' on register and removes it on
+      ;; unregister, so ejected/excluded agent-shell buffers keep the
+      ;; frame background.
       (add-hook 'agent-shell-mode-hook
                 (lambda ()
-                  (doom-modeline-set-modeline 'agent-shell-minimal)
-                  ;; chat pane sits a shade below the frame's #1d2021
-                  (face-remap-add-relative 'default :background "#101112")))
+                  (doom-modeline-set-modeline 'agent-shell-minimal)))
 
       ;; Code rendering harmonized with the dark pane: the orange inline
       ;; chips and fenced blocks drop their warm #3c3836 boxes for quiet
@@ -2587,6 +2590,38 @@ inside display-buffer before major-pane may be loaded."
 (setq initial-major-mode 'org-mode)
 (setq initial-scratch-message "\
 # Clear your mind young one.")
+
+
+
+  (defun mr-x/fetch-buffer ()
+    "Return a fresh *fetch* buffer with fastfetch system info.
+Falls back to a one-liner if fastfetch isn't installed."
+    (let ((buf (get-buffer-create "*fetch*")))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          ;; ansi-color is configured to colorize via overlays, which
+          ;; erase-buffer leaves behind — clear them before re-running.
+          (remove-overlays)
+          (if (executable-find "fastfetch")
+              (progn
+                (call-process "fastfetch" nil buf nil "--pipe" "false")
+                (require 'ansi-color)
+                (ansi-color-apply-on-region (point-min) (point-max)))
+            (insert (format "%s@%s · Emacs %s\n"
+                            (user-login-name) (system-name) emacs-version)))
+          (goto-char (point-min)))
+        (special-mode))
+      buf))
+
+  ;; Main (sole GUI) frame lands on the fetch splash; secondary frames
+  ;; keep *scratch* — same sole-frame predicate as
+  ;; mr-x/decorate-secondary-frame.
+  (setq initial-buffer-choice
+        (lambda ()
+          (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
+              (get-buffer-create "*scratch*")
+            (mr-x/fetch-buffer))))
 
 
 
