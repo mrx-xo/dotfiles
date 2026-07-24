@@ -121,6 +121,13 @@ rm -f "$HOME/Library/LaunchAgents/com.marx.agent-inbox.plist"
 sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.agent-inbox.plist" \
     > "$HOME/Library/LaunchAgents/com.marx.agent-inbox.plist"
 
+# AirDrop mover (second transport into ~/agent-inbox/): WatchPaths on
+# ~/Downloads routes freshly AirDropped images (quarantine agent = sharingd)
+# into the inbox. No secrets needed.
+rm -f "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
+sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.airdrop-inbox.plist" \
+    > "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
+
 # ── 6. Emacs ─────────────────────────────────────────────
 step "Setting up Emacs..."
 if [ ! -d "$HOME/.emacs.d" ]; then
