@@ -116,7 +116,15 @@ if [[ ! -d "$SANDBOX_DIR" ]]; then
 
   (doom-modeline-def-modeline 'main
     '(bar workspace-name window-number sandbox modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
-    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time)))
+    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time))
+
+  ;; This file loads AFTER doom-modeline has already installed its default
+  ;; modeline, so redefining `main' above does not take effect on its own.
+  ;; Re-activate it now, and again once startup settles (doom-modeline-mode
+  ;; can re-apply the default modeline late in init). Without this the
+  ;; SANDBOX badge silently vanishes on a fresh sandbox.
+  (doom-modeline-set-modeline 'main t)
+  (run-at-time 1 nil (lambda () (doom-modeline-set-modeline 'main t))))
 
 (message "Running in SANDBOX mode - your real config is safe!")
 
