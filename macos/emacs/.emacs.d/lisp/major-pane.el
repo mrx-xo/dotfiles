@@ -142,6 +142,43 @@ Flat on `major-pane-tab-bar'; the invisible box matches the bar so
 tabs get side padding without a visible border."
   :group 'major-pane)
 
+(defface major-pane-tab-attention-done
+  '((t :inherit major-pane-tab-inactive
+       :foreground "#fbf1c7"
+       :underline (:color "#fe8019" :position 0)))
+  "Face for an inactive tab that finished a turn while unfocused.
+Like `major-pane-tab-inactive' with an orange underline and brighter
+label — a response is ready.  Cleared when the tab becomes active."
+  :group 'major-pane)
+
+(defface major-pane-tab-attention-perms
+  '((t :inherit major-pane-tab-inactive
+       :foreground "#fbf1c7"
+       :underline (:color "#fb4934" :position 0)))
+  "Face for an inactive tab waiting on a permission response.
+Like `major-pane-tab-inactive' with a red underline and brighter
+label — the agent needs you.  Cleared when the tab becomes active."
+  :group 'major-pane)
+
+(defface major-pane-tab-attention-done-marker
+  '((t :inherit major-pane-dim :foreground "#fe8019" :weight bold))
+  "Face for the ‹N / N› overflow counter when a hidden convo has a
+finished turn (orange)."
+  :group 'major-pane)
+
+(defface major-pane-tab-attention-perms-marker
+  '((t :inherit major-pane-dim :foreground "#fb4934" :weight bold))
+  "Face for the ‹N / N› overflow counter when a hidden convo is
+waiting on a permission response (red) — outranks orange."
+  :group 'major-pane)
+
+(defvar-local major-pane--tab-attention nil
+  "Attention state for this conversation, or nil when there's nothing new.
+`perms' — waiting on a permission response (red, outranks `done').
+`done'  — a turn finished, response ready (orange).
+Set on `permission-request'/`turn-complete' for a non-active buffer;
+cleared when the buffer becomes the active tab.")
+
 (defface major-pane-tab-separator
   '((t :foreground "#3c3836" :background "#3c3836"))
   "Face for the divider between conversation tabs.
@@ -655,12 +692,61 @@ IS-ACTIVE selects the active/inactive face."
             (when win
               (set-window-buffer win buf)
               (select-window win))))))
+    ;; Becoming the active tab clears any unseen-response flag — the user
+    ;; is now looking at it.  Done here so every path that flips `active'
+    ;; (click, SPC navigation, adopt, …) clears without extra hooks.
+    (when (and is-active (buffer-local-value 'major-pane--tab-attention buf))
+      (with-current-buffer buf (setq major-pane--tab-attention nil)))
     (propertize (format " %s " (major-pane--tab-label buf))
-                'face (if is-active
-                          'major-pane-tab-active
-                        'major-pane-tab-inactive)
+                'face (cond (is-active 'major-pane-tab-active)
+                            ((pcase (buffer-local-value 'major-pane--tab-attention buf)
+                               ('perms 'major-pane-tab-attention-perms)
+                               ('done 'major-pane-tab-attention-done)))
+                            (t 'major-pane-tab-inactive))
                 'mouse-face 'major-pane-tab-hover
                 'local-map map)))
+
+(defvar major-pane-attention-event-alist
+  '((permission-request . perms)
+    (turn-complete . done))
+  "Map agent-shell events to attention severities (`perms'/`done').")
+
+(defun major-pane--attention-note-event (&rest args)
+  "Flag the emitting shell buffer when a background convo gets a response.
+Advice on `agent-shell--emit-event': that function only runs with the
+shell buffer current, so `current-buffer' is the conversation.  Maps
+the event to a severity via `major-pane-attention-event-alist', and
+sets it when the buffer is registered but not the active tab (last
+event wins), then repaints the tab row."
+  (let* ((event (plist-get args :event))
+         (sev (cdr (assq event major-pane-attention-event-alist)))
+         (buf (current-buffer)))
+    (when (and sev
+               (memq buf (major-pane-state-conversations major-pane--state))
+               (not (eq buf (major-pane-state-active major-pane--state)))
+               (not (eq major-pane--tab-attention sev)))
+      (setq major-pane--tab-attention sev)
+      (force-mode-line-update t))))
+
+(with-eval-after-load 'agent-shell
+  (advice-add 'agent-shell--emit-event :after #'major-pane--attention-note-event))
+
+(defun major-pane--attention-severity (buffers)
+  "Highest attention severity among BUFFERS: `perms', `done', or nil.
+`perms' (red) outranks `done' (orange)."
+  (let (sev)
+    (dolist (b buffers sev)
+      (pcase (and (buffer-live-p b)
+                  (buffer-local-value 'major-pane--tab-attention b))
+        ('perms (setq sev 'perms))
+        ('done (unless (eq sev 'perms) (setq sev 'done)))))))
+
+(defun major-pane--marker-face (severity)
+  "Face for an overflow counter summarizing SEVERITY."
+  (pcase severity
+    ('perms 'major-pane-tab-attention-perms-marker)
+    ('done 'major-pane-tab-attention-done-marker)
+    (_ 'major-pane-dim)))
 
 (defun major-pane--render-tabs ()
   "Build a header-line-format string showing conversation tabs.
@@ -685,10 +771,12 @@ guarantee the active tab is on screen."
         (mapconcat #'identity tabs sep)
       (major-pane--render-tab-slice tabs convos active avail sep sep-w))))
 
-(defun major-pane--overflow-marker (count dir)
-  "Return the dim overflow marker string for COUNT tabs in DIR (`left'/`right')."
+(defun major-pane--overflow-marker (count dir &optional face)
+  "Return the overflow marker string for COUNT tabs in DIR (`left'/`right').
+FACE colors the marker (default `major-pane-dim'); pass an attention
+marker face to signal a hidden convo needs attention."
   (propertize (if (eq dir 'left) (format "‹%d " count) (format " %d›" count))
-              'face 'major-pane-dim))
+              'face (or face 'major-pane-dim)))
 
 (defun major-pane--overflow-markers-px (lo hi n)
   "Pixels needed by the ‹N / N› markers for slice LO..HI of N tabs."
@@ -736,11 +824,18 @@ the window's right edge so the row always spans the full width."
     (let ((right-hidden (- n 1 hi)))
       (concat
        (when (> lo 0)
-         (major-pane--overflow-marker lo 'left))
+         (major-pane--overflow-marker
+          lo 'left
+          (major-pane--marker-face
+           (major-pane--attention-severity (cl-subseq convos 0 lo)))))
        (mapconcat #'identity (cl-subseq tabs lo (1+ hi)) sep)
        (when filler (concat sep filler))
        (when (> right-hidden 0)
-         (let ((marker (major-pane--overflow-marker right-hidden 'right)))
+         (let ((marker (major-pane--overflow-marker
+                        right-hidden 'right
+                        (major-pane--marker-face
+                         (major-pane--attention-severity
+                          (cl-subseq convos (1+ hi) n))))))
            (concat
             ;; stretch glue: pin the counter to the right edge (pixel spec)
             (propertize " " 'display
@@ -1442,6 +1537,24 @@ the window that was active before the pane was shown."
       (setf (major-pane-state-active major-pane--state) buf
             (major-pane-state-mode major-pane--state) 'side)
       (select-window (major-pane--display buf))))))
+
+;;;###autoload
+(defun major-pane-focus ()
+  "Move focus to the major-pane window, showing the pane first if hidden.
+Unlike `major-pane-toggle', never hides the pane.  If the launcher
+is open, focus that instead."
+  (interactive)
+  (let ((win (major-pane--visible-window))
+        (launcher-win (get-buffer-window major-pane-launcher-buffer-name)))
+    (cond
+     (launcher-win
+      (select-window launcher-win))
+     ((and win (eq (window-frame win) (selected-frame)))
+      (select-window win))
+     ;; Hidden, on another frame, or home-locked elsewhere: toggle's
+     ;; show branch already handles all of these and ends focused.
+     (t
+      (major-pane-toggle)))))
 
 ;;;###autoload
 (defun major-pane-show-no-focus ()

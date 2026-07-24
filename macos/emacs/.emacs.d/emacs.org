@@ -3362,6 +3362,7 @@ projectile projects appended below."
 
       (mr-x/leader-def
         "&" '(:ignore t :wk "Pane")
+        "& w" '(major-pane-focus :wk "Focus pane")
         "& n" '(major-pane-new-chat :wk "New chat")
         "& l" '(major-pane-set-label :wk "Label conversation")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
