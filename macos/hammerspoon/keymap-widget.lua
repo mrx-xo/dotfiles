@@ -14,13 +14,14 @@ local RECTS = {
   hd = { x = 0,  y = 60,  w = 1080, h = 580 },   -- hotdox: 17u wide, shallow
   cm = { x = 40, y = 680, w = 1000, h = 1040 },  -- micro: near-square
 }
+local CM_DEFAULT_LAYER = 2   -- monitors — the layer that matters day-to-day
 
 -- ---- webviews --------------------------------------------------------------
 local views = {}      -- board id -> hs.webview
 local visible = true  -- recreated visible by default on every reload
 local lastModsJS = "window.__setMods({cmd:false,alt:false,shift:false,ctrl:false,fn:false})"
 
-local function makeView(hash)
+local function makeView(hash, initJS)
   local wv = hs.webview.new(hs.geometry.rect(0, 0, 100, 100))
   wv:windowStyle({ "borderless" })
   wv:level(hs.drawing.windowLevels.desktopIcon)
@@ -29,14 +30,18 @@ local function makeView(hash)
   wv:shadow(false)
   wv:navigationCallback(function(action, webview)
     -- don't evaluateJavaScript before the page is ready (PRD edge case)
-    if action == "didFinishNavigation" then webview:evaluateJavaScript(lastModsJS) end
+    if action == "didFinishNavigation" then
+      webview:evaluateJavaScript(lastModsJS)
+      if initJS then webview:evaluateJavaScript(initJS) end
+    end
   end)
   wv:url("file://" .. HTML .. hash)
   return wv
 end
 
 views.hd = makeView("#hotdox&widget")
-views.cm = makeView("#micro&widget")
+views.cm = makeView("#micro&widget",
+  string.format("window.__setLayer(%d)", CM_DEFAULT_LAYER))
 M.views = views   -- reachable from `hs -c` for debugging
 
 -- position on the portrait display, or hide when it's absent / toggled off
