@@ -3517,6 +3517,23 @@ TASK-ID is the ID shown when Claude runs a background command."
           (lambda ()
             (string-match-p "\\*\\(scratch\\|global-scratch\\)\\(<[0-9]+>\\)?\\*"
                             (buffer-name))))
+
+    ;; C-x C-s in a scratch buffer has nothing to write to disk, so instead of
+    ;; the useless "no file" save, snapshot every scratch buffer to the
+    ;; persistent-scratch store on demand.  This is belt-and-suspenders on top
+    ;; of the 5-min autosave + kill-emacs save: a save you can *feel*.
+    (defun mr-x/save-buffer-or-persist-scratch (orig-fn &rest args)
+      "Snapshot scratch buffers via `persistent-scratch'; else save normally."
+      (if (and persistent-scratch-scratch-buffer-p-function
+               (funcall persistent-scratch-scratch-buffer-p-function))
+          (progn
+            (persistent-scratch-save)
+            (set-buffer-modified-p nil)
+            (message "Scratch snapshotted → %s"
+                     (abbreviate-file-name persistent-scratch-save-file)))
+        (apply orig-fn args)))
+    (advice-add 'save-buffer :around #'mr-x/save-buffer-or-persist-scratch)
+
     :hook (elpaca-after-init . (lambda () (persistent-scratch-setup-default))))
 
 #+end_src
