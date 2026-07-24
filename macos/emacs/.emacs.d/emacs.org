@@ -293,6 +293,20 @@ directly into org files via emacsclient.
   	(org-modern-table nil)
   	(org-modern-todo-faces mr-x/todo-faces))
 
+      ;; phscroll — wide org tables scroll horizontally instead of
+      ;; getting shredded by visual-line-mode; prose keeps wrapping.
+      ;; Inside a table: C-x < / C-x > page, C-S-l recenters (cycles),
+      ;; shift+wheel or two-finger horizontal swipe scrolls.
+      (use-package phscroll
+  	:ensure (:host github :repo "misohena/phscroll")
+  	:after org
+  	:config
+  	(setq org-startup-truncated nil)
+  	(require 'org-phscroll)
+  	;; mac trackpad: two-finger horizontal swipe scrolls the table
+  	(define-key phscroll-keymap [wheel-left]  #'phscroll-mwheel-scroll-left)
+  	(define-key phscroll-keymap [wheel-right] #'phscroll-mwheel-scroll-right))
+
       (add-hook 'org-mode-hook #'org-indent-mode)
 
       (use-package org-tidy
