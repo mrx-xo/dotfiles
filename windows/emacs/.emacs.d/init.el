@@ -50,13 +50,14 @@
 (prefer-coding-system 'utf-8-unix)
 (setq-default buffer-file-coding-system 'utf-8-unix)
 
-;; Font: FiraCode Nerd Font (ligatures + icons in one), Iosevka as fallback.
+;; Font: SpaceMono Nerd Font (primary), FiraCode / Iosevka as fallbacks.
 ;; Tweak the number after the name to resize.
 ;; Daemon-aware: `font-family-list' is empty until a GUI frame exists, so under
 ;; the daemon we must pick + apply the font when the first client frame appears.
 (defun my/set-font ()
   "Pick the best available font and apply it to all frames."
   (let ((font (cond
+               ((member "SpaceMono Nerd Font"     (font-family-list)) "SpaceMono Nerd Font 15")
                ((member "FiraCode Nerd Font Mono" (font-family-list)) "FiraCode Nerd Font Mono 14")
                ((member "Iosevka NFM Medium" (font-family-list)) "Iosevka NFM Medium 17")
                ((member "Iosevka NFM"        (font-family-list)) "Iosevka NFM 17")

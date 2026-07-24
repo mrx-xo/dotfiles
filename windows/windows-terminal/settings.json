@@ -33,8 +33,9 @@
             "colorScheme": "Gruvbox Dark",
             "font": 
             {
-                "face": "CaskaydiaCove NF",
-                "size": 11
+                "face": "SpaceMono Nerd Font",
+                "size": 13,
+                "weight": "normal"
             },
             "opacity": 100,
             "useAcrylic": false
