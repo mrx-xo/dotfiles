@@ -110,3 +110,6 @@ layoutWatcher = hs.pathwatcher.new(layoutFile, function(files)
   end
 end)
 layoutWatcher:start()
+
+-- Live keymap widget on the portrait display (keymap-explorer PRD)
+dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keymap-widget.lua")
