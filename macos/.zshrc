@@ -235,6 +235,11 @@ alias shl='ssh homelab'
 alias shm2='ssh mrx2'
 alias shv='ssh vengeance'
 
+# HeadlessX stealth scraper (lives on home-lab; normal state is DOWN, ~24s cold start)
+alias hx-up='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all up -d"'
+alias hx-down='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all down"'
+alias hx-status='ssh homelab "docker ps --filter name=headlessx --format \"{{.Names}}: {{.Status}}\" | grep . || echo \"(down)\""'
+
 
 # Fix for Emacs native compilation with libgccjit
 export LIBRARY_PATH="/opt/homebrew/opt/libgccjit/lib/gcc/current:/opt/homebrew/Cellar/gcc/15.1.0/lib/gcc/current/gcc/aarch64-apple-darwin24/15:$LIBRARY_PATH"
