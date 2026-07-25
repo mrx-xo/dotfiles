@@ -60,10 +60,14 @@ foreach ($target in $links.Keys) {
 # Emacs daemon: autostart on login + a client launcher shortcut.
 # Shortcuts can't be symlinked from the repo, so we (re)create them here.
 # ---------------------------------------------------------------------------
+# Prefer the scoop shims: they're stable across version bumps, whereas
+# apps\emacs\current\bin drifts (the "current" junction and bin layout change
+# between releases, leaving shortcuts pointing at a missing runemacs.exe).
+$shims        = "$env:USERPROFILE\scoop\shims"
 $emacsBin     = "$env:USERPROFILE\scoop\apps\emacs\current\bin"
-$runemacs     = "$emacsBin\runemacs.exe"
-$emacsclientw = "$emacsBin\emacsclientw.exe"
-$emacsExe     = "$emacsBin\emacs.exe"
+$runemacs     = if (Test-Path "$shims\runemacs.exe")     { "$shims\runemacs.exe" }     else { "$emacsBin\runemacs.exe" }
+$emacsclientw = if (Test-Path "$shims\emacsclientw.exe") { "$shims\emacsclientw.exe" } else { "$emacsBin\emacsclientw.exe" }
+$emacsExe     = if (Test-Path "$shims\emacs.exe")        { "$shims\emacs.exe" }        else { "$emacsBin\emacs.exe" }
 
 if (Test-Path $runemacs) {
     $ws = New-Object -ComObject WScript.Shell
@@ -91,6 +95,18 @@ if (Test-Path $runemacs) {
     $sc.Description       = "Open an Emacs frame (connects to daemon, starts it if needed)"
     $sc.Save()
     Write-Host "Created client shortcut  -> $clientLnk" -ForegroundColor Green
+
+    # Autostart a client frame on login (matches the macOS launchd emacsclient job).
+    # Connects to the daemon started above; -a "" cold-starts one if it lost the race.
+    $frameLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Frame.lnk"
+    $sc = $ws.CreateShortcut($frameLnk)
+    $sc.TargetPath       = $emacsclientw
+    $sc.Arguments        = '-c -a ""'
+    $sc.WorkingDirectory = $env:USERPROFILE
+    $sc.IconLocation     = "$emacsExe,0"
+    $sc.Description       = "Open an Emacs frame on login (connects to daemon, starts it if needed)"
+    $sc.Save()
+    Write-Host "Created frame shortcut   -> $frameLnk" -ForegroundColor Green
 } else {
     Write-Host "Emacs not found at $emacsBin - skipping daemon/client shortcuts." -ForegroundColor Yellow
 }
@@ -99,7 +115,10 @@ if (Test-Path $runemacs) {
 # Emacs global hotkeys (AutoHotkey) — autostart the .ahk on login.
 # (Win+Shift+E open frame, Win+Shift+R restart; see autohotkey\emacs.ahk.)
 # ---------------------------------------------------------------------------
-$ahkExe    = "$env:USERPROFILE\scoop\apps\autohotkey\current\v2\AutoHotkey64.exe"
+# Use the scoop shim launcher (stable across versions); it dispatches to the
+# right interpreter via the script's "#Requires AutoHotkey v2.0" directive.
+# The version-pinned apps\autohotkey\current\v2\AutoHotkey64.exe path drifts.
+$ahkExe    = if (Test-Path "$shims\AutoHotkey.exe") { "$shims\AutoHotkey.exe" } else { "$env:USERPROFILE\scoop\apps\autohotkey\current\v2\AutoHotkey64.exe" }
 $ahkScript = "$repo\autohotkey\emacs.ahk"
 
 if ((Test-Path $ahkExe) -and (Test-Path $ahkScript)) {

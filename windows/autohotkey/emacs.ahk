@@ -10,7 +10,8 @@
 
 ; Win+Shift+E -> emacsclientw -c -a ""  (the empty -a "" starts a daemon if none)
 #+e:: {
-    ecw := EnvGet("USERPROFILE") "\scoop\apps\emacs\current\bin\emacsclientw.exe"
+    ; Use the scoop shim — the apps\emacs\current\bin path drifts across updates.
+    ecw := EnvGet("USERPROFILE") "\scoop\shims\emacsclientw.exe"
     Run('"' ecw '" -c -a ""')
 }
 

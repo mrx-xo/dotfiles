@@ -8,10 +8,13 @@
 #>
 $ErrorActionPreference = "SilentlyContinue"
 
+# Prefer the scoop shims — the apps\emacs\current\bin path drifts across updates
+# (the "current" junction and bin layout change between releases).
+$shims    = "$env:USERPROFILE\scoop\shims"
 $bin      = "$env:USERPROFILE\scoop\apps\emacs\current\bin"
-$ec       = "$bin\emacsclient.exe"
-$ecw      = "$bin\emacsclientw.exe"
-$runemacs = "$bin\runemacs.exe"
+$ec       = if (Test-Path "$shims\emacsclient.exe")  { "$shims\emacsclient.exe" }  else { "$bin\emacsclient.exe" }
+$ecw      = if (Test-Path "$shims\emacsclientw.exe") { "$shims\emacsclientw.exe" } else { "$bin\emacsclientw.exe" }
+$runemacs = if (Test-Path "$shims\runemacs.exe")     { "$shims\runemacs.exe" }     else { "$bin\runemacs.exe" }
 
 # 1. Stop the running daemon gracefully (no-op if it isn't running).
 & $ec -e '(kill-emacs)' 2>$null | Out-Null
