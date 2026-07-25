@@ -774,4 +774,28 @@ running.  Fix: M-x elpaca-rebuild <pkg>, or delete the .elc."
               (push (file-relative-name elc user-emacs-directory) stale))))))
     (should-not stale)))
 
+;; ═══════════════════════════════════════════════════════════════════════════
+;; Crash recovery — session snapshots + SPC R review screen
+;; ═══════════════════════════════════════════════════════════════════════════
+
+(ert-deftest config-test-crash-recovery-defined ()
+  "Crash recovery commands and state variables exist."
+  (should (fboundp 'mr-x/crash-recovery))
+  (should (fboundp 'mr-x/crash-restore))
+  (should (fboundp 'mr-x/crash-open-log))
+  (should (fboundp 'mr-x/crash-discard))
+  (should (fboundp 'mr-x/crash-pending-p))
+  (should (fboundp 'mr-x/session-autosave))
+  (should (boundp 'mr-x/crash-state-dir))
+  (should (boundp 'mr-x/clean-exit-file))
+  (should (boundp 'mr-x/yabai-state-file)))
+
+(ert-deftest config-test-crash-recovery-daemon-only ()
+  "Batch runs must not write crash markers or start the autosave timer.
+If this fires in batch, the (daemonp) guard around the wiring was lost —
+which would make every test run pollute crash detection state."
+  (unless (daemonp)
+    (should-not mr-x/session-autosave-timer)
+    (should-not (member #'mr-x/--write-clean-exit-marker kill-emacs-hook))))
+
 ;;; config-tests.el ends here

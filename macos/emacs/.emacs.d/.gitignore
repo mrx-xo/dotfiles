@@ -8,3 +8,6 @@ org-clock-save.el
 org-roam.db
 places
 session-state.el
+crash-state/
+clean-exit
+yabai-state.json

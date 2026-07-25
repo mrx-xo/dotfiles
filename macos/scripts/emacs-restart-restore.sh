@@ -13,7 +13,9 @@
 
 EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
 PLIST=~/Library/LaunchAgents/com.marcosandrade.emacsdaemon.plist
-YABAI_STATE="/tmp/emacs-yabai-state.json"
+# Lives in ~/.emacs.d (not /tmp) so it survives a reboot; overridable so
+# crash recovery can point it at the crash-state copy.
+YABAI_STATE="${YABAI_STATE:-$HOME/.emacs.d/yabai-state.json}"
 RESTORE_FLAG="/tmp/emacs-restore-session"
 
 # ── Helpers ──
@@ -155,8 +157,13 @@ restore_yabai() {
     old_windows=$(cat "$YABAI_STATE" | jq 'sort_by(.id)')
     old_count=$(echo "$old_windows" | jq 'length')
 
+    # YABAI_EXCLUDE: comma-separated window ids to ignore — e.g. a splash
+    # frame that already existed when crash recovery kicked off a restore.
     new_windows=$(yabai -m query --windows 2>/dev/null \
-        | jq '[.[] | select(.app == "Emacs")] | sort_by(.id) | map({id: .id, title: .title, space: .space})')
+        | jq --arg exclude "${YABAI_EXCLUDE:-}" \
+             '[.[] | select(.app == "Emacs")
+                   | select((.id | tostring) as $i | ($exclude | split(",") | index($i)) | not)]
+              | sort_by(.id) | map({id: .id, title: .title, space: .space})')
     new_count=$(echo "$new_windows" | jq 'length')
 
     log "YABAI" "Saved: $old_count windows, Current: $new_count windows"

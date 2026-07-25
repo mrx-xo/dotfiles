@@ -2733,6 +2733,10 @@ Secondary frames keep =*scratch*= as before.
     "Raw ANSI info lines for the current *fetch* buffer.")
   (defvar-local mr-x/fetch--mode nil
     "Current splash layout: `wide', `stack' or `logo'.")
+  (defvar-local mr-x/fetch--extra nil
+    "Extra propertized text appended below the splash (crash notice etc.).
+The splash erases and re-renders itself on window changes, so anything
+that should persist under it must live here, not be inserted once.")
 
   (defconst mr-x/fetch--gap 3
     "Columns between logo and info in the wide layout.")
@@ -2842,6 +2846,9 @@ The apple never goes — logo-only is the floor even when it clips."
                 ('stack (mr-x/fetch--compose-stack t))
                 (_ (mr-x/fetch--compose-stack nil))))
       (ansi-color-apply-on-region (point-min) (point-max))
+      (when mr-x/fetch--extra
+        (goto-char (point-max))
+        (insert "\n" mr-x/fetch--extra "\n"))
       (goto-char (point-min))))
 
   (defun mr-x/fetch--center (win)
@@ -2892,6 +2899,13 @@ Falls back to a one-liner if fastfetch isn't installed."
         (special-mode)
         (setq-local truncate-lines t)  ;; never wrap the splash
         (add-hook 'window-configuration-change-hook #'mr-x/fetch--layout nil t)
+        ;; Quiet hint when a crash snapshot is waiting to be reviewed.
+        (when (and (fboundp 'mr-x/crash-pending-p)
+                   (mr-x/crash-pending-p)
+                   (null mr-x/fetch--extra))
+          (setq mr-x/fetch--extra
+                (propertize "⚠ last session ended uncleanly — SPC R to review"
+                            'face 'warning)))
         (if (executable-find "fastfetch")
             (progn
               (require 'ansi-color)
@@ -2902,6 +2916,8 @@ Falls back to a one-liner if fastfetch isn't installed."
             (erase-buffer)
             (insert (format "%s@%s · Emacs %s\n"
                             (user-login-name) (system-name) emacs-version))
+            (when mr-x/fetch--extra
+              (insert "\n" mr-x/fetch--extra "\n"))
             (goto-char (point-min)))))
       buf))
 
@@ -3780,6 +3796,260 @@ where make-frame would otherwise error with \"Unknown terminal type\"."
                     (length errors)
                     (string-join errors "; "))
           (format "Session restored: %d frames" (length frame-data))))))
+
+#+end_src
+
+*** Crash Recovery
+
+Persistent-scratch, but for the whole session.  An idle timer keeps
+=session-state.el= (and yabai space assignments) fresh in the background;
+a clean-exit marker written from =kill-emacs-hook= lets startup tell a
+crash from a normal restart.  Nothing restarts or restores automatically
+— after a crash you start Emacs like always, land on the splash (which
+shows a quiet hint), and run =SPC R= whenever you're ready.  That renders
+a crash report into the splash: when the state was saved, what frames it
+held, the tail of the daemon's stderr, and single-key actions.  =r=
+rebuilds the frames and shoves them back onto their yabai spaces (the
+splash frame stays, just buried); =d= opens the full stderr snapshot
+(with the macOS =.ips= crash report path in its header, if one landed);
+=x= discards the snapshot.
+
+The snapshot is copied aside at startup the moment a crash is detected —
+before the idle timer can overwrite it with the fresh session's layout.
+All of this is daemon-only: batch runs (tests, tangling) must not write
+markers or start timers.
+
+#+begin_src emacs-lisp
+
+  (defvar mr-x/crash-state-dir
+    (expand-file-name "crash-state/" user-emacs-directory)
+    "Directory holding state snapshotted after an unclean exit.")
+
+  (defvar mr-x/clean-exit-file
+    (expand-file-name "clean-exit" user-emacs-directory)
+    "Marker written on graceful shutdown; absent at startup means we crashed.")
+
+  (defvar mr-x/yabai-state-file
+    (expand-file-name "yabai-state.json" user-emacs-directory)
+    "Where emacs-restart-restore.sh save-yabai writes window→space state.")
+
+  (defvar mr-x/session-autosave-timer nil
+    "Idle timer that keeps the session snapshot fresh.")
+
+  (defconst mr-x/--restart-restore-script
+    (expand-file-name "~/.dotfiles/macos/scripts/emacs-restart-restore.sh"))
+
+  (defun mr-x/session-autosave ()
+    "Silently snapshot session + yabai state; runs on idle.
+Skips when there are no visible client frames so a bare daemon
+doesn't clobber the last useful snapshot."
+    (when (filtered-frame-list
+           (lambda (f) (and (frame-visible-p f)
+                            (not (string= "F1" (frame-parameter f 'name))))))
+      (let ((inhibit-message t)
+            (message-log-max nil))
+        (mr-x/save-session-state))
+      (when (file-exists-p mr-x/--restart-restore-script)
+        (let ((process-environment
+               (cons (concat "YABAI_STATE=" mr-x/yabai-state-file)
+                     process-environment)))
+          (start-process "yabai-autosave" nil
+                         mr-x/--restart-restore-script "save-yabai")))))
+
+  (defun mr-x/crash-pending-p ()
+    "Non-nil when an un-reviewed crash snapshot exists."
+    (file-exists-p (expand-file-name "session-state.el" mr-x/crash-state-dir)))
+
+  (defun mr-x/--write-clean-exit-marker ()
+    "Mark this shutdown as intentional (kill-emacs-hook)."
+    (ignore-errors
+      (write-region "" nil mr-x/clean-exit-file nil 'silent)))
+
+  (defun mr-x/--crash-check ()
+    "Detect an unclean previous exit and preserve its state.
+Runs once at daemon startup, before the autosave timer gets a
+chance to overwrite the pre-crash snapshot.  Copies session +
+yabai state into `mr-x/crash-state-dir' and snapshots the tail of
+the daemon stderr log plus the newest macOS crash report path."
+    (if (file-exists-p mr-x/clean-exit-file)
+        (delete-file mr-x/clean-exit-file)
+      (when (file-exists-p mr-x/session-file)
+        (make-directory mr-x/crash-state-dir t)
+        (copy-file mr-x/session-file
+                   (expand-file-name "session-state.el" mr-x/crash-state-dir)
+                   t t)
+        (when (file-exists-p mr-x/yabai-state-file)
+          (copy-file mr-x/yabai-state-file
+                     (expand-file-name "yabai-state.json" mr-x/crash-state-dir)
+                     t t))
+        (let ((log "/tmp/emacs-daemon.stderr.log")
+              (snap (expand-file-name "stderr.log" mr-x/crash-state-dir))
+              (ips (car (sort (file-expand-wildcards
+                               "~/Library/Logs/DiagnosticReports/Emacs-*.ips" t)
+                              #'file-newer-than-file-p))))
+          (with-temp-file snap
+            (insert (format ";; crash detected %s\n"
+                            (format-time-string "%Y-%m-%d %H:%M:%S")))
+            (insert (format ";; session state from %s\n"
+                            (format-time-string
+                             "%Y-%m-%d %H:%M:%S"
+                             (file-attribute-modification-time
+                              (file-attributes mr-x/session-file)))))
+            (when ips
+              (insert (format ";; macOS crash report: %s\n" ips)))
+            (insert "\n")
+            (when (file-readable-p log)
+              (insert (with-temp-buffer
+                        (insert-file-contents log)
+                        (goto-char (point-max))
+                        (forward-line -200)
+                        (buffer-substring (point) (point-max))))))))))
+
+  (defun mr-x/--crash-info ()
+    "Plist describing the pending crash snapshot, or nil."
+    (when (mr-x/crash-pending-p)
+      (let* ((state (expand-file-name "session-state.el" mr-x/crash-state-dir))
+             (yabai (expand-file-name "yabai-state.json" mr-x/crash-state-dir))
+             (stderr (expand-file-name "stderr.log" mr-x/crash-state-dir))
+             ;; Dynamic shadow so the summary reads the crash copy.
+             (mr-x/session-file state))
+        (list :state state
+              :yabai (and (file-exists-p yabai) yabai)
+              :stderr (and (file-exists-p stderr) stderr)
+              :saved-at (format-time-string
+                         "%Y-%m-%d %H:%M"
+                         (file-attribute-modification-time
+                          (file-attributes state)))
+              :summary (mr-x/session-state-summary)))))
+
+  (defun mr-x/--crash-section ()
+    "Propertized crash report block for the splash buffer."
+    (let* ((info (mr-x/--crash-info))
+           (tail (when (plist-get info :stderr)
+                   (with-temp-buffer
+                     (insert-file-contents (plist-get info :stderr))
+                     (goto-char (point-max))
+                     (skip-chars-backward "\n")
+                     (forward-line -12)
+                     (string-trim-right
+                      (buffer-substring (point) (point-max)))))))
+      (concat
+       (propertize "── CRASH REPORT ─────────────────────────────────\n"
+                   'face 'error)
+       (propertize (format "last session ended uncleanly · state saved %s\n"
+                           (plist-get info :saved-at))
+                   'face 'warning)
+       (plist-get info :summary) "\n"
+       (when (and tail (not (string-empty-p tail)))
+         (concat "\n" (propertize tail 'face 'shadow) "\n"))
+       "\n"
+       (propertize "[r] restore layout   [d] full log   [x] discard   [q] quit"
+                   'face 'success))))
+
+  (defvar mr-x/crash-review-map
+    (let ((m (make-sparse-keymap)))
+      (define-key m (kbd "r") #'mr-x/crash-restore)
+      (define-key m (kbd "d") #'mr-x/crash-open-log)
+      (define-key m (kbd "x") #'mr-x/crash-discard)
+      m)
+    "Keys active in the splash while reviewing a crash.")
+
+  (defun mr-x/--crash-review-bind ()
+    "Make r/d/x work in the splash regardless of evil state."
+    (use-local-map (make-composed-keymap mr-x/crash-review-map
+                                         (current-local-map)))
+    (when (fboundp 'evil-local-set-key)
+      (dolist (state '(normal motion))
+        (evil-local-set-key state (kbd "r") #'mr-x/crash-restore)
+        (evil-local-set-key state (kbd "d") #'mr-x/crash-open-log)
+        (evil-local-set-key state (kbd "x") #'mr-x/crash-discard)
+        (evil-local-set-key state (kbd "q") #'quit-window))))
+
+  (defun mr-x/--crash-clear-splash ()
+    "Drop the crash section/hint from the splash and re-render."
+    (when-let ((buf (get-buffer "*fetch*")))
+      (with-current-buffer buf
+        (setq mr-x/fetch--extra nil)
+        (when mr-x/fetch--logo
+          (mr-x/fetch--render)
+          (mr-x/fetch--layout)))))
+
+  (defun mr-x/crash-recovery ()
+    "Review the last crash on the splash: debug tail + restore options."
+    (interactive)
+    (if (not (mr-x/crash-pending-p))
+        (message "No crash state to review")
+      (switch-to-buffer (mr-x/fetch-buffer))
+      (setq mr-x/fetch--extra (mr-x/--crash-section))
+      (if mr-x/fetch--logo
+          (progn (mr-x/fetch--render)
+                 (mr-x/fetch--layout))
+        (let ((inhibit-read-only t))
+          (goto-char (point-max))
+          (insert "\n" mr-x/fetch--extra "\n")))
+      (mr-x/--crash-review-bind)))
+
+  (defun mr-x/crash-restore ()
+    "Rebuild frames/layout from the crash snapshot; bury this frame.
+The window ids of Emacs frames alive right now (e.g. the splash)
+are passed to the yabai pass as exclusions so old→new pairing
+only sees the freshly restored frames."
+    (interactive)
+    (let ((info (mr-x/--crash-info)))
+      (unless info (user-error "No crash state"))
+      (let* ((splash-frame (selected-frame))
+             (exclude (string-trim
+                       (shell-command-to-string
+                        "yabai -m query --windows 2>/dev/null | jq -r '[.[] | select(.app == \"Emacs\") | .id] | join(\",\")'")))
+             (result (let ((mr-x/session-file (plist-get info :state)))
+                       (mr-x/restore-session-state))))
+        (when (and (plist-get info :yabai)
+                   (file-exists-p mr-x/--restart-restore-script))
+          ;; Give the new NS windows a beat to register with yabai.
+          (run-at-time
+           1 nil
+           (lambda (env)
+             (let ((process-environment env))
+               (start-process "crash-restore-yabai" "*crash-yabai*"
+                              mr-x/--restart-restore-script "restore-yabai")))
+           (append (list (concat "YABAI_STATE=" (plist-get info :yabai))
+                         (concat "YABAI_EXCLUDE=" exclude))
+                   process-environment)))
+        ;; Consume the snapshot once the yabai pass has had time to read it.
+        (run-at-time 5 nil
+                     (lambda ()
+                       (when (file-directory-p mr-x/crash-state-dir)
+                         (delete-directory mr-x/crash-state-dir t))
+                       (mr-x/--crash-clear-splash)))
+        (lower-frame splash-frame)
+        (message "%s — splash buried" result))))
+
+  (defun mr-x/crash-open-log ()
+    "Open the full stderr snapshot from the crash."
+    (interactive)
+    (let ((info (mr-x/--crash-info)))
+      (if (and info (plist-get info :stderr))
+          (view-file (plist-get info :stderr))
+        (message "No stderr snapshot"))))
+
+  (defun mr-x/crash-discard ()
+    "Throw away the crash snapshot without restoring."
+    (interactive)
+    (when (file-directory-p mr-x/crash-state-dir)
+      (delete-directory mr-x/crash-state-dir t))
+    (mr-x/--crash-clear-splash)
+    (message "Crash state discarded"))
+
+  (with-eval-after-load 'general
+    (mr-x/leader-def
+      "R" '(mr-x/crash-recovery :wk "crash recovery")))
+
+  ;; Daemon-only wiring: detect crashes, mark clean exits, keep state fresh.
+  (when (daemonp)
+    (add-hook 'kill-emacs-hook #'mr-x/--write-clean-exit-marker)
+    (mr-x/--crash-check)
+    (setq mr-x/session-autosave-timer
+          (run-with-idle-timer 30 t #'mr-x/session-autosave)))
 
 #+end_src
 
