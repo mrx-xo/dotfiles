@@ -223,7 +223,38 @@
   ;; Phase 2 — tmux interception entry points
   (should (fboundp 'mr-x/agent-tmux-toggle))
   (should (fboundp 'mr-x/agent-terminal-attach))
-  (should (fboundp 'agent-terminal-tmux-enabled-p)))
+  (should (fboundp 'agent-terminal-tmux-enabled-p))
+  ;; Phase 3 — ACP terminal channel shims
+  (should (fboundp 'agent-terminal--acp-add-capability))
+  (should (fboundp 'agent-terminal--acp-transform-update))
+  (should (fboundp 'agent-terminal--acp-transform-notification)))
+
+(ert-deftest config-test-agent-terminal-acp-transform ()
+  "Terminal-channel updates should rewrite to console blocks agent-shell renders.
+Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
+  ;; Data update: _meta.terminal_output, no content key -> block injected
+  (let ((update (json-parse-string
+                 "{\"_meta\":{\"terminal_output\":{\"terminal_id\":\"t1\",\"data\":\"hello\"}},\"toolCallId\":\"t1\",\"sessionUpdate\":\"tool_call_update\"}"
+                 :object-type 'alist :null-object nil :false-object nil)))
+    (agent-terminal--acp-transform-update update)
+    (should (string-match-p "```console\nhello\n```"
+                            (map-nested-elt (aref (map-elt update 'content) 0)
+                                            '(content text)))))
+  ;; Completed failure: terminal item + rawOutput + nonzero exit -> block + badge
+  (let ((update (json-parse-string
+                 "{\"sessionUpdate\":\"tool_call_update\",\"status\":\"failed\",\"rawOutput\":\"boom\",\"content\":[{\"type\":\"terminal\",\"terminalId\":\"t1\"}],\"_meta\":{\"terminal_exit\":{\"terminal_id\":\"t1\",\"exit_code\":3,\"signal\":null}}}"
+                 :object-type 'alist :null-object nil :false-object nil)))
+    (agent-terminal--acp-transform-update update)
+    (let ((text (map-nested-elt (aref (map-elt update 'content) 0) '(content text))))
+      (should (string-match-p "boom" text))
+      (should (string-match-p "✗ exit 3" text))))
+  ;; Placeholder tool_call -> terminal item dropped, nothing invented
+  (let ((update (json-parse-string
+                 "{\"sessionUpdate\":\"tool_call\",\"status\":\"pending\",\"content\":[{\"type\":\"terminal\",\"terminalId\":\"t1\"}],\"_meta\":{\"terminal_info\":{\"terminal_id\":\"t1\"}}}"
+                 :object-type 'alist :null-object nil :false-object nil)))
+    (agent-terminal--acp-transform-update update)
+    (let ((c (map-elt update 'content)))
+      (should (or (null c) (= 0 (length c)))))))
 
 (ert-deftest config-test-agent-terminal-ingest-roundtrip ()
   "A hook-shaped payload should land in the observer buffer; bad input is swallowed."

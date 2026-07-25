@@ -20,6 +20,8 @@
 ;;; Code:
 
 (require 'ansi-color)
+(require 'map)
+(require 'seq)
 
 (defgroup agent-terminal nil
   "Observer buffer for agent Bash commands."
@@ -249,6 +251,110 @@ With prefix ARG, toggle the interception itself instead (see
         (display-buffer buf '((display-buffer-in-side-window)
                               (side . bottom)
                               (window-height . 0.35)))))))
+
+;;; Phase 3 — native ACP terminal channel (docs/agent-terminal-prd.md)
+;;
+;; The claude-agent-acp adapter (0.54.x) has a dormant terminal channel
+;; gated on `clientCapabilities._meta.terminal_output'.  When advertised,
+;; Bash tool results arrive as content [{type "terminal"}] with the actual
+;; output in `_meta.terminal_output.data' and the exit code in
+;; `_meta.terminal_exit.exit_code' — which stock agent-shell silently drops
+;; (its extractors nil-guard unknown content types).  Two advices fix that:
+;; one advertises the capability on initialize, one rewrites terminal
+;; updates into the ```console text blocks agent-shell already renders
+;; (mirroring the adapter's own no-capability fallback), plus an exit-code
+;; badge.  Both are no-ops for sessions started before load and for agents
+;; that never emit terminal content.
+
+(defcustom agent-terminal-acp-capability t
+  "When non-nil, advertise the ACP terminal_output capability.
+Takes effect for agent-shell sessions started after load.  Set to nil and
+start a new session to get stock behavior back."
+  :type 'boolean)
+
+(defun agent-terminal--acp-add-capability (request)
+  "Advertise terminal_output under clientCapabilities._meta in REQUEST.
+Filter-return advice for `acp-make-initialize-request'."
+  (when agent-terminal-acp-capability
+    (condition-case nil
+        (when-let* ((params (alist-get :params request))
+                    (caps-cell (assq 'clientCapabilities params)))
+          (unless (assq '_meta (cdr caps-cell))
+            (setcdr caps-cell (cons '(_meta . ((terminal_output . t)))
+                                    (cdr caps-cell)))))
+      (error nil)))
+  request)
+
+(defun agent-terminal--acp-console-block (data exit-code)
+  "Format terminal DATA and EXIT-CODE the way agent-shell renders Bash.
+Matches the adapter's own no-capability fallback (```console fence) so the
+UX is identical either way, with an exit badge added for failures."
+  (let ((fence (when (and data (not (string-empty-p data)))
+                 (concat "```console\n" (string-trim-right data) "\n```")))
+        (badge (when (and (numberp exit-code) (not (zerop exit-code)))
+                 (format "✗ exit %d" exit-code))))
+    (string-join (delq nil (list fence badge)) "\n")))
+
+(defun agent-terminal--acp-transform-update (update)
+  "Destructively rewrite terminal-channel data in UPDATE (an alist) to text.
+
+Live-probed adapter (0.54.1) lifecycle for one Bash call:
+  1. tool_call: content [terminal] + _meta.terminal_info    -> drop placeholder
+  2. tool_call_update: content [terminal], no data           -> drop placeholder
+  3. tool_call_update: _meta.terminal_output.data, NO content key -> inject block
+  4. tool_call_update completed: content [terminal] +
+     _meta.terminal_exit + rawOutput                         -> rebuild block + badge
+
+agent-shell's `agent-shell--save-tool-call' drops nil-valued entries
+before merging, so writing content nil never clobbers a stored block."
+  (let* ((content (map-elt update 'content))
+         (meta (map-elt update '_meta))
+         (tout (and meta (map-elt meta 'terminal_output)))
+         (texit (and meta (map-elt meta 'terminal_exit)))
+         (has-terminal (and content
+                            (seq-some (lambda (item)
+                                        (equal (map-elt item 'type) "terminal"))
+                                      content))))
+    (when (or has-terminal tout texit)
+      (let* ((raw-output (let ((ro (map-elt update 'rawOutput)))
+                           (and (stringp ro) ro)))
+             (data (or (and tout (map-elt tout 'data)) raw-output))
+             (exit-code (and texit (map-elt texit 'exit_code)))
+             (kept (and content
+                        (seq-remove (lambda (item)
+                                      (equal (map-elt item 'type) "terminal"))
+                                    content)))
+             (text (agent-terminal--acp-console-block data exit-code))
+             (block-item (unless (string-empty-p text)
+                           `((type . "content")
+                             (content . ((type . "text") (text . ,text))))))
+             (new-items (append kept (and block-item (list block-item)))))
+        (if-let ((cell (assq 'content update)))
+            (setcdr cell (and new-items (vconcat new-items)))
+          (when new-items
+            (nconc update (list (cons 'content (vconcat new-items))))))))))
+
+(defun agent-terminal--acp-transform-notification (args)
+  "Filter-args advice for `agent-shell--on-notification'.
+Rewrites terminal-flavored tool_call/tool_call_update notifications in
+place before agent-shell processes them.  Errors are swallowed — a shim
+must never break notification handling."
+  (condition-case nil
+      (when-let* ((notif (plist-get args :acp-notification))
+                  (update (map-nested-elt notif '(params update))))
+        (when (member (map-elt update 'sessionUpdate)
+                      '("tool_call" "tool_call_update"))
+          (agent-terminal--acp-transform-update update)))
+    (error nil))
+  args)
+
+(with-eval-after-load 'acp
+  (advice-add 'acp-make-initialize-request :filter-return
+              #'agent-terminal--acp-add-capability))
+
+(with-eval-after-load 'agent-shell
+  (advice-add 'agent-shell--on-notification :filter-args
+              #'agent-terminal--acp-transform-notification))
 
 (defun agent-terminal-clear ()
   "Wipe the observer buffer."
