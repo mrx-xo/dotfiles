@@ -26,8 +26,17 @@
     session, can't be tested headless)
   - [ ] first real-use shakedown: flip =C-u SPC c V=, run an agent task,
     watch =SPC c V=
-- [ ] Phase 3 — native ACP terminal channel (=clientCapabilities._meta.terminal_output=),
-  acp.el advice + agent-shell renderer; upstream PRs
+- [X] Phase 3 — native ACP terminal channel, SHIPPED ~2026-07-25~ (commit
+  =e8d90fc=): capability advice + notification transform in
+  =agent-terminal.el=, gated by =agent-terminal-acp-capability=.
+  Applies to NEW agent-shell sessions only.
+  - [ ] visual check: new agent-shell session, run a command → ```console
+    block; failing command → =✗ exit N= badge
+  - [ ] acp-mobile: check =type: terminal= content renders sanely there
+    (multiplex passes _meta through; capability follows whichever
+    frontend connects FIRST — normally agent-shell)
+  - [ ] upstream PRs: acp.el flag-gated capability (xenodium/acp.el) +
+    agent-shell terminal renderer (xenodium/agent-shell)
 - [ ] MrX2: merge agent-terminal hooks into its =~/.claude/settings.json=
   if the observer is wanted there (hooks are per-machine, untracked)
 
