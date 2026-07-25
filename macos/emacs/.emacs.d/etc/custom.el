@@ -130,7 +130,8 @@
      ("frethead" . "~/roaming/projects/frethead/")
      ("trakt-sync" . "~/roaming/code/trakt-sync/")
      ("home lab" . "~/roaming/projects/home-lab/")
-     ("major pane" . "~/roaming/projects/major-pane/"))))
+     ("major pane" . "~/roaming/projects/major-pane/")
+     ("keymap explorer" . "~/roaming/projects/keymap-explorer/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
