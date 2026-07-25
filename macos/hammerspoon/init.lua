@@ -111,5 +111,19 @@ layoutWatcher = hs.pathwatcher.new(layoutFile, function(files)
 end)
 layoutWatcher:start()
 
+-- Auto-heal monitor arrangement: macOS randomly forgets display positions
+-- on reconnect/wake, so on any display change re-apply the saved
+-- displayplacer profile for the current display set (no-op when in sync).
+-- Debounce past monitor-mode's 4-10s re-enumeration churn.
+local displayLayoutScript = os.getenv("HOME") .. "/.dotfiles/macos/scripts/display-layout.sh"
+local displayLayoutTimer = nil
+displayLayoutWatcher = hs.screen.watcher.new(function()
+  if displayLayoutTimer then displayLayoutTimer:stop() end
+  displayLayoutTimer = hs.timer.doAfter(4, function()
+    hs.task.new(displayLayoutScript, nil, { "apply" }):start()
+  end)
+end)
+displayLayoutWatcher:start()
+
 -- Live keymap widget on the portrait display (keymap-explorer PRD)
 dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keymap-widget.lua")
