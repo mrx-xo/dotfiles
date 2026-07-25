@@ -142,22 +142,37 @@ Flat on `major-pane-tab-bar'; the invisible box matches the bar so
 tabs get side padding without a visible border."
   :group 'major-pane)
 
-(defface major-pane-tab-attention-done
+(defface major-pane-tab-attention-busy
   '((t :inherit major-pane-tab-inactive
        :foreground "#fbf1c7"
-       :underline (:color "#fe8019" :position 0)))
+       :background "#463120"
+       :box (:line-width (6 . -1) :color "#463120")))
+  "Face for a tab whose agent is generating — the \"pill\".
+Orange tinted 18% into the tab bar: a low simmer while the convo
+cooks.  Live status, not an unseen flag — it survives activation and
+is replaced by done/perms when the turn resolves."
+  :group 'major-pane)
+
+(defface major-pane-tab-attention-done
+  '((t :inherit major-pane-tab-inactive
+       :foreground "#fbf1c7" :weight bold
+       :background "#5c3b1f"
+       :underline (:color "#fe8019" :position 0)
+       :box (:line-width (6 . -1) :color "#5c3b1f")))
   "Face for an inactive tab that finished a turn while unfocused.
-Like `major-pane-tab-inactive' with an orange underline and brighter
-label — a response is ready.  Cleared when the tab becomes active."
+The \"full\" treatment: hotter orange tint (28%) + orange underline +
+bold — a response is ready.  Cleared when the tab becomes active."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-perms
   '((t :inherit major-pane-tab-inactive
-       :foreground "#fbf1c7"
-       :underline (:color "#fb4934" :position 0)))
+       :foreground "#fbf1c7" :weight bold
+       :background "#5b2b26"
+       :underline (:color "#fb4934" :position 0)
+       :box (:line-width (6 . -1) :color "#5b2b26")))
   "Face for an inactive tab waiting on a permission response.
-Like `major-pane-tab-inactive' with a red underline and brighter
-label — the agent needs you.  Cleared when the tab becomes active."
+The \"full\" treatment in red: tinted background + red underline +
+bold — the agent needs you.  Cleared when the tab becomes active."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-done-marker
@@ -172,12 +187,20 @@ finished turn (orange)."
 waiting on a permission response (red) — outranks orange."
   :group 'major-pane)
 
+(defface major-pane-tab-attention-busy-marker
+  '((t :inherit major-pane-dim :foreground "#99551d"))
+  "Face for the ‹N / N› overflow counter when a hidden convo is
+generating (dim orange) — outranked by done and perms."
+  :group 'major-pane)
+
 (defvar-local major-pane--tab-attention nil
   "Attention state for this conversation, or nil when there's nothing new.
-`perms' — waiting on a permission response (red, outranks `done').
-`done'  — a turn finished, response ready (orange).
-Set on `permission-request'/`turn-complete' for a non-active buffer;
-cleared when the buffer becomes the active tab.")
+`perms' — waiting on a permission response (full red, outranks all).
+`done'  — a turn finished, response ready (full orange).
+`busy'  — the agent is generating (orange pill; live status).
+`busy' is set on `input-submitted'/`permission-response' for any
+registered buffer; `done'/`perms' only for a non-active buffer, and
+are cleared when the buffer becomes the active tab (`busy' is not).")
 
 (defface major-pane-tab-separator
   '((t :foreground "#3c3836" :background "#3c3836"))
@@ -695,57 +718,72 @@ IS-ACTIVE selects the active/inactive face."
     ;; Becoming the active tab clears any unseen-response flag — the user
     ;; is now looking at it.  Done here so every path that flips `active'
     ;; (click, SPC navigation, adopt, …) clears without extra hooks.
-    (when (and is-active (buffer-local-value 'major-pane--tab-attention buf))
+    ;; `busy' is live status, not a flag — it survives activation so the
+    ;; tab still shows as cooking when you switch away mid-turn.
+    (when (and is-active (memq (buffer-local-value 'major-pane--tab-attention buf)
+                               '(done perms)))
       (with-current-buffer buf (setq major-pane--tab-attention nil)))
     (propertize (format " %s " (major-pane--tab-label buf))
                 'face (cond (is-active 'major-pane-tab-active)
                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
                                ('perms 'major-pane-tab-attention-perms)
-                               ('done 'major-pane-tab-attention-done)))
+                               ('done 'major-pane-tab-attention-done)
+                               ('busy 'major-pane-tab-attention-busy)))
                             (t 'major-pane-tab-inactive))
                 'mouse-face 'major-pane-tab-hover
                 'local-map map)))
 
 (defvar major-pane-attention-event-alist
-  '((permission-request . perms)
+  '((input-submitted . busy)
+    (permission-response . busy)
+    (permission-request . perms)
     (turn-complete . done))
-  "Map agent-shell events to attention severities (`perms'/`done').")
+  "Map agent-shell events to attention states (`busy'/`perms'/`done').
+`input-submitted' starts a turn; `permission-response' resumes one
+after the user answers, so both land on `busy'.")
 
 (defun major-pane--attention-note-event (&rest args)
-  "Flag the emitting shell buffer when a background convo gets a response.
+  "Track the emitting shell buffer's turn lifecycle on its tab.
 Advice on `agent-shell--emit-event': that function only runs with the
 shell buffer current, so `current-buffer' is the conversation.  Maps
-the event to a severity via `major-pane-attention-event-alist', and
-sets it when the buffer is registered but not the active tab (last
-event wins), then repaints the tab row."
+the event to a state via `major-pane-attention-event-alist'.  `busy'
+is live status and is tracked even on the active tab (harmless there —
+the active face wins — but it shows the pill the moment you switch
+away).  `done'/`perms' are unseen-response flags: on the active tab
+the user is already watching, so they just clear `busy' instead."
   (let* ((event (plist-get args :event))
-         (sev (cdr (assq event major-pane-attention-event-alist)))
-         (buf (current-buffer)))
-    (when (and sev
-               (memq buf (major-pane-state-conversations major-pane--state))
-               (not (eq buf (major-pane-state-active major-pane--state)))
-               (not (eq major-pane--tab-attention sev)))
-      (setq major-pane--tab-attention sev)
-      (force-mode-line-update t))))
+         (entry (assq event major-pane-attention-event-alist))
+         (buf (current-buffer))
+         (active (eq buf (major-pane-state-active major-pane--state))))
+    (when (and entry
+               (memq buf (major-pane-state-conversations major-pane--state)))
+      (let ((new (cond ((eq (cdr entry) 'busy) 'busy)
+                       (active nil) ; watching it resolve — nothing unseen
+                       (t (cdr entry)))))
+        (unless (eq major-pane--tab-attention new)
+          (setq major-pane--tab-attention new)
+          (force-mode-line-update t))))))
 
 (with-eval-after-load 'agent-shell
   (advice-add 'agent-shell--emit-event :after #'major-pane--attention-note-event))
 
 (defun major-pane--attention-severity (buffers)
-  "Highest attention severity among BUFFERS: `perms', `done', or nil.
-`perms' (red) outranks `done' (orange)."
+  "Highest attention severity among BUFFERS: `perms', `done', `busy', or nil.
+`perms' (red) outranks `done' (orange) outranks `busy' (dim orange)."
   (let (sev)
     (dolist (b buffers sev)
       (pcase (and (buffer-live-p b)
                   (buffer-local-value 'major-pane--tab-attention b))
         ('perms (setq sev 'perms))
-        ('done (unless (eq sev 'perms) (setq sev 'done)))))))
+        ('done (unless (eq sev 'perms) (setq sev 'done)))
+        ('busy (unless sev (setq sev 'busy)))))))
 
 (defun major-pane--marker-face (severity)
   "Face for an overflow counter summarizing SEVERITY."
   (pcase severity
     ('perms 'major-pane-tab-attention-perms-marker)
     ('done 'major-pane-tab-attention-done-marker)
+    ('busy 'major-pane-tab-attention-busy-marker)
     (_ 'major-pane-dim)))
 
 (defun major-pane--render-tabs ()
