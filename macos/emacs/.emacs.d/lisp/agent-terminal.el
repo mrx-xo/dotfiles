@@ -202,6 +202,54 @@ never surface as a user-visible error from a hook."
         t)
     (error nil)))
 
+;;; Phase 2 — tmux interception (docs/agent-terminal-prd.md)
+
+(defcustom agent-terminal-tmux-flag-file
+  (expand-file-name "~/.claude/agent-tmux-enabled")
+  "Flag file gating the PreToolUse tmux rewrite (agent-tmux-hook.sh)."
+  :type 'file)
+
+(defcustom agent-terminal-tmux-session "agent"
+  "Name of the tmux session agent commands are routed into."
+  :type 'string)
+
+(defun agent-terminal-tmux-enabled-p ()
+  "Non-nil when Bash tool calls are being routed into tmux."
+  (file-exists-p agent-terminal-tmux-flag-file))
+
+(defun mr-x/agent-tmux-toggle ()
+  "Toggle routing of agent Bash commands into the tmux session.
+Takes effect on the next tool call — no session restart needed."
+  (interactive)
+  (if (agent-terminal-tmux-enabled-p)
+      (progn
+        (delete-file agent-terminal-tmux-flag-file)
+        (message "agent-tmux OFF — Bash tool calls run direct again"))
+    (with-temp-file agent-terminal-tmux-flag-file)
+    (message "agent-tmux ON — Bash tool calls run in tmux session %S (SPC c V to watch)"
+             agent-terminal-tmux-session)))
+
+;;;###autoload
+(defun mr-x/agent-terminal-attach (&optional arg)
+  "Toggle a vterm attached to the agent tmux session in a side window.
+With prefix ARG, toggle the interception itself instead (see
+`mr-x/agent-tmux-toggle')."
+  (interactive "P")
+  (if arg
+      (mr-x/agent-tmux-toggle)
+    (require 'vterm)
+    (let ((buf (get-buffer "*agent-tmux*")))
+      (if-let ((win (and buf (get-buffer-window buf))))
+          (delete-window win)
+        (unless (buffer-live-p buf)
+          (let ((vterm-shell (format "tmux new-session -A -s %s"
+                                     agent-terminal-tmux-session))
+                (vterm-buffer-name "*agent-tmux*"))
+            (setq buf (save-window-excursion (vterm)))))
+        (display-buffer buf '((display-buffer-in-side-window)
+                              (side . bottom)
+                              (window-height . 0.35)))))))
+
 (defun agent-terminal-clear ()
   "Wipe the observer buffer."
   (interactive)

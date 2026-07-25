@@ -219,7 +219,11 @@
   (should (featurep 'agent-terminal))
   (should (fboundp 'agent-terminal--ingest))
   (should (fboundp 'agent-terminal-clear))
-  (should (fboundp 'mr-x/agent-terminal)))
+  (should (fboundp 'mr-x/agent-terminal))
+  ;; Phase 2 — tmux interception entry points
+  (should (fboundp 'mr-x/agent-tmux-toggle))
+  (should (fboundp 'mr-x/agent-terminal-attach))
+  (should (fboundp 'agent-terminal-tmux-enabled-p)))
 
 (ert-deftest config-test-agent-terminal-ingest-roundtrip ()
   "A hook-shaped payload should land in the observer buffer; bad input is swallowed."
