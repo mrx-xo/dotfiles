@@ -19,6 +19,11 @@
 - **Dashboard** :8888 (read-only status page; Glances API on :61208 feeds it)
 - **Arr stack**: qBittorrent :8701 (ONLY container behind Gluetun VPN),
   Radarr :7878, Sonarr :8989, Prowlarr :9696, FlareSolverr :8191
+- **Vaultwarden** (+ its own Caddy container) — password manager
+- **Beszel** (+ agent) — server monitoring
+- **Homarr** — dashboard/homepage
+- **changedetection** (+ sockpuppetbrowser) — website change watcher
+- **pricewatch** — price tracking (compose in ~/services/pricewatch)
 - **jellyfin-organize** — systemd service (not Docker), inotify watcher that
   sorts new files into `Films/` and `Shows/` structures
 - **Samba** — `[media]` share of /mnt/media for the Macs
