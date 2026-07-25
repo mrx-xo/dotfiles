@@ -214,6 +214,34 @@
   (should (fboundp 'agent-shell-inbox-disarm))
   (should (fboundp 'agent-shell-inbox-armed-p)))
 
+(ert-deftest config-test-agent-terminal ()
+  "Agent terminal observer package should be loaded with its entry points."
+  (should (featurep 'agent-terminal))
+  (should (fboundp 'agent-terminal--ingest))
+  (should (fboundp 'agent-terminal-clear))
+  (should (fboundp 'mr-x/agent-terminal)))
+
+(ert-deftest config-test-agent-terminal-ingest-roundtrip ()
+  "A hook-shaped payload should land in the observer buffer; bad input is swallowed."
+  (let ((agent-terminal-buffer-name " *agent-terminal-test*")
+        (agent-terminal--last-session nil))
+    (unwind-protect
+        (progn
+          (should (agent-terminal--ingest
+                   (base64-encode-string
+                    (encode-coding-string
+                     (json-serialize '(:phase "pre" :session "test1234-abcd"
+                                       :cwd "/tmp" :command "echo hi"
+                                       :description "Test" :output ""
+                                       :interrupted :false))
+                     'utf-8)
+                    t)))
+          (should-not (agent-terminal--ingest "!!!not-base64"))
+          (with-current-buffer (agent-terminal--buffer)
+            (should (string-match-p "echo hi" (buffer-string)))
+            (should (string-match-p "test1234" (buffer-string)))))
+      (kill-buffer " *agent-terminal-test*"))))
+
 (ert-deftest config-test-mr-x-agent-shell-input-functions ()
   "Agent shell input helpers should be defined."
   (should (fboundp 'mr-x/agent-shell-smart-insert))

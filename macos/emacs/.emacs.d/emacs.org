@@ -3297,6 +3297,7 @@ projectile projects appended below."
         "c l a" '(agent-shell-view-acp-logs :wk "View ACP logs")
         "c l r" '(agent-shell-reset-logs :wk "Reset logs")
         "c l W" '(mr-x/bash-watcher-toggle :wk "Bash watcher")
+        "c v" '(mr-x/agent-terminal :wk "Agent terminal (observer)")
         "c 1" '(mr-x/agent-shell-allow :wk "Allow")
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")
@@ -6950,6 +6951,12 @@ the session picker, then spawns shells staggered 3s apart."
       ;; (daemon: macos/scripts/agent-inbox-daemon.py; design doc:
       ;;  docs/phone-screenshot-ez-send.md)
       (require 'agent-shell-inbox)
+
+      ;; Agent Terminal - read-only observer buffer showing every Bash command
+      ;; any Claude session on this machine runs, fed by Claude Code hooks
+      ;; (script: macos/scripts/agent-terminal-hook.sh; PRD:
+      ;;  docs/agent-terminal-prd.md, Phase 1)
+      (require 'agent-terminal)
 
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)

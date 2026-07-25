@@ -3174,6 +3174,7 @@ projectile projects appended below."
         "c l a" '(agent-shell-view-acp-logs :wk "View ACP logs")
         "c l r" '(agent-shell-reset-logs :wk "Reset logs")
         "c l W" '(mr-x/bash-watcher-toggle :wk "Bash watcher")
+        "c v" '(mr-x/agent-terminal :wk "Agent terminal (observer)")
         "c 1" '(mr-x/agent-shell-allow :wk "Allow")
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")

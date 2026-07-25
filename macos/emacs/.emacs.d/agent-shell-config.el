@@ -1009,6 +1009,12 @@ the session picker, then spawns shells staggered 3s apart."
       ;;  docs/phone-screenshot-ez-send.md)
       (require 'agent-shell-inbox)
 
+      ;; Agent Terminal - read-only observer buffer showing every Bash command
+      ;; any Claude session on this machine runs, fed by Claude Code hooks
+      ;; (script: macos/scripts/agent-terminal-hook.sh; PRD:
+      ;;  docs/agent-terminal-prd.md, Phase 1)
+      (require 'agent-terminal)
+
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)
       (with-eval-after-load 'agent-shell
