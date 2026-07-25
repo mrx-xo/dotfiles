@@ -14,15 +14,18 @@
   (per machine-identity convention; facts file already corrected — repo
   lives at =~/dotfiles=, no leading dot)
 
-* Agent Terminal (docs/agent-terminal-prd.md) [1/3]
+* Agent Terminal (docs/agent-terminal-prd.md) [2/3]
 - [X] Phase 1 — observer buffer, SHIPPED ~2026-07-25~ (commit =875aefb=,
   =SPC c v=, hooks → =agent-terminal-hook.sh= → =lisp/agent-terminal.el=)
-- [ ] Phase 2 — tmux interception: =agent-term-run.sh= wrapper +
-  =updatedInput= rewrite hook + =~/.claude/agent-tmux-enabled= toggle +
-  vterm attach. Schema already confirmed on 2.1.218:
-  =hookSpecificOutput.updatedInput=, works without =permissionDecision=.
+- [X] Phase 2 — tmux interception, SHIPPED ~2026-07-25~ (commit =7980a7f=):
+  =agent-term-run.sh= + =agent-tmux-hook.sh= rewrite + flag toggle
+  (=C-u SPC c V=) + vterm attach (=SPC c V=). E2E-verified headless:
+  cd/export persistence, exit codes, heredocs, timeout, concurrency lock.
   - [ ] verify permission prompt shows ORIGINAL command in interactive
-    agent-shell when rewrite is on (PRD risk)
+    agent-shell when rewrite is on (PRD risk — needs an interactive
+    session, can't be tested headless)
+  - [ ] first real-use shakedown: flip =C-u SPC c V=, run an agent task,
+    watch =SPC c V=
 - [ ] Phase 3 — native ACP terminal channel (=clientCapabilities._meta.terminal_output=),
   acp.el advice + agent-shell renderer; upstream PRs
 - [ ] MrX2: merge agent-terminal hooks into its =~/.claude/settings.json=
