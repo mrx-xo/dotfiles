@@ -1,0 +1,33 @@
+#+title: Dotfiles / Fleet TODOs
+#+startup: overview
+
+* VENGEANCE [1/4]
+- [X] Verify WoL from full shutdown (S5) — ~2026-07-25~, magic packet → SSH in ~60s (=vengeance-wake.sh=)
+- [ ] Fix =OllamaServe= scheduled task: currently *Interactive only*, so after a
+  headless WoL boot (nobody logged in) Ollama never starts — and
+  =schtasks /run= lies with SUCCESS. Switch to "Run whether user is logged
+  on or not" so the fleet's primary Ollama host is fully summonable.
+- [ ] Dotfiles clone stale + dirty: sitting at =659de45= with uncommitted
+  edits to =windows/autohotkey/emacs.ahk= and =windows/scripts/emacs-restart.ps1=.
+  Review the local edits, commit or discard, then pull.
+- [ ] Bootstrap: export =$MACHINE_ID= env var on next =bootstrap.ps1= run
+  (per machine-identity convention; facts file already corrected — repo
+  lives at =~/dotfiles=, no leading dot)
+
+* Agent Terminal (docs/agent-terminal-prd.md) [1/3]
+- [X] Phase 1 — observer buffer, SHIPPED ~2026-07-25~ (commit =875aefb=,
+  =SPC c v=, hooks → =agent-terminal-hook.sh= → =lisp/agent-terminal.el=)
+- [ ] Phase 2 — tmux interception: =agent-term-run.sh= wrapper +
+  =updatedInput= rewrite hook + =~/.claude/agent-tmux-enabled= toggle +
+  vterm attach. Schema already confirmed on 2.1.218:
+  =hookSpecificOutput.updatedInput=, works without =permissionDecision=.
+  - [ ] verify permission prompt shows ORIGINAL command in interactive
+    agent-shell when rewrite is on (PRD risk)
+- [ ] Phase 3 — native ACP terminal channel (=clientCapabilities._meta.terminal_output=),
+  acp.el advice + agent-shell renderer; upstream PRs
+- [ ] MrX2: merge agent-terminal hooks into its =~/.claude/settings.json=
+  if the observer is wanted there (hooks are per-machine, untracked)
+
+* Misc
+- [ ] MrX-as-WoL-target: fire =wake-m4.sh= from the Air with MrX asleep
+  (last untested leg of the fleet WoL matrix)
