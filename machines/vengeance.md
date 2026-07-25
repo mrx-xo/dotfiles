@@ -10,6 +10,10 @@
   on the tailnet (`100.111.162.124`), 78–118 tok/s on the RTX 5080.
   Auto-starts at logon via scheduled task `OllamaServe`; if the box is up but
   Ollama isn't: `ssh vengeance` then `schtasks /run /tn OllamaServe`.
+  **Gotcha (2026-07-25): the task is "Interactive only"** — after a headless
+  WoL boot (nobody logged in) it will NOT start, and `schtasks /run` reports
+  success without Ollama actually listening. Needs a console logon first, or
+  the task reconfigured to "Run whether user is logged on or not".
   Models: qwen3.5:9b (main, use `think:false` for tools), llama3.2:3b, llama3.1:8b.
   `OLLAMA_KEEP_ALIVE=-1`. Windows user is `mnand` (`C:\Users\mnand`).
 - **Temporary Immich remote ML worker**: CUDA ML container on `:3003`, used by
@@ -38,7 +42,8 @@ SSH lands in **Git Bash**, not PowerShell. Hard-won lessons:
 - Emacs: lean package.el config (~500 lines), NOT the literate macOS setup
 - Shell: PowerShell + Starship; Windows Terminal
 - Syncthing syncs `~/shared` (wired by bootstrap.ps1; device pairing is manual)
-- `~/.dotfiles` repo is cloned here; `bootstrap.ps1` symlinks configs
+- Dotfiles repo is cloned at `~/dotfiles` (NO leading dot, unlike the Macs);
+  `bootstrap.ps1` symlinks configs
 
 ## Sync boundaries
 
