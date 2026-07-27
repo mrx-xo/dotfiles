@@ -258,6 +258,34 @@ With prefix ARG, toggle the interception itself instead (see
                               (slot . 1)      ; right of the observer
                               (window-height . 0.35)))))))
 
+;;;###autoload
+(defun mr-x/agent-terminal-live ()
+  "Toggle the whole live setup in one gesture: intercept + observer + pane.
+ON: routes agent Bash calls into the tmux session and opens the observer
+buffer and the live pane side by side at the bottom.  OFF: stops
+interception and closes both windows; the tmux session and its shell
+keep running, so `mr-x/agent-terminal-attach' reattaches anytime.
+This couples the machine-wide flag to the windows on purpose — the
+granular toggles (`mr-x/agent-tmux-toggle', `mr-x/agent-terminal',
+`mr-x/agent-terminal-attach') still work independently."
+  (interactive)
+  (if (agent-terminal-tmux-enabled-p)
+      (progn
+        (delete-file agent-terminal-tmux-flag-file)
+        (dolist (name (list agent-terminal-buffer-name "*agent-tmux*"))
+          (when-let ((win (get-buffer-window name)))
+            (delete-window win)))
+        (message "agent-terminal live OFF — commands run direct; tmux session %S still alive"
+                 agent-terminal-tmux-session))
+    (with-temp-file agent-terminal-tmux-flag-file)
+    (unless (get-buffer-window (agent-terminal--buffer))
+      (mr-x/agent-terminal))
+    (unless (and (get-buffer "*agent-tmux*")
+                 (get-buffer-window "*agent-tmux*"))
+      (mr-x/agent-terminal-attach))
+    (message "agent-terminal live ON — every agent Bash call runs in tmux session %S"
+             agent-terminal-tmux-session)))
+
 ;;; Phase 3 — native ACP terminal channel (docs/agent-terminal-prd.md)
 ;;
 ;; The claude-agent-acp adapter (0.54.x) has a dormant terminal channel

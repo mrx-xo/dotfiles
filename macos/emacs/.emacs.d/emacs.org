@@ -204,6 +204,9 @@ directly into org files via emacsclient.
   	;; testing
 
   	(setq org-M-RET-may-split-line '((default . nil)))
+
+  	;; Follow file: links in the current window, not a new one.
+  	(setf (alist-get 'file org-link-frame-setup) #'find-file)
   	(setq org-list-automatic-rules 
   	      '((checkbox . t)
   	       (indent . nil)
@@ -2679,6 +2682,9 @@ inside display-buffer before major-pane may be loaded."
             vterm-mode
             "\\*xref\\*"
             xref--xref-buffer-mode
+            ;; ERT test results
+            "\\*ert\\*"
+            ert-results-mode
             ;; Mdox viewer buffers
             ".*--[Mm]dox.*"
             ".*shortcuts.*\\.org$"
@@ -2920,6 +2926,11 @@ Falls back to a one-liner if fastfetch isn't installed."
               (insert "\n" mr-x/fetch--extra "\n"))
             (goto-char (point-min)))))
       buf))
+
+  (defun mr-x/fetch ()
+    "Pop to a fresh fastfetch splash — the startup screen on demand."
+    (interactive)
+    (pop-to-buffer-same-window (mr-x/fetch-buffer)))
 
   ;; Main (sole GUI) frame lands on the fetch splash; secondary frames
   ;; keep *scratch* — same sole-frame predicate as
@@ -3299,6 +3310,7 @@ projectile projects appended below."
         "c l W" '(mr-x/bash-watcher-toggle :wk "Bash watcher")
         "c v" '(mr-x/agent-terminal :wk "Agent terminal (observer)")
         "c V" '(mr-x/agent-terminal-attach :wk "Agent tmux (C-u: toggle intercept)")
+        "c L" '(mr-x/agent-terminal-live :wk "Agent terminal LIVE (intercept + windows)")
         "c 1" '(mr-x/agent-shell-allow :wk "Allow")
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")

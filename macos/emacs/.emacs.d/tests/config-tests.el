@@ -223,6 +223,7 @@
   ;; Phase 2 — tmux interception entry points
   (should (fboundp 'mr-x/agent-tmux-toggle))
   (should (fboundp 'mr-x/agent-terminal-attach))
+  (should (fboundp 'mr-x/agent-terminal-live))
   (should (fboundp 'agent-terminal-tmux-enabled-p))
   ;; Phase 3 — ACP terminal channel shims
   (should (fboundp 'agent-terminal--acp-add-capability))
