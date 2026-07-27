@@ -703,6 +703,102 @@ Set to any string (e.g. a propertized │) for a glyph divider.")
       (propertize " " 'display '(space :width (2))
                   'face 'major-pane-tab-separator)))
 
+(defvar major-pane-spinner-styles
+  '((braille    . ("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"))
+    (dot-orbit  . ("⠁" "⠂" "⠄" "⡀" "⢀" "⠠" "⠐" "⠈"))
+    (line       . ("-" "\\" "|" "/"))
+    (moon       . ("◐" "◓" "◑" "◒"))
+    (arc        . ("◜" "◠" "◝" "◞" "◡" "◟"))
+    (triangle   . ("◢" "◣" "◤" "◥"))
+    (bar        . ("▁" "▃" "▅" "▇" "█" "▇" "▅" "▃"))
+    (pulse      . ("●" "◉" "○" "◉"))
+    (ellipsis   . (".  " ".. " "..." "   "))
+    (corners    . ("◰" "◳" "◲" "◱"))
+    (quarters   . ("◴" "◷" "◶" "◵"))
+    (box-bounce . ("▖" "▘" "▝" "▗"))
+    (star       . ("✶" "✸" "✹" "✺" "✹" "✷"))
+    (toggle     . ("⊶" "⊷"))
+    (hamburger  . ("☱" "☲" "☴" "☲"))
+    (grow       . ("▏" "▎" "▍" "▌" "▋" "▊" "▉" "▊" "▋" "▌" "▍" "▎"))
+    (dqpb       . ("d" "q" "p" "b")))
+  "Named frame sets for the busy spinner.
+Every frame within a style must be the same pixel width, or the tab
+row jiggles on each tick.  (Emoji spinners — clocks, moons, globes —
+are deliberately absent: they render at varying widths.)")
+
+(defvar major-pane-spinner-frames
+  (alist-get 'star major-pane-spinner-styles)
+  "Animation frames shown on a busy tab.
+Must all be the same pixel width so the tab row's pixel layout
+doesn't shift between ticks.  Switch styles with
+`major-pane-spinner-style'.")
+
+(defvar major-pane-spinner-interval 0.15
+  "Seconds between spinner frames while any tab is busy.")
+
+(defvar major-pane--spinner-index 0
+  "Current frame index into `major-pane-spinner-frames'.")
+
+(defvar major-pane--spinner-timer nil
+  "Repeating timer driving the busy spinner, nil when no tab is busy.
+The timer exists ONLY while some conversation is mid-turn — redisplay
+is forced on every tick, so an unconditional timer would redraw the
+header line forever for nothing.")
+
+(defun major-pane-spinner-style (style)
+  "Switch the busy spinner to STYLE from `major-pane-spinner-styles'."
+  (interactive
+   (list (intern (completing-read "Spinner style: "
+                                  (mapcar #'car major-pane-spinner-styles)
+                                  nil t))))
+  (let ((frames (alist-get style major-pane-spinner-styles)))
+    (unless frames
+      (user-error "No such spinner style: %s" style))
+    (setq major-pane-spinner-frames frames
+          major-pane--spinner-index 0))
+  (force-mode-line-update t))
+
+(defun major-pane--any-busy-p ()
+  "Non-nil when any conversation's tab is in the `busy' state."
+  (cl-some (lambda (b)
+             (and (buffer-live-p b)
+                  (eq (buffer-local-value 'major-pane--tab-attention b) 'busy)))
+           (major-pane-state-conversations major-pane--state)))
+
+(defun major-pane--spinner-frame ()
+  "Return the current spinner frame string.
+Empty string when the frame list is empty — this runs inside the
+header-line's `:eval', where any signal makes Emacs drop the whole
+tab row."
+  (if (null major-pane-spinner-frames)
+      ""
+    (nth (% major-pane--spinner-index (length major-pane-spinner-frames))
+         major-pane-spinner-frames)))
+
+(defun major-pane--spinner-tick ()
+  "Advance the spinner and redraw, or self-cancel if nothing is busy.
+The self-cancel catches busy tabs that vanish without an agent-shell
+event — killed buffers, demo resets — so the timer can't leak."
+  (if (major-pane--any-busy-p)
+      (progn (cl-incf major-pane--spinner-index)
+             (force-mode-line-update t))
+    (major-pane--spinner-stop)))
+
+(defun major-pane--spinner-stop ()
+  "Cancel the spinner timer if it is running."
+  (when major-pane--spinner-timer
+    (cancel-timer major-pane--spinner-timer)
+    (setq major-pane--spinner-timer nil)))
+
+(defun major-pane--spinner-sync ()
+  "Start the spinner timer if any tab is busy, stop it if none are."
+  (if (major-pane--any-busy-p)
+      (unless major-pane--spinner-timer
+        (setq major-pane--spinner-timer
+              (run-with-timer 0 major-pane-spinner-interval
+                              #'major-pane--spinner-tick)))
+    (major-pane--spinner-stop)))
+
 (defun major-pane--render-tab (buf is-active)
   "Return the propertized tab string for BUF.
 IS-ACTIVE selects the active/inactive face."
@@ -723,7 +819,12 @@ IS-ACTIVE selects the active/inactive face."
     (when (and is-active (memq (buffer-local-value 'major-pane--tab-attention buf)
                                '(done perms)))
       (with-current-buffer buf (setq major-pane--tab-attention nil)))
-    (propertize (format " %s " (major-pane--tab-label buf))
+    (propertize (format " %s%s "
+                        (if (eq (buffer-local-value 'major-pane--tab-attention buf)
+                                'busy)
+                            (concat (major-pane--spinner-frame) " ")
+                          "")
+                        (major-pane--tab-label buf))
                 'face (cond (is-active 'major-pane-tab-active)
                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
                                ('perms 'major-pane-tab-attention-perms)
@@ -762,6 +863,7 @@ the user is already watching, so they just clear `busy' instead."
                        (t (cdr entry)))))
         (unless (eq major-pane--tab-attention new)
           (setq major-pane--tab-attention new)
+          (major-pane--spinner-sync)
           (force-mode-line-update t))))))
 
 (with-eval-after-load 'agent-shell

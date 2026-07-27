@@ -773,6 +773,28 @@ Covers all display paths and ALL agent types (Claude, Goose, ...)."
               (rename-buffer name t)
               (mr-x/agent-pane-buffer-p (buffer-name) nil)))))
 
+(ert-deftest config-test-major-pane-spinner ()
+  "Busy-tab spinner: machinery defined, styles well-formed, no arith-error.
+Every style must be a non-empty list of strings — an empty frame list
+divides by zero inside the header-line `:eval', which makes Emacs
+drop the entire tab row."
+  (require 'major-pane)   ; deferred in batch — only autoloads exist until required
+  (should (fboundp 'major-pane--spinner-sync))
+  (should (fboundp 'major-pane--spinner-tick))
+  (should (commandp 'major-pane-spinner-style))
+  (dolist (style major-pane-spinner-styles)
+    (should (consp (cdr style)))
+    (dolist (frame (cdr style))
+      (should (stringp frame))))
+  ;; frames var must point at one of the named styles
+  (should (rassoc major-pane-spinner-frames major-pane-spinner-styles))
+  ;; robustness: empty frame list must yield "" rather than signal
+  (let ((major-pane-spinner-frames nil))
+    (should (equal "" (major-pane--spinner-frame))))
+  ;; no busy tabs at test time → timer must not be running
+  (major-pane--spinner-sync)
+  (should (null major-pane--spinner-timer)))
+
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tangle freshness — init.el must match a fresh tangle of emacs.org
 ;; ═══════════════════════════════════════════════════════════════════════════
