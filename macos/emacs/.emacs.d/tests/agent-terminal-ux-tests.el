@@ -192,14 +192,19 @@
 
 (defun agent-terminal-ux-run (&optional include-live)
   "Run the atux- suite; return a summary string.
-With INCLUDE-LIVE, also run :live tests (vterm attach — windows will
-visibly pop). Failure details land in *Messages*."
+With INCLUDE-LIVE (interactively: prefix arg, i.e. C-u M-x), also run
+:live tests — vterm attach, windows visibly pop. Failure details land
+in *Messages*."
+  (interactive "P")
   (let* ((selector (if include-live "^atux-" '(and "^atux-" (not (tag :live)))))
          (stats (ert-run-tests-batch selector))
          (total (ert-stats-total stats))
-         (bad (ert-stats-completed-unexpected stats)))
-    (format "%d/%d passed%s" (- total bad) total
-            (if (> bad 0) " — FAILURES (see *Messages*)" ""))))
+         (bad (ert-stats-completed-unexpected stats))
+         (summary (format "agent-terminal UX: %d/%d passed%s" (- total bad) total
+                          (if (> bad 0) " — FAILURES (see *Messages*)" ""))))
+    (when (called-interactively-p 'any)
+      (message "%s" summary))
+    summary))
 
 (provide 'agent-terminal-ux-tests)
 ;;; agent-terminal-ux-tests.el ends here

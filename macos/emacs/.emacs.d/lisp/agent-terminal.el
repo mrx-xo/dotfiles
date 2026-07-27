@@ -361,6 +361,19 @@ must never break notification handling."
   (advice-add 'agent-shell--on-notification :filter-args
               #'agent-terminal--acp-transform-notification))
 
+;; Trampoline so M-x agent-terminal-ux-run works in any session: loads the
+;; test suite on first call, whose own (interactive) definition replaces
+;; this stub, then re-dispatches. No-op if the suite is already loaded.
+(unless (fboundp 'agent-terminal-ux-run)
+  (defun agent-terminal-ux-run (&optional include-live)
+    "Load and run the agent-terminal UX test suite.
+With prefix arg INCLUDE-LIVE, also run :live tests (vterm attach)."
+    (interactive "P")
+    (load (expand-file-name "tests/agent-terminal-ux-tests.el"
+                            user-emacs-directory)
+          nil t)
+    (funcall #'agent-terminal-ux-run include-live)))
+
 (defun agent-terminal-clear ()
   "Wipe the observer buffer."
   (interactive)
