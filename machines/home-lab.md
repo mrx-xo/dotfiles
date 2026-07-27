@@ -24,8 +24,17 @@
 - **Homarr** — dashboard/homepage
 - **changedetection** (+ sockpuppetbrowser) — website change watcher
 - **pricewatch** — price tracking (compose in ~/services/pricewatch)
-- **jellyfin-organize** — systemd service (not Docker), inotify watcher that
-  sorts new files into `Films/` and `Shows/` structures
+- **jellyfin-organize** — systemd service (not Docker), inotify watcher on
+  `films/`, `Documentaries/`, `Shows/` roots: guessit-names loose files into
+  folders; if the movie folder already has a copy, renames both to Jellyfin
+  version convention (`Title (Year) - 1080p.mkv` → quality picker, no dupes).
+  Startup sweep catches files that arrived while it was down. Test safely via
+  `JF_FILMS_DIR`/`JF_DOCS_DIR`/`JF_SHOWS_DIR`/`JF_LOG` env overrides.
+- **qbit-finished.sh** — qBittorrent on-finish hook (runs in-container,
+  `/config/qbit-finished.sh`): hardlinks completed videos into the library
+  roots by category (movies/documentaries → largest video only; shows → all),
+  seeding copy untouched. The watcher organizes from there. Log:
+  `~/services/arr-stack/qbittorrent/qbit-finished.log`
 - **Samba** — `[media]` share of /mnt/media for the Macs
 
 ## Storage (both drives `nofail` in fstab)
