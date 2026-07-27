@@ -154,6 +154,7 @@ rendering before relying on it remotely (open item in todos.org).
 
 ```bash
 ~/.dotfiles/macos/scripts/agent-terminal-test.sh          # offline suite, no tokens
+~/.dotfiles/macos/scripts/agent-terminal-test.sh --emacs  # + UX suite in your RUNNING Emacs
 ~/.dotfiles/macos/scripts/agent-terminal-test.sh --live   # + one real headless claude run
 ```
 
@@ -164,6 +165,17 @@ rewrite hook's bypass rules, and the Phase 3 transform against live-probed
 adapter payload shapes. Saves and restores your tmux flag state. Run it
 before and after touching any of the moving parts; add a check when a new
 bug teaches us something.
+
+The **UX layer** (`tests/agent-terminal-ux-tests.el`, `atux-*`) tests the
+experience rather than the plumbing: `SPC c v` pops/closes a bottom side
+window, prompt lines render with the right faces (❯/command/annotation),
+session separators and ↳ attribution appear, oversized output shows the
+truncation marker, ANSI becomes real colors, tail-follow sticks to the
+bottom but never yanks you down while you're scrolled up reading history,
+and the tmux toggle flips its flag. It runs headless in the default suite;
+`--emacs` re-runs it inside your live daemon — windows visibly open and
+close, and the vterm-attach test actually attaches to the tmux session.
+That's the mode to use when hacking on the UX itself.
 
 Full ERT config suite (includes the same Phase 3 gold-payload tests):
 

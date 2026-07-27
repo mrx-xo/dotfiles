@@ -112,7 +112,12 @@ keeps point following the tail unless the user has scrolled up."
       (save-excursion
         (goto-char (point-max))
         (funcall insert-fn)
-        (ansi-color-apply-on-region start (point-max)))
+        ;; Text-property faces, not the default overlays: overlays get
+        ;; expensive at 10k lines, and properties survive kill/yank.
+        (let ((ansi-color-apply-face-function
+               (lambda (beg end face)
+                 (when face (put-text-property beg end 'face face)))))
+          (ansi-color-apply-on-region start (point-max))))
       ;; Ring: drop oldest lines past the cap.
       (save-excursion
         (goto-char (point-max))

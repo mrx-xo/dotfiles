@@ -1,21 +1,29 @@
 #!/bin/bash
-# agent-terminal-test.sh [--live] — smoke suite for the Agent Terminal stack
-# (docs/agent-terminal.md). Run before/after touching any moving part; add a
-# check whenever a bug teaches us something new.
+# agent-terminal-test.sh [--live] [--emacs] — smoke suite for the Agent
+# Terminal stack (docs/agent-terminal.md). Run before/after touching any
+# moving part; add a check whenever a bug teaches us something new.
 #
-#   default : offline checks only (no API tokens, ~30s)
+#   default : offline checks, incl. headless UX/rendering ERT (no tokens, ~30s)
 #   --live  : adds one real headless `claude -p` run through tmux interception
+#   --emacs : ALSO runs the UX suite inside your RUNNING Emacs — windows
+#             visibly pop and close (observer toggle, vterm attach). The demo.
 #
 # Exits nonzero if anything fails. Saves/restores your tmux-intercept flag.
 
 set -u
 
 SCRIPTS="$HOME/.dotfiles/macos/scripts"
-LISP="$HOME/.dotfiles/macos/emacs/.emacs.d/lisp"
+EMACSD="$HOME/.dotfiles/macos/emacs/.emacs.d"
+LISP="$EMACSD/lisp"
 FLAG="$HOME/.claude/agent-tmux-enabled"
 EMACS_BATCH="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
-LIVE=0
-[ "${1:-}" = "--live" ] && LIVE=1
+LIVE=0; INEMACS=0
+for arg in "$@"; do
+  case "$arg" in
+    --live) LIVE=1 ;;
+    --emacs) INEMACS=1 ;;
+  esac
+done
 
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
@@ -187,6 +195,36 @@ ELISP
   rm -f "$el"
 else
   printf '  SKIP: %s not found\n' "$EMACS_BATCH"
+fi
+
+# ── UX: window & rendering behavior (headless ERT) ─────────────────────────
+section "UX — windows, faces, tail-follow, truncation (batch ERT)"
+if [ -x "$EMACS_BATCH" ]; then
+  uxout="$("$EMACS_BATCH" --batch -L "$LISP" -L "$EMACSD/tests" \
+      -l agent-terminal.el -l agent-terminal-ux-tests.el \
+      --eval "(ert-run-tests-batch-and-exit '(and \"^atux-\" (not (tag :live))))" 2>&1)"
+  if printf '%s' "$uxout" | grep -q ", 0 unexpected"; then
+    ok "UX suite: $(printf '%s' "$uxout" | grep -o 'Ran [0-9]* tests' | head -1)"
+  else
+    bad "UX suite" "$(printf '%s' "$uxout" | grep 'FAILED' | tr '\n' ' ')"
+  fi
+else
+  printf '  SKIP: %s not found\n' "$EMACS_BATCH"
+fi
+
+# ── Optional: UX suite inside the running Emacs (visible) ──────────────────
+if [ "$INEMACS" = 1 ]; then
+  section "UX — inside your running Emacs (watch your frame)"
+  if emacsclient --eval "t" >/dev/null 2>&1; then
+    liveout="$(emacsclient --eval "(progn (load \"$EMACSD/lisp/agent-terminal.el\" nil t) (load \"$EMACSD/tests/agent-terminal-ux-tests.el\" nil t) (agent-terminal-ux-run t))" 2>&1 | tr -d '"')"
+    case "$liveout" in
+      *FAILURES*) bad "live-daemon UX suite" "$liveout" ;;
+      */*passed*) ok "live-daemon UX suite: $liveout" ;;
+      *) bad "live-daemon UX suite" "$liveout" ;;
+    esac
+  else
+    printf '  SKIP: no Emacs daemon\n'
+  fi
 fi
 
 # ── Optional: live end-to-end through interception ─────────────────────────
