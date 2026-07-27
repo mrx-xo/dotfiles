@@ -255,6 +255,7 @@ With prefix ARG, toggle the interception itself instead (see
             (setq buf (save-window-excursion (vterm)))))
         (display-buffer buf '((display-buffer-in-side-window)
                               (side . bottom)
+                              (slot . 1)      ; right of the observer
                               (window-height . 0.35)))))))
 
 ;;; Phase 3 — native ACP terminal channel (docs/agent-terminal-prd.md)
@@ -361,6 +362,76 @@ must never break notification handling."
   (advice-add 'agent-shell--on-notification :filter-args
               #'agent-terminal--acp-transform-notification))
 
+;;; Demo tour — launch everything, run real traffic, leave it all open
+
+(defconst agent-terminal--run-script
+  (expand-file-name "~/.dotfiles/macos/scripts/agent-term-run.sh")
+  "The tmux interception wrapper (Layer 2).")
+
+(defconst agent-terminal--demo-commands
+  '(("printf '\\e[1;35m%s\\e[0m\\n' 'agent-terminal demo — this shell is REAL, type in me when done'"
+     . "Say hello in the pane")
+    ("ls -G ~/.dotfiles/macos/scripts | head -6"
+     . "List scripts — colors live in the pane, stripped here")
+    ("git -C ~/.dotfiles log --oneline --color=always -4"
+     . "Recent commits")
+    ("for i in 1 2 3; do printf 'tick %s\\n' $i; sleep 1; done"
+     . "Watch the PANE: this runs live there, lands here at the end")
+    ("sh -c 'echo oops, this one fails on purpose >&2; exit 3'"
+     . "Failures propagate real exit codes"))
+  "The demo tour: (command . description) pairs, run in order.")
+
+(defun agent-terminal--demo-ingest (phase cmd desc &optional output)
+  "Feed the observer buffer exactly like agent-terminal-hook.sh would."
+  (agent-terminal--ingest
+   (base64-encode-string
+    (encode-coding-string
+     (json-serialize (list :phase phase :session "demo-tour-0000" :cwd "~"
+                           :command cmd :description desc
+                           :output (or output "") :interrupted :false))
+     'utf-8)
+    t)))
+
+(defun agent-terminal--demo-step (cmds)
+  "Run the next demo command through the wrapper; chain until done."
+  (if (null cmds)
+      (message "demo done — the pane is a live shell (click in, type). SPC c v / SPC c V toggle these windows; C-u SPC c V routes real agent commands here.")
+    (let* ((cmd (caar cmds))
+           (desc (cdar cmds))
+           (b64 (base64-encode-string (encode-coding-string cmd 'utf-8) t))
+           (buf (generate-new-buffer " *agent-terminal-demo*")))
+      (agent-terminal--demo-ingest "pre" cmd desc)
+      (set-process-sentinel
+       (start-process "agent-terminal-demo" buf agent-terminal--run-script b64)
+       (lambda (proc _event)
+         (let ((out (with-current-buffer (process-buffer proc) (buffer-string))))
+           (agent-terminal--demo-ingest "post" cmd "" out)
+           (kill-buffer (process-buffer proc))
+           (run-at-time 1.2 nil #'agent-terminal--demo-step (cdr cmds))))))))
+
+;;;###autoload
+(defun agent-terminal-demo ()
+  "Launch the whole agent-terminal experience and run a guided tour.
+
+Opens the observer buffer and the live tmux pane side by side at the
+bottom, then runs a handful of real commands through the interception
+wrapper — you watch them get typed and executed in the pane while the
+observer logs them. Everything STAYS OPEN afterwards; the pane is a
+real shell you can type into."
+  (interactive)
+  (unless (file-executable-p agent-terminal--run-script)
+    (user-error "Wrapper not found: %s" agent-terminal--run-script))
+  ;; observer on the left
+  (unless (get-buffer-window (agent-terminal--buffer))
+    (mr-x/agent-terminal))
+  ;; live pane on the right
+  (unless (and (get-buffer "*agent-tmux*")
+               (get-buffer-window "*agent-tmux*"))
+    (mr-x/agent-terminal-attach))
+  ;; give vterm/tmux a beat to attach, then roll the tour
+  (run-at-time 1.5 nil #'agent-terminal--demo-step agent-terminal--demo-commands)
+  (message "agent-terminal demo rolling — watch the two bottom windows"))
+
 ;; Trampoline so M-x agent-terminal-ux-run works in any session: loads the
 ;; test suite on first call, whose own (interactive) definition replaces
 ;; this stub, then re-dispatches. No-op if the suite is already loaded.
@@ -391,6 +462,7 @@ With prefix arg INCLUDE-LIVE, also run :live tests (vterm attach)."
     (let ((win (display-buffer (agent-terminal--buffer)
                                '((display-buffer-in-side-window)
                                  (side . bottom)
+                                 (slot . -1)   ; left of the tmux pane
                                  (window-height . 0.3)))))
       (with-selected-window win
         (goto-char (point-max))))))

@@ -12,6 +12,11 @@ history: `docs/agent-terminal-prd.md`. Repeatable smoke tests:
 ## TL;DR
 
 ```
+M-x agent-terminal-demo    the guided tour: opens BOTH views side by side and
+                           runs real commands through the wrapper — watch them
+                           type into the pane while the observer logs them.
+                           Everything stays open; the pane is a real shell.
+
 SPC c v        toggle the observer buffer (always-on feed, read-only)
 SPC c V        attach the tmux pane (watch/type, only useful when intercepting)
 C-u SPC c V    toggle tmux interception on/off (takes effect next tool call)
