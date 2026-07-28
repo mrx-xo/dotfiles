@@ -6142,43 +6142,104 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
         ;; Enable syntax highlighting in code blocks
         (setq agent-shell-highlight-blocks t)
         
-        ;; Map language names to tree-sitter modes for syntax highlighting
-        (add-to-list 'markdown-overlays-language-mapping '("typescript" . "typescript-ts"))
-        (add-to-list 'markdown-overlays-language-mapping '("tsx" . "tsx-ts"))
-        (add-to-list 'markdown-overlays-language-mapping '("javascript" . "js-ts"))
-        (add-to-list 'markdown-overlays-language-mapping '("js" . "js-ts"))
-        
-        ;; Random icons for code block copy button + language box styling
-        (defvar mr-x/code-block-icons
-          '("🔥" "🚀" "💀" "👾" "🤖" "⚡" "✨" "🎯" "🧠" "💅" "🦄" "👀" "🍕" "🌶️" "🎸" "🎮"
-            "💎" "🌈" "🌙" "⭐" "🍄" "🎪" "🎨" "🎵" "🎲" "🃏" "🎭" "🎬" "📡" "🔮" "💣" "🧨"
-            "🏴‍☠️" "👻" "💀" "🎃" "🦇" "🕷️" "🐉" "🦖" "🦑" "🐙" "🦈" "🐺" "🦊" "🐸" "🐍" "🦎"
-            "⚔️" "🗡️" "🏹" "🛡️" "💊" "🧪" "🔬" "🧬" "💻" "🖥️" "⌨️" "🕹️" "📟" "📺" "📀" "💾"
-            "🌀" "🌊" "🔱" "⚓" "☠️" "🏁" "🚩" "🎌" "⛳" "🧿" "🪬" "♠️" "♣️" "♥️" "♦️"
-            "🀄" "🎴" "🔔" "🎺" "🥁" "🪘" "🎻" "🪕" "🎷" "🪗" "🎹"
-            "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" ""
-            "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "")
-          "Random icons for code block copy button.")
-        
-        (defun mr-x/random-code-icon ()
-          "Return a random icon from the list."
-          (nth (random (length mr-x/code-block-icons)) mr-x/code-block-icons))
-        
-        (defun mr-x/agent-shell-style-code-block-header (quotes1-start quotes1-end lang lang-start lang-end body-start body-end quotes2-start quotes2-end)
-          "Customize copy icon and language box styling."
-          (dolist (ov (overlays-in quotes1-start quotes1-end))
-            (when (overlay-get ov 'display)
-              (overlay-put ov 'display
-                           (propertize (concat (mr-x/random-code-icon) " ")
-                                       'pointer 'hand
-                                       'keymap (overlay-get ov 'keymap)))))
-          (unless (eq lang-start lang-end)
-            (dolist (ov (overlays-in lang-start lang-end))
-              (when (equal (overlay-get ov 'face) '(:box t))
-                (overlay-put ov 'face
-                             '(:background "#689d6a" :foreground "#1d2021" :box nil :weight bold))))))
-        
-        (advice-add 'markdown-overlays--fontify-source-block :after #'mr-x/agent-shell-style-code-block-header)
+        ;; agent-shell renders markdown with the in-place renderer
+        ;; (agent-shell-markdown-replace-markup, text properties); the old
+        ;; markdown-overlays renderer is deprecated upstream, so all
+        ;; customizations live on agent-shell-markdown now.
+        (with-eval-after-load 'agent-shell-markdown
+          ;; Map fenced-block languages to tree-sitter modes
+          (dolist (mapping '(("typescript" . "typescript-ts")
+                             ("tsx" . "tsx-ts")
+                             ("javascript" . "js-ts")
+                             ("js" . "js-ts")))
+            (add-to-list 'agent-shell-markdown-language-mapping mapping))
+
+          ;; Rainbow parens in fenced blocks: upstream fontifies with
+          ;; delay-mode-hooks, so rainbow-delimiters (hooked on prog-mode)
+          ;; never activates in the fontification buffer — enable it
+          ;; explicitly before font-lock runs.
+          (defun mr-x/agent-shell-highlight-code-rainbow (code lang)
+            "Like `agent-shell-markdown--highlight-code' plus rainbow-delimiters."
+            (if-let* ((mode (agent-shell-markdown--resolve-lang-mode lang))
+                      ((fboundp mode)))
+                (with-temp-buffer
+                  (insert code)
+                  (let ((inhibit-message t)
+                        (delay-mode-hooks t))
+                    (funcall mode)
+                    (when (fboundp 'rainbow-delimiters-mode)
+                      (rainbow-delimiters-mode 1))
+                    (font-lock-ensure))
+                  (buffer-string))
+              code))
+          (advice-add 'agent-shell-markdown--highlight-code
+                      :override #'mr-x/agent-shell-highlight-code-rainbow)
+
+          ;; Code block labels: nerd-icon + dim language name instead of
+          ;; upstream's "LANG ⧉", quiet hover instead of the theme's yellow
+          ;; `highlight' flash, and no "Press RET to copy" echo-area sensor.
+          ;; RET/mouse-1 on the label still copies the block (keymap kept).
+          (defface mr-x/agent-shell-label-hover
+            '((t :background "#2b2a2a"))
+            "Hover highlight for agent-shell code block labels.")
+
+          (defvar mr-x/agent-shell-lang-file-alist
+            '(("elisp" . "a.el") ("emacs-lisp" . "a.el")
+              ("typescript" . "a.ts") ("tsx" . "a.tsx")
+              ("javascript" . "a.js") ("js" . "a.js")
+              ("python" . "a.py") ("sh" . "a.sh") ("bash" . "a.sh")
+              ("zsh" . "a.sh") ("shell" . "a.sh")
+              ("json" . "a.json") ("yaml" . "a.yml") ("toml" . "a.toml")
+              ("html" . "a.html") ("css" . "a.css") ("sql" . "a.sql")
+              ("rust" . "a.rs") ("go" . "a.go") ("c" . "a.c")
+              ("cpp" . "a.cpp") ("c++" . "a.cpp") ("java" . "a.java")
+              ("ruby" . "a.rb") ("swift" . "a.swift") ("lua" . "a.lua")
+              ("markdown" . "a.md") ("md" . "a.md") ("org" . "a.org")
+              ("diff" . "a.diff") ("patch" . "a.diff"))
+            "Fenced-block language → pseudo-filename for `nerd-icons-icon-for-file'.")
+
+          (defun mr-x/agent-shell-code-block-icon (lang)
+            "Brand-colored nerd icon for fenced-block language LANG."
+            (if (require 'nerd-icons nil t)
+                (nerd-icons-icon-for-file
+                 (or (assoc-default (downcase lang) mr-x/agent-shell-lang-file-alist)
+                     (format "a.%s" (downcase lang))))
+              ""))
+
+          (defun mr-x/agent-shell-restyle-code-labels (&rest _)
+            "Swap freshly rendered \"LANG ⧉\" labels for icon + dim name.
+Runs as :after advice on `agent-shell-markdown-replace-markup', so it
+only sees the narrowed span just rendered.  Idempotent: restyled labels
+no longer carry the upstream label face, so they never match twice."
+            (let ((inhibit-read-only t)
+                  (pos (point-min)))
+              (while (< pos (point-max))
+                (let ((next (or (next-single-property-change pos 'face) (point-max))))
+                  (when (eq (get-text-property pos 'face)
+                            'agent-shell-markdown-source-block-language)
+                    (let* ((lang (string-trim
+                                  (string-replace
+                                   "⧉" "" (buffer-substring-no-properties pos next))))
+                           (props (text-properties-at pos))
+                           (new (concat
+                                 (mr-x/agent-shell-code-block-icon lang) " "
+                                 (propertize lang 'face '(:foreground "#a89984" :slant italic))
+                                 "  " (propertize "⧉" 'face '(:foreground "#665c54")))))
+                      (delete-region pos next)
+                      (save-excursion (goto-char pos) (insert new))
+                      (setq next (+ pos (length new)))
+                      ;; carry layout/action props; drop mouse-face (loud) and
+                      ;; cursor-sensor-functions (echo-area spam)
+                      (dolist (p '(keymap pointer line-prefix wrap-prefix
+                                   agent-shell-markdown-frozen rear-nonsticky))
+                        (when-let* ((v (plist-get props p)))
+                          (put-text-property pos next p v)))
+                      (put-text-property pos next 'mouse-face 'mr-x/agent-shell-label-hover)
+                      (when (fboundp 'agent-shell-markdown--mirror-face-to-font-lock-face)
+                        (agent-shell-markdown--mirror-face-to-font-lock-face pos next))))
+                  (setq pos next)))))
+          (advice-add 'agent-shell-markdown-replace-markup :after
+                      #'mr-x/agent-shell-restyle-code-labels))
 
         ;; Colored headings in agent responses. markdown-overlays fontifies
         ;; "#" headings with org-level-N faces, which the theme keeps
@@ -6192,30 +6253,6 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
           (face-remap-add-relative 'org-level-4 '(:foreground "#83a598" :weight bold)))
 
         (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-colorize-headings)
-
-        ;; DISABLED: Testing upstream indent-text (v0.42.1 uses display properties
-        ;; instead of manual text insertion — better for copy/paste behavior).
-        ;; Re-enable if upstream breaks syntax-highlighted code block formatting.
-        ;; (with-eval-after-load 'agent-shell-ui
-        ;;   (defun agent-shell-ui--indent-text (text &optional indent-string)
-        ;;     "Indent TEXT preserving text properties."
-        ;;     (when text
-        ;;       (let ((indent (or indent-string "  "))
-        ;;             (result (copy-sequence text))
-        ;;             (offset 0))
-        ;;         (unless (string-empty-p result)
-        ;;           (setq result (concat indent result))
-        ;;           (setq offset (length indent)))
-        ;;         (let ((pos 0))
-        ;;           (while (setq pos (string-match "\n" result pos))
-        ;;             (setq pos (1+ pos))
-        ;;             (when (and (< pos (length result))
-        ;;                        (not (eq (aref result pos) ?\n)))
-        ;;               (setq result (concat (substring result 0 pos)
-        ;;                                    indent
-        ;;                                    (substring result pos)))
-        ;;               (setq pos (+ pos (length indent))))))
-        ;;         result))))
 
         ;; Custom icons
         (setq agent-shell-permission-icon "\uf259")

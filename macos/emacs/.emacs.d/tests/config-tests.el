@@ -745,8 +745,21 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   (should (boundp 'mr-x/pending-permissions-queue))
   (should (boundp 'mr-x/escape-hook))
   (should (boundp 'mr-x/colors))
-  (should (boundp 'mr-x/code-block-icons))
   (should (boundp 'mr-x/agenda-separator)))
+
+(ert-deftest config-test-agent-shell-markdown-customizations ()
+  "In-place renderer customizations register once agent-shell-markdown loads."
+  (require 'agent-shell-markdown nil t)
+  (if (featurep 'agent-shell-markdown)
+      (progn
+        (should (boundp 'mr-x/agent-shell-lang-file-alist))
+        (should (fboundp 'mr-x/agent-shell-code-block-icon))
+        (should (fboundp 'mr-x/agent-shell-restyle-code-labels))
+        (should (advice-member-p 'mr-x/agent-shell-restyle-code-labels
+                                 'agent-shell-markdown-replace-markup))
+        (should (advice-member-p 'mr-x/agent-shell-highlight-code-rainbow
+                                 'agent-shell-markdown--highlight-code)))
+    (ert-skip "agent-shell-markdown not loadable in batch")))
 
 (ert-deftest config-test-evil-collection-exclusions ()
   "Modes we manually bind must be excluded from evil-collection."
