@@ -7,6 +7,13 @@
 cmd + shift - e : /opt/homebrew/opt/emacs-plus@30/bin/emacsclient -c -n -a ""
 cmd - e : ~/.dotfiles/macos/scripts/emacs-cycle.sh
 
+# hotdox ✦ Hyper one-taps (the old chords stay bound below — the board's
+# daily-driver keys still send them as real keycodes)
+hyper - e : ~/.dotfiles/macos/scripts/emacs-cycle.sh
+hyper - a : ~/.dotfiles/macos/scripts/org-agenda-frame.sh
+hyper - space : ~/.dotfiles/macos/scripts/scratchpad-emacs.sh scratch
+# hyper - g : magit — pending a focus-emacs-then-magit helper script
+
 # Claude permissions (Worklouder macro pad)
 f13 : emacsclient --eval "(mr-x/agent-shell-allow)"
 f14 : emacsclient --eval "(mr-x/agent-shell-deny)"
@@ -29,15 +36,17 @@ cmd + shift - o : ~/.dotfiles/macos/scripts/scratchpad-emacs.sh scratch-org
 
 cmd + shift - tab : yabai -m window --focus recent
 
-alt - h : yabai -m window --focus west
-alt - j : yabai -m window --focus south
-alt - k : yabai -m window --focus north
-alt - l : yabai -m window --focus east
+# hotdox ✦ Hyper (⌘⌃⌥⇧) / ◆ Meh (⌃⌥⇧) thumb keys — migrated 2026-07-28.
+# alt-hjkl (and alt-1..4, alt-t/f) are freed: Meta works in Emacs again.
+hyper - h : yabai -m window --focus west
+hyper - j : yabai -m window --focus south
+hyper - k : yabai -m window --focus north
+hyper - l : yabai -m window --focus east
 
-shift + alt - h : yabai -m window --warp west
-shift + alt - j : yabai -m window --warp south
-shift + alt - k : yabai -m window --warp north
-shift + alt - l : yabai -m window --warp east
+meh - h : yabai -m window --warp west
+meh - j : yabai -m window --warp south
+meh - k : yabai -m window --warp north
+meh - l : yabai -m window --warp east
 
 ctrl + alt - left : yabai -m window --resize left:-20:0
 ctrl + alt - right : yabai -m window --resize right:20:0
@@ -46,29 +55,29 @@ ctrl + alt - down  : yabai -m window --resize bottom:0:20
 
 cmd - 1 : yabai -m space --focus 1
 
-alt - t : yabai -m window --toggle float
+hyper - t : yabai -m window --toggle float
 
-alt - f : yabai -m window --toggle zoom-fullscreen
+hyper - f : yabai -m window --toggle zoom-fullscreen
 
 # move window to specific monitor by label
 
 # Laptop display
-alt - 1 : yabai -m window --display 1; yabai -m display --focus 1
+hyper - 1 : yabai -m window --display 1; yabai -m display --focus 1
 
 # Vertical Monitor
-alt - 2 : yabai -m window --display 2; yabai -m display --focus 2
+hyper - 2 : yabai -m window --display 2; yabai -m display --focus 2
 
 # Main Left Monitor
-alt - 3 : yabai -m window --display 3; yabai -m display --focus 3
+hyper - 3 : yabai -m window --display 3; yabai -m display --focus 3
 
 # Main Right Monitor
-alt - 4 : yabai -m window --display 4; yabai -m display --focus 4
+hyper - 4 : yabai -m window --display 4; yabai -m display --focus 4
 
 # Focus only - no window movement
-ctrl - 1 : yabai -m display --focus 1
-ctrl - 2 : yabai -m display --focus 2
-ctrl - 3 : yabai -m display --focus 3
-ctrl - 4 : yabai -m display --focus 4
+meh - 1 : yabai -m display --focus 1
+meh - 2 : yabai -m display --focus 2
+meh - 3 : yabai -m display --focus 3
+meh - 4 : yabai -m display --focus 4
 
 
 # Monitor input switching (DDC "KVM") — see docs/monitor-setup.org
