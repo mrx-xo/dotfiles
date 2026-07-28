@@ -6235,6 +6235,10 @@ no longer carry the upstream label face, so they never match twice."
                         (when-let* ((v (plist-get props p)))
                           (put-text-property pos next p v)))
                       (put-text-property pos next 'mouse-face 'mr-x/agent-shell-label-hover)
+                      ;; blend the label into the block panel: append the
+                      ;; panel face so icon/name colors win but its bg and
+                      ;; :extend fill the label line like upstream's did
+                      (add-face-text-property pos next 'agent-shell-markdown-source-block t)
                       (when (fboundp 'agent-shell-markdown--mirror-face-to-font-lock-face)
                         (agent-shell-markdown--mirror-face-to-font-lock-face pos next))))
                   (setq pos next)))))
