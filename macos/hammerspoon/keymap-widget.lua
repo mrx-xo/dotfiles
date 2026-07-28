@@ -125,9 +125,48 @@ end
 
 M.keyTap:start()   -- flash enabled by default; ⌘⌃⇧K or keymapWidget.toggleKeys() to flip
 
+-- ---- phase B: live layer tracking from the firmware's raw HID broadcast ----
+-- keymap-widget-hid.py blocking-reads the hotdox raw HID interface and prints
+-- "L<n>" per layer change (firmware sends [0x4C, layer] on every change and
+-- once at boot). Layer goes to the hotdox webview only. The task dies on
+-- unplug/sleep; respawn with 2s→30s backoff, fall back to layer 0 while down.
+local HID_PY = "/opt/homebrew/bin/python3"
+local HID_SCRIPT = os.getenv("HOME") .. "/.dotfiles/macos/scripts/keymap-widget-hid.py"
+local hidBackoff = 2
+
+local function setHdLayer(n)
+  views.hd:evaluateJavaScript(string.format("window.__setLayer(%d)", n))
+end
+
+local function spawnHid()
+  local started = hs.timer.secondsSinceEpoch()
+  M.hidTask = hs.task.new(HID_PY, function(_, _, stdErr)
+    -- termination: board gone or listener died — fall back, retry with backoff
+    setHdLayer(0)
+    if stdErr and #stdErr > 0 then
+      hs.printf("keymap-widget hid: %s", (stdErr:gsub("%s+$", "")))
+    end
+    if hs.timer.secondsSinceEpoch() - started > 10 then hidBackoff = 2 end
+    M.hidTimer = hs.timer.doAfter(hidBackoff, spawnHid)
+    hidBackoff = math.min(hidBackoff * 2, 30)
+  end, function(_, stdOut)
+    for n in stdOut:gmatch("L(%d+)") do setHdLayer(tonumber(n)) end
+    return true
+  end, { HID_SCRIPT })
+  M.hidTask:start()
+end
+
+spawnHid()
+
 -- ---- wiring ----------------------------------------------------------------
 M.screenWatcher = hs.screen.watcher.new(place)
 M.screenWatcher:start()
+
+-- kill the listener on hs.reload so the respawned config doesn't race a zombie
+hs.shutdownCallback = function()
+  if M.hidTimer then M.hidTimer:stop() end
+  if M.hidTask then M.hidTask:terminate() end
+end
 
 hs.hotkey.bind({ "cmd", "ctrl" }, "K", M.toggle)
 hs.hotkey.bind({ "cmd", "ctrl", "shift" }, "K", M.toggleKeys)
