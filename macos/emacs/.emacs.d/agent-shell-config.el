@@ -195,6 +195,19 @@
         
         (advice-add 'markdown-overlays--fontify-source-block :after #'mr-x/agent-shell-style-code-block-header)
 
+        ;; Colored headings in agent responses. markdown-overlays fontifies
+        ;; "#" headings with org-level-N faces, which the theme keeps
+        ;; monochrome for org files — remap them buffer-locally to gruvbox
+        ;; accents so agent-shell sections actually stand out.
+        (defun mr-x/agent-shell-colorize-headings ()
+          "Remap org-level faces to gruvbox accents in agent-shell buffers."
+          (face-remap-add-relative 'org-level-1 '(:foreground "#fe8019" :weight bold :height 1.15))
+          (face-remap-add-relative 'org-level-2 '(:foreground "#fabd2f" :weight bold :height 1.05))
+          (face-remap-add-relative 'org-level-3 '(:foreground "#8ec07c" :weight bold))
+          (face-remap-add-relative 'org-level-4 '(:foreground "#83a598" :weight bold)))
+
+        (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-colorize-headings)
+
         ;; DISABLED: Testing upstream indent-text (v0.42.1 uses display properties
         ;; instead of manual text insertion — better for copy/paste behavior).
         ;; Re-enable if upstream breaks syntax-highlighted code block formatting.
