@@ -236,6 +236,17 @@ Takes effect on the next tool call — no session restart needed."
     (message "agent-tmux ON — Bash tool calls run in tmux session %S (SPC c V to watch)"
              agent-terminal-tmux-session)))
 
+(defun agent-terminal--tmux-buffer ()
+  "Return a live *agent-tmux* vterm buffer, creating it (undisplayed) if needed."
+  (let ((buf (get-buffer "*agent-tmux*")))
+    (unless (buffer-live-p buf)
+      (require 'vterm)
+      (let ((vterm-shell (format "tmux new-session -A -s %s"
+                                 agent-terminal-tmux-session))
+            (vterm-buffer-name "*agent-tmux*"))
+        (setq buf (save-window-excursion (vterm)))))
+    buf))
+
 ;;;###autoload
 (defun mr-x/agent-terminal-attach (&optional arg)
   "Toggle a vterm attached to the agent tmux session in a side window.
@@ -244,45 +255,66 @@ With prefix ARG, toggle the interception itself instead (see
   (interactive "P")
   (if arg
       (mr-x/agent-tmux-toggle)
-    (require 'vterm)
-    (let ((buf (get-buffer "*agent-tmux*")))
-      (if-let ((win (and buf (get-buffer-window buf))))
-          (delete-window win)
-        (unless (buffer-live-p buf)
-          (let ((vterm-shell (format "tmux new-session -A -s %s"
-                                     agent-terminal-tmux-session))
-                (vterm-buffer-name "*agent-tmux*"))
-            (setq buf (save-window-excursion (vterm)))))
-        (display-buffer buf '((display-buffer-in-side-window)
-                              (side . bottom)
-                              (slot . 1)      ; right of the observer
-                              (window-height . 0.35)))))))
+    (if-let* ((buf (get-buffer "*agent-tmux*"))
+              (win (get-buffer-window buf)))
+        (delete-window win)
+      (display-buffer (agent-terminal--tmux-buffer)
+                      '((display-buffer-in-side-window)
+                        (side . bottom)
+                        (slot . 1)      ; right of the observer
+                        (window-height . 0.35))))))
 
 ;;;###autoload
-(defun mr-x/agent-terminal-live ()
+(defun mr-x/agent-terminal-live (&optional pop-frame)
   "Toggle the whole live setup in one gesture: intercept + observer + pane.
-ON: routes agent Bash calls into the tmux session and opens the observer
-buffer and the live pane side by side at the bottom.  OFF: stops
-interception and closes both windows; the tmux session and its shell
-keep running, so `mr-x/agent-terminal-attach' reattaches anytime.
+ON: routes agent Bash calls into the tmux session and shows the observer
+buffer and the live pane side by side — in bottom side windows, or with
+prefix POP-FRAME in a dedicated frame (its own OS window, tiled by
+yabai).  OFF: stops interception and closes the windows or frame; the
+tmux session and its shell keep running, so `mr-x/agent-terminal-attach'
+reattaches anytime.
 This couples the machine-wide flag to the windows on purpose — the
 granular toggles (`mr-x/agent-tmux-toggle', `mr-x/agent-terminal',
 `mr-x/agent-terminal-attach') still work independently."
-  (interactive)
+  (interactive "P")
   (if (agent-terminal-tmux-enabled-p)
       (progn
         (delete-file agent-terminal-tmux-flag-file)
         (dolist (name (list agent-terminal-buffer-name "*agent-tmux*"))
           (when-let ((win (get-buffer-window name)))
-            (delete-window win)))
+            (ignore-errors (delete-window win))))
+        (dolist (frame (frame-list))
+          (when (frame-parameter frame 'agent-terminal-live)
+            (ignore-errors (delete-frame frame))))
         (message "agent-terminal live OFF — commands run direct; tmux session %S still alive"
                  agent-terminal-tmux-session))
     (with-temp-file agent-terminal-tmux-flag-file)
-    (unless (get-buffer-window (agent-terminal--buffer))
-      (mr-x/agent-terminal))
-    (unless (and (get-buffer "*agent-tmux*")
-                 (get-buffer-window "*agent-tmux*"))
-      (mr-x/agent-terminal-attach))
+    (if pop-frame
+        ;; A fresh frame on this daemon is born already split — persp/popper
+        ;; hooks fire inside `make-frame', so `frame-root-window' is the
+        ;; internal parent (never live) and any leftover window may be a
+        ;; protected side window.  Work from a live leaf
+        ;; (`frame-selected-window') and bind `ignore-window-parameters' so
+        ;; `delete-other-windows' collapses side windows instead of erroring.
+        ;; Both buffers are built first: `agent-terminal--tmux-buffer' spins
+        ;; up vterm, whose window hooks would kill a split mid-expression.
+        (let* ((obs (agent-terminal--buffer))
+               (tmux (agent-terminal--tmux-buffer))
+               (frame (make-frame '((name . "agent-terminal")
+                                    (agent-terminal-live . t))))
+               (left (frame-selected-window frame))
+               (ignore-window-parameters t))
+          (delete-other-windows left)
+          (with-current-buffer obs (goto-char (point-max)))
+          (set-window-buffer left obs)
+          (set-window-point left (with-current-buffer obs (point-max)))
+          (set-window-buffer (split-window left nil 'right) tmux)
+          (select-frame-set-input-focus frame))
+      (unless (get-buffer-window (agent-terminal--buffer))
+        (mr-x/agent-terminal))
+      (unless (and (get-buffer "*agent-tmux*")
+                   (get-buffer-window "*agent-tmux*"))
+        (mr-x/agent-terminal-attach)))
     (message "agent-terminal live ON — every agent Bash call runs in tmux session %S"
              agent-terminal-tmux-session)))
 

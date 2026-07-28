@@ -2093,16 +2093,16 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
         (org-mode)))
 
     (defun mr-x/surf-web ()
-      "Open xwidget-webkit with Google."
+      "Open xwidget-webkit with DuckDuckGo."
       (interactive)
-      (xwidget-webkit-browse-url "https://google.com"))
+      (xwidget-webkit-browse-url "https://duckduckgo.com"))
 
     (defun mr-x/surf-web-other-window ()
-      "Open xwidget-webkit with Google in other window."
+      "Open xwidget-webkit with DuckDuckGo in other window."
       (interactive)
       (split-window-right)
       (other-window 1)
-      (xwidget-webkit-browse-url "https://google.com"))
+      (xwidget-webkit-browse-url "https://duckduckgo.com"))
 
     (defun mr-x/surf-link-at-point ()
       "Open URL at point in xwidget-webkit."
@@ -2117,6 +2117,12 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
       (split-window-right)
       (other-window 1)
       (call-interactively #'xwidget-webkit-browse-url))
+
+    ;; Persist cookies across sessions so sites stop treating every
+    ;; launch as a fresh bot client. Built for the GTK backend; may be
+    ;; a no-op on the macOS NS build.
+    (setq xwidget-webkit-cookie-file
+          (expand-file-name "xwidget-cookies.txt" user-emacs-directory))
 
 
      (use-package xwwp
@@ -3187,7 +3193,7 @@ projectile projects appended below."
         "c l W" '(mr-x/bash-watcher-toggle :wk "Bash watcher")
         "c v" '(mr-x/agent-terminal :wk "Agent terminal (observer)")
         "c V" '(mr-x/agent-terminal-attach :wk "Agent tmux (C-u: toggle intercept)")
-        "c L" '(mr-x/agent-terminal-live :wk "Agent terminal LIVE (intercept + windows)")
+        "c L" '(mr-x/agent-terminal-live :wk "Agent terminal LIVE (C-u: own frame)")
         "c 1" '(mr-x/agent-shell-allow :wk "Allow")
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")
@@ -4052,6 +4058,21 @@ only sees the freshly restored frames."
     "m d" '(bookmark-delete :wk "delete bookmark")
     "m L" '(bookmark-bmenu-list :wk "list named bookmarks")
     "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
+
+
+
+(use-package lispyville
+  :ensure t
+  :after evil
+  :hook ((emacs-lisp-mode lisp-mode lisp-interaction-mode scheme-mode clojure-mode)
+         . lispyville-mode)
+  :config
+  (lispyville-set-key-theme
+   '(operators                        ; d/c/x/dd never unbalance parens
+     c-w                              ; insert-state C-w deletes a balanced sexp
+     (atom-movement normal visual)    ; w/b/e move by sexp atoms
+     additional                       ; M-drag / wrap / splice helpers
+     slurp/barf-lispy)))              ; > slurp, < barf
 
 
 

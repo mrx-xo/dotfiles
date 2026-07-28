@@ -145,40 +145,53 @@ tabs get side padding without a visible border."
 (defface major-pane-tab-attention-busy
   '((t :inherit major-pane-tab-inactive
        :foreground "#fbf1c7"
-       :background "#463120"
-       :box (:line-width (6 . -1) :color "#463120")))
+       :background "#6b3010"
+       :box (:line-width (6 . -1) :color "#6b3010")))
   "Face for a tab whose agent is generating — the \"pill\".
-Orange tinted 18% into the tab bar: a low simmer while the convo
-cooks.  Live status, not an unseen flag — it survives activation and
-is replaced by done/perms when the turn resolves."
+Dark ember orange: a low simmer while the convo cooks.  Live status,
+not an unseen flag — it survives activation and is replaced by
+done/perms when the turn resolves.  Gruvbox-faded scheme: orange =
+cooking, green = ready, red = needs you (see
+sandbox lisp/major-pane-tab-schemes-test.el for the shootout)."
+  :group 'major-pane)
+
+(defface major-pane-tab-active-busy
+  '((t :inherit major-pane-tab-active
+       :background "#af3a03"
+       :box (:line-width (6 . -1) :color "#af3a03")))
+  "Face for the active tab while its agent is generating.
+Faded gruvbox orange — the fiery notch above the inactive pill — with
+the active tab's bold + cream underline kept so \"you are here\" still
+reads.  Without this the active face would stomp the busy color."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-done
   '((t :inherit major-pane-tab-inactive
        :foreground "#fbf1c7" :weight bold
-       :background "#5c3b1f"
-       :underline (:color "#fe8019" :position 0)
-       :box (:line-width (6 . -1) :color "#5c3b1f")))
+       :background "#79740e"
+       :underline (:color "#b8bb26" :position 0)
+       :box (:line-width (6 . -1) :color "#79740e")))
   "Face for an inactive tab that finished a turn while unfocused.
-The \"full\" treatment: hotter orange tint (28%) + orange underline +
-bold — a response is ready.  Cleared when the tab becomes active."
+The \"full\" treatment in green: faded gruvbox green + bright green
+underline + bold — a response is ready, CI-green style.  Cleared when
+the tab becomes active."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-perms
   '((t :inherit major-pane-tab-inactive
        :foreground "#fbf1c7" :weight bold
-       :background "#5b2b26"
+       :background "#9d0006"
        :underline (:color "#fb4934" :position 0)
-       :box (:line-width (6 . -1) :color "#5b2b26")))
+       :box (:line-width (6 . -1) :color "#9d0006")))
   "Face for an inactive tab waiting on a permission response.
-The \"full\" treatment in red: tinted background + red underline +
-bold — the agent needs you.  Cleared when the tab becomes active."
+The \"full\" treatment in red: faded gruvbox red + bright red underline
++ bold — the agent needs you.  Cleared when the tab becomes active."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-done-marker
-  '((t :inherit major-pane-dim :foreground "#fe8019" :weight bold))
+  '((t :inherit major-pane-dim :foreground "#b8bb26" :weight bold))
   "Face for the ‹N / N› overflow counter when a hidden convo has a
-finished turn (orange)."
+finished turn (green, matching the done tab)."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-perms-marker
@@ -825,7 +838,11 @@ IS-ACTIVE selects the active/inactive face."
                             (concat (major-pane--spinner-frame) " ")
                           "")
                         (major-pane--tab-label buf))
-                'face (cond (is-active 'major-pane-tab-active)
+                'face (cond (is-active
+                             (if (eq (buffer-local-value 'major-pane--tab-attention buf)
+                                     'busy)
+                                 'major-pane-tab-active-busy
+                               'major-pane-tab-active))
                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
                                ('perms 'major-pane-tab-attention-perms)
                                ('done 'major-pane-tab-attention-done)
@@ -848,9 +865,9 @@ after the user answers, so both land on `busy'.")
 Advice on `agent-shell--emit-event': that function only runs with the
 shell buffer current, so `current-buffer' is the conversation.  Maps
 the event to a state via `major-pane-attention-event-alist'.  `busy'
-is live status and is tracked even on the active tab (harmless there —
-the active face wins — but it shows the pill the moment you switch
-away).  `done'/`perms' are unseen-response flags: on the active tab
+is live status and is tracked even on the active tab, which renders it
+with the brighter `major-pane-tab-active-busy' face while cooking.
+`done'/`perms' are unseen-response flags: on the active tab
 the user is already watching, so they just clear `busy' instead."
   (let* ((event (plist-get args :event))
          (entry (assq event major-pane-attention-event-alist))
