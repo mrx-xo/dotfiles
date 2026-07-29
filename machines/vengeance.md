@@ -19,7 +19,15 @@
 - **Temporary Immich remote ML worker**: CUDA ML container on `:3003`, used by
   the homelab's Immich for GPU-heavy job backlogs (see
   `docs/immich-remote-ml-setup.md` in windows/docs)
-- Wake-on-LAN target — woken from MrX via `vengeance-wake.sh`
+- Wake-on-LAN target — woken from MrX via `vengeance-wake.sh`.
+  **Only works from full shutdown (S5), NOT from sleep (S3)** (verified
+  2026-07-29: packets ignored once asleep). After a headless WoL boot the
+  box auto-sleeps in ~2 min at the login screen — log in fast or lose it.
+- **RGB lights on a schedule** (2026-07-29): scheduled tasks `ICUELightsOff`
+  (23:00, runs `windows/scripts/icue-lights-off.py` via
+  `~\icue-scheduler\.venv` — blanks LEDs through the iCUE SDK and idles)
+  and `ICUELightsOn` (08:00, `schtasks /end` kills it; iCUE resumes).
+  Rebuild with `windows/scripts/setup-icue-scheduler.ps1`.
 
 ## SSH quirks (READ BEFORE RUNNING COMMANDS)
 
@@ -41,6 +49,8 @@ SSH lands in **Git Bash**, not PowerShell. Hard-won lessons:
   (home-row mods); AutoHotkey for global Emacs keys
 - Emacs: lean package.el config (~500 lines), NOT the literate macOS setup
 - Shell: PowerShell + Starship; Windows Terminal
+- **No system Python** — `scoop install python` fails (dark/MSI decompress
+  error, 2026-07-29). Use `uv` (scoop-installed) with managed pythons instead.
 - Syncthing syncs `~/shared` (wired by bootstrap.ps1; device pairing is manual)
 - Dotfiles repo is cloned at `~/dotfiles` (NO leading dot, unlike the Macs);
   `bootstrap.ps1` symlinks configs
