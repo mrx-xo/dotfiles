@@ -218,22 +218,219 @@ Each entry is a string captured from the buffer.")
             (mapconcat #'identity formatted "\n\n")
             "\n</referenced-context>\n\n")))
 
+;;; --- Sent-block pills ---
+;; After a send, the echoed <referenced-context> block is folded into one
+;; clickable pill per ref (icon + snippet).  TAB/RET/mouse-1 on a pill
+;; unfolds just that ref, dimmed, without touching what was sent.
+
+(defvar agent-shell-refs-pill-snippet-length 22
+  "Max chars of a ref shown in its sent pill.")
+
+(defface agent-shell-refs-pill-face
+  '((t :foreground "#fabd2f" :background "#1d2021" :weight bold
+       :box (:line-width -1 :color "#3c3836")))
+  "Face for the folded-ref pills shown in place of the sent block.
+Bold on purpose: thin yellow strokes on a dark chip read washed-out.
+Chip bg is one step above the ~#101112 the main config uses for
+agent-shell buffers — gruvbox's #3c3836 there reads as a light slab."
+  :group 'agent-shell)
+
+(defface agent-shell-refs-pill-hover-face
+  '((t))
+  "Mouse-hover face for sent-ref pills — intentionally empty.
+The pill string still carries it as `mouse-face' so it shadows the
+`highlight' mouse-face comint stamps on sent input; with focus-follows-
+mouse the pointer often rests on the buffer and a visible hover face
+made pills look permanently washed out."
+  :group 'agent-shell)
+
+(defface agent-shell-refs-sent-block-face
+  '((t :foreground "#7c6f64" :slant italic :weight normal))
+  "Face for an unfolded ref inside the sent context block.
+Fully specified so it overrides the bold green `comint-highlight-input'
+the input text carries underneath."
+  :group 'agent-shell)
+
+(defun agent-shell-refs--pill-icon ()
+  "Speech-bubble icon for pills; plain fallback without nerd-icons."
+  (if (require 'nerd-icons nil t)
+      (nerd-icons-mdicon "nf-md-comment_quote")
+    "❝"))
+
+(defun agent-shell-refs--mirror-face-props (s)
+  "Copy each `face' span of string S onto `font-lock-face', return S.
+The sent-input region carries both properties, so pills must too or
+font-lock-driven redisplay would drop their styling."
+  (let ((pos 0))
+    (while (< pos (length s))
+      (let ((next (or (next-single-property-change pos 'face s) (length s))))
+        (put-text-property pos next 'font-lock-face
+                           (get-text-property pos 'face s) s)
+        (setq pos next))))
+  s)
+
+(defun agent-shell-refs--pill (ref ov)
+  "Pill string for REF toggling the visibility of overlay OV.
+Lives in an overlay `before-string', so only mouse-1 can reach it."
+  (let* ((map (make-sparse-keymap))
+         (cmd (lambda ()
+                (interactive)
+                (overlay-put ov 'invisible
+                             (if (overlay-get ov 'invisible)
+                                 nil
+                               'agent-shell-refs))
+                (force-window-update (overlay-buffer ov)))))
+    (define-key map [mouse-1] cmd)
+    (let ((s (concat " " (agent-shell-refs--pill-icon) " "
+                     (agent-shell-refs--truncate
+                      ref agent-shell-refs-pill-snippet-length)
+                     " ▸ ")))
+      ;; append: icon keeps its nerd-font family, pill colors fill the rest
+      (add-face-text-property 0 (length s) 'agent-shell-refs-pill-face t s)
+      (agent-shell-refs--mirror-face-props s)
+      (propertize s
+                  'keymap map
+                  'mouse-face 'agent-shell-refs-pill-hover-face
+                  'help-echo "click: toggle referenced context"
+                  'agent-shell-refs-pill t))))
+
+(defun agent-shell-refs--pillify-block-at (tag-beg)
+  "Overlay-fold the raw refs block whose opening tag starts at TAG-BEG.
+Everything is derived by parsing the block text, so this works no matter
+who wrote or rewrote the region.  Idempotent: wipes our overlays in the
+block first, then rebuilds.  Returns non-nil on success.
+
+Overlays only — no buffer text and no text properties.  shell-maker
+re-reads raw buffer text for history and failed-command echoes, so
+inserted pill text would leak into future prompts, and font-lock owns
+the `face' property on input regions."
+  (save-excursion
+    (goto-char tag-beg)
+    (when (looking-at "<referenced-context>\n")
+      (let* ((body-beg (match-end 0))
+             (block-end (and (re-search-forward "^</referenced-context>\n?\n?" nil t)
+                             (match-end 0)))
+             (body-end (and block-end (match-beginning 0))))
+        (when block-end
+          (dolist (ov (overlays-in tag-beg block-end))
+            (when (overlay-get ov 'agent-shell-refs-ov)
+              (delete-overlay ov)))
+          ;; spec t already hides any non-nil `invisible'; only extend a list
+          (when (listp buffer-invisibility-spec)
+            (add-to-invisibility-spec 'agent-shell-refs))
+          (cl-flet ((hide (b e)
+                      (let ((ov (make-overlay b e nil t nil)))
+                        (overlay-put ov 'agent-shell-refs-ov t)
+                        (overlay-put ov 'invisible 'agent-shell-refs)
+                        (overlay-put ov 'evaporate t)
+                        ov)))
+            ;; the tag line is replaced (`display'), not made invisible:
+            ;; Emacs won't render a before-string that starts a fully
+            ;; invisible run, so a hidden-tag-with-pill shows nothing
+            (let ((tag-ov (let ((ov (make-overlay tag-beg body-beg nil t nil)))
+                            (overlay-put ov 'agent-shell-refs-ov t)
+                            (overlay-put ov 'evaporate t)
+                            ov))
+                  (pos body-beg)
+                  (pills nil))
+              (while (< pos body-end)
+                (let* ((chunk-end (or (save-excursion
+                                        (goto-char pos)
+                                        (when (search-forward "\n\n" body-end t)
+                                          (match-beginning 0)))
+                                      ;; last chunk runs to the newline
+                                      ;; before the closing tag
+                                      (1- body-end)))
+                       ;; +1 grabs the trailing newline so an unfolded
+                       ;; ref ends its own line
+                       (rend (min (1+ chunk-end) block-end))
+                       (ov (hide pos rend))
+                       (ref (replace-regexp-in-string
+                             "^> ?" ""
+                             (buffer-substring-no-properties pos chunk-end))))
+                  (overlay-put ov 'face 'agent-shell-refs-sent-block-face)
+                  (push (agent-shell-refs--pill ref ov) pills)
+                  ;; keep the separator blank line hidden
+                  (when (< rend (min (+ chunk-end 2) block-end))
+                    (hide rend (min (+ chunk-end 2) block-end)))
+                  (setq pos (+ chunk-end 2))))
+              ;; closing tag + trailing blank line
+              (hide body-end block-end)
+              ;; pill row visually replaces the opening tag line
+              (overlay-put tag-ov 'display
+                           (concat (mapconcat #'identity (nreverse pills) " ")
+                                   "\n"))
+              t)))))))
+
+(defun agent-shell-refs--block-covered-p (beg end)
+  "Non-nil if every char in BEG..END is under one of our overlays."
+  (let ((pos beg) (ok t))
+    (while (and ok (< pos end))
+      (unless (seq-some (lambda (ov) (overlay-get ov 'agent-shell-refs-ov))
+                        (overlays-at pos))
+        (setq ok nil))
+      (setq pos (max (1+ pos) (min (next-overlay-change pos) end))))
+    ok))
+
+(defun agent-shell-refs-repair ()
+  "Fold every raw refs block in sent-input regions of this buffer.
+Skips blocks already fully covered by healthy overlays (preserving
+their fold state) and deletes stray zero-length pill overlays left
+behind when someone rewrote the text under them."
+  (interactive)
+  ;; stray empties first (their text was deleted from under them)
+  (dolist (ov (overlays-in (point-min) (point-max)))
+    (when (and (or (overlay-get ov 'agent-shell-refs-ov)
+                   (eq (overlay-get ov 'invisible) 'agent-shell-refs))
+               (= (overlay-start ov) (overlay-end ov)))
+      (delete-overlay ov)))
+  (save-excursion
+    (goto-char (point-min))
+    (while (search-forward "<referenced-context>" nil t)
+      (let ((tag-beg (match-beginning 0)))
+        ;; sent input only; agent echoes and tool output carry `output' field
+        (when (and (not (eq (get-text-property tag-beg 'field) 'output))
+                   (not (save-excursion
+                          (goto-char tag-beg)
+                          (when (looking-at "<referenced-context>\n")
+                            (let ((be (save-excursion
+                                        (re-search-forward
+                                         "^</referenced-context>\n?\n?" nil t))))
+                              (and be (agent-shell-refs--block-covered-p
+                                       tag-beg be)))))))
+          (agent-shell-refs--pillify-block-at tag-beg)))))
+  (force-window-update (current-buffer)))
+
 (defun agent-shell-refs--around-submit (orig-fun &rest args)
-  "Advice around `shell-maker-submit' to prepend attached refs."
-  (when (and (derived-mode-p 'agent-shell-mode)
-             agent-shell-refs--list)
-    (let ((refs-text (agent-shell-refs--format-for-send agent-shell-refs--list)))
-      ;; Find prompt start and prepend refs
-      (save-excursion
-        (goto-char (point-max))
-        (when (re-search-backward comint-prompt-regexp nil t)
-          (goto-char (match-end 0))
-          (insert refs-text)))
+  "Advice around `shell-maker-submit' to prepend attached refs.
+After the submit goes through, `agent-shell-refs-repair' folds the
+echoed block into pills — immediately, and again on short timers in
+case agent-shell rewrites the echoed input region asynchronously."
+  (let ((had-refs nil))
+    (when (and (derived-mode-p 'agent-shell-mode)
+               agent-shell-refs--list)
+      (setq had-refs t)
+      (let ((refs-text (agent-shell-refs--format-for-send agent-shell-refs--list)))
+        ;; Find prompt start and prepend refs
+        (save-excursion
+          (goto-char (point-max))
+          (when (re-search-backward comint-prompt-regexp nil t)
+            (goto-char (match-end 0))
+            (insert refs-text))))
       ;; Clear refs
       (setq agent-shell-refs--list nil)
       (agent-shell-refs--update-headerline)
-      (force-mode-line-update)))
-  (apply orig-fun args))
+      (force-mode-line-update))
+    (prog1 (apply orig-fun args)
+      (when had-refs
+        (let ((buf (current-buffer)))
+          (agent-shell-refs-repair)
+          (dolist (delay '(0.5 2 5))
+            (run-at-time delay nil
+                         (lambda ()
+                           (when (buffer-live-p buf)
+                             (with-current-buffer buf
+                               (agent-shell-refs-repair)))))))))))
 
 ;;; --- Find shell buffer ---
 
