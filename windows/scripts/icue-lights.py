@@ -28,15 +28,29 @@ STOP_FLAG = Path.home() / "icue-scheduler" / "stop.flag"
 
 STATUS_FILE = Path.home() / "icue-scheduler" / "status.json"
 
-BREATH_SECONDS = 30  # one full white -> ember -> white cycle
+BREATH_MIN_S, BREATH_MAX_S = 45, 90  # breath length drifts in this range
+DEPTH_MIN, DEPTH_MAX = 0.7, 1.0      # how far each breath sinks into ember
+
+_breath = {"phase": 0.0, "last_t": None}
 
 
 def white_ember_breathe(x, t):
-    # breath = 0 at white, 1 at full ember; slight per-LED phase offset (x)
-    # so the glow rolls gently across each device instead of pulsing flat
-    breath = 0.5 - 0.5 * math.cos(2 * math.pi * t / BREATH_SECONDS + x * 0.6)
-    # sink saturation toward ember orange and dim a touch at the bottom
-    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.25 * breath)
+    # Breath length and depth each drift on slow, unrelated cycles, so no
+    # two breaths look alike. Phase is integrated frame-to-frame because
+    # the period keeps changing under it.
+    st = _breath
+    if t != st["last_t"]:
+        period = BREATH_MIN_S + (BREATH_MAX_S - BREATH_MIN_S) * (
+            0.5 + 0.5 * math.sin(t / 137))
+        dt = min(t - st["last_t"], 1.0) if st["last_t"] is not None else 0.0
+        st["phase"] += 2 * math.pi * dt / period
+        st["last_t"] = t
+    depth = DEPTH_MIN + (DEPTH_MAX - DEPTH_MIN) * (
+        0.5 + 0.5 * math.sin(t / 211 + 1))
+    # slight per-LED phase offset (x) so the glow rolls, not pulses flat
+    breath = depth * (0.5 - 0.5 * math.cos(st["phase"] + x * 0.6))
+    # white (sat 0) sinking to ember: saturation up, brightness down to 50%
+    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
 
 
 # Each effect: (name, f(x, t) -> (r, g, b) floats 0-1).
