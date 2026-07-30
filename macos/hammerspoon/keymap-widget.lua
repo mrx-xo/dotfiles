@@ -125,47 +125,58 @@ end
 
 M.keyTap:start()   -- flash enabled by default; ⌘⌃⇧K or keymapWidget.toggleKeys() to flip
 
--- ---- phase B: live layer tracking from the firmware's raw HID broadcast ----
--- keymap-widget-hid.py blocking-reads the hotdox raw HID interface and prints
--- "L<n>" per layer change (firmware sends [0x4C, layer] on every change and
--- once at boot). Layer goes to the hotdox webview only. The task dies on
--- unplug/sleep; respawn with 2s→30s backoff, fall back to layer 0 while down.
+-- ---- phase B: live layer tracking from each board's raw HID broadcast ------
+-- keymap-widget-hid.py blocking-reads a board's raw HID interface and prints
+-- "L<n>" per layer change (both mrx firmwares send [0x4C, layer] on every
+-- change and once at boot). One listener per board, each line routed to that
+-- board's webview. A task dies on unplug/sleep; respawn with 2s→30s backoff,
+-- fall back to the board's resting layer while down.
 local HID_PY = "/opt/homebrew/bin/python3"
 local HID_SCRIPT = os.getenv("HOME") .. "/.dotfiles/macos/scripts/keymap-widget-hid.py"
-local hidBackoff = 2
+local HID_BOARDS = {
+  hd = { vid = "0xAA96", pid = "0xAAA9", fallback = 0 },
+  cm = { vid = "0x574C", pid = "0xE6E3", fallback = CM_DEFAULT_LAYER },
+}
 
-local function setHdLayer(n)
-  views.hd:evaluateJavaScript(string.format("window.__setLayer(%d)", n))
+local function setLayer(id, n)
+  views[id]:evaluateJavaScript(string.format("window.__setLayer(%d)", n))
 end
 
-local function spawnHid()
+local function spawnHid(id)
+  local board = HID_BOARDS[id]
   local started = hs.timer.secondsSinceEpoch()
-  M.hidTask = hs.task.new(HID_PY, function(_, _, stdErr)
+  board.task = hs.task.new(HID_PY, function(_, _, stdErr)
     -- termination: board gone or listener died — fall back, retry with backoff
-    setHdLayer(0)
+    setLayer(id, board.fallback)
     if stdErr and #stdErr > 0 then
-      hs.printf("keymap-widget hid: %s", (stdErr:gsub("%s+$", "")))
+      hs.printf("keymap-widget hid[%s]: %s", id, (stdErr:gsub("%s+$", "")))
     end
-    if hs.timer.secondsSinceEpoch() - started > 10 then hidBackoff = 2 end
-    M.hidTimer = hs.timer.doAfter(hidBackoff, spawnHid)
-    hidBackoff = math.min(hidBackoff * 2, 30)
+    if hs.timer.secondsSinceEpoch() - started > 10 then board.backoff = 2 end
+    board.timer = hs.timer.doAfter(board.backoff, function() spawnHid(id) end)
+    board.backoff = math.min(board.backoff * 2, 30)
   end, function(_, stdOut)
-    for n in stdOut:gmatch("L(%d+)") do setHdLayer(tonumber(n)) end
+    for n in stdOut:gmatch("L(%d+)") do setLayer(id, tonumber(n)) end
     return true
-  end, { HID_SCRIPT })
-  M.hidTask:start()
+  end, { HID_SCRIPT, board.vid, board.pid })
+  board.task:start()
 end
 
-spawnHid()
+for id, board in pairs(HID_BOARDS) do
+  board.backoff = 2
+  spawnHid(id)
+end
+M.hidBoards = HID_BOARDS   -- reachable from `hs -c` for debugging
 
 -- ---- wiring ----------------------------------------------------------------
 M.screenWatcher = hs.screen.watcher.new(place)
 M.screenWatcher:start()
 
--- kill the listener on hs.reload so the respawned config doesn't race a zombie
+-- kill the listeners on hs.reload so the respawned config doesn't race zombies
 hs.shutdownCallback = function()
-  if M.hidTimer then M.hidTimer:stop() end
-  if M.hidTask then M.hidTask:terminate() end
+  for _, board in pairs(HID_BOARDS) do
+    if board.timer then board.timer:stop() end
+    if board.task then board.task:terminate() end
+  end
 end
 
 hs.hotkey.bind({ "cmd", "ctrl" }, "K", M.toggle)
