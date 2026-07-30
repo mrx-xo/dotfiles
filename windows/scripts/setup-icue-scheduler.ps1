@@ -21,9 +21,11 @@ if (-not (Test-Path $python)) {
 # cuesdk is Corsair's official binding; the similarly-named cue-sdk is not
 uv pip install --python $python cuesdk
 
+# Morning task drops a stop flag rather than killing the process: the
+# script must hand lighting back itself (drop its layer, then exit)
 schtasks /create /f /tn ICUELightsOff /sc daily /st 23:00 /it `
     /tr "`"$pythonw`" `"$script`""
 schtasks /create /f /tn ICUELightsOn /sc daily /st 08:00 `
-    /tr "schtasks /end /tn ICUELightsOff"
+    /tr "cmd /c `"type nul > $venvDir\stop.flag`""
 
 Write-Host "Done. Test with: schtasks /run /tn ICUELightsOff"

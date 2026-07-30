@@ -1,12 +1,16 @@
 """Blank all Corsair LEDs while this process runs; iCUE resumes on exit.
 
-Runs nightly on VENGEANCE via scheduled task ICUELightsOff and is killed
-in the morning by ICUELightsOn (`schtasks /end /tn ICUELightsOff`).
+Runs nightly on VENGEANCE via scheduled task ICUELightsOff. The morning
+task ICUELightsOn creates stop.flag rather than killing the process:
+iCUE 5 does NOT clear a hard-killed client's color layer (lights stay
+black until iCUE restarts), and sdk.disconnect() SIGILLs in cuesdk
+4.0.84 — so shutdown is "drop our layer below iCUE's, then exit".
 Setup: windows/scripts/setup-icue-scheduler.ps1. Requires iCUE running
 in the same desktop session; venv at ~/icue-scheduler/.venv with cuesdk.
 """
 import threading
 import time
+from pathlib import Path
 
 from cuesdk import (CueSdk, CorsairDeviceFilter, CorsairDeviceType,
                     CorsairLedColor, CorsairSessionState)
@@ -15,6 +19,7 @@ from cuesdk import (CueSdk, CorsairDeviceFilter, CorsairDeviceType,
 LAYER_PRIORITY = 130
 # Re-assert periodically: catches device hotplug and iCUE restarts
 REASSERT_SECONDS = 15
+STOP_FLAG = Path.home() / "icue-scheduler" / "stop.flag"
 
 connected = threading.Event()
 
@@ -39,16 +44,26 @@ def blank_all(sdk):
 
 
 def main():
+    STOP_FLAG.unlink(missing_ok=True)
     sdk = CueSdk()
     sdk.connect(on_state_changed)
-    while True:
-        if connected.wait(timeout=60):
+    last_assert = 0.0
+    while not STOP_FLAG.exists():
+        if connected.is_set() and time.time() - last_assert >= REASSERT_SECONDS:
             try:
                 sdk.set_layer_priority(LAYER_PRIORITY)
                 blank_all(sdk)
+                last_assert = time.time()
             except Exception:
                 pass  # iCUE mid-restart; retry next tick
-        time.sleep(REASSERT_SECONDS)
+        time.sleep(2)
+    try:
+        sdk.set_layer_priority(0)  # iCUE's lighting wins again
+        time.sleep(1)
+    except Exception:
+        pass
+    STOP_FLAG.unlink(missing_ok=True)
+    # no sdk.disconnect(): it crashes (SIGILL); process exit is the cleanup
 
 
 if __name__ == "__main__":
