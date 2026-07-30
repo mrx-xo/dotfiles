@@ -6321,7 +6321,85 @@ no longer carry the upstream label face, so they never match twice."
                         (agent-shell-markdown--mirror-face-to-font-lock-face pos next))))
                   (setq pos next)))))
           (advice-add 'agent-shell-markdown-replace-markup :after
-                      #'mr-x/agent-shell-restyle-code-labels))
+                      #'mr-x/agent-shell-restyle-code-labels)
+
+          ;; Lists: one solid background panel over the whole list block
+          ;; (like the source-block panel) + yellow markers, so numbered
+          ;; steps are findable at a glance.  Runs over the narrowed
+          ;; just-rendered span; a guard property at block start records
+          ;; the styled block length so streaming re-runs only re-touch
+          ;; blocks that grew.
+          ;; panel inherits the real code-panel face (which the theme
+          ;; section darkens to #1a1d1e over its org-block default) so
+          ;; lists and code blocks share one background for real
+          (defface mr-x/agent-shell-list-item
+            '((t :inherit agent-shell-markdown-source-block :extend t))
+            "Background panel for markdown list blocks in agent-shell.")
+
+          (defface mr-x/agent-shell-list-marker
+            '((t :inherit agent-shell-markdown-source-block
+                 :foreground "#fabd2f" :weight bold))
+            "Yellow marker (1. / -) for markdown list items in agent-shell.")
+
+          (defun mr-x/agent-shell--header-pos-p (pos)
+            "Non-nil when POS carries a rendered markdown header face.
+The renderer strips the ## markup, so a numbered header line starts
+with a bare \"1. \" and would otherwise match the list-item regex."
+            (let ((face (get-text-property pos 'face)))
+              (seq-some (lambda (f)
+                          (memq f '(agent-shell-markdown-header-1
+                                    agent-shell-markdown-header-2
+                                    agent-shell-markdown-header-3
+                                    agent-shell-markdown-header-4
+                                    agent-shell-markdown-header-5
+                                    agent-shell-markdown-header-6)))
+                        (if (listp face) face (list face)))))
+
+          (defun mr-x/agent-shell-tint-list-items (&rest _)
+            "Panel-tint list blocks rendered by `agent-shell-markdown-replace-markup'."
+            (let ((inhibit-read-only t)
+                  (item-re "^[ \t]*\\(?:[0-9]+[.)]\\|[-*+]\\)[ \t]"))
+              (save-excursion
+                (goto-char (point-min))
+                (while (re-search-forward item-re nil t)
+                  (let ((blk-beg (match-beginning 0))
+                        (markers (list (cons (match-beginning 0) (match-end 0))))
+                        (blk-end (line-end-position)))
+                    (if (or (get-text-property blk-beg 'agent-shell-markdown-frozen)
+                            (mr-x/agent-shell--header-pos-p blk-beg))
+                        (goto-char blk-end)
+                      ;; walk to the end of the contiguous list block,
+                      ;; swallowing blank lines between items
+                      (goto-char blk-end)
+                      (let ((continue t))
+                        (while (and continue (< (point) (point-max)))
+                          (forward-line 1)
+                          (cond
+                           ((and (looking-at item-re)
+                                 (not (mr-x/agent-shell--header-pos-p (match-beginning 0))))
+                            (push (cons (match-beginning 0) (match-end 0)) markers)
+                            (goto-char (line-end-position))
+                            (setq blk-end (point)))
+                           ((and (looking-at "[ \t]*$")
+                                 (save-excursion
+                                   (forward-line 1)
+                                   (looking-at item-re))))
+                           (t (setq continue nil)))))
+                      ;; include the final newline so :extend paints it
+                      (setq blk-end (min (1+ blk-end) (point-max)))
+                      (let ((styled (get-text-property blk-beg 'mr-x/list-item-styled)))
+                        (unless (eql styled (- blk-end blk-beg))
+                          ;; panel appended so bold/inline-code keep their
+                          ;; colors; markers prepended so yellow wins
+                          (add-face-text-property blk-beg blk-end 'mr-x/agent-shell-list-item t)
+                          (dolist (m markers)
+                            (add-face-text-property (car m) (cdr m) 'mr-x/agent-shell-list-marker))
+                          (put-text-property blk-beg (1+ blk-beg) 'mr-x/list-item-styled (- blk-end blk-beg))
+                          (when (fboundp 'agent-shell-markdown--mirror-face-to-font-lock-face)
+                            (agent-shell-markdown--mirror-face-to-font-lock-face blk-beg blk-end))))
+                      (goto-char blk-end)))))))
+          (advice-add 'agent-shell-markdown-replace-markup :after
+                      #'mr-x/agent-shell-tint-list-items))
 
         ;; Colored headings in agent responses. markdown-overlays fontifies
         ;; "#" headings with org-level-N faces, which the theme keeps
