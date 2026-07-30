@@ -941,9 +941,13 @@ the session picker, then spawns shells staggered 3s apart."
     	     (args . ["/Users/marcosandrade/roaming/projects/MCP servers/ask-user-mcp/build/index.js"])
     	     (env . []))
 
+                ;; --executablePath: drive Brave instead of Chrome (any
+                ;; Chromium works; remove the flag to go back to Chrome)
                 ((name . "chrome-devtools")
                  (command . "npx")
-                 (args . ["-y" "chrome-devtools-mcp@latest"])
+                 (args . ["-y" "chrome-devtools-mcp@latest"
+                          "--executablePath"
+                          "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"])
                  (env . []))
 
                 ;; axiom disabled: mcp-remote triggers an OAuth browser
@@ -1290,7 +1294,22 @@ the session picker, then spawns shells staggered 3s apart."
         (agent-recall-consult-sort-order 'date-descending)
         (agent-recall-browse-sort 'modified-desc)
         (agent-recall-browse-preview t)
-        :hook (agent-shell-mode . agent-recall-track-sessions))
+        :hook (agent-shell-mode . agent-recall-track-sessions)
+        :config
+        ;; Persist major-pane conversation labels across resumes via the
+        ;; agent-recall sidecar metadata store (v0.7.0+).  Capture only
+        ;; contributes when major-pane is loaded — returning (label . nil)
+        ;; there means "label cleared", which removes it from the store.
+        (add-hook 'agent-recall-capture-functions
+                  (defun mr-x/agent-recall-capture-label ()
+                    (when (boundp 'major-pane--labels)
+                      `((label . ,(gethash (current-buffer) major-pane--labels))))))
+        (add-hook 'agent-recall-restore-functions
+                  (defun mr-x/agent-recall-restore-label (metadata shell-buffer)
+                    (when-let ((label (alist-get 'label metadata)))
+                      (when (and (require 'major-pane nil t)
+                                 (boundp 'major-pane--labels))
+                        (puthash shell-buffer label major-pane--labels))))))
         ;; Resume/browse placement needs no advice: agent-recall funnels
         ;; display through `agent-recall--display-buffer' (a plain
         ;; pop-to-buffer), which the "Claude Agent @" display-buffer-alist
@@ -1306,6 +1325,10 @@ the session picker, then spawns shells staggered 3s apart."
         (global-set-key (kbd "s-i") #'major-pane-toggle)
         (global-set-key (kbd "s-M-<right>") #'major-pane-next-tab)
         (global-set-key (kbd "s-M-<left>") #'major-pane-prev-tab)
+        ;; Same chord + shift chases green tabs: jump straight to the
+        ;; next/prev convo with a finished, unengaged turn.
+        (global-set-key (kbd "s-M-S-<right>") #'major-pane-next-done-tab)
+        (global-set-key (kbd "s-M-S-<left>") #'major-pane-prev-done-tab)
         ;; Not a command, so it can't go in :commands — autoloaded by hand
         ;; so the display-buffer-alist entry (set early in init) can route
         ;; agent buffers into the pane before major-pane loads.
@@ -1313,6 +1336,8 @@ the session picker, then spawns shells staggered 3s apart."
         :commands (major-pane-toggle
                    major-pane-next-tab
                    major-pane-prev-tab
+                   major-pane-next-done-tab
+                   major-pane-prev-done-tab
                    major-pane-capture-buffer
                    major-pane-set-home-frame
                    major-pane-new-chat

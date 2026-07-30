@@ -2070,7 +2070,10 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
       ;; dark panels sitting just above the pane bg.  agent-shell owns
       ;; these faces, so set them once it has loaded.
       (with-eval-after-load 'agent-shell
-        (set-face-attribute 'agent-shell-markdown-inline-code nil :background "#26292b")
+        ;; :extend nil — inherited :extend t (via org-code) floods the
+        ;; wrap gap with chip bg when an inline-code span soft-wraps
+        (set-face-attribute 'agent-shell-markdown-inline-code nil
+                            :background "#26292b" :extend nil)
         (set-face-attribute 'agent-shell-markdown-source-block nil :background "#1a1d1e")
         (set-face-attribute 'agent-shell-markdown-source-block-language nil :background "#1a1d1e")))
 
@@ -2963,6 +2966,7 @@ Falls back to a one-liner if fastfetch isn't installed."
          ((derived-mode-p 'agent-shell-manager-mode) (hydra-agent/body))
          ((derived-mode-p 'agent-shell-mode) (hydra-agent/body))
          ((derived-mode-p 'dired-mode) (hydra-dired/body))
+         ((derived-mode-p 'ibuffer-mode) (hydra-ibuffer/body))
          ((derived-mode-p 'Info-mode) (hydra-info/body))
          ((derived-mode-p 'ediff-mode) (hydra-ediff/body))
          ((derived-mode-p 'prog-mode) (hydra-fold/body))
@@ -4724,6 +4728,75 @@ TRAMP can't match under a PTY — both need pipe mode."
       ("Y" dired-copy-filename-as-kill)
       ("W" browse-url-of-dired-file :exit t)
       ("=" dired-diff :exit t)
+      ("q" nil :exit t))
+
+    ;; ── Ibuffer Hydra (evil-collection cheatsheet) ───────────────
+    ;; Heads mirror evil-collection's ibuffer bindings (verified against the
+    ;; live session): o = sort prefix, s = filter prefix, * = mark-by prefix.
+    ;; Prompting heads (filters, jump, eval) exit so minibuffer input isn't
+    ;; intercepted by hydra heads; y/n confirmations (D/V) are safe to stay.
+    (defhydra hydra-ibuffer (:hint nil :foreign-keys run)
+      "
+  ╭─── Ibuffer ────────────────────────────────────────────────╮
+   Navigate           Mark                 Operations
+   _J_: jump to buffer  _m_: mark              _D_: delete
+   _TAB_: next group    _u_: unmark            _S_: save
+   _S-TAB_: prev group  _U_: unmark all        _V_: revert
+   _{_/_}_: prev/next    _t_: toggle marks      _R_: rename uniquely
+      marked          _d_: mark for delete   _O_: occur
+   _g r_: refresh       _x_: kill marked       _=_: diff with file
+   _`_: switch format   _._: mark old          _E_: eval in buffers
+                      _* u_: mark unsaved     _!_: shell command
+   Sort               _* m_: mark modified
+   _o a_: name
+   _o v_: recency      View                 Filter
+   _o s_: size          _RET_: visit           _s n_: by name
+   _o m_: major mode    _g o_: other window    _s m_: by mode
+   _o f_: file          _C-o_: other window    _s f_: by filename
+   _o i_: invert           (no select)       _s c_: by content
+   _,_: cycle sort                           _s /_: disable filters
+                                            _s g_: filters→group
+  ╰──────────────────────────── _q_: quit ─────────────────────╯"
+      ("J" ibuffer-jump-to-buffer :exit t)
+      ("TAB" ibuffer-forward-filter-group)
+      ("S-TAB" ibuffer-backward-filter-group)
+      ("{" ibuffer-backwards-next-marked)
+      ("}" ibuffer-forward-next-marked)
+      ("g r" ibuffer-update)
+      ("`" ibuffer-switch-format)
+      ("m" ibuffer-mark-forward)
+      ("u" ibuffer-unmark-forward)
+      ("U" ibuffer-unmark-all-marks)
+      ("t" ibuffer-toggle-marks)
+      ("d" ibuffer-mark-for-delete)
+      ("x" ibuffer-do-kill-on-deletion-marks)
+      ("." ibuffer-mark-old-buffers)
+      ("* u" ibuffer-mark-unsaved-buffers)
+      ("* m" ibuffer-mark-modified-buffers)
+      ("D" ibuffer-do-delete)
+      ("S" ibuffer-do-save)
+      ("V" ibuffer-do-revert)
+      ("R" ibuffer-do-rename-uniquely)
+      ("O" ibuffer-do-occur :exit t)
+      ("=" ibuffer-diff-with-file :exit t)
+      ("E" ibuffer-do-eval :exit t)
+      ("!" ibuffer-do-shell-command-file :exit t)
+      ("o a" ibuffer-do-sort-by-alphabetic)
+      ("o v" ibuffer-do-sort-by-recency)
+      ("o s" ibuffer-do-sort-by-size)
+      ("o m" ibuffer-do-sort-by-major-mode)
+      ("o f" ibuffer-do-sort-by-filename/process)
+      ("o i" ibuffer-invert-sorting)
+      ("," ibuffer-toggle-sorting-mode)
+      ("RET" ibuffer-visit-buffer :exit t)
+      ("g o" ibuffer-visit-buffer-other-window :exit t)
+      ("C-o" ibuffer-visit-buffer-other-window-noselect)
+      ("s n" ibuffer-filter-by-name :exit t)
+      ("s m" ibuffer-filter-by-used-mode :exit t)
+      ("s f" ibuffer-filter-by-filename :exit t)
+      ("s c" ibuffer-filter-by-content :exit t)
+      ("s /" ibuffer-filter-disable)
+      ("s g" ibuffer-filters-to-filter-group)
       ("q" nil :exit t))
 
     ;; ── Info-Mode Hydra (evil-collection cheatsheet) ─────────────
