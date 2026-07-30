@@ -24,6 +24,7 @@ cmd + shift - r : ~/.dotfiles/macos/scripts/emacs-restart.sh
 cmd + shift + alt - r : ~/.dotfiles/macos/scripts/emacs-restart-restore.sh
 cmd + shift - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --restart
 cmd + shift + ctrl - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --test
+cmd + shift - b : ~/.dotfiles/macos/scripts/boox-mirror.sh
 cmd + shift - v : emacsclient --eval "(with-current-buffer (or (car (agent-shell-buffers)) (current-buffer)) (agent-shell-yank-dwim))"
 
 # Native yabai scratchpad bindings
@@ -89,16 +90,18 @@ ctrl + alt - w : ~/.dotfiles/macos/scripts/monitor-mode.sh work
 # per-display toggles Mac <-> PC (numbers match yabai display indices)
 ctrl + alt - 3 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle center
 ctrl + alt - 4 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle right
-# Creator Micro macro pad (VIA layer 2)
+# Creator Micro macro pad, monitors layer (firmware keymaps/mrx, CM v3).
+# Every preset key is a full desk state, idempotent.
 # NOTE: macOS ignores F20+ from hardware keyboards — F13-F19 only.
-# 4th pad key sends LSFT(KC_F19) = shift+f19 (toggle right).
-f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh game
+# game IS the summon: vengeance-wake.sh fast-paths to monitor-mode when
+# VENGEANCE is already up, else WoL -> wait for SSH -> handover.
+f17 : ~/.dotfiles/macos/scripts/vengeance-wake.sh game
 f18 : ~/.dotfiles/macos/scripts/monitor-mode.sh mac
+alt - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh split
+shift - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh work
+# secondary transition keys (flip one display Mac <-> PC)
 f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle center
 shift - f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle right
-shift - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh work
-# THE SUMMON: power on VENGEANCE via WoL, then take monitors 3+4
-shift - f18 : ~/.dotfiles/macos/scripts/vengeance-wake.sh game
 
 alt + shift - b : yabai -m space --balance
 alt + shift - r : yabai --restart-service

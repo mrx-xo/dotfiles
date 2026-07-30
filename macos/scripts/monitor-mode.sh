@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # monitor-mode.sh — point any monitor at any machine via DDC (m1ddc).
 #
-# Presets:
+# Presets (full desk states, idempotent — CM v3 monitors layer):
 #   monitor-mode.sh game            # center+right -> VENGEANCE
 #   monitor-mode.sh mac             # center+right -> MrX
-#   monitor-mode.sh work            # right -> work laptop
+#   monitor-mode.sh split           # center -> MrX, right -> VENGEANCE
+#   monitor-mode.sh work            # center -> MrX, right -> work laptop
 #
 # Per-display (mix & match freely):
 #   monitor-mode.sh center mac|pc
@@ -88,6 +89,12 @@ set_display() {  # set_display <center|right> <mac|pc|work>
   # The Anker adapter throws transient DDC I/O errors — retry before
   # giving up, and never record state for a flip that didn't happen.
   local try
+  # Already there? Skip the connect/disconnect dance — this is what makes
+  # the v3 preset keys idempotent (mash freely). Trusts the state file for
+  # right (manual OSD changes there can lie; press another preset to reset).
+  if [ "$(current_machine "$1")" = "$2" ]; then
+    if [ "$2" != mac ] || ddc_visible "$1"; then return 0; fi
+  fi
   if ! ddc_visible "$1"; then
     bd_connect "$1" on
     wait_ddc "$1" || { notify "FAILED: $1 never re-enumerated"; return 1; }
@@ -164,9 +171,14 @@ case "${1:-}" in
     notify "Center + Right -> MrX"
     sync_windows
     ;;
+  split)
+    set_display center mac; set_display right pc
+    notify "Center -> MrX, Right -> VENGEANCE"
+    sync_windows
+    ;;
   work)
-    set_display right work
-    notify "Right -> Work laptop"
+    set_display center mac; set_display right work
+    notify "Center -> MrX, Right -> Work laptop"
     sync_windows
     ;;
   center|right)
@@ -187,7 +199,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

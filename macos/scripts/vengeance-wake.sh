@@ -32,6 +32,17 @@ print("magic packet sent")
 PY
 }
 
+# Fast path (CM v3): the game key always routes here — if VENGEANCE is
+# already up, skip the wake dance and go straight to the handover.
+if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
+  if [ "${1:-}" = game ]; then
+    ~/.dotfiles/macos/scripts/monitor-mode.sh game
+  else
+    notify "VENGEANCE is already awake"
+  fi
+  exit 0
+fi
+
 send_magic_packet
 notify "Magic packet sent — summoning..."
 
