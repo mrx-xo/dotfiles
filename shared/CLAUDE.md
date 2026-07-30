@@ -130,7 +130,7 @@ Windows Emacs uses `package.el` with MELPA. Edit `windows/emacs/.emacs.d/init.el
 ### macOS Emacs
 - **Package Manager**: Elpaca (migrated from straight.el)
 - **Configuration Style**: Literate programming with Org mode
-- **Key Features**: Evil, Projectile, Magit, Org-roam, Ivy/Counsel/Swiper, vterm
+- **Key Features**: Evil, Projectile, Magit, Org-roam, Vertico/Consult, vterm
 
 ### Windows Emacs
 - **Package Manager**: package.el + MELPA
