@@ -2203,6 +2203,83 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
       (other-window 1)
       (xwidget-webkit-browse-url "https://duckduckgo.com"))
 
+    (defun mr-x/surf-search (query)
+      "Prompt for QUERY and search DuckDuckGo in xwidget-webkit."
+      (interactive "sSearch: ")
+      (xwidget-webkit-browse-url
+       (concat "https://duckduckgo.com/?q=" (url-hexify-string query))))
+
+    ;; Spotlight-style floating search prompt (SPC s s).
+    ;; A focusable posframe you type into: RET searches DDG in
+    ;; xwidget-webkit (a full URL opens directly), ESC/C-g cancels.
+    (defvar mr-x/surf-posframe-buffer " *surf-posframe*"
+      "Buffer used for the floating search prompt.")
+
+    (defvar mr-x/surf-posframe--parent nil
+      "Frame that was focused before the search posframe opened.")
+
+    (defvar mr-x/surf-posframe-mode-map
+      (let ((map (make-sparse-keymap)))
+        (define-key map (kbd "RET") #'mr-x/surf-posframe--commit)
+        (define-key map (kbd "C-g") #'mr-x/surf-posframe--cancel)
+        (define-key map (kbd "<escape>") #'mr-x/surf-posframe--cancel)
+        map)
+      "Keymap for `mr-x/surf-posframe-mode'.")
+
+    (define-minor-mode mr-x/surf-posframe-mode
+      "Minor mode for the floating search prompt buffer."
+      :lighter nil
+      :keymap mr-x/surf-posframe-mode-map)
+
+    (with-eval-after-load 'evil
+      (evil-define-key '(normal insert) mr-x/surf-posframe-mode-map
+        (kbd "RET") #'mr-x/surf-posframe--commit
+        (kbd "<escape>") #'mr-x/surf-posframe--cancel))
+
+    (defun mr-x/surf-posframe--commit ()
+      "Search for the query typed in the posframe, then close it."
+      (interactive)
+      (let ((query (string-trim (buffer-string))))
+        (mr-x/surf-posframe--cancel)
+        (unless (string-empty-p query)
+          (if (string-match-p "\\`https?://" query)
+              (xwidget-webkit-browse-url query)
+            (mr-x/surf-search query)))))
+
+    (defun mr-x/surf-posframe--cancel ()
+      "Close the search posframe and refocus the original frame."
+      (interactive)
+      (posframe-hide mr-x/surf-posframe-buffer)
+      (when (frame-live-p mr-x/surf-posframe--parent)
+        (select-frame-set-input-focus mr-x/surf-posframe--parent)))
+
+    (defun mr-x/surf-posframe ()
+      "Open a centered floating prompt; RET searches DDG in xwidget-webkit."
+      (interactive)
+      (setq mr-x/surf-posframe--parent (selected-frame))
+      (let ((buf (get-buffer-create mr-x/surf-posframe-buffer)))
+        (with-current-buffer buf
+          (erase-buffer)
+          (remove-overlays)
+          (let ((ov (make-overlay (point-min) (point-min))))
+            (overlay-put ov 'before-string
+                         (if (fboundp 'nerd-icons-mdicon)
+                             (concat (nerd-icons-mdicon "nf-md-magnify") "  ")
+                           (propertize "❯ " 'face '(:foreground "#fabd2f" :weight bold)))))
+          (mr-x/surf-posframe-mode 1)
+          (when (fboundp 'evil-insert-state)
+            (evil-insert-state)))
+        (let ((frame (posframe-show buf
+                                    :poshandler #'posframe-poshandler-frame-center
+                                    :width 44
+                                    :height 1
+                                    :left-fringe 16
+                                    :right-fringe 16
+                                    :internal-border-width 2
+                                    :internal-border-color "#fabd2f"
+                                    :accept-focus t)))
+          (select-frame-set-input-focus frame))))
+
     (defun mr-x/surf-link-at-point ()
       "Open URL at point in xwidget-webkit."
       (interactive)
@@ -3335,8 +3412,9 @@ projectile projects appended below."
 
       (mr-x/leader-def
         "s" '(:ignore t :wk "surf")
-        "s s" '(mr-x/surf-web :wk "Surf web (Google)")
+        "s s" '(mr-x/surf-posframe :wk "Search web (posframe)")
         "s S" '(mr-x/surf-web-other-window :wk "Surf web (other window)")
+        "s h" '(mr-x/surf-web :wk "Surf home (DDG)")
         "s u" '(xwidget-webkit-browse-url :wk "Surf URL")
         "s U" '(mr-x/surf-url-other-window :wk "Surf URL (other window)")
         "s l" '(mr-x/surf-link-at-point :wk "Surf link at point")
