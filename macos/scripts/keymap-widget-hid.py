@@ -14,7 +14,7 @@ VIA's raw HID interface; non-0x4C frames are VIA traffic, dropped here).
 Exits nonzero when the board is absent or a read fails (unplug/sleep);
 the reconnect/backoff policy lives in Hammerspoon, not here.
 
-Spec: ~/roaming/projects/keymap-explorer/live-keymap-widget-prd.md
+Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
 """
 
 import sys

@@ -1,13 +1,13 @@
 -- keymap-widget.lua — live keymap widget on the portrait display's wallpaper.
 -- Two hs.webview windows render keymap-explorer's index.html in widget mode
 -- (hotdox on top, creator micro below) and a flagsChanged eventtap feeds them
--- held-modifier state. Spec: ~/roaming/projects/keymap-explorer/live-keymap-widget-prd.md
+-- held-modifier state. Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
 -- Loaded from init.lua via dofile; exposed as the global `keymapWidget` for hs -c.
 
 local M = {}
 
 -- ---- placement constants (edit + hs.reload to adjust) ----------------------
-local HTML = os.getenv("HOME") .. "/roaming/projects/keymap-explorer/index.html"
+local HTML = os.getenv("HOME") .. "/.dotfiles/macos/keymap-explorer/index.html"
 local SCREEN_PATTERN = "S2725HS"          -- the portrait Dell, 1080x1920
 -- rects are offsets into the portrait screen's frame
 local RECTS = {

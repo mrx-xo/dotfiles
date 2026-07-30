@@ -1,0 +1,1799 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>mrx keymap explorer</title>
+<style>
+  :root {
+    --bg: #edeae4;
+    --panel: #f6f5f1;
+    --cap: #fbfaf7;
+    --cap-hi: #ffffff;
+    --cap-edge: #d6d2c8;
+    --cap-shadow: #c2beb3;
+    --ink: #26282e;
+    --muted: #71747c;
+    --faint: #a5a29a;
+    --amber: #a3650a;
+    --amber-soft: rgba(163,101,10,.12);
+    --blue: #2f6cb3;
+    --blue-soft: rgba(47,108,179,.12);
+    --red: #b3402f;
+    --red-soft: rgba(179,64,47,.10);
+    --violet: #6b4fbb;
+    --violet-soft: rgba(107,79,187,.12);
+    --green: #0f6e56;
+    --green-soft: rgba(15,110,86,.12);
+    --chg: #a3650a;
+    --line: #ddd9cf;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131519; --panel: #1a1d23; --cap: #232730; --cap-hi: #2a2f3a;
+      --cap-edge: #343947; --cap-shadow: #0d0f13; --ink: #e6e8ee; --muted: #8b8f99;
+      --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
+      --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
+      --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
+      --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: #e8a33d; --line: #262a33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131519; --panel: #1a1d23; --cap: #232730; --cap-hi: #2a2f3a;
+    --cap-edge: #343947; --cap-shadow: #0d0f13; --ink: #e6e8ee; --muted: #8b8f99;
+    --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
+    --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
+    --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
+    --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: #e8a33d; --line: #262a33;
+  }
+  :root[data-theme="light"] {
+    --bg: #edeae4; --panel: #f6f5f1; --cap: #fbfaf7; --cap-hi: #ffffff;
+    --cap-edge: #d6d2c8; --cap-shadow: #c2beb3; --ink: #26282e; --muted: #71747c;
+    --faint: #a5a29a; --amber: #a3650a; --amber-soft: rgba(163,101,10,.12);
+    --blue: #2f6cb3; --blue-soft: rgba(47,108,179,.12); --red: #b3402f;
+    --red-soft: rgba(179,64,47,.10); --violet: #6b4fbb; --violet-soft: rgba(107,79,187,.12);
+    --green: #0f6e56; --green-soft: rgba(15,110,86,.12); --chg: #a3650a; --line: #ddd9cf;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 24px 20px 64px;
+  }
+  .wrap { max-width: 1800px; margin: 0 auto; }
+  /* side-by-side mode gets more room to breathe */
+  .wrap:has(#app-hd.both:not([hidden])), .wrap:has(#app-cm.both:not([hidden])) { max-width: 2400px; }
+
+  .masthead {
+    display: flex; flex-wrap: wrap; gap: 12px 20px;
+    align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(20px, 3.4vw, 28px);
+    font-weight: 700;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 .accent { color: var(--amber); }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 62ch; line-height: 1.5; }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .seg {
+    display: inline-flex;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .seg button {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 16px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .seg button:focus-visible, .tabs button:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+  .seg button.on { background: var(--cap); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+  .seg button.on.pro { color: var(--amber); }
+
+  .viewpick { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .viewpick select {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .viewpick select:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+  .viewpick .vs { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .tabs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .tabs button {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 13px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .tabs button .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .tabs button[data-l="1"] .dot { background: var(--amber); }
+  .tabs button[data-l="2"] .dot { background: var(--blue); }
+  .tabs button[data-l="3"] .dot { background: var(--red); }
+  .tabs button[data-l="4"] .dot { background: var(--violet); }
+  .tabs button.on { color: var(--ink); border-color: var(--muted); background: var(--cap); }
+
+  .reach {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 10px;
+    min-height: 18px;
+  }
+  .reach b { color: var(--ink); font-weight: 600; }
+  .reach .warn { color: var(--red); font-weight: 600; }
+
+  .boardbox {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 14px 12px;
+    overflow-x: auto;
+  }
+  .board { position: relative; margin: 0 auto; }
+
+  /* side-by-side (both) mode */
+  .boards { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .boards > div { min-width: 0; }   /* let tracks split evenly regardless of board width */
+  .boards.split { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 980px) { .boards.split { grid-template-columns: 1fr; } }
+  .colcap {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+  }
+  .colcap.pro { color: var(--amber); }
+  .reach .prolab { color: var(--amber); font-weight: 600; }
+
+  /* ---- shared keycap chrome ---- */
+  .key {
+    position: absolute;
+    background: linear-gradient(180deg, var(--cap-hi), var(--cap));
+    border: 1px solid var(--cap-edge);
+    box-shadow: 0 calc(var(--u)*0.05) 0 var(--cap-shadow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    overflow: hidden;
+    transition: transform .06s ease;
+  }
+  .key:hover { transform: translateY(-1px); z-index: 2; }
+  .key .idx {
+    position: absolute; top: 1px; left: 3px;
+    font-size: max(8px, calc(var(--u) * 0.15));
+    line-height: 1; color: var(--amber); font-weight: 700;
+    pointer-events: none;
+    background: var(--panel); padding: 1px 3px 2px; border-radius: 4px;
+  }
+  /* round pads clip the corner — badge sits top-center instead */
+  .key.touch .idx { top: 4%; left: 50%; transform: translateX(-50%); }
+
+  /* ================= hotdox76v2 ================= */
+  #app-hd .key { border-radius: calc(var(--u) * 0.13); gap: calc(var(--u) * 0.02); }
+  #app-hd .key .tap {
+    font-size: calc(var(--u) * 0.26);
+    font-weight: 600;
+    line-height: 1.05;
+    text-align: center;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  #app-hd .key .tap.small { font-size: calc(var(--u) * 0.185); }
+  #app-hd .key .hold {
+    font-size: calc(var(--u) * 0.15);
+    font-weight: 700;
+    letter-spacing: .06em;
+    color: var(--muted);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  #app-hd .key.trns { background: transparent; border-style: dashed; border-color: var(--line); box-shadow: none; }
+  #app-hd .key.trns .tap { color: var(--faint); font-weight: 400; }
+
+  #app-hd .key.mod { background: linear-gradient(180deg, var(--cap), var(--cap)); }
+  #app-hd .key.mod .tap { color: var(--muted); font-size: calc(var(--u)*0.185); }
+
+  #app-hd .key.lt1 { border-color: var(--amber); background: linear-gradient(180deg, var(--cap-hi), var(--amber-soft)); }
+  #app-hd .key.lt1 .hold { color: var(--amber); }
+  #app-hd .key.lt2 { border-color: var(--blue); background: linear-gradient(180deg, var(--cap-hi), var(--blue-soft)); }
+  #app-hd .key.lt2 .hold { color: var(--blue); }
+  #app-hd .key.sym .tap { color: var(--amber); }
+  #app-hd .key.nav .tap { color: var(--blue); }
+
+  #app-hd .key.dead { border-style: dashed; border-color: var(--red); background: var(--red-soft); box-shadow: none; }
+  #app-hd .key.dead .tap { color: var(--red); font-size: calc(var(--u)*0.16); text-decoration: line-through; }
+  #app-hd .key.dead .hold { color: var(--red); }
+
+  #app-hd .key.boot { border-color: var(--red); background: var(--red-soft); }
+  #app-hd .key.boot .tap { color: var(--red); }
+  #app-hd .key.boot .hold { color: var(--red); }
+
+  #app-hd .key.hyp { border-color: var(--violet); background: linear-gradient(180deg, var(--cap-hi), var(--violet-soft)); }
+  #app-hd .key.hyp .tap, #app-hd .key.hyp .hold { color: var(--violet); }
+
+  #app-hd .key.chg, #app-cm .key.chg { outline: 2px solid var(--chg); outline-offset: 1px; }
+  #app-hd .key.chg::after, #app-cm .key.chg::after {
+    content: "";
+    position: absolute;
+    top: calc(var(--u)*0.07);
+    right: calc(var(--u)*0.09);
+    width: calc(var(--u)*0.1);
+    height: calc(var(--u)*0.1);
+    border-radius: 50%;
+    background: var(--chg);
+  }
+  /* ================= creator micro ================= */
+  #app-cm { max-width: 1000px; margin: 0 auto; }
+  /* the plate — the device is black in any theme */
+  #cm-board {
+    background: linear-gradient(180deg, #1e2026, #131418);
+    border: 1px solid #33353d;
+    border-radius: 22px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.25);
+  }
+  #app-cm .key { border-radius: calc(var(--u) * 0.14); gap: calc(var(--u) * 0.03); }
+  #app-cm .key .tap {
+    font-size: calc(var(--u) * 0.19);
+    font-weight: 600; line-height: 1.1; text-align: center;
+    color: var(--ink); padding: 0 4px;
+  }
+  #app-cm .key .tap.small { font-size: calc(var(--u) * 0.15); }
+  #app-cm .key .code {
+    font-size: calc(var(--u) * 0.12);
+    font-weight: 700; letter-spacing: .04em;
+    color: var(--muted); line-height: 1;
+  }
+
+  #app-cm .key.none { opacity: .55; }   /* blank cap — physically there, nothing bound */
+
+  /* flat capacitive touch pads (bottom corners) — no keycap 3D */
+  #app-cm .key.touch {
+    border-radius: 50%;
+    background-image: radial-gradient(var(--line) 1px, transparent 1.4px);
+    background-size: 7px 7px;
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  /* mini monitor-arrangement icon — outlines of the 4 displays, hot ones filled */
+  /* desk diagram — per-monitor fill = which machine owns it.
+     mac green · VENGEANCE red · work amber · flip = violet dashed outline */
+  #app-cm .key .mon { line-height: 0; }
+  #app-cm .key .mon svg { display: block; width: calc(var(--u) * 0.66); height: auto; }
+  #app-cm .key .mon rect { fill: none; stroke: var(--faint); stroke-width: 0.7; }
+  #app-cm .key .mon rect.mac  { stroke: var(--green); fill: var(--green); fill-opacity: .26; }
+  #app-cm .key .mon rect.pc   { stroke: var(--red);   fill: var(--red);   fill-opacity: .26; }
+  #app-cm .key .mon rect.work { stroke: var(--amber); fill: var(--amber); fill-opacity: .26; }
+  #app-cm .key .mon rect.flip { stroke: var(--violet); stroke-dasharray: 2.6 1.7; }
+  #app-cm .key .mon text {
+    font: 600 6.5px var(--mono); fill: var(--ink);
+    text-anchor: middle; dominant-baseline: central;
+  }
+  /* OS glyphs on preset caps —  is the system font's private-use apple.
+     .glyphs makes the cap a flex row so mixed text/svg logos center-align. */
+  #app-cm .key .tap.glyphs {
+    display: flex; align-items: center; justify-content: center;
+    gap: calc(var(--u) * 0.015);
+  }
+  #app-cm .key .tap .oslogo { font-size: calc(var(--u) * 0.16); line-height: 1; }
+  #app-cm .key .tap .oslogo.flip { font-size: calc(var(--u) * 0.24); }
+  #app-cm .key .tap svg.oslogo {
+    width: calc(var(--u) * 0.145); height: calc(var(--u) * 0.145);
+    fill: currentColor; display: block;
+  }
+  /* solo icons (no desk diagram above them) get the whole cap */
+  #app-cm .key .tap svg.oslogo.solo { width: calc(var(--u) * 0.3); height: calc(var(--u) * 0.3); }
+  #app-cm .key .tap .osdiv {
+    font-size: calc(var(--u) * 0.13); margin: 0 calc(var(--u) * 0.015);
+    color: var(--muted); font-weight: 400;
+  }
+  /* split cap: each logo wears its machine's color, same as the monitor fills */
+  #app-cm .key .tap .oslogo.os-mac { color: var(--green); }
+  #app-cm .key .tap .oslogo.os-pc  { color: var(--red); }
+  /* KC_TRNS — ghosted like the encoders: shows the base action it falls through to */
+  #app-cm .key.trns { opacity: .5; border-style: dashed; }
+
+  #app-cm .key.red    { border-color: var(--red);    background: linear-gradient(180deg, var(--cap-hi), var(--red-soft)); }
+  #app-cm .key.red .tap, #app-cm .key.red .code { color: var(--red); }
+  #app-cm .key.green  { border-color: var(--green);  background: linear-gradient(180deg, var(--cap-hi), var(--green-soft)); }
+  #app-cm .key.green .tap, #app-cm .key.green .code { color: var(--green); }
+  #app-cm .key.blue   { border-color: var(--blue);   background: linear-gradient(180deg, var(--cap-hi), var(--blue-soft)); }
+  #app-cm .key.blue .tap, #app-cm .key.blue .code { color: var(--blue); }
+  #app-cm .key.violet { border-color: var(--violet); background: linear-gradient(180deg, var(--cap-hi), var(--violet-soft)); }
+  #app-cm .key.violet .tap, #app-cm .key.violet .code { color: var(--violet); }
+  #app-cm .key.amber  { border-color: var(--amber);  background: linear-gradient(180deg, var(--cap-hi), var(--amber-soft)); }
+  #app-cm .key.amber .tap, #app-cm .key.amber .code { color: var(--amber); }
+  #app-cm .key.layer  { border-color: var(--muted); }
+  #app-cm .key.layer .tap { color: var(--ink); }
+  #app-cm .key.layer .code { color: var(--muted); }
+
+  /* encoders */
+  .enc {
+    position: absolute; border-radius: 50%;
+    background: radial-gradient(circle at 38% 32%, var(--cap-hi), var(--cap) 72%);
+    border: 1px solid var(--cap-edge);
+    box-shadow: 0 calc(var(--u)*0.05) 0 var(--cap-shadow);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: var(--mono); text-align: center;
+    transition: transform .06s ease;
+  }
+  .enc:hover { transform: translateY(-1px); z-index: 2; }
+  .enc .ring {
+    position: absolute; inset: 12%;
+    border-radius: 50%; border: 1.5px dashed var(--faint); opacity: .5;
+  }
+  .enc .turn { font-size: calc(var(--u)*0.15); color: var(--muted); line-height: 1.25; font-weight: 600; white-space: nowrap; }
+  .enc .press { font-size: calc(var(--u)*0.13); color: var(--ink); font-weight: 700; line-height: 1.2; }
+  .enc.ghost .turn, .enc.ghost .press { color: var(--faint); font-weight: 400; }
+
+  /* ---- legend ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 12px 4px 6px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .legend .l-sym i { background: var(--amber-soft); border: 1px solid var(--amber); }
+  .legend .l-nav i { background: var(--blue-soft); border: 1px solid var(--blue); }
+  .legend .l-hyp i { background: var(--violet-soft); border: 1px solid var(--violet); }
+  .legend .l-dead i { background: var(--red-soft); border: 1px dashed var(--red); }
+  .legend .l-trns i { background: transparent; border: 1px dashed var(--line); }
+  .legend .l-chg i { background: transparent; border: 2px solid var(--chg); }
+  .legend .l-red i    { background: var(--red-soft);    border: 1px solid var(--red); }
+  .legend .l-green i  { background: var(--green-soft);  border: 1px solid var(--green); }
+  .legend .l-blue i   { background: var(--blue-soft);   border: 1px solid var(--blue); }
+  .legend .l-violet i { background: var(--violet-soft); border: 1px solid var(--violet); }
+  .legend .l-amber i  { background: var(--amber-soft);  border: 1px solid var(--amber); }
+  .legend .l-layer i  { background: var(--cap);         border: 1px solid var(--muted); }
+  .legend .l-none i   { background: var(--cap);         border: 1px solid var(--cap-edge); opacity: .55; }
+  .legend .l-touch i  { background: transparent;        border: 1px dotted var(--muted); border-radius: 50%; }
+
+  /* ---- cards ---- */
+  .notes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 16px;
+  }
+  @media (max-width: 720px) { .notes { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  #app-cm .card { margin-top: 16px; }
+  .card h3 {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .card ul { margin: 0; padding-left: 18px; line-height: 1.65; font-size: 13.5px; }
+  .card li { margin-bottom: 4px; }
+  .card li::marker { color: var(--faint); }
+  .card b { font-weight: 600; }
+  .card .k {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--cap);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .card .warn { color: var(--red); font-weight: 600; }
+  .card .good { color: var(--amber); font-weight: 600; }
+  .card .dim { color: var(--muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 4px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--cap);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--violet); font-weight: 700; }
+
+  footer {
+    margin-top: 26px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--faint);
+    line-height: 1.6;
+  }
+
+  /* ---- held modifier (widget mode / __setMods) ---- */
+  .key.held {
+    outline: 2px solid var(--green);
+    outline-offset: 1px;
+    background: linear-gradient(180deg, var(--cap-hi), var(--green-soft));
+  }
+
+  /* ---- pressed key (widget mode / __flashKey) ---- */
+  .key.press {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+    background: linear-gradient(180deg, var(--cap-hi), var(--amber-soft));
+    transform: translateY(1px);
+  }
+
+  /* ---- widget mode (#hotdox&widget / #micro&widget) ----
+     chrome-less render for the hammerspoon wallpaper widget:
+     only the board + a small layer-tab row survive */
+  html.widget body { padding: 6px 8px 10px; }
+  html.widget .masthead, html.widget .sub, html.widget .reach,
+  html.widget .legend, html.widget .notes, html.widget .card,
+  html.widget footer, html.widget .controls .viewpick { display: none; }
+  html.widget .wrap { max-width: none; }
+  html.widget #app-cm { max-width: none; }
+  html.widget .controls { margin-bottom: 8px; }
+  html.widget .tabs button { font-size: 11px; padding: 4px 10px; }
+  html.widget .boardbox { overflow: hidden; }
+</style>
+
+<div class="wrap">
+  <div class="masthead">
+    <div>
+      <p class="eyebrow" id="eyebrow">hotdox76v2 &middot; ergodox &middot; dvorak + home-row mods &middot; layout v3 on board</p>
+      <h1>mrx keymap <span class="accent">explorer</span></h1>
+    </div>
+    <div class="seg" role="tablist" aria-label="board">
+      <button id="bd-hd" class="on">hotdox76v2</button>
+      <button id="bd-cm">creator micro</button>
+    </div>
+    <div class="seg">
+      <button id="btn-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
+    </div>
+  </div>
+
+  <!-- ================= hotdox76v2 ================= -->
+  <div id="app-hd">
+    <p class="sub">The layout on the board since the 2026-07-29 v3 flash, the <b>Proposed</b> next draft, and every retired version kept for the record. Flip between them, walk the layers, hover any key for its QMK keycode. Alphas and Dvorak never moved &mdash; everything else was up for grabs: comfort over incumbency.</p>
+
+    <div class="controls">
+      <div class="viewpick">
+        <div class="seg" role="tablist" aria-label="view">
+          <button id="btn-single" class="on">Single</button>
+          <button id="btn-both">Side by side</button>
+        </div>
+        <select id="sel-a" aria-label="layout version"></select>
+        <span class="vs" id="vs-sep" hidden>vs</span>
+        <select id="sel-b" aria-label="right layout version" hidden></select>
+      </div>
+      <div class="tabs" id="hd-tabs">
+        <button data-l="0" class="on"><span class="dot"></span>0 &middot; Base</button>
+        <button data-l="1"><span class="dot"></span>1 &middot; Symbols</button>
+        <button data-l="2"><span class="dot"></span>2 &middot; Nav</button>
+        <button data-l="3"><span class="dot"></span>3 &middot; System</button>
+        <button data-l="4"><span class="dot"></span>4 &middot; Game</button>
+      </div>
+    </div>
+
+    <p class="reach" id="hd-reach"></p>
+
+    <div class="boards" id="hd-boards">
+      <div>
+        <p class="colcap" id="hd-cap-cur" hidden>current (flashed 99e020a)</p>
+        <div class="boardbox"><div class="board" id="hd-board"></div></div>
+      </div>
+      <div id="hd-col-pro" hidden>
+        <p class="colcap pro" id="hd-cap-pro">proposed &mdash; changes ringed</p>
+        <div class="boardbox"><div class="board" id="hd-board2"></div></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="l-sym"><i></i>hold &rarr; Symbols</span>
+      <span class="l-nav"><i></i>hold &rarr; Nav</span>
+      <span class="l-hyp"><i></i>Hyper / Meh</span>
+      <span class="l-dead"><i></i>dead key</span>
+      <span class="l-trns"><i></i>transparent (falls through)</span>
+      <span class="l-chg"><i></i>changed vs left board</span>
+    </div>
+
+    <div class="notes">
+      <div class="card">
+        <h3 id="hd-note-title"></h3>
+        <ul id="hd-note-list"></ul>
+      </div>
+      <div class="card">
+        <h3 id="hd-side-title"></h3>
+        <div id="hd-side-body"></div>
+      </div>
+    </div>
+
+    <div class="card" id="hd-prolog" hidden style="margin-top:14px">
+      <h3 id="hd-prolog-title"></h3>
+      <ul id="hd-prolog-list"></ul>
+    </div>
+
+    <footer>layout ledger: v1 = 8eb6039 (retired 2026-07-27) &rarr; v2 = 99e020a (retired 2026-07-29) &rarr; v3 = c6b22e1 (on board, flashed 2026-07-29) &rarr; v4 = draft &middot; full history in VERSIONS.md &middot; geometry: LAYOUT_ergodox_pretty from keyboards/hotdox76v2/keyboard.json (right thumb talls corrected to physical reality)</footer>
+  </div>
+
+  <!-- ================= creator micro ================= -->
+  <div id="app-cm" hidden>
+    <p class="sub">Companion to the hotdox explorer, for the little macropad. <b>v3 on board</b> (flashed 2026-07-30) &mdash; declarative monitor presets (every key a full desk state) and whisper/shot pinned pad-wide via <span class="k">KC_TRNS</span>. Walk the layers, hover any key or knob for its keycode. The bottom-right <b>touch pad</b> cycles the layers: <b>0 &rarr; 1 &rarr; 2 &rarr; 3 &rarr; 0</b>.</p>
+
+    <div class="controls">
+      <div class="viewpick">
+        <div class="seg" role="tablist" aria-label="view">
+          <button id="btn-cm-single" class="on">Single</button>
+          <button id="btn-cm-both">Side by side</button>
+        </div>
+        <select id="sel-cm-a" aria-label="layout version"></select>
+        <span class="vs" id="vs-cm-sep" hidden>vs</span>
+        <select id="sel-cm-b" aria-label="right layout version" hidden></select>
+      </div>
+      <div class="tabs" id="cm-tabs"></div>
+    </div>
+
+    <p class="reach" id="cm-reach"></p>
+
+    <div class="boards" id="cm-boards">
+      <div>
+        <p class="colcap" id="cm-cap-a" hidden></p>
+        <div class="boardbox"><div class="board" id="cm-board"></div></div>
+      </div>
+      <div id="cm-col-b" hidden>
+        <p class="colcap pro" id="cm-cap-b"></p>
+        <div class="boardbox"><div class="board" id="cm-board2"></div></div>
+      </div>
+    </div>
+
+    <div class="legend" id="cm-legend"></div>
+
+    <div class="card">
+      <h3 id="cm-note-title"></h3>
+      <ul id="cm-note-list"></ul>
+    </div>
+
+    <div class="card" id="cm-prolog" hidden>
+      <h3 id="cm-prolog-title"></h3>
+      <ul id="cm-prolog-list"></ul>
+    </div>
+
+    <div class="card">
+      <h3>macros (firmware since v2 &mdash; were VIA slots in v1)</h3>
+      <ul>
+        <li><span class="k">M0</span> &#8984;Space &ldquo;spotify&rdquo; &#9166; &mdash; spotlight-launch Spotify &middot; <span class="k">SEND_STRING</span></li>
+        <li><span class="k">M1</span> &#8984;Space &ldquo;spotify&rdquo; &#9166; &middot; wait 1s &middot; &#8984;L &mdash; launch Spotify and jump to search &middot; <span class="k">SEND_STRING</span></li>
+        <li><span class="k">M4</span> &#8984;&#8679;4 &mdash; macOS region screenshot (base layer, row 4) &mdash; now a plain <span class="k">LSG(KC_4)</span>, no macro engine</li>
+        <li><span class="warn">v1&rsquo;s M2/M3 (org-clock-in/out) were bound to no key &mdash; dropped at the v2 flash; resurrect in keymap.c if ever wanted</span></li>
+      </ul>
+    </div>
+
+    <footer>layout ledger: v1 = VIA EEPROM (retired 2026-07-30) &rarr; v2 = 529c499 (retired 2026-07-30) &rarr; v3 = f1df23a (on board, flashed 2026-07-30) &rarr; v4 = draft &middot; source of truth: qmk_firmware keymaps/mrx &middot; geometry + CUSTOM(n) names from the-via/keyboards src/work_louder/micro.json &middot; F13&ndash;F19 meanings resolved against ~/.dotfiles/macos/skhd/skhdrc &middot; matrix 0/3 = wheel/knob press, 12/15 = touch pads &middot; full history in VERSIONS.md</footer>
+  </div>
+</div>
+
+<script>
+// widget mode: chrome-less render driven by hammerspoon
+// (see live-keymap-widget-prd.md — activated by "&widget" in the hash)
+const WIDGET = location.hash.includes('widget');
+
+// ---------- creator micro ledger (same ritual as the hotdox, its own
+// counter; top-level so both the CM explorer and the eyebrow can read it) ----
+const CM_LAYOUTS = {
+  old: { v: 1, commit: null, status: 'retired 2026-07-30',
+         note: 'VIA dynamic keymap in EEPROM, stock firmware' },
+  v2:  { v: 2, commit: '529c499', status: 'retired 2026-07-30',
+         note: 'same keystrokes as v1, baked into firmware + widget broadcast' },
+  cur: { v: 3, commit: 'f1df23a', status: 'on board — flashed 2026-07-30',
+         note: 'declarative monitor presets + pad-wide whisper/shot' },
+  pro: { v: 4, commit: null, status: 'draft',
+         note: 'no increments yet' }
+};
+const CM_PRO_LOG = [];
+if (WIDGET) document.documentElement.classList.add('widget');
+
+// key-index overlay: numbers every keycap with its position in the keymap
+// arrays (hotdox: 0-75 in old0/cur0 order; micro: VIA matrix 0-15) so keys
+// can be referenced unambiguously. Toggled by the "key #s" button or "&idx".
+window.__showIdx = location.hash.includes('idx');
+
+// token -> [keycap nodes] indexes for __flashKey, rebuilt on every render
+window.__press = { hd: {}, cm: {} };
+// tokens currently held down — survives re-renders (a flagsChanged re-render
+// mid-keystroke must not eat the flash)
+window.__pressed = new Set();
+
+// ===========================================================================
+// hotdox76v2 explorer
+// ===========================================================================
+const renderHd = (() => {
+
+// ---- physical geometry: [x, y, w, h] in key units, LAYOUT_ergodox_pretty order ----
+const GEO = [
+  [0,.375,1.5,1],[1.5,.375,1,1],[2.5,.125,1,1],[3.5,0,1,1],[4.5,.125,1,1],[5.5,.25,1,1],[6.5,.25,1,1],
+  [9.5,.25,1,1],[10.5,.25,1,1],[11.5,.125,1,1],[12.5,0,1,1],[13.5,.125,1,1],[14.5,.375,1,1],[15.5,.375,1.5,1],
+  [0,1.375,1.5,1],[1.5,1.375,1,1],[2.5,1.125,1,1],[3.5,1,1,1],[4.5,1.125,1,1],[5.5,1.25,1,1],[6.5,1.25,1,1.5],
+  [9.5,1.25,1,1.5],[10.5,1.25,1,1],[11.5,1.125,1,1],[12.5,1,1,1],[13.5,1.125,1,1],[14.5,1.375,1,1],[15.5,1.375,1.5,1],
+  [0,2.375,1.5,1],[1.5,2.375,1,1],[2.5,2.125,1,1],[3.5,2,1,1],[4.5,2.125,1,1],[5.5,2.25,1,1],
+  [10.5,2.25,1,1],[11.5,2.125,1,1],[12.5,2,1,1],[13.5,2.125,1,1],[14.5,2.375,1,1],[15.5,2.375,1.5,1],
+  [0,3.375,1.5,1],[1.5,3.375,1,1],[2.5,3.125,1,1],[3.5,3,1,1],[4.5,3.125,1,1],[5.5,3.25,1,1],[6.5,2.75,1,1.5],
+  [9.5,2.75,1,1.5],[10.5,3.25,1,1],[11.5,3.125,1,1],[12.5,3,1,1],[13.5,3.125,1,1],[14.5,3.375,1,1],[15.5,3.375,1.5,1],
+  [.5,4.375,1,1],[1.5,4.375,1,1],[2.5,4.125,1,1],[3.5,4,1,1],[4.5,4.125,1,1],
+  [11.5,4.125,1,1],[12.5,4,1,1],[13.5,4.125,1,1],[14.5,4.375,1,1],[15.5,4.375,1,1],
+  [6,5,1,1],[7,5,1,1],[9,5,1,1],[10,5,1,1],
+  [7,6,1,1],[9,6,1,1],
+  [5,6,1,2],[6,6,1,2],[7,7,1,1],
+  // #74/#75: keyboard.json claims 74=x11/75=x10, but the wiring mirrors the
+  // left talls and PHYSICAL truth is the opposite (proven by keypress
+  // 2026-07-27): #74 = INNER tall (old Tab key), #75 = OUTER (Enter, never
+  // moved). The JSON lies; we draw reality.
+  [9,7,1,1],[10,6,1,2],[11,6,1,2]
+];
+const UW = 17, UH = 8;
+
+// key factory: tap label, hold label, kind, qmk code
+const K = (t, h, k, c) => ({ t, h: h || null, k: k || '', c: c || '' });
+const T = K('▽', null, 'trns', 'KC_TRNS');
+
+function sparse(base, map) {
+  const a = Array.from({ length: 76 }, () => base);
+  for (const i in map) a[i] = map[i];
+  return a;
+}
+
+// ---------- PRE-FLASH (commit 8eb6039 — retired by the 2026-07-27 flash) ----------
+const old0 = [
+  K('Esc','⌘','mt','LGUI_T(KC_ESC)'), K('1'),K('2'),K('3'),K('4'),K('5'), K('='),
+  K('-'), K('6'),K('7'),K('8'),K('9'),K('0'), K('Bksp',null,'','KC_BSPC'),
+  K('Tab','⌥','mt','LALT_T(KC_TAB)'), K("'"),K(','),K('.'),K('P'),K('Y'), K('['),
+  K(']'), K('F'),K('G'),K('C'),K('R'),K('L'), K('/'),
+  K('Ctrl',null,'mod','KC_LCTL'),
+  K('A','⌃','mt','LCTL_T(KC_A)'), K('O','⌥','mt','LALT_T(KC_O)'), K('E','⌘','mt','LGUI_T(KC_E)'), K('U','⇧','mt','LSFT_T(KC_U)'), K('I'),
+  K('D'), K('H','⇧','mt','RSFT_T(KC_H)'), K('T','⌘','mt','RGUI_T(KC_T)'), K('N','⌥','mt','RALT_T(KC_N)'), K('S','⌃','mt','RCTL_T(KC_S)'), K('-'),
+  K('Shift',null,'mod','KC_LSFT'), K(';'),K('Q'),K('J'),K('K'),K('X'),
+  K('Whl↑','NAV','lt2','LT(2,MS_WHLU)'),
+  K('Whl↓','SYM','lt1','LT(1,MS_WHLD)'),
+  K('B'),K('M'),K('W'),K('V'),K('Z'), K('Shift',null,'mod','KC_RSFT'),
+  K('Ctrl',null,'mod','KC_LCTL'),
+  K('BL Step','dead','dead','BL_STEP'), K('BL Brt','dead','dead','BL_BRTG'),
+  K('←'),K('→'),
+  K('↑'),K('↓'), K('['),K(']'),
+  K('BL Tog','dead','dead','BL_TOGG'),
+  K('Home'),K('End'), K('PgUp'),K('PgDn'),
+  K('Bksp','⌃','mt','LCTL_T(KC_BSPC)'),
+  K('Spc','SYM','lt1','LT(1,KC_SPC)'),
+  K('Space',null,'','KC_SPC'), K('Bksp',null,'','KC_BSPC'),
+  K('Tab','⌥','mt','LALT_T(KC_TAB)'),
+  K('Ent','NAV','lt2','LT(2,KC_ENT)'),
+  K('Tab',null,'','KC_TAB'), K('Enter',null,'','KC_ENT')
+];
+
+const symKeys = {
+  13: K('+',null,'sym'),
+  15: K('!',null,'sym'), 16: K('@',null,'sym'), 17: K('#',null,'sym'), 18: K('$',null,'sym'), 19: K('%',null,'sym'),
+  22: K('^',null,'sym'), 23: K('&',null,'sym'), 24: K('*',null,'sym'), 25: K('(',null,'sym'), 26: K(')',null,'sym'), 27: K('?',null,'sym'),
+  29: K('"',null,'sym'), 30: K('<',null,'sym'), 31: K('{',null,'sym'), 32: K('(',null,'sym'), 33: K('`',null,'sym'),
+  34: K('[',null,'sym'), 35: K(')',null,'sym'), 36: K('}',null,'sym'), 37: K('>',null,'sym'), 38: K('=',null,'sym'),
+  41: K(';',null,'sym'), 42: K(':',null,'sym'), 43: K('~',null,'sym'), 44: K('|',null,'sym'), 45: K('\\',null,'sym'),
+  49: K('_',null,'sym'), 50: K('-',null,'sym'), 51: K('+',null,'sym'), 52: K('=',null,'sym')
+};
+const old1 = sparse(T, symKeys);
+
+const old2 = sparse(T, {
+  15: K('Home',null,'nav'), 16: K('End',null,'nav'), 17: K('PgUp',null,'nav'), 18: K('PgDn',null,'nav'),
+  29: K('←',null,'nav'), 30: K('↓',null,'nav'), 31: K('↑',null,'nav'), 32: K('→',null,'nav')
+});
+
+const old3 = sparse(T, { 15: K('BOOT','flash','boot','QK_BOOT') });
+
+// ---------- CURRENT (flashed 2026-07-27, keymap.c commit 99e020a) ----------
+const cur0 = old0.slice();
+// daily drivers: one-tap versions of the highest-frequency skhd chords,
+// on the thumb-top keys that used to waste Home/End/PgUp/PgDn (all four
+// still live on the Nav layer)
+cur0[64] = K('Agenda',null,'','LSG(KC_A)');    // ⌘⇧A org-agenda frame
+cur0[65] = K('Del',null,'','KC_DEL');
+cur0[66] = K('Recent',null,'','LSG(KC_TAB)');  // ⌘⇧⇥ focus recent window
+cur0[67] = K('Scratch',null,'','LSG(KC_SPC)'); // ⌘⇧Space scratchpad
+cur0[72] = K('Layout',null,'','LCTL(KC_SPC)'); // ⌃Space yabai layout toggle
+// ---- layer-walk decisions 1-4 (signed off 2026-07-27) ----
+cur0[0]  = K('Esc',null,'','KC_ESC');      // corner mod-tap dropped — HRM covers ⌘
+cur0[6]  = K('Prev',null,'','KC_MPRV');    // = lives on Sym #35 now
+cur0[7]  = K('Next',null,'','KC_MNXT');    // − keeps #39
+cur0[14] = K('Tab',null,'','KC_TAB');      // corner mod-tap dropped — HRM covers ⌥
+cur0[20] = K('',null,'','KC_NO');          // brackets live on Sym only (#43/#44)
+cur0[21] = K('',null,'','KC_NO');
+cur0[74] = K('Esc',null,'','KC_ESC');      // thumb Esc for evil-mode
+// inner columns: pure MO holds, no tap ambiguity — Sym stays on #47 where
+// the right thumb already reaches it (the habit), Nav mirrors on #46;
+// the hated wheel keys are gone entirely (MOUSEKEY_ENABLE = no)
+cur0[46] = K('Nav','HOLD','lt2','MO(2)');
+cur0[47] = K('Sym','HOLD','lt1','MO(1)');
+// nav discipline: base arrows and all base brackets removed — arrows live
+// on the Nav layer only, brackets on the Sym layer only
+cur0[57] = K('',null,'','KC_NO');
+cur0[58] = K('',null,'','KC_NO');
+cur0[59] = K('',null,'','KC_NO');
+cur0[60] = K('',null,'','KC_NO');
+cur0[61] = K('',null,'','KC_NO');
+cur0[62] = K('',null,'','KC_NO');
+cur0[54] = K('Nav','LOCK','lt2','TG(2)');
+cur0[55] = K('Vol−',null,'','KC_VOLD');
+cur0[56] = K('Vol+',null,'','KC_VOLU');
+cur0[63] = K('Play',null,'','KC_MPLY');
+cur0[68] = K('✦','HYPER','hyp','ALL_T(KC_NO)');
+cur0[69] = K('◆','MEH','hyp','MEH_T(KC_NO)');
+cur0[70] = K('Space','SYM','lt1','LT(1,KC_SPC)');
+cur0[71] = K('Bksp','⌃','mt','LCTL_T(KC_BSPC)');
+cur0[73] = K('Caps','WORD','hyp','CW_TOGG');
+cur0[75] = K('Enter','NAV','lt2','LT(2,KC_ENT)');
+
+// symbols v2 — audited redesign. old1 failed audit: = twice (#38/#52),
+// () twice (#25-26/#32+35), + twice (#13/#51), a lone [ with no ] anywhere,
+// top row mirroring shift+numbers, and pairs split across hands while the
+// #47 hold occupies the right thumb. v2: bracket stack on the left
+// middle+index columns (row picks flavor), operators on right home.
+const cur1 = sparse(T, {
+  15: K('@',null,'sym'), 16: K('#',null,'sym'), 17: K('{',null,'sym'), 18: K('}',null,'sym'), 19: K('$',null,'sym'),
+  29: K('!',null,'sym'), 30: K('`',null,'sym'), 31: K('(',null,'sym'), 32: K(')',null,'sym'), 33: K('~',null,'sym'),
+  41: K('%',null,'sym'), 42: K('^',null,'sym'), 43: K('[',null,'sym'), 44: K(']',null,'sym'), 45: K('\\',null,'sym'),
+  34: K('&',null,'sym'), 35: K('=',null,'sym'), 36: K('*',null,'sym'), 37: K('+',null,'sym'), 38: K('|',null,'sym')
+});
+
+const cur2 = sparse(T, {
+  13: K('Del',null,'nav','KC_DEL'),
+  15: K('Home',null,'nav'), 16: K('End',null,'nav'), 17: K('PgUp',null,'nav'), 18: K('PgDn',null,'nav'),
+  23: K('7',null,'nav'), 24: K('8',null,'nav'), 25: K('9',null,'nav'),
+  29: K('←',null,'nav'), 30: K('↓',null,'nav'), 31: K('↑',null,'nav'), 32: K('→',null,'nav'),
+  35: K('4',null,'nav'), 36: K('5',null,'nav'), 37: K('6',null,'nav'),
+  49: K('1',null,'nav'), 50: K('2',null,'nav'), 51: K('3',null,'nav'),
+  60: K('0',null,'nav'), 61: K('.',null,'nav')
+});
+
+const cur3 = sparse(T, {
+  15: K('BOOT','flash','boot','QK_BOOT'), 16: K('EE Clr','reset','boot','EE_CLR'),
+  17: K('Game','TG 4','hyp','TG(4)'),
+  // walk decision 5 (2026-07-27): media left System — base has the whole
+  // story (Vol−/Vol+/Play on 55/56/63, Prev/Next on 6/7). One job:
+  // BOOT, EE Clr, Game, RGB.
+  29: K('RGB','TOG','','RGB_TOG'), 30: K('RGB','MODE','','RGB_MOD'),
+  31: K('Hue+'), 32: K('Sat+'), 33: K('Bri+'),
+  42: K('Hue−'), 43: K('Sat−'), 44: K('Bri−')
+});
+
+// ---------- GAME LAYER (added from VENGEANCE discoveries) ----------
+// pre-flash: didn't exist — all transparent
+const old4 = sparse(T, {});
+// current: full QWERTY, no mod-taps anywhere ("press M for map" prompts land
+// right; chat is QWERTY — for Dvorak, EXIT the layer, half-and-half was never
+// typeable anyway). Positions derived Dvorak↔QWERTY at standard stagger.
+const cur4 = sparse(T, {
+  0: K('Esc',null,'','KC_ESC'), 1: K('1'), 2: K('2'), 3: K('3'), 4: K('4'), 5: K('5'),
+  14: K('Tab',null,'','KC_TAB'), 15: K('Q'), 16: K('W',null,'nav'), 17: K('E'), 18: K('R'), 19: K('T'),
+  28: K('Ctrl',null,'mod','KC_LCTL'),
+  29: K('A',null,'nav'), 30: K('S',null,'nav'), 31: K('D',null,'nav'), 32: K('F'), 33: K('G'),
+  40: K('Shift',null,'mod','KC_LSFT'), 41: K('Z'), 42: K('X'), 43: K('C'), 44: K('V'), 45: K('B'),
+  54: K('Ctrl',null,'mod','KC_LCTL'), 55: K('Alt',null,'mod','KC_LALT'),
+  69: K('EXIT','TG 4','boot','TG(4)'),
+  70: K('Space',null,'','KC_SPC'),
+  71: K('Bksp',null,'','KC_BSPC'),          // plain — base LCTL_T is a mod-tap
+  // right half
+  8: K('6'), 9: K('7'), 10: K('8'), 11: K('9'), 12: K('0'),
+  22: K('Y'), 23: K('U'), 24: K('I'), 25: K('O'), 26: K('P'), 27: K('['),
+  34: K('H'), 35: K('J'), 36: K('K'), 37: K('L'), 38: K(';'), 39: K("'"),
+  48: K('N'), 49: K('M'), 50: K(','), 51: K('.'), 52: K('/'),
+  75: K('Enter',null,'','KC_ENT')           // plain — base LT(2) is a mod-tap
+});
+
+// ---------- v3 (flashed 2026-07-29, keymap.c c6b22e1) ----------
+// Promoted from the v3 draft, increments d1-d4 (archived in VERSIONS.md).
+// d1/d2 — criss-cross: Hyper/Meh on BOTH hands, mirroring the Sym/Nav
+// two-activator pattern: hold whichever side is opposite the target key.
+// Inner #20/#21 are plain KC_MEH/KC_HYPR (were dead — no tap to preserve);
+// home-row I/D are mod-taps (trial: delete if "if"/"it" misfires bite).
+const v3_0 = cur0.slice();
+v3_0[20] = K('◆','MEH','hyp','KC_MEH');
+v3_0[21] = K('✦','HYPER','hyp','KC_HYPR');
+v3_0[33] = K('I','◆','hyp','MEH_T(KC_I)');
+v3_0[34] = K('D','✦','hyp','HYPR_T(KC_D)');
+// d4 — Tab back on both dead ex-arrow keys; ⌘Tab = ⌘ on E + tap #59
+// (opposite hands, machine-gun the switcher). #58 is the left mirror.
+v3_0[58] = K('Tab',null,'','KC_TAB');
+v3_0[59] = K('Tab',null,'','KC_TAB');
+// d3 — tab switching in firmware: Tab◀/Tab▶ = LAG(←/→), the ⌘⌥ arrows
+// Chrome/VS Code already speak (replaced the skhd ✦,/✦. Hammerspoon hop —
+// binds retired on flash). Arrows dropped a row, same vim order.
+const v3_2 = cur2.slice();
+v3_2[29] = K('Tab◀',null,'nav','LAG(KC_LEFT)');
+v3_2[30] = T;
+v3_2[31] = T;
+v3_2[32] = K('Tab▶',null,'nav','LAG(KC_RGHT)');
+v3_2[41] = K('←',null,'nav');
+v3_2[42] = K('↓',null,'nav');
+v3_2[43] = K('↑',null,'nav');
+v3_2[44] = K('→',null,'nav');
+
+// ---------- PROPOSED (v4 draft — no increments yet, identical to v3) ----------
+const pro0 = v3_0.slice();
+const pro2 = v3_2.slice();
+
+const MAPS = { old: [old0, old1, old2, old3, old4],
+               v2:  [cur0, cur1, cur2, cur3, cur4],
+               cur: [v3_0, cur1, v3_2, cur3, cur4],
+               pro: [pro0, cur1, pro2, cur3, cur4] };
+
+// ---------- copy ----------
+const REACH = {
+  old: [
+    'Base layer &mdash; Dvorak, home-row mods <b>⌃ ⌥ ⌘ ⇧</b> on A O E U / H T N S.',
+    'Hold <b>right thumb Spc</b> or the <b>right inner column key</b>. Both activators on one hand.',
+    'Hold <b>right thumb Ent</b> or the <b>left inner column key</b>.',
+    '<span class="warn">Unreachable.</span> No key anywhere activates layer 3 &mdash; BOOT cannot be pressed.',
+    '<span class="warn">Doesn\'t exist yet.</span> Phase 1: paint it into L3 via VIA today &mdash; zero flash needed.'
+  ],
+  cur: [
+    'Base layer &mdash; alphas and home-row mods untouched. Changes ride on dead keys and duplicates.',
+    'Hold <b>#47</b> (the thumb habit) &mdash; left hand has the bracket stack; or hold <b>left Space</b> &mdash; right home has the operators.',
+    'Hold <b>right thumb Enter</b>. Left hand gets arrows, right hand gets the numpad.',
+    'Hold <b>Space + Enter together</b> (tri-layer). BOOT finally reachable, no paperclip.',
+    'Toggle with <b>TG(4)</b> from the System layer. Solid red RGB while active. <b>EXIT</b> lives on the layer itself.'
+  ]
+};
+// v2 keeps its texts; current (v3) layers 0/2 tell the promoted story;
+// the v4 draft has no changes yet so it reads identically to current.
+REACH.v2 = REACH.cur;
+REACH.cur = REACH.v2.slice();
+REACH.cur[0] = 'Base + the criss-cross: <b>✦ Hyper</b> and <b>◆ Meh</b> on both hands (inner column <i>and</i> home-row <b>I</b>/<b>D</b>) &mdash; hold whichever side is opposite the target key. Tab is back on <b>#58</b>/<b>#59</b>.';
+REACH.cur[2] = 'Hold <b>right thumb Enter</b>. Tab◀/Tab▶ on the home row, arrows one row down, numpad on the right hand.';
+REACH.pro = REACH.cur.slice();
+
+const NOTES = {
+  old: [
+    ['What you have today', [
+      '<b>Dead keys:</b> <span class="k">BL Step</span> <span class="k">BL Brt</span> <span class="k">BL Tog</span> are backlight codes &mdash; this board is RGB-matrix, so they do <span class="warn">nothing</span>.',
+      '<b>Duplicates:</b> Space ×2, Bksp ×3, Tab ×3, Enter ×2, Ctrl ×3 on the left hand alone.',
+      'Arrows + Home/End/PgUp/PgDn live on base <i>and</i> on the Nav layer.',
+      'Both layer-hold thumbs sit on the <b>right</b> hand, so you can never hold both layers at once.'
+    ]],
+    ['Symbols layer — the audit', [
+      'Top row just mirrors <b>shift + number row</b> &mdash; 11 keys spent duplicating what Shift already does.',
+      '<b>Dups:</b> <span class="k">=</span> ×2 (#38, #52) &middot; <span class="k">( )</span> ×2 (#25/#26 and #32/#35) &middot; <span class="k">+</span> ×2 (#13, #51).',
+      '<span class="warn">#34 opens a [ this layer cannot close</span> &mdash; there is no ] anywhere on it.',
+      'Pairs are split across hands, but the <span class="k">#47</span> hold occupies the right thumb &mdash; right-hand halves of pairs fight the activator.'
+    ]],
+    ['Nav layer', [
+      'Left hand: arrows on home row + Home/End/PgUp/PgDn above. Solid.',
+      'The <span class="warn">entire right hand is empty</span> &mdash; every key transparent. Free real estate.'
+    ]],
+    ['Layer 3', [
+      'Contains only <span class="k">QK_BOOT</span>.',
+      '<span class="warn">No MO(3), LT(3), or TG(3) exists anywhere in the keymap</span> &mdash; this layer is decoration. You flash with the reset button instead.'
+    ]],
+    ['Game layer (planned)', [
+      'The Dvorak lives in <b>firmware</b> &mdash; the board sends Dvorak keycodes, so games see WASD-zone garbage and every game needs manual rebinds.',
+      '<b>Phase 1, zero flash:</b> L3 holds nothing but BOOT today. In VIA, remap one dead <span class="k">BL_*</span> key to <span class="k">TG(3)</span> and paint QWERTY onto L3. Lives in EEPROM, ~10 min.',
+      '<b>Phase 2, the grand flash:</b> game layer moves to L4 (bump <span class="k">DYNAMIC_KEYMAP_LAYER_COUNT</span> to 5), L3 becomes the System tri-layer.'
+    ]]
+  ],
+  cur: [
+    ['What changed on base', [
+      '<span class="k">✦ Hyper</span> (⌘⌃⌥⇧) and <span class="k">◆ Meh</span> (⌃⌥⇧) on the small mid-thumb keys &mdash; a clean namespace no macOS app uses.',
+      'Symbols get <b>two activators, zero retrain</b>: <span class="k">#47</span> keeps SYM as a pure hold (the thumb-reach habit survives) and <b>left</b> big Space gains <span class="k">LT(1)</span> &mdash; opposite-thumb Space+Enter is what unlocks the tri-layer.',
+      'Dead BL keys become <span class="k">Vol−</span> <span class="k">Vol+</span> <span class="k">Play</span> (needs <span class="k">EXTRAKEY_ENABLE = yes</span>).',
+      'Duplicate bottom-left Ctrl becomes <span class="k">Nav LOCK</span> (toggle the nav layer on for long editing runs).',
+      '<span class="k">Caps WORD</span> on the small right thumb: tap it, type SCREAMING_SNAKE, it un-shifts at the space.',
+      'Inner columns become <b>pure MO holds</b> (<span class="k">#46</span> Nav / <span class="k">#47</span> Sym) &mdash; no tap-hold delay, and the hated wheel keys are gone entirely (frees ~2KB via <span class="k">MOUSEKEY_ENABLE = no</span>).',
+      '<b>Nav discipline:</b> base arrows (<span class="k">#57&ndash;60</span>) and <b>all four</b> bracket keys (<span class="k">#20/#21</span>, <span class="k">#61/#62</span>) are <span class="warn">removed</span> &mdash; arrows live on the Nav layer only, brackets on the Symbols layer only (<span class="k">#43/#44</span> and friends).',
+      '<b>Daily drivers</b> replace the never-used Home/End/PgUp/PgDn thumb keys (still on Nav): <span class="k">Agenda</span> ⌘⇧A &middot; <span class="k">Del</span> &middot; <span class="k">Recent</span> ⌘⇧⇥ &middot; <span class="k">Scratch</span> ⌘⇧Space &middot; <span class="k">Layout</span> ⌃Space on the old Tab (#72). One tap = one high-frequency skhd action.',
+      '<b>Walk sign-off (2026-07-27):</b> corner mod-taps dropped &mdash; <span class="k">#0</span>/<span class="k">#14</span> are plain Esc/Tab (HRM already covers ⌘/⌥); <span class="k">#6</span>/<span class="k">#7</span> become <span class="k">Prev</span>/<span class="k">Next</span>, completing the media set on base; <span class="k">#74</span> is a thumb <span class="k">Esc</span> for evil-mode.'
+    ]],
+    ['Symbols v2 — audited redesign', [
+      '<b>Bracket stack</b> on the left middle+index columns, row picks flavor: <span class="k">{ }</span> top &middot; <span class="k">( )</span> home &middot; <span class="k">[ ]</span> bottom. Complete pairs, adjacent, one motion pattern.',
+      'Everything important on the <b>left hand</b> &mdash; the free hand while the right thumb holds <span class="k">#47</span>. Right home is the <b>operator cluster</b> <span class="k">&amp; = * + |</span> for left-Space sessions.',
+      '<span class="k">`</span> and <span class="k">~</span> get real spots (org/markdown/shell life). <span class="k">! @ # $ % ^</span> come off the number-row stretch to near-home.',
+      'Nothing the base gives free gets a slot: <span class="k">" &lt; &gt; ? _ :</span> are shift-states of base keys. 20 symbols, zero within-layer dups, every pair closeable.'
+    ]],
+    ['Nav layer additions', [
+      'Right hand gets a <b>numpad</b> under the natural columns &mdash; numbers without stretching to the top row.',
+      '<span class="k">0</span> and <span class="k">.</span> on the bottom row, <span class="k">Del</span> in the top-right corner.',
+      'Left-hand arrows + Home/End/PgUp/PgDn stay exactly where they are.'
+    ]],
+    ['System layer (new + reachable)', [
+      'Hold <b>Space + Enter</b> together &mdash; QMK tri-layer, and your firmware already compiles the feature in.',
+      '<span class="k">BOOT</span> for flashing, <span class="k">EE Clr</span> for factory reset, <span class="k">Game</span> <span class="k">TG(4)</span> to enter the Game layer (found in the layer walk: the proposal had EXIT on Game but <span class="warn">no way in</span> &mdash; same bug as current layer 3).',
+      'RGB controls on the left (replacing the dead BL keys for real this time). Media moved to base in the walk sign-off &mdash; System keeps one job: <span class="k">BOOT</span> &middot; <span class="k">EE Clr</span> &middot; <span class="k">Game</span> &middot; RGB.'
+    ]],
+    ['Game layer — full QWERTY for VENGEANCE', [
+      '<b>Both halves plain QWERTY</b> &mdash; WASD where games expect it (highlighted blue), and &ldquo;press <span class="k">M</span> for map&rdquo;-style prompts land on the right keys instead of Dvorak scramble.',
+      '<span class="warn">No mod-taps anywhere on this layer</span> &mdash; the tap-hold decision delay eats held keys. Plain <span class="k">Ctrl</span> <span class="k">Alt</span> <span class="k">Shift</span>, plain Space/Bksp/Enter on the thumbs (base thumbs are mod-taps, so they\'re overridden, not transparent).',
+      'Chat is QWERTY too. To touch-type Dvorak, tap <span class="k">EXIT</span> first &mdash; the old half-transparent idea meant chat was half QWERTY half Dvorak, typeable in neither.',
+      '<span class="k">EXIT</span> (<span class="k">TG(4)</span>) on the right Meh thumb &mdash; it must live ON the layer, since the tri-layer thumbs are overridden by plain Space here.',
+      'Solid red RGB while active via <span class="k">rgb_matrix_indicators_user</span> &mdash; never wonder mid-lobby which mode the board is in.'
+    ]]
+  ]
+};
+NOTES.v2 = NOTES.cur;
+NOTES.cur = NOTES.v2.slice();
+NOTES.cur[0] = ['Criss-cross Hyper/Meh + Tab ×2 (v3, flashed 2026-07-29)', [
+  '<span class="k">◆ Meh</span> on <span class="k">#20</span> (left inner) and <span class="k">✦ Hyper</span> on <span class="k">#21</span> (right inner) &mdash; the dead ex-bracket keys. Each mod now lives on <b>both hands</b>, same two-activator pattern as Sym (<span class="k">#47</span>+<span class="k">#70</span>) and Nav (<span class="k">#46</span>+<span class="k">#75</span>).',
+  '<b>Why:</b> ✦ 1&ndash;4 was left thumb + left numbers &mdash; a same-hand claw. Right index on <span class="k">#21</span> fixes it. Same story for ◆ H/L warps (right-hand keys, right-thumb Meh) &mdash; <span class="k">#20</span> fixes those.',
+  'Inner columns become clean <b>hold stacks</b>: left = ◆ over Nav, right = ✦ over Sym.',
+  '<b>Plain <span class="k">KC_MEH</span> / <span class="k">KC_HYPR</span>, not mod-taps</b> &mdash; the keys are dead today, so there\'s no tap to preserve: instant hold, none of the <span class="k">ALL_T</span> tapping-term ambiguity the thumbs have.',
+  '<b>Home row completes</b> (trial): <span class="k">MEH_T(KC_I)</span> / <span class="k">HYPR_T(KC_D)</span> &mdash; every home key now holds something: ⌃ ⌥ ⌘ ⇧ ◆ | ✦ ⇧ ⌘ ⌥ ⌃. Index fingers never leave home for window management.',
+  '<span class="warn">Misfire risk on I/D is theatrical, not subtle</span> &mdash; a lazy 200ms+ overlap on &ldquo;if&rdquo;/&ldquo;it&rdquo; sends ✦F zoom / ✦T float. Same timing the U/H shift-taps survive daily, but delete these two if they bite. ✦D+H is same-finger &mdash; use the left thumb ✦ for that one.',
+  'Game layer already overrides #20/#21 and has no mod-taps by design (I/D stay plain QWERTY there) &mdash; no conflict.',
+  '<b>Tab is back &times;2</b>: <span class="k">#58</span>/<span class="k">#59</span> &mdash; the dead ex-arrow keys. ⌘Tab grip = ⌘ on <b>E</b> (HRM) + tap <span class="k">#59</span> opposite-hand; tap again to keep cycling. <span class="k">#58</span> mirrors it for the left hand.'
+]];
+NOTES.cur[2] = ['Nav layer — tab switching in firmware (v3)', [
+  '<span class="k">#29</span> &rarr; <b>Tab◀</b> <span class="k">LAG(KC_LEFT)</span> and <span class="k">#32</span> &rarr; <b>Tab▶</b> <span class="k">LAG(KC_RGHT)</span> &mdash; real ⌘⌥ arrows, the tab shortcut Chrome/VS Code already understand. Pinky and index on the home row while the right thumb holds Nav.',
+  '<b>Arrows drop a row:</b> <span class="k">#29&ndash;32</span> &rarr; <span class="k">#41&ndash;44</span>, same vim order &larr;&darr;&uarr;&rarr; one row down. <span class="k">#30</span>/<span class="k">#31</span> freed.',
+  'Replaced the skhd ✦,/✦. &rarr; Hammerspoon synth (~40ms/press) with zero-latency firmware; the skhd binds were retired at the flash &mdash; one gesture per job, trained once.',
+  'Numpad, Del, Home/End/PgUp/PgDn untouched.'
+]];
+NOTES.pro = NOTES.cur.slice();   // v4 draft — no increments yet
+
+// ---------- layout version ledger ----------
+// One integer per flashed layout, forever incrementing — the answer to
+// "what version is on the board?". Proposed is always the next integer,
+// carried as a draft until a flash promotes it. On flash day:
+//   1. pro entry gets flashed date + keymap.c commit, status 'current'
+//   2. old current → status 'retired'
+//   3. new pro entry appended (v+1, draft), PRO_LOG drafts restart at d1
+// Mirror every change in VERSIONS.md — the ledger that outlives this page.
+const LAYOUTS = {
+  old: { v: 1, commit: '8eb6039', status: 'retired 2026-07-27',
+         note: 'the original — 3 dead keys, ~10 duplicates, L3 unreachable' },
+  v2:  { v: 2, commit: '99e020a', status: 'retired 2026-07-29',
+         note: 'walk proposals 1-5: Hyper/Meh thumbs, media, nav discipline' },
+  cur: { v: 3, commit: 'c6b22e1', status: 'on board — flashed 2026-07-29',
+         note: 'criss-cross Hyper/Meh, firmware tab switching, Tab ×2' },
+  pro: { v: 4, commit: null, status: 'draft',
+         note: 'no increments yet' }
+};
+window.__layoutOnBoard = LAYOUTS.cur.v;   // for the board switcher's eyebrow
+
+// ---------- v4 draft changelog ----------
+// One entry per draft increment since the last flash, newest first (d1, d2, …).
+// When a flash promotes the draft, this batch is archived into VERSIONS.md
+// under its layout version and the list restarts at d1 for the next draft.
+// (v3's d1-d4 were archived 2026-07-29.)
+const PRO_LOG = [];
+
+const SKHD = [
+  ['✦ H/J/K/L', 'yabai focus'],
+  ['◆ H/J/K/L', 'yabai warp'],
+  ['✦ 1–4', 'window → display'],
+  ['◆ 1–4', 'focus display'],
+  ['✦ T', 'float'], ['✦ F', 'zoom'],
+  ['✦ E', 'emacs cycle'], ['✦ A', 'agenda'],
+  ['✦ Space', 'scratchpad'], ['✦ G', 'magit']
+];
+
+// ---------- live modifier state (fed by window.__setMods) ----------
+const MODGLYPH = { '⌘': 'cmd', '⌥': 'alt', '⌃': 'ctrl', '⇧': 'shift' };
+const MODCAP = { Ctrl: 'ctrl', Shift: 'shift', Alt: 'alt' };
+const SHIFTED = {
+  '1':'!','2':'@','3':'#','4':'$','5':'%','6':'^','7':'&','8':'*','9':'(','0':')',
+  '-':'_','=':'+','[':'{',']':'}','\\':'|',';':':',"'":'"',',':'<','.':'>','/':'?','`':'~'
+};
+
+// tap label -> canonical token hammerspoon sends with __flashKey
+const KEYTOK = {
+  spc:'space', space:'space', ent:'enter', enter:'enter', bksp:'bksp',
+  tab:'tab', esc:'esc', del:'del', home:'home', end:'end', pgup:'pgup',
+  pgdn:'pgdn', '←':'left', '→':'right', '↑':'up', '↓':'down'
+};
+
+// ---------- render ----------
+// promotion done 2026-07-28: 'cur' IS the flashed keymap. The pre-flash
+// layout survives as 'old' for the side-by-side history view.
+let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
+const app = document.getElementById('app-hd');
+const boards = document.getElementById('hd-boards');
+const colPro = document.getElementById('hd-col-pro');
+const capCur = document.getElementById('hd-cap-cur');
+const capPro = document.getElementById('hd-cap-pro');
+const board1 = document.getElementById('hd-board');
+const board2 = document.getElementById('hd-board2');
+
+const LI = x => '<li>' + x + '</li>';
+
+// draw one keymap version into one board element, sized to its own box
+function drawBoard(board, vw, ringVs) {
+  const w = board.parentElement.clientWidth - 28;
+  const u = WIDGET
+    ? Math.max(24, Math.floor(Math.min(w / UW,
+        (window.innerHeight - board.parentElement.getBoundingClientRect().top - 40) / UH)))
+    : Math.max(24, Math.min(100, Math.floor(w / UW)));
+  board.style.setProperty('--u', u + 'px');
+  board.style.width = (UW * u) + 'px';
+  board.style.height = (UH * u) + 'px';
+  board.innerHTML = '';
+  const keys = MAPS[vw][layer];
+  const base = ringVs ? MAPS[ringVs][layer] : null;
+  const mods = window.__mods || {};
+  keys.forEach((k, i) => {
+    const [x, y, w, h] = GEO[i];
+    const d = document.createElement('div');
+    let cls = 'key ' + (k.k || '');
+    // change-rings mark what this board changes vs the one it's compared to
+    if (base && JSON.stringify(k) !== JSON.stringify(base[i])) cls += ' chg';
+    const held = k.k === 'mod' ? mods[MODCAP[k.t]]
+               : (k.h && MODGLYPH[k.h]) ? mods[MODGLYPH[k.h]] : false;
+    if (held) cls += ' held';
+    d.className = cls;
+    d.style.left = (x * u + 2) + 'px';
+    d.style.top = (y * u + 2) + 'px';
+    d.style.width = (w * u - 4) + 'px';
+    d.style.height = (h * u - 4) + 'px';
+    const long = k.t.length > 3;
+    d.innerHTML = '<span class="tap' + (long ? ' small' : '') + '"></span>' + (k.h ? '<span class="hold"></span>' : '');
+    d.querySelector('.tap').textContent = (mods.shift && SHIFTED[k.t]) || k.t;
+    if (k.h) d.querySelector('.hold').textContent = k.h;
+    d.title = '#' + i + ' · ' + (k.c || k.t || 'KC_TRNS') + (k.h && !k.c ? ' (hold: ' + k.h + ')' : '');
+    if (window.__showIdx) {
+      const s = document.createElement('span');
+      s.className = 'idx';
+      s.textContent = i;
+      d.appendChild(s);
+    }
+    const low = k.t.toLowerCase();
+    const tok = KEYTOK[low] || (low.length === 1 ? low : null);
+    if (tok) {
+      (window.__press.hd[tok] = window.__press.hd[tok] || []).push(d);
+      if (window.__pressed.has(tok)) d.classList.add('press');
+    }
+    board.appendChild(d);
+  });
+}
+
+// short lowercase name + version, e.g. "proposed v4"
+const VNAME = { cur: 'current', pro: 'proposed', v2: 'retired', old: 'original' };
+const vtag = vw => VNAME[vw] + ' v' + LAYOUTS[vw].v;
+
+function render() {
+  if (app.hidden) return;
+  window.__press.hd = {};                   // drawBoard re-registers keycaps
+  const both = mode === 'both';
+  app.classList.toggle('both', both);       // widens .wrap via :has()
+  boards.classList.toggle('split', both);
+  colPro.hidden = !both;
+  capCur.hidden = !both;
+  const proShown = sel1 === 'pro' || (both && sel2 === 'pro');
+  document.getElementById('hd-prolog').hidden = !proShown;
+
+  if (both) {
+    drawBoard(board1, sel1);
+    drawBoard(board2, sel2, sel1 !== sel2 ? sel1 : null);
+    capCur.textContent = vtag(sel1) + ' — ' + LAYOUTS[sel1].status;
+    capPro.textContent = vtag(sel2) + ' — ' + LAYOUTS[sel2].status +
+      (sel1 !== sel2 ? ' — changes vs left ringed' : '');
+  } else {
+    drawBoard(board1, sel1);
+  }
+
+  const reach = document.getElementById('hd-reach');
+  reach.innerHTML = both
+    ? '<b>' + vtag(sel1) + '</b> &middot; ' + REACH[sel1][layer] +
+      '<br><span class="prolab">' + vtag(sel2) + '</span> &middot; ' + REACH[sel2][layer]
+    : REACH[sel1][layer];
+
+  const nt = document.getElementById('hd-note-title');
+  const nl = document.getElementById('hd-note-list');
+  const st = document.getElementById('hd-side-title');
+  const sb = document.getElementById('hd-side-body');
+
+  if (both) {
+    // left card / right card mirror the boards
+    const [ct, ci] = NOTES[sel1][layer];
+    nt.textContent = vtag(sel1) + ' — ' + ct;
+    nl.innerHTML = ci.map(LI).join('');
+    const [pt, pi] = NOTES[sel2][layer];
+    st.textContent = vtag(sel2) + ' — ' + pt;
+    sb.innerHTML = '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:13.5px">' + pi.map(LI).join('') + '</ul>';
+    return;
+  }
+
+  const [title, items] = NOTES[sel1][layer];
+  nt.textContent = title;
+  nl.innerHTML = items.map(LI).join('');
+
+  if (sel1 !== 'old') {   // v1 predates Hyper — every later version gets the skhd panel
+    st.textContent = 'Hyper runs your skhdrc (migrated 2026-07-28)';
+    sb.innerHTML =
+      '<ul style="margin:0 0 10px;padding-left:18px;line-height:1.6;font-size:13.5px">' +
+      '<li>Focus / warp / displays / float / zoom moved under <b>✦ / ◆</b> &mdash; zero app collisions.</li>' +
+      '<li><span class="good">alt-hjkl, alt-1&ndash;4, alt-t/f freed</span> &rarr; Meta works in Emacs again.</li>' +
+      '<li>Claw chords like <span class="k">⌘⇧⌃ S</span> become one thumb + one key. (✦&nbsp;G magit still pending a helper.)</li></ul>' +
+      '<div class="chips">' + SKHD.map(c => '<span class="chip"><b>' + c[0] + '</b> ' + c[1] + '</span>').join('') + '</div>';
+  } else {
+    st.textContent = 'The problems it had';
+    sb.innerHTML =
+      '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:13.5px">' +
+      '<li><b>3 dead keys</b> (backlight codes on an RGB board)</li>' +
+      '<li><b>~10 duplicate keys</b> on the base layer</li>' +
+      '<li><b>Layer 3 unreachable</b> &mdash; no activator exists</li>' +
+      '<li><b>Nav layer right hand empty</b> &mdash; 20+ free slots</li>' +
+      '<li><b>No Hyper/Meh</b> &mdash; skhd fights apps for modifiers</li>' +
+      '<li><b>Media keys impossible</b> &mdash; EXTRAKEY disabled</li></ul>';
+  }
+}
+
+// ---------- view + layout pickers ----------
+const selA = document.getElementById('sel-a');
+const selB = document.getElementById('sel-b');
+const OPT_LABEL = {
+  cur: 'Current v' + LAYOUTS.cur.v,
+  pro: 'Proposed v' + LAYOUTS.pro.v + (PRO_LOG.length ? ' · d' + PRO_LOG[0].v : ''),
+  v2:  'Retired v' + LAYOUTS.v2.v,
+  old: 'Original v' + LAYOUTS.old.v
+};
+for (const s of [selA, selB])
+  for (const vw of ['cur', 'pro', 'v2', 'old'])
+    s.add(new Option(OPT_LABEL[vw], vw));
+selA.value = sel1;
+selB.value = sel2;
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-single').classList.toggle('on', m === 'single');
+  document.getElementById('btn-both').classList.toggle('on', m === 'both');
+  selB.hidden = document.getElementById('vs-sep').hidden = m !== 'both';
+  render();
+}
+selA.addEventListener('change', () => { sel1 = selA.value; render(); });
+selB.addEventListener('change', () => { sel2 = selB.value; render(); });
+document.getElementById('btn-single').addEventListener('click', () => setMode('single'));
+document.getElementById('btn-both').addEventListener('click', () => setMode('both'));
+
+document.getElementById('hd-prolog-title').textContent =
+  'v' + LAYOUTS.pro.v + ' draft changelog — since v' + LAYOUTS.cur.v +
+  ' flash (' + LAYOUTS.cur.commit + ' · 2026-07-29)';
+document.getElementById('hd-prolog-list').innerHTML = PRO_LOG.length
+  ? PRO_LOG.map(e =>
+      '<li><b>d' + e.v + '</b> <span class="dim">· ' + e.date + '</span> — <b>' +
+      e.title + ':</b> ' + e.what + '</li>').join('')
+  : '<li class="dim">No increments yet — the v' + LAYOUTS.pro.v +
+    ' draft is identical to current. First change becomes d1.</li>';
+
+document.querySelectorAll('#hd-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    layer = +b.dataset.l;
+    document.querySelectorAll('#hd-tabs button').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  });
+});
+window.addEventListener('resize', render);
+
+return render;
+})();
+
+// ===========================================================================
+// creator micro explorer
+// ===========================================================================
+const renderCm = (() => {
+
+// ---- physical geometry ----------------------------------------------------
+// Real Creator Micro shape, from the KLE in the-via/keyboards
+// src/work_louder/micro.json: encoders in the top corners (scroll wheel left,
+// big knob right), tight 4x4 grid on the black plate, and flat capacitive
+// TOUCH PADS in the bottom corners (matrix 3,0 / 3,3 — bindable, not keycaps).
+const ENC_GEO = [
+  { x: 0, y: 0, s: 0.74, name: 'scroll wheel' },   // e0 — small knurled wheel
+  { x: 3, y: 0, s: 1.06, name: 'big knob' }        // e1 — the chunky one
+];
+const KEY_POS = [
+  [1,0],[2,0],                               // row 0 middle pair
+  [0,1],[1,1],[2,1],[3,1],                   // row 1
+  [0,2],[1,2],[2,2],[3,2],                   // row 2
+  [0,3],[1,3],[2,3],[3,3]                    // row 3 — corners are touch pads
+];
+const TOUCH = new Set([10, 13]);             // bottom-left + bottom-right pads
+const COLS = 4, ROWS = 4, PAD = 0.3;         // PAD = plate margin around grid
+
+// VIA matrix order per layer (16 slots): 0 = wheel press, 3 = knob press,
+// the rest row-major; 12 and 15 are the touch pads. Confirmed by matching
+// layer 2 against the hand-made SVG cheatsheet.
+
+// key factory: tap label, keycode/subtitle, kind (color class),
+// m = monitor-icon: owner map {display: 'mac'|'pc'|'work'|'flip'} —
+// displays 1 laptop · 2 portrait · 3 center · 4 right. A key with an icon
+// hides its keycode line (tooltip still has it) — the diagram IS the label.
+const K = (t, c, k, m) => ({ t, c: c || '', k: k || '', m: m || null });
+
+// mini arrangement diagram, same shape as the macOS Displays pane.
+// fill color = owning machine; switchable displays (3/4) get their number
+// etched inside when owned; flip = violet dashed on the affected display.
+const MON_R = {
+  2: 'x="1" y="1.5" width="8" height="18"',    // portrait, tall on the left
+  3: 'x="11" y="5" width="13" height="9"',     // center landscape
+  4: 'x="26" y="5.5" width="13" height="8"',   // right landscape, center-aligned with 3
+  1: 'x="13" y="16" width="9" height="5"'      // laptop, tucked underneath
+};
+const MON_C = { 3: [17.5, 9.7], 4: [32.5, 9.7] };   // number anchors — one shared line
+const mon = own => '<span class="mon"><svg viewBox="0 0 40 22.5">' +
+  [2, 3, 4, 1].map(n =>
+    '<rect ' + MON_R[n] + ' rx="1.5"' + (own[n] ? ' class="' + own[n] + '"' : '') + '/>' +
+    (own[n] && MON_C[n]
+      ? '<text x="' + MON_C[n][0] + '" y="' + MON_C[n][1] + '">' + n + '</text>' : '')
+  ).join('') + '</svg></span>';
+const NONE = { t: '', c: 'KC_NO', k: 'none' };   // KC_NO — does nothing
+const TRNS = { t: '', c: 'KC_TRNS', k: 'trns' }; // transparent — falls through to base
+
+function keys(map) {
+  const a = Array.from({ length: KEY_POS.length }, () => NONE);
+  for (const i in map) a[i] = map[i];
+  return a;
+}
+
+// encoder factory: ccw label, cw label, press K(). null = KC_TRNS (falls
+// through to base — rendered ghosted from layer 0).
+const E = (ccw, cw, press) => ({ ccw, cw, press });
+
+// ---- layers ---------------------------------------------------------------
+const LAYERS = [
+  {
+    name: '0 · Agents',
+    dot: 'var(--green)',
+    keys: keys({
+      1:  K('view diff', 'F16', 'blue'),
+      2:  K('allow', 'F13', 'green'),
+      5:  K('allow', 'F13', 'green'),
+      6:  K('deny', 'F14', 'red'),
+      9:  K('deny', 'F14', 'red'),
+      10: K('rgb', 'RGB_TOG', 'violet'),
+      12: K('shot', 'LSG(4)', 'amber'),
+      13: K('→ layer 1', 'TO(1)', 'layer')
+    }),
+    enc: [
+      E('scroll↓', 'scroll↑', 'play'),
+      E('⌃vol−', '⌃vol+', 'mute')
+    ],
+    legend: [
+      ['green', 'allow tool call'], ['red', 'deny tool call'], ['blue', 'view diff'],
+      ['violet', 'rgb'], ['amber', 'macro'], ['layer', 'layer jump'], ['none', 'blank cap (KC_NO)']
+    ],
+    reach: 'Default layer &mdash; the <b>agent-shell approval pad</b>. F13/F14 &rarr; skhd &rarr; <b>emacsclient allow/deny</b>, duplicated on both edge columns so either hand works blind.',
+    note: ['Agents layer', [
+      '<span class="k">allow</span> (F13) fires <span class="k">mr-x/agent-shell-allow</span>, <span class="k">deny</span> (F14) fires <span class="k">mr-x/agent-shell-deny</span> via skhd. Both appear twice &mdash; left and right column &mdash; for either hand.',
+      '<span class="k">view diff</span> (F16) &rarr; <span class="k">mr-x/agent-shell-view-diff</span>. Note: <b>F15 (allow-always) is bound in skhd but not on the pad</b> &mdash; a free upgrade if you want it.',
+      'The <b>scroll wheel</b> (top-left) scrolls; press = play/pause. The <b>big knob</b> (top-right) is <span class="k">⌃vol</span> up/down; press = mute.',
+      '<span class="k">shot</span> is <span class="k">MACRO(4)</span> = &#8984;&#8679;4 region screenshot. <span class="k">rgb</span> (bottom-left <b>touch pad</b>) toggles the pad lighting.'
+    ]]
+  },
+  {
+    name: '1 · Spotify',
+    dot: 'var(--blue)',
+    keys: keys({
+      3:  K('prev', 'MPRV', 'blue'),
+      4:  K('play', 'MPLY', 'blue'),
+      5:  K('next', 'MNXT', 'blue'),
+      11: K('spotify', 'MC_SPOT', 'amber'),
+      12: K('spotify ⌘L', 'MC_SPLK', 'amber'),
+      13: K('→ layer 2', 'TO(2)', 'layer')
+    }),
+    enc: [null, null],
+    legend: [
+      ['blue', 'transport'], ['amber', 'launch macro'], ['layer', 'layer jump'], ['none', 'blank cap (KC_NO)']
+    ],
+    reach: 'Music layer &mdash; transport row up top, Spotify launchers on the bottom row. <b>Knobs are transparent</b>: scroll and volume fall through from base.',
+    note: ['Spotify layer', [
+      'Row 2 is a classic transport strip: <span class="k">prev / play / next</span>.',
+      '<span class="k">spotify</span> (M0) spotlight-launches Spotify; <span class="k">spotify ⌘L</span> (M1) launches it, waits 1s, then hits &#8984;L for search.',
+      'Encoders are <span class="k">KC_TRNS</span> &mdash; the base layer&rsquo;s scroll and volume keep working here (shown ghosted).'
+    ]]
+  },
+  {
+    name: '2 · Monitors',
+    dot: 'var(--red)',
+    keys: keys({
+      0:  K('3+4 → win', 'F17', 'red', { 3: 'pc', 4: 'pc' }),
+      1:  K('all → mac', 'F18', 'green', { 1: 'mac', 2: 'mac', 3: 'mac', 4: 'mac' }),
+      2:  K('flip 3', 'F19', 'violet', { 3: 'flip' }),
+      3:  K('flip 4', '⇧F19', 'violet', { 4: 'flip' }),
+      4:  K('4 → work', '⇧F17', 'amber', { 4: 'work' }),
+      13: K('→ layer 3', 'TO(3)', 'layer')
+    }),
+    enc: [null, null],
+    legend: [
+      ['red', 'displays → windows box'], ['green', 'all → mac'], ['violet', 'flip one display'],
+      ['amber', '→ work machine'], ['layer', 'layer jump'], ['none', 'blank cap (KC_NO)']
+    ],
+    reach: 'Monitor-arrangement layer &mdash; each key fires <b>F17&ndash;F19</b>, skhd runs <span class="k">monitor-mode.sh</span>, Hammerspoon flips the displays.',
+    note: ['Monitors layer', [
+      '<b>1 = laptop &middot; 2 = portrait &middot; 3 = center &middot; 4 = right.</b> Displays 1 and 2 always stay on the mac.',
+      '<span class="k">3+4 → win</span> (F17) = <span class="k">monitor-mode.sh game</span>; <span class="k">all → mac</span> (F18) pulls everything back.',
+      '<span class="k">flip 3</span> / <span class="k">flip 4</span> toggle a single display (F19 / &#8679;F19); <span class="k">4 → work</span> (&#8679;F17) sends the right display to the work machine.',
+      'skhd also binds <span class="k">&#8679;F18</span> &rarr; <span class="k">vengeance-wake.sh game</span> &mdash; <b>not on the pad</b>. Another free key if you want wake-on-macro.'
+    ]]
+  },
+  {
+    name: '3 · RGB',
+    dot: 'var(--violet)',
+    keys: keys({
+      2:  K('matrix', 'R_M_TOG', 'violet'),
+      3:  K('mode +', 'R_M_MOD', 'violet'),
+      4:  K('hue +', 'R_M_HUI', 'violet'),
+      5:  K('sat +', 'R_M_SAI', 'violet'),
+      7:  K('mode −', 'R_M_RMOD', 'violet'),
+      8:  K('hue −', 'R_M_HUD', 'violet'),
+      9:  K('sat −', 'R_M_SAD', 'violet'),
+      13: K('→ layer 0', 'TO(0)', 'layer')
+    }),
+    enc: [null, null],
+    legend: [
+      ['violet', 'per-key rgb matrix control'], ['layer', 'layer jump'], ['none', 'blank cap (KC_NO)']
+    ],
+    reach: 'Per-key <b>RGB matrix</b> panel &mdash; Work Louder custom keycodes <span class="k">CUSTOM(0&ndash;6)</span>. Each column is a +/&minus; pair: mode, hue, saturation.',
+    note: ['RGB layer', [
+      'Work Louder boards have <b>two LED systems</b>: the underglow strip (what base-layer <span class="k">RGB_TOG</span> and VIA&rsquo;s stock RGB keys drive) and the per-key matrix. These <span class="k">R_M_*</span> custom keycodes control the matrix.',
+      '<span class="k">matrix</span> toggles the per-key LEDs; the pairs step animation <span class="k">mode</span>, <span class="k">hue</span>, and <span class="k">sat</span> up (row 2) / down (row 3).',
+      'The firmware also exposes brightness &plusmn; (<span class="k">CUSTOM(7/8)</span>) and indicator-LED level (<span class="k">CUSTOM(9)</span>) &mdash; <b>unbound</b>, if you ever want a val column.',
+      '<span class="k">TO(0)</span> closes the loop back to the base layer.'
+    ]]
+  }
+];
+
+// ---- versioned maps -------------------------------------------------------
+// v2 IS the `LAYERS` array above (retired by the v3 flash, kept browsable).
+// old (v1) = the same keystrokes under their VIA-era names (dynamic macro
+// slots, CUSTOM(n)) — EEPROM was the source of truth back then.
+// cur (v3, flashed 2026-07-30) = declarative monitors + pad-wide #11/#12.
+// pro (v4 draft) = identical to cur until its first increment.
+const MAPS = { v2: LAYERS, old: structuredClone(LAYERS), cur: structuredClone(LAYERS) };
+
+MAPS.old[0].keys[12].c = '⌘⇧4 · M4';
+MAPS.old[1].keys[11].c = 'M0';
+MAPS.old[1].keys[12].c = 'M1';
+{ // R_M_* were VIA's CUSTOM(n) before the v2 flash reinstated the old names
+  const via = { 2: 'CUSTOM(0)', 3: 'CUSTOM(1)', 4: 'CUSTOM(3)', 5: 'CUSTOM(5)',
+                7: 'CUSTOM(2)', 8: 'CUSTOM(4)', 9: 'CUSTOM(6)' };
+  for (const i in via) MAPS.old[3].keys[i].c = via[i];
+}
+
+// v3 monitors (d1, flashed 2026-07-30) — every key is a full desk state, idempotent: press = the desk looks
+// like the icon. Flips demoted to secondary transition keys. No words on the
+// preset caps: OS logos ( / four-pane) say whose desk it becomes, </> is
+// the work machine, ⇄ flips — the numbered screen inside the icon is the one
+// that flips. tt carries the name to the tooltip.
+const GL_APPLE = '<span class="oslogo"></span>';
+const GL_WIN = '<svg class="oslogo" viewBox="0 0 16 16"><rect x="1" y="1" width="6.6" height="6.6"/><rect x="8.4" y="1" width="6.6" height="6.6"/><rect x="1" y="8.4" width="6.6" height="6.6"/><rect x="8.4" y="8.4" width="6.6" height="6.6"/></svg>';
+const GL = (base, g, tt) => ({ ...base, g, tt });
+// solo icons for the pad-wide chords — mic (speech-to-text) + viewfinder
+// (region screenshot). style="fill:none" inline so the svg.oslogo
+// fill:currentColor rule can't paint the stroke work solid.
+const GL_MIC = '<svg class="oslogo solo" viewBox="0 0 16 16">' +
+  '<rect x="5.9" y="1" width="4.2" height="7.4" rx="2.1"/>' +
+  '<path style="fill:none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M3.4 7.6a4.6 4.6 0 0 0 9.2 0M8 12.2v2.6M5.4 14.8h5.2"/></svg>';
+const GL_SHOT = '<svg class="oslogo solo" viewBox="0 0 16 16">' +
+  '<path style="fill:none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M1 5V3.2A2.2 2.2 0 0 1 3.2 1H5M11 1h1.8A2.2 2.2 0 0 1 15 3.2V5M15 11v1.8a2.2 2.2 0 0 1-2.2 2.2H11M5 15H3.2A2.2 2.2 0 0 1 1 12.8V11"/>' +
+  '<circle cx="8" cy="8" r="2.3"/></svg>';
+MAPS.cur[2] = {
+  name: '2 · Monitors',
+  dot: 'var(--red)',
+  keys: keys({
+    0:  GL(K('mac',    'F18',  'green',  { 1: 'mac', 2: 'mac', 3: 'mac', 4: 'mac' }),
+           GL_APPLE, 'mac — everything home'),
+    1:  GL(K('game',   'F17',  'red',    { 1: 'mac', 2: 'mac', 3: 'pc',  4: 'pc' }),
+           GL_WIN, 'game — VENGEANCE on 3+4 (wakes it if asleep)'),
+    2:  GL(K('split',  '⌥F17', 'blue',   { 1: 'mac', 2: 'mac', 3: 'mac', 4: 'pc' }),
+           GL_APPLE.replace('class="oslogo"', 'class="oslogo os-mac"') +
+           '<span class="osdiv">/</span>' +
+           GL_WIN.replace('class="oslogo"', 'class="oslogo os-pc"'),
+           'split — 3 mac · 4 win'),
+    3:  GL(K('work',   '⇧F17', 'amber',  { 1: 'mac', 2: 'mac', 3: 'mac', 4: 'work' }),
+           '<span class="oslogo">&lt;/&gt;</span>', 'work — 4 → work laptop'),
+    7:  GL(K('flip 3', 'F19',  'violet', { 3: 'flip' }),
+           '<span class="oslogo flip">⇄</span>', 'flip 3 — toggle center mac↔win'),
+    8:  GL(K('flip 4', '⇧F19', 'violet', { 4: 'flip' }),
+           '<span class="oslogo flip">⇄</span>', 'flip 4 — toggle right mac↔win'),
+    13: K('→ layer 3', 'TO(3)', 'layer')
+  }),
+  enc: [null, null],
+  legend: [
+    ['green', 'all mac'], ['red', 'VENGEANCE (wakes it if asleep)'],
+    ['blue', 'split — 3 mac · 4 win'], ['amber', '4 → work'],
+    ['violet', 'flip one display'], ['layer', 'layer jump'], ['none', 'blank cap (KC_NO)']
+  ],
+  reach: 'Declarative presets &mdash; every key is a <b>full desk state</b>, idempotent: press it and the desk looks like the icon. <b>1 laptop &middot; 2 portrait are always mac</b>; 3 and 4 are the switchable pair.',
+  note: ['Monitors layer — declarative (since v3)', [
+    'Presets: <span class="k">mac</span> (F18) &middot; <span class="k">game</span> (F17) &middot; <span class="k">split</span> (&#8997;F17) = 3 mac + 4 VENGEANCE &middot; <span class="k">work</span> (&#8679;F17, now a full state: 3&rarr;mac too).',
+    '<span class="k">game</span> is the smart summon: F17 &rarr; <span class="k">vengeance-wake.sh game</span> &mdash; awake = instant switch, asleep = WoL, wait for SSH, then switch. No separate summon key.',
+    'Plumbing: <span class="k">monitor-mode.sh</span> presets (split, full-state work, idempotent skip), skhd F17&rarr;vengeance-wake &middot; &#8997;F17&rarr;split, <span class="k">vengeance-wake.sh</span> fast path (SSH answers &rarr; skip the wake dance).',
+    '<span class="k">flip 3 / flip 4</span> survive as secondary transition keys (F19 / &#8679;F19) &mdash; dashed violet on the icon.',
+    'Keycodes left off the caps on purpose &mdash; hover any key for its binding.'
+  ]]
+};
+
+// v3 #11/#12 (d2, flashed 2026-07-30) — pinned pad-wide: whisper (⌥Space → SuperWhisper) joins shot
+// on base, and both positions go KC_TRNS on every other layer — same trick the
+// encoders already use. Spotify launchers move up to row 2 to clear #11/#12.
+MAPS.cur[0].keys[11] = GL(K('whisper', '⌥Spc', 'amber'),
+  GL_MIC, 'whisper — SuperWhisper (⌥Space)');
+MAPS.cur[0].keys[12] = GL(K('shot', 'LSG(4)', 'amber'),
+  GL_SHOT, 'shot — region screenshot (⌘⇧4)');
+MAPS.cur[0].legend = MAPS.cur[0].legend.map(([c, l]) =>
+  c === 'amber' ? [c, 'system chord (shot · whisper)'] : [c, l]);
+MAPS.cur[0].note[1].push(
+  '<span class="k">whisper</span> (#11, &#8997;Space) triggers SuperWhisper. ' +
+  'With <span class="k">shot</span> (#12) it&rsquo;s pinned pad-wide: both positions are ' +
+  '<span class="k">KC_TRNS</span> on every other layer, falling through to these.');
+MAPS.cur[1].keys[7] = K('spotify', 'MC_SPOT', 'amber');
+MAPS.cur[1].keys[8] = K('spotify ⌘L', 'MC_SPLK', 'amber');
+MAPS.cur[1].keys[11] = TRNS;
+MAPS.cur[1].keys[12] = TRNS;
+MAPS.cur[1].note[1].push(
+  'Launchers live on row 2 since v3 — #11/#12 are <span class="k">KC_TRNS</span> now, ' +
+  'whisper + shot bleed through from base (shown ghosted).');
+MAPS.cur[1].reach = 'Music layer &mdash; transport row up top, Spotify launchers on row 2. <b>Knobs and #11/#12 are transparent</b>: scroll, volume, whisper and shot fall through from base.';
+MAPS.cur[2].keys[11] = TRNS;
+MAPS.cur[2].keys[12] = TRNS;
+MAPS.cur[3].keys[11] = TRNS;
+MAPS.cur[3].keys[12] = TRNS;
+for (const n of [1, 2, 3])
+  MAPS.cur[n].legend.push(['trns', 'transparent — falls through to base']);
+
+MAPS.pro = structuredClone(MAPS.cur);   // v4 draft — identical until d1
+
+// ---- render ---------------------------------------------------------------
+let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
+const app = document.getElementById('app-cm');
+const boards = document.getElementById('cm-boards');
+const board1 = document.getElementById('cm-board');
+const board2 = document.getElementById('cm-board2');
+const colB = document.getElementById('cm-col-b');
+const capA = document.getElementById('cm-cap-a');
+const capB = document.getElementById('cm-cap-b');
+const tabs = document.getElementById('cm-tabs');
+
+LAYERS.forEach((L, i) => {
+  const b = document.createElement('button');
+  b.innerHTML = '<span class="dot" style="background:' + L.dot + '"></span>' + L.name;
+  b.className = i === layer ? 'on' : '';
+  b.addEventListener('click', () => {
+    layer = i;
+    [...tabs.children].forEach((x, j) => x.classList.toggle('on', j === i));
+    render();
+  });
+  tabs.appendChild(b);
+});
+
+// draw one version's current layer into one board element, sized to its box
+function drawCmBoard(board, vw, ringVs) {
+  const box = board.parentElement;
+  const w = box.clientWidth - 36;
+  const u = WIDGET
+    ? Math.max(40, Math.floor(Math.min(w / (COLS + 2 * PAD),
+        (window.innerHeight - box.getBoundingClientRect().top - 40) / (ROWS + 2 * PAD))))
+    : Math.max(60, Math.min(150, Math.floor(w / (COLS + 2 * PAD))));
+  board.style.setProperty('--u', u + 'px');
+  board.style.width = ((COLS + 2 * PAD) * u) + 'px';
+  board.style.height = ((ROWS + 2 * PAD) * u) + 'px';
+  board.innerHTML = '';
+  const L = MAPS[vw][layer];
+  const base = ringVs ? MAPS[ringVs][layer].keys : null;
+  const gap = u * 0.06;                      // tight, like the real plate
+  const cap = u - 2 * gap;                   // standard cap size
+  const pad = PAD * u;
+
+  // encoders — null means KC_TRNS: ghost the base layer's action
+  ENC_GEO.forEach((g, i) => {
+    const trns = !L.enc[i];
+    const e = trns ? MAPS[vw][0].enc[i] : L.enc[i];
+    const size = cap * g.s;
+    const d = document.createElement('div');
+    d.className = 'enc' + (trns ? ' ghost' : '');
+    d.style.setProperty('--u', (u * g.s) + 'px');   // scale labels with the knob
+    d.style.left = (pad + g.x * u + (u - size) / 2) + 'px';
+    d.style.top = (pad + g.y * u + (u - size) / 2) + 'px';
+    d.style.width = d.style.height = size + 'px';
+    d.innerHTML = '<span class="ring"></span>' +
+      '<span class="turn">↺ ' + e.ccw + '</span>' +
+      (e.press ? '<span class="press">' + e.press + '</span>' : '') +
+      '<span class="turn">↻ ' + e.cw + '</span>';
+    d.title = g.name + (trns ? ' · KC_TRNS — falls through to base: ' : ' · ') +
+      'CCW ' + e.ccw + ' · CW ' + e.cw + (e.press ? ' · press ' + e.press : '');
+    board.appendChild(d);
+  });
+
+  // keys + touch pads
+  L.keys.forEach((k, i) => {
+    const [x, y] = KEY_POS[i];
+    const touch = TOUCH.has(i);
+    // KC_TRNS: render the base-layer action it falls through to, ghosted
+    const trns = k.k === 'trns';
+    const kk = trns ? MAPS[vw][0].keys[i] : k;
+    const d = document.createElement('div');
+    let cls = 'key ' + (kk.k || '') + (trns ? ' trns' : '') + (touch ? ' touch' : '');
+    // change-rings mark what this board changes vs the one it's compared to
+    if (base && JSON.stringify(k) !== JSON.stringify(base[i])) cls += ' chg';
+    d.className = cls;
+    const size = touch ? cap * 0.86 : cap;   // pads sit a bit smaller on the plate
+    d.style.left = (pad + x * u + gap + (cap - size) / 2) + 'px';
+    d.style.top = (pad + y * u + gap + (cap - size) / 2) + 'px';
+    d.style.width = d.style.height = size + 'px';
+    const long = kk.t.length > 6;
+    // icon keys hide the keycode line — the desk diagram is the label;
+    // the binding lives in the tooltip
+    d.innerHTML = (kk.m ? mon(kk.m) : '') +
+      '<span class="tap' + (long || kk.m ? ' small' : '') + (kk.g ? ' glyphs' : '') + '"></span>' +
+      (kk.c && kk.t && !kk.m && !kk.g ? '<span class="code"></span>' : '');
+    // g = glyph markup (OS logos) instead of a word; tt names it in the tooltip
+    if (kk.g) d.querySelector('.tap').innerHTML = kk.g;
+    else d.querySelector('.tap').textContent = kk.t;
+    const code = d.querySelector('.code');
+    if (code) code.textContent = kk.c;
+    const nm = kk.tt || kk.t;
+    d.title = '#' + i + ' · ' + (touch ? 'touch pad · ' : '') +
+      (trns ? 'KC_TRNS — falls through to base: ' + (nm || 'nothing') + (kk.c ? ' — ' + kk.c : '')
+            : (nm ? (nm + ' — ' + kk.c) : 'KC_NO — nothing'));
+    if (window.__showIdx) {
+      const s = document.createElement('span');
+      s.className = 'idx';
+      s.textContent = i;
+      d.appendChild(s);
+    }
+    const fkey = /^f\d+$/i.exec(kk.c || '');   // kk: trns keys flash with their base action
+    if (fkey) {
+      const tok = fkey[0].toLowerCase();
+      (window.__press.cm[tok] = window.__press.cm[tok] || []).push(d);
+      if (window.__pressed.has(tok)) d.classList.add('press');
+    }
+    board.appendChild(d);
+  });
+}
+
+const VNAME_CM = { cur: 'current', pro: 'proposed', v2: 'retired', old: 'original' };
+const vtag = vw => VNAME_CM[vw] + ' v' + CM_LAYOUTS[vw].v;
+const LI = x => '<li>' + x + '</li>';
+
+function render() {
+  if (app.hidden) return;
+  window.__press.cm = {};                    // drawCmBoard re-registers keycaps
+  const both = mode === 'both';
+  app.classList.toggle('both', both);        // widens .wrap via :has()
+  boards.classList.toggle('split', both);
+  colB.hidden = !both;
+  capA.hidden = !both;
+  const proShown = sel1 === 'pro' || (both && sel2 === 'pro');
+  document.getElementById('cm-prolog').hidden = !proShown;
+
+  drawCmBoard(board1, sel1);
+  if (both) {
+    drawCmBoard(board2, sel2, sel1 !== sel2 ? sel1 : null);
+    capA.textContent = vtag(sel1) + ' — ' + CM_LAYOUTS[sel1].status;
+    capB.textContent = vtag(sel2) + ' — ' + CM_LAYOUTS[sel2].status +
+      (sel1 !== sel2 ? ' — changes vs left ringed' : '');
+  }
+
+  const LA = MAPS[sel1][layer], LB = MAPS[sel2][layer];
+  document.getElementById('cm-reach').innerHTML = both
+    ? '<b>' + vtag(sel1) + '</b> &middot; ' + LA.reach +
+      '<br><span class="prolab">' + vtag(sel2) + '</span> &middot; ' + LB.reach
+    : LA.reach;
+
+  // legend: union of both boards' entries (left's order wins, dupes dropped)
+  const lg = both
+    ? LA.legend.concat(LB.legend.filter(e => !LA.legend.some(a => a[0] === e[0] && a[1] === e[1])))
+    : LA.legend;
+  document.getElementById('cm-legend').innerHTML = lg.map(([c, label]) =>
+    '<span class="l-' + c + '"><i></i>' + label + '</span>').join('') +
+    (both && sel1 !== sel2 ? '<span class="l-chg"><i></i>changed vs left board</span>' : '') +
+    '<span class="l-touch"><i></i>touch pad (flat sensor, still bindable)</span>';
+
+  const nt = document.getElementById('cm-note-title');
+  const nl = document.getElementById('cm-note-list');
+  if (both) {
+    nt.textContent = vtag(sel1) + ' — ' + LA.note[0];
+    nl.innerHTML = LA.note[1].map(LI).join('') +
+      '<li style="list-style:none;margin-top:12px"><b style="color:var(--amber)">' +
+      vtag(sel2) + ' — ' + LB.note[0] + '</b></li>' +
+      LB.note[1].map(LI).join('');
+  } else {
+    nt.textContent = LA.note[0];
+    nl.innerHTML = LA.note[1].map(LI).join('');
+  }
+}
+
+// ---------- view + layout pickers ----------
+const selA = document.getElementById('sel-cm-a');
+const selB = document.getElementById('sel-cm-b');
+const OPT_CM = {
+  cur: 'Current v' + CM_LAYOUTS.cur.v,
+  pro: 'Proposed v' + CM_LAYOUTS.pro.v + (CM_PRO_LOG.length ? ' · d' + CM_PRO_LOG[0].v : ''),
+  v2:  'Retired v' + CM_LAYOUTS.v2.v,
+  old: 'Original v' + CM_LAYOUTS.old.v
+};
+for (const s of [selA, selB])
+  for (const vw of ['cur', 'pro', 'v2', 'old'])
+    s.add(new Option(OPT_CM[vw], vw));
+selA.value = sel1;
+selB.value = sel2;
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-cm-single').classList.toggle('on', m === 'single');
+  document.getElementById('btn-cm-both').classList.toggle('on', m === 'both');
+  selB.hidden = document.getElementById('vs-cm-sep').hidden = m !== 'both';
+  render();
+}
+selA.addEventListener('change', () => { sel1 = selA.value; render(); });
+selB.addEventListener('change', () => { sel2 = selB.value; render(); });
+document.getElementById('btn-cm-single').addEventListener('click', () => setMode('single'));
+document.getElementById('btn-cm-both').addEventListener('click', () => setMode('both'));
+
+document.getElementById('cm-prolog-title').textContent =
+  'v' + CM_LAYOUTS.pro.v + ' draft changelog — since v' + CM_LAYOUTS.cur.v +
+  ' flash (' + CM_LAYOUTS.cur.commit + ' · 2026-07-30)';
+document.getElementById('cm-prolog-list').innerHTML = CM_PRO_LOG.length
+  ? CM_PRO_LOG.map(e =>
+      '<li><b>d' + e.v + '</b> <span class="dim">· ' + e.date + '</span> — <b>' +
+      e.title + ':</b> ' + e.what + '</li>').join('')
+  : '<li class="dim">No increments yet — the v' + CM_LAYOUTS.pro.v +
+    ' draft is identical to current. First change becomes d1.</li>';
+
+window.addEventListener('resize', render);
+
+return render;
+})();
+
+// ===========================================================================
+// widget JS api — called by hammerspoon via evaluateJavaScript
+// ===========================================================================
+window.__mods = { cmd: false, alt: false, shift: false, ctrl: false, fn: false };
+
+window.__setMods = function (flags) {
+  try {
+    if (!flags || typeof flags !== 'object') return;
+    let changed = false;
+    for (const m in window.__mods)
+      if (typeof flags[m] === 'boolean' && flags[m] !== window.__mods[m]) {
+        window.__mods[m] = flags[m];
+        changed = true;
+      }
+    if (!changed) return;     // don't re-render (and churn keycaps) for nothing
+    renderHd(); renderCm();   // each render() no-ops if its board is hidden
+  } catch (e) { /* never throw into hammerspoon */ }
+};
+
+window.__setLayer = function (n) {
+  try {
+    n = Math.trunc(+n);
+    const btn = document.getElementById('app-hd').hidden
+      ? document.getElementById('cm-tabs').children[n]
+      : document.querySelector('#hd-tabs button[data-l="' + n + '"]');
+    if (btn) btn.click();     // identical code path to clicking the layer tab
+  } catch (e) { /* out-of-range → no-op */ }
+};
+
+// mod-tap letters arrive as a near-instant down+up pair (QMK buffers the
+// press until tap/hold resolves, then replays both) — stretch quick taps to
+// a visible minimum, cleared by a one-shot timeout (not polling)
+const MINFLASH = 140;   // ms
+const flashDown = {};   // token -> performance.now() of last down
+
+window.__flashKey = function (tok, down) {
+  try {
+    // no re-render: just flip a class on the pre-indexed keycap nodes,
+    // re-resolved at call time since renders replace them
+    const apply = on => {
+      const idx = document.getElementById('app-hd').hidden
+        ? window.__press.cm : window.__press.hd;
+      const nodes = idx[tok];
+      if (nodes) for (const n of nodes) n.classList.toggle('press', on);
+    };
+    if (down) {
+      window.__pressed.add(tok);
+      flashDown[tok] = performance.now();
+      apply(true);
+      return;
+    }
+    const stamp = flashDown[tok] || 0;
+    const clear = () => {
+      if (flashDown[tok] !== stamp) return;   // re-pressed meanwhile
+      window.__pressed.delete(tok);
+      apply(false);
+    };
+    const left = MINFLASH - (performance.now() - stamp);
+    if (left <= 0) clear(); else setTimeout(clear, left);
+  } catch (e) { /* unknown token → no-op */ }
+};
+
+// ===========================================================================
+// board switcher
+// ===========================================================================
+(() => {
+const EYEBROW = {
+  hd: 'hotdox76v2 · ergodox · dvorak + home-row mods · layout v' + window.__layoutOnBoard + ' on board',
+  cm: 'work louder · creator micro · wheel + knob + 12 keys + 2 touch pads · layout v' + CM_LAYOUTS.cur.v + ' on board'
+};
+const appHd = document.getElementById('app-hd');
+const appCm = document.getElementById('app-cm');
+const btnHd = document.getElementById('bd-hd');
+const btnCm = document.getElementById('bd-cm');
+
+function showBoard(b, updateHash) {
+  appHd.hidden = b !== 'hd';
+  appCm.hidden = b !== 'cm';
+  btnHd.classList.toggle('on', b === 'hd');
+  btnCm.classList.toggle('on', b === 'cm');
+  document.getElementById('eyebrow').textContent = EYEBROW[b];
+  if (updateHash) history.replaceState(null, '', b === 'cm' ? '#micro' : '#hotdox');
+  (b === 'hd' ? renderHd : renderCm)();   // fit needs the container visible
+}
+
+btnHd.addEventListener('click', () => showBoard('hd', true));
+btnCm.addEventListener('click', () => showBoard('cm', true));
+
+const btnIdx = document.getElementById('btn-idx');
+btnIdx.classList.toggle('on', window.__showIdx);
+btnIdx.addEventListener('click', () => {
+  window.__showIdx = !window.__showIdx;
+  btnIdx.classList.toggle('on', window.__showIdx);
+  renderHd(); renderCm();          // each no-ops if its board is hidden
+});
+window.addEventListener('hashchange', () =>
+  showBoard(location.hash.includes('micro') ? 'cm' : 'hd', false));
+
+showBoard(location.hash.includes('micro') ? 'cm' : 'hd', false);
+})();
+</script>
+</body>
+</html>
