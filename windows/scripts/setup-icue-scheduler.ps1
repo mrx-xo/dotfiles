@@ -1,14 +1,15 @@
-# Sets up the nightly iCUE lights-off scheduler on VENGEANCE.
+# Sets up the resident Corsair lighting driver on VENGEANCE.
 # Idempotent. Requires: scoop (for uv), iCUE 5, dotfiles clone at ~\dotfiles.
-# Lights off at 23:00 (ICUELightsOff runs icue-lights-off.py, which blanks
-# LEDs and idles), back on at 08:00 (ICUELightsOn kills it; iCUE resumes).
+# One logon task (ICUELights) runs icue-lights.py forever: rotating effects
+# 08:00-23:00 (new effect every 5 min), black overnight. To stop it and give
+# lighting back to iCUE: type nul > ~\icue-scheduler\stop.flag
 
 $ErrorActionPreference = "Stop"
 
 $venvDir = "$env:USERPROFILE\icue-scheduler"
 $python  = "$venvDir\.venv\Scripts\python.exe"
 $pythonw = "$venvDir\.venv\Scripts\pythonw.exe"
-$script  = "$env:USERPROFILE\dotfiles\windows\scripts\icue-lights-off.py"
+$script  = "$env:USERPROFILE\dotfiles\windows\scripts\icue-lights.py"
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     scoop install uv
@@ -21,11 +22,7 @@ if (-not (Test-Path $python)) {
 # cuesdk is Corsair's official binding; the similarly-named cue-sdk is not
 uv pip install --python $python cuesdk
 
-# Morning task drops a stop flag rather than killing the process: the
-# script must hand lighting back itself (drop its layer, then exit)
-schtasks /create /f /tn ICUELightsOff /sc daily /st 23:00 /it `
+schtasks /create /f /tn ICUELights /sc onlogon /it `
     /tr "`"$pythonw`" `"$script`""
-schtasks /create /f /tn ICUELightsOn /sc daily /st 08:00 `
-    /tr "cmd /c `"type nul > $venvDir\stop.flag`""
 
-Write-Host "Done. Test with: schtasks /run /tn ICUELightsOff"
+Write-Host "Done. Start now with: schtasks /run /tn ICUELights"
