@@ -79,6 +79,8 @@ meh - 2 : yabai -m display --focus 2
 meh - 3 : yabai -m display --focus 3
 meh - 4 : yabai -m display --focus 4
 
+# Tab nav lives in firmware since keymap v3 (2026-07-29): Nav layer Tab◀/Tab▶
+# send real ⌘⌥←/→ — the old ✦,/✦. Hammerspoon binds are retired.
 
 # Monitor input switching (DDC "KVM") — see docs/monitor-setup.org
 ctrl + alt - g : ~/.dotfiles/macos/scripts/monitor-mode.sh game
