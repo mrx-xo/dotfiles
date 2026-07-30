@@ -28,15 +28,21 @@ STOP_FLAG = Path.home() / "icue-scheduler" / "stop.flag"
 
 STATUS_FILE = Path.home() / "icue-scheduler" / "status.json"
 
+BREATH_SECONDS = 30  # one full white -> ember -> white cycle
+
+
+def white_ember_breathe(x, t):
+    # breath = 0 at white, 1 at full ember; slight per-LED phase offset (x)
+    # so the glow rolls gently across each device instead of pulsing flat
+    breath = 0.5 - 0.5 * math.cos(2 * math.pi * t / BREATH_SECONDS + x * 0.6)
+    # sink saturation toward ember orange and dim a touch at the bottom
+    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.25 * breath)
+
+
 # Each effect: (name, f(x, t) -> (r, g, b) floats 0-1).
 # x = LED position across its device (0-1), t = epoch seconds.
 EFFECTS = [
-    ("hue sweep", lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1)),
-    ("rainbow wave", lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1)),
-    ("purple breathe", lambda x, t: colorsys.hsv_to_rgb(0.78, 1, 0.08 + 0.85 * (0.5 - 0.5 * math.cos(t * math.pi / 3)))),
-    ("ocean drift", lambda x, t: colorsys.hsv_to_rgb(0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9)),
-    ("ember", lambda x, t: colorsys.hsv_to_rgb(0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6))),
-    ("warm gruvbox", lambda x, t: colorsys.hsv_to_rgb(0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9)),
+    ("white-ember breathe", white_ember_breathe),
 ]
 
 
