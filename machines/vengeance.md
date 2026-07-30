@@ -23,11 +23,18 @@
   **Only works from full shutdown (S5), NOT from sleep (S3)** (verified
   2026-07-29: packets ignored once asleep). After a headless WoL boot the
   box auto-sleeps in ~2 min at the login screen — log in fast or lose it.
-- **RGB lights on a schedule** (2026-07-29): scheduled tasks `ICUELightsOff`
-  (23:00, runs `windows/scripts/icue-lights-off.py` via
-  `~\icue-scheduler\.venv` — blanks LEDs through the iCUE SDK and idles)
-  and `ICUELightsOn` (08:00, `schtasks /end` kills it; iCUE resumes).
+- **RGB lights on a schedule** (2026-07-29, verified end-to-end): scheduled
+  tasks `ICUELightsOff` (23:00, runs `windows/scripts/icue-lights-off.py`
+  via `~\icue-scheduler\.venv` — blanks LEDs through the iCUE SDK and
+  idles) and `ICUELightsOn` (08:00, drops `~\icue-scheduler\stop.flag`;
+  the script hands lighting back and exits — do NOT hard-kill it).
   Rebuild with `windows/scripts/setup-icue-scheduler.ps1`.
+  Lights dark unexpectedly? Check iCUE per-device brightness sliders and
+  Settings→SDK tab (Wallpaper Engine holds Exclusive lighting; dark
+  wallpaper = black LEDs) before blaming the scheduler.
+- Docker Desktop: AutoStart enabled at sign-in (2026-07-29). If "it won't
+  open", check `tasklist` — SSH-launched instances land invisible in
+  Session 0; kill and relaunch via an `/it` scheduled task.
 
 ## SSH quirks (READ BEFORE RUNNING COMMANDS)
 
