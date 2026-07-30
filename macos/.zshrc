@@ -218,6 +218,13 @@ alias pn="pnpm"
 alias tm='task-master'
 alias taskmaster='task-master'
 
+# What VENGEANCE's RGB is doing right now (icue-lights.py status)
+icue() {
+  ssh -o ConnectTimeout=5 vengeance "cat icue-scheduler/status.json" 2>/dev/null \
+    | jq -r '"\(.mode) | \(.effect) (since \(.since), next \(.next_change))"' \
+    || echo "VENGEANCE unreachable (asleep/off?)"
+}
+
 # Emacs-plus@30 aliases
 alias emacs="$(brew --prefix emacs-plus@30)/bin/emacs"
 alias emacsclient="$(brew --prefix emacs-plus@30)/bin/emacsclient"

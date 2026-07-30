@@ -10,6 +10,7 @@ Wallpaper Engine). No sdk.disconnect() on exit — it SIGILLs in cuesdk
 Venv: ~/icue-scheduler/.venv (cuesdk). Setup: setup-icue-scheduler.ps1.
 """
 import colorsys
+import json
 import math
 import threading
 import time
@@ -25,16 +26,34 @@ FPS = 15
 LAYER_PRIORITY = 135
 STOP_FLAG = Path.home() / "icue-scheduler" / "stop.flag"
 
-# Each effect: f(x, t) -> (r, g, b) floats 0-1.
+STATUS_FILE = Path.home() / "icue-scheduler" / "status.json"
+
+# Each effect: (name, f(x, t) -> (r, g, b) floats 0-1).
 # x = LED position across its device (0-1), t = epoch seconds.
 EFFECTS = [
-    lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1),            # slow hue sweep
-    lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1),          # rainbow wave
-    lambda x, t: colorsys.hsv_to_rgb(0.78, 1, 0.08 + 0.85 * (0.5 - 0.5 * math.cos(t * math.pi / 3))),  # purple breathe
-    lambda x, t: colorsys.hsv_to_rgb(0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9),                 # ocean drift
-    lambda x, t: colorsys.hsv_to_rgb(0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6)),       # ember
-    lambda x, t: colorsys.hsv_to_rgb(0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9),                # warm gruvbox
+    ("hue sweep", lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1)),
+    ("rainbow wave", lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1)),
+    ("purple breathe", lambda x, t: colorsys.hsv_to_rgb(0.78, 1, 0.08 + 0.85 * (0.5 - 0.5 * math.cos(t * math.pi / 3)))),
+    ("ocean drift", lambda x, t: colorsys.hsv_to_rgb(0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9)),
+    ("ember", lambda x, t: colorsys.hsv_to_rgb(0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6))),
+    ("warm gruvbox", lambda x, t: colorsys.hsv_to_rgb(0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9)),
 ]
+
+
+def write_status(mode, effect, now):
+    slot = EFFECT_MINUTES * 60
+    try:
+        STATUS_FILE.write_text(json.dumps({
+            "mode": mode,
+            "effect": effect,
+            "since": time.strftime("%H:%M", time.localtime(now // slot * slot)),
+            "next_change": time.strftime(
+                "%H:%M", time.localtime((now // slot + 1) * slot))
+            if mode == "day" else f"{DAY_START_HOUR:02d}:00",
+            "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        }))
+    except OSError:
+        pass
 
 connected = threading.Event()
 
@@ -76,6 +95,7 @@ def main():
     sdk.connect(on_state_changed)
     rig = []
     last_refresh = 0.0
+    status = None
     while not STOP_FLAG.exists():
         if not connected.wait(timeout=60):
             continue
@@ -87,9 +107,16 @@ def main():
                 last_refresh = now
             if DAY_START_HOUR <= time.localtime(now).tm_hour < DAY_END_HOUR:
                 idx = int(now // (EFFECT_MINUTES * 60)) % len(EFFECTS)
-                paint(sdk, rig, EFFECTS[idx], now)
+                name, fn = EFFECTS[idx]
+                if status != ("day", name):
+                    status = ("day", name)
+                    write_status(*status, now)
+                paint(sdk, rig, fn, now)
                 time.sleep(1.0 / FPS)
             else:
+                if status != ("night", "black"):
+                    status = ("night", "black")
+                    write_status(*status, now)
                 paint(sdk, rig, lambda x, t: (0, 0, 0), now)
                 time.sleep(30)
         except Exception:
