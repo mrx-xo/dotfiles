@@ -5,6 +5,7 @@
 #   monitor-mode.sh game            # center+right -> VENGEANCE
 #   monitor-mode.sh mac             # center+right -> MrX
 #   monitor-mode.sh split           # center -> MrX, right -> VENGEANCE
+#   monitor-mode.sh rsplit          # center -> VENGEANCE, right -> MrX
 #   monitor-mode.sh work            # center -> MrX, right -> work laptop
 #
 # Per-display (mix & match freely):
@@ -14,6 +15,14 @@
 # Toggles (flip a display between Mac <-> PC):
 #   monitor-mode.sh toggle center
 #   monitor-mode.sh toggle right
+#
+# Window layout survives round-trips: before the first mac->away flip
+# in an invocation, every window's display (by UUID) is snapshotted to
+# the state dir; after a display comes back to mac, windows that got
+# shuffled onto surviving displays are moved home and BSP re-tiles.
+# Most-recent-snapshot semantics: chained partial switches (split ->
+# game) re-snapshot mid-shuffle, so restore targets the latest state,
+# not the original one.
 #
 # Displays pinned by UUID so replug order can't break this.
 # Verified 2026-07-17: DDC WRITES reach both monitors from the Mac at
@@ -43,6 +52,10 @@ HDMI_20=18  # MrX via dock
 
 STATE_DIR="$HOME/.local/state/monitor-mode"
 mkdir -p "$STATE_DIR"
+
+LAYOUT="$STATE_DIR/layout.json"
+LAYOUT_SAVED=0     # snapshot at most once per invocation
+RESTORE_PENDING="" # UUIDs flipped back to mac this invocation
 
 notify() {
   osascript -e "display notification \"$1\" with title \"Monitor Mode\"" || true
@@ -82,17 +95,71 @@ wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
   return 1
 }
 
+wait_yabai() {  # yabai re-enumerates a few seconds after m1ddc does
+  local i
+  for i in $(seq 1 15); do
+    yabai -m query --displays 2>/dev/null | grep -q "$1" && return 0
+    sleep 1
+  done
+  return 1
+}
+
+save_layout() {  # snapshot window -> display-UUID map (indices shift on
+                 # disconnect; UUIDs don't)
+  local displays windows
+  displays=$(yabai -m query --displays 2>/dev/null) || return 0
+  windows=$(yabai -m query --windows 2>/dev/null) || return 0
+  jq -n --argjson d "$displays" --argjson w "$windows" '
+    ($d | map({(.index|tostring): .uuid}) | add) as $u
+    | [ $w[] | {id, app, uuid: $u[.display|tostring]} ]' \
+    > "$LAYOUT" 2>/dev/null || true
+}
+
+restore_layout() {  # move windows back; skips ones already home, gone,
+                    # or belonging to a still-disconnected display
+  [ -s "$LAYOUT" ] || return 0
+  local displays windows moved=0 id idx
+  displays=$(yabai -m query --displays 2>/dev/null) || return 0
+  windows=$(yabai -m query --windows 2>/dev/null) || return 0
+  while read -r id idx; do
+    [ -n "$id" ] || continue
+    yabai -m window "$id" --display "$idx" 2>/dev/null && moved=$((moved+1)) || true
+  done < <(jq -r --argjson d "$displays" --argjson w "$windows" '
+    ($d | map({(.uuid): .index}) | add) as $ix
+    | ($w | map({(.id|tostring): .display}) | add) as $cur
+    | .[]
+    | select(.uuid != null and $ix[.uuid] != null)
+    | select($cur[.id|tostring] != null and $cur[.id|tostring] != $ix[.uuid])
+    | "\(.id) \($ix[.uuid])"' "$LAYOUT" 2>/dev/null)
+  [ "$moved" -gt 0 ] && notify "Restored $moved windows" || true
+}
+
+maybe_restore() {
+  [ -n "$RESTORE_PENDING" ] || return 0
+  local u
+  for u in $RESTORE_PENDING; do
+    wait_yabai "$u" || notify "restore: display never appeared in yabai"
+  done
+  restore_layout
+}
+
 set_display() {  # set_display <center|right> <mac|pc|work>
   # DDC only reaches the display while the Mac-side connection is up,
   # so: ensure connected -> DDC-switch input -> disconnect unless the
   # target is the Mac itself.
   # The Anker adapter throws transient DDC I/O errors — retry before
   # giving up, and never record state for a flip that didn't happen.
-  local try
+  local try cur
+  cur=$(current_machine "$1")
+  # Windows shuffle onto surviving displays the moment one disconnects —
+  # snapshot before the first mac->away flip, while everything is home.
+  if [ "$cur" = mac ] && [ "$2" != mac ] && [ "$LAYOUT_SAVED" = 0 ]; then
+    save_layout; LAYOUT_SAVED=1
+  fi
   # Already there? Skip the connect/disconnect dance — this is what makes
   # the v3 preset keys idempotent (mash freely). Trusts the state file for
   # right (manual OSD changes there can lie; press another preset to reset).
-  if [ "$(current_machine "$1")" = "$2" ]; then
+  if [ "$cur" = "$2" ]; then
     if [ "$2" != mac ] || ddc_visible "$1"; then return 0; fi
   fi
   if ! ddc_visible "$1"; then
@@ -104,7 +171,11 @@ set_display() {  # set_display <center|right> <mac|pc|work>
       echo "$2" > "$STATE_DIR/$1"
       # No phantom desktop: drop the display from macOS while it shows
       # another machine. (Its DDC becomes unreachable until reconnect.)
-      [ "$2" = mac ] || bd_connect "$1" off
+      if [ "$2" = mac ]; then
+        RESTORE_PENDING="$RESTORE_PENDING $(uuid_for "$1")"
+      else
+        bd_connect "$1" off
+      fi
       return 0
     fi
     sleep 0.4
@@ -165,32 +236,44 @@ case "${1:-}" in
     set_display center pc; set_display right pc
     notify "Center + Right -> VENGEANCE"
     sync_windows
+    maybe_restore
     ;;
   mac)
     set_display center mac; set_display right mac
     notify "Center + Right -> MrX"
     sync_windows
+    maybe_restore
     ;;
   split)
     set_display center mac; set_display right pc
     notify "Center -> MrX, Right -> VENGEANCE"
     sync_windows
+    maybe_restore
+    ;;
+  rsplit)
+    set_display center pc; set_display right mac
+    notify "Center -> VENGEANCE, Right -> MrX"
+    sync_windows
+    maybe_restore
     ;;
   work)
     set_display center mac; set_display right work
     notify "Center -> MrX, Right -> Work laptop"
     sync_windows
+    maybe_restore
     ;;
   center|right)
     [ -n "${2:-}" ] || { echo "usage: $(basename "$0") $1 <mac|pc|work>" >&2; exit 1; }
     set_display "$1" "$2"
     notify "$1 -> $2"
     sync_windows
+    maybe_restore
     ;;
   toggle)
     [ -n "${2:-}" ] || { echo "usage: $(basename "$0") toggle <center|right>" >&2; exit 1; }
     toggle_display "$2"
     sync_windows
+    maybe_restore
     ;;
   status)
     for d in center right; do
@@ -199,7 +282,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

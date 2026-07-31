@@ -87,6 +87,7 @@ meh - 4 : yabai -m display --focus 4
 ctrl + alt - g : ~/.dotfiles/macos/scripts/monitor-mode.sh game
 ctrl + alt - m : ~/.dotfiles/macos/scripts/monitor-mode.sh mac
 ctrl + alt - w : ~/.dotfiles/macos/scripts/monitor-mode.sh work
+ctrl + alt - r : ~/.dotfiles/macos/scripts/vengeance-wake.sh rsplit
 # per-display toggles Mac <-> PC (numbers match yabai display indices)
 ctrl + alt - 3 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle center
 ctrl + alt - 4 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle right
@@ -99,6 +100,10 @@ f17 : ~/.dotfiles/macos/scripts/vengeance-wake.sh game
 f18 : ~/.dotfiles/macos/scripts/monitor-mode.sh mac
 alt - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh split
 shift - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh work
+# v4 draft d1: rsplit (center -> VENGEANCE, right stays mac) — like game,
+# pc-on-glass implies awake, so it routes through vengeance-wake. The pad
+# key lands at the v4 flash; ctrl+alt-r covers it from the keyboard now.
+alt - f18 : ~/.dotfiles/macos/scripts/vengeance-wake.sh rsplit
 # secondary transition keys (flip one display Mac <-> PC)
 f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle center
 shift - f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle right

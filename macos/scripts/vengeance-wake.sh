@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # vengeance-wake.sh — power on / wake VENGEANCE via Wake-on-LAN.
 #
-#   vengeance-wake.sh         # send magic packet, notify when SSH is up
-#   vengeance-wake.sh game    # ...then hand monitors 3+4 over (full summon)
+#   vengeance-wake.sh           # send magic packet, notify when SSH is up
+#   vengeance-wake.sh <preset>  # ...then run monitor-mode.sh <preset> — any
+#                               # preset that puts VENGEANCE on glass (game,
+#                               # rsplit, split, ...) is a full summon
 #
 # PC: Realtek 5GbE onboard, MAC 34:5A:60:C0:95:87, 192.168.1.156.
 # Windows side verified 2026-07-17: WakeOnMagicPacket enabled, Fast
@@ -32,11 +34,11 @@ print("magic packet sent")
 PY
 }
 
-# Fast path (CM v3): the game key always routes here — if VENGEANCE is
-# already up, skip the wake dance and go straight to the handover.
+# Fast path (CM v3): preset keys route here — if VENGEANCE is already
+# up, skip the wake dance and go straight to the handover.
 if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
-  if [ "${1:-}" = game ]; then
-    ~/.dotfiles/macos/scripts/monitor-mode.sh game
+  if [ -n "${1:-}" ]; then
+    ~/.dotfiles/macos/scripts/monitor-mode.sh "$1"
   else
     notify "VENGEANCE is already awake"
   fi
@@ -50,9 +52,9 @@ notify "Magic packet sent — summoning..."
 for i in $(seq 1 45); do
   if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
     notify "VENGEANCE is awake (${i}x2s)"
-    if [ "${1:-}" = game ]; then
+    if [ -n "${1:-}" ]; then
       sleep 2
-      ~/.dotfiles/macos/scripts/monitor-mode.sh game
+      ~/.dotfiles/macos/scripts/monitor-mode.sh "$1"
     fi
     exit 0
   fi
