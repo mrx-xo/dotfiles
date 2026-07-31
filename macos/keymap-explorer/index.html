@@ -575,7 +575,7 @@
 
   <!-- ================= creator micro ================= -->
   <div id="app-cm" hidden>
-    <p class="sub">Companion to the hotdox explorer, for the little macropad. <b>v3 on board</b> (flashed 2026-07-30) &mdash; declarative monitor presets (every key a full desk state) and whisper/shot pinned pad-wide via <span class="k">KC_TRNS</span>. Walk the layers, hover any key or knob for its keycode. The bottom-right <b>touch pad</b> cycles the layers: <b>0 &rarr; 1 &rarr; 2 &rarr; 3 &rarr; 0</b>.</p>
+    <p class="sub">Companion to the hotdox explorer, for the little macropad. <b>v4 on board</b> (flashed 2026-07-30) &mdash; declarative monitor presets (every key a full desk state, rsplit joined in v4) and whisper/shot pinned pad-wide via <span class="k">KC_TRNS</span>. Walk the layers, hover any key or knob for its keycode. The bottom-right <b>touch pad</b> cycles the layers: <b>0 &rarr; 1 &rarr; 2 &rarr; 3 &rarr; 0</b>.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -625,7 +625,7 @@
       </ul>
     </div>
 
-    <footer>layout ledger: v1 = VIA EEPROM (retired 2026-07-30) &rarr; v2 = 529c499 (retired 2026-07-30) &rarr; v3 = f1df23a (on board, flashed 2026-07-30) &rarr; v4 = draft &middot; source of truth: qmk_firmware keymaps/mrx &middot; geometry + CUSTOM(n) names from the-via/keyboards src/work_louder/micro.json &middot; F13&ndash;F19 meanings resolved against ~/.dotfiles/macos/skhd/skhdrc &middot; matrix 0/3 = wheel/knob press, 12/15 = touch pads &middot; full history in VERSIONS.md</footer>
+    <footer>layout ledger: v1 = VIA EEPROM (retired 2026-07-30) &rarr; v2 = 529c499 (retired 2026-07-30) &rarr; v3 = f1df23a (retired 2026-07-30) &rarr; v4 = cfe66ba (on board, flashed 2026-07-30) &rarr; v5 = draft &middot; source of truth: qmk_firmware keymaps/mrx &middot; geometry + CUSTOM(n) names from the-via/keyboards src/work_louder/micro.json &middot; F13&ndash;F19 meanings resolved against ~/.dotfiles/macos/skhd/skhdrc &middot; matrix 0/3 = wheel/knob press, 12/15 = touch pads &middot; full history in VERSIONS.md</footer>
   </div>
 </div>
 
@@ -641,9 +641,11 @@ const CM_LAYOUTS = {
          note: 'VIA dynamic keymap in EEPROM, stock firmware' },
   v2:  { v: 2, commit: '529c499', status: 'retired 2026-07-30',
          note: 'same keystrokes as v1, baked into firmware + widget broadcast' },
-  cur: { v: 3, commit: 'f1df23a', status: 'on board — flashed 2026-07-30',
+  v3:  { v: 3, commit: 'f1df23a', status: 'retired 2026-07-30',
          note: 'declarative monitor presets + pad-wide whisper/shot' },
-  pro: { v: 4, commit: null, status: 'draft',
+  cur: { v: 4, commit: 'cfe66ba', status: 'on board — flashed 2026-07-30',
+         note: 'rsplit half-split — 3 win · 4 mac; work slides to #4' },
+  pro: { v: 5, commit: null, status: 'draft',
          note: 'no increments yet' }
 };
 const CM_PRO_LOG = [];
@@ -1395,8 +1397,9 @@ const LAYERS = [
 // v2 IS the `LAYERS` array above (retired by the v3 flash, kept browsable).
 // old (v1) = the same keystrokes under their VIA-era names (dynamic macro
 // slots, CUSTOM(n)) — EEPROM was the source of truth back then.
-// cur (v3, flashed 2026-07-30) = declarative monitors + pad-wide #11/#12.
-// pro (v4 draft) = identical to cur until its first increment.
+// v3 (flashed + retired 2026-07-30) = declarative monitors + pad-wide #11/#12.
+// cur (v4, flashed 2026-07-30) = v3 + rsplit; built below, promoted after.
+// pro (v5 draft) = identical to cur until its first increment.
 const MAPS = { v2: LAYERS, old: structuredClone(LAYERS), cur: structuredClone(LAYERS) };
 
 MAPS.old[0].keys[12].c = '⌘⇧4 · M4';
@@ -1490,7 +1493,28 @@ MAPS.cur[3].keys[12] = TRNS;
 for (const n of [1, 2, 3])
   MAPS.cur[n].legend.push(['trns', 'transparent — falls through to base']);
 
-MAPS.pro = structuredClone(MAPS.cur);   // v4 draft — identical until d1
+// v4 (d1, flashed 2026-07-30) — rsplit joins the presets: VENGEANCE takes the
+// CENTER, right stays mac — split mirrored (⌥ row = the half-splits:
+// ⌥F17/⌥F18). It takes work's cap (#3); work slides right to #4 keeping ⇧F17
+// — the keycode travels with the meaning, so skhd's work binding was
+// untouched. Like game, rsplit routes through vengeance-wake: pc on glass
+// implies awake.
+const V4 = structuredClone(MAPS.cur);
+V4[2].keys[4] = V4[2].keys[3];
+V4[2].keys[3] = GL(K('rsplit', '⌥F18', 'blue', { 1: 'mac', 2: 'mac', 3: 'pc', 4: 'mac' }),
+  GL_WIN.replace('class="oslogo"', 'class="oslogo os-pc"') +
+  '<span class="osdiv">/</span>' +
+  GL_APPLE.replace('class="oslogo"', 'class="oslogo os-mac"'),
+  'rsplit — 3 win · 4 mac (wakes VENGEANCE if asleep)');
+V4[2].legend = V4[2].legend.map(([c, l]) =>
+  c === 'blue' ? [c, 'half-splits — split · rsplit'] : [c, l]);
+V4[2].note[1].push(
+  '<b>d1:</b> <span class="k">rsplit</span> (&#8997;F18) = 3 win &middot; 4 mac &mdash; split mirrored, wake-routed. <span class="k">work</span> slides to #4, keycode unchanged.');
+
+// v4 flash promote: v3 keeps a browsable view, v4 becomes current.
+MAPS.v3 = MAPS.cur;
+MAPS.cur = V4;
+MAPS.pro = structuredClone(MAPS.cur);   // v5 draft — identical until d1
 
 // ---- render ---------------------------------------------------------------
 let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
@@ -1658,11 +1682,12 @@ const selB = document.getElementById('sel-cm-b');
 const OPT_CM = {
   cur: 'Current v' + CM_LAYOUTS.cur.v,
   pro: 'Proposed v' + CM_LAYOUTS.pro.v + (CM_PRO_LOG.length ? ' · d' + CM_PRO_LOG[0].v : ''),
+  v3:  'Retired v' + CM_LAYOUTS.v3.v,
   v2:  'Retired v' + CM_LAYOUTS.v2.v,
   old: 'Original v' + CM_LAYOUTS.old.v
 };
 for (const s of [selA, selB])
-  for (const vw of ['cur', 'pro', 'v2', 'old'])
+  for (const vw of ['cur', 'pro', 'v3', 'v2', 'old'])
     s.add(new Option(OPT_CM[vw], vw));
 selA.value = sel1;
 selB.value = sel2;

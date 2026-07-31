@@ -76,8 +76,9 @@ boards run the ritual (Micro since v3; explorer grew its own version picker
   the wallpaper widget now tracks the Micro's live layer too. Size bill paid
   by dropping Space Cadet / Grave Esc / Magic (provably unused in v1).
 
-### v3 — on board, flashed 2026-07-30
-- keymap.c commit: `f1df23a` · 28240/28672 bytes (98%), 432 free
+### v3 — retired 2026-07-30
+- keymap.c commit: `f1df23a` · flashed 2026-07-30, retired by the v4 flash
+  the same day · 28240/28672 bytes (98%), 432 free
 - Promoted increments (drafted 2026-07-30):
   - **d1** — **Monitors go declarative**: layer 2 keys become full desk
     states, idempotent — press = the desk looks like the icon. Presets:
@@ -97,8 +98,23 @@ boards run the ritual (Micro since v3; explorer grew its own version picker
   `vengeance-wake.sh game` · ⌥F17 → split · ⇧F18 summon binding retired,
   `vengeance-wake.sh` fast path (SSH answers → straight to handover).
 
-### v4 — draft
-- No increments yet — identical to v3. First change becomes d1.
+### v4 — on board, flashed 2026-07-30
+- keymap.c commit: `cfe66ba` · 28240/28672 bytes (98%), 432 free (keycode
+  swap — zero size cost)
+- Promoted increments (drafted 2026-07-30):
+  - **d1** — **rsplit joins the presets**: VENGEANCE takes the *center*,
+    right stays mac (3 win · 4 mac) — split mirrored, on the ⌥ row (⌥F18;
+    ⌥F17/⌥F18 = the half-splits). Takes work's cap (#3); work slides right
+    to #4 keeping ⇧F17 — keycode travels with the meaning, skhd's work
+    binding untouched. Wake-routed like game: pc on glass implies awake.
+- Shipped alongside the flash: `monitor-mode.sh` rsplit preset +
+  window-layout save/restore across switches (snapshot by display UUID
+  before a mac→away flip, windows moved home after reconnect),
+  `vengeance-wake.sh` generalized to hand over any preset, skhd ⌥F18 +
+  ⌃⌥R → `vengeance-wake.sh rsplit`.
+
+### v5 — draft
+- No increments yet — identical to v4. First change becomes d1.
 
 ## Flash-day checklist
 
