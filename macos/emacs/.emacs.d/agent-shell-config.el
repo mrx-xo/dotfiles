@@ -790,6 +790,98 @@ the session picker, then spawns shells staggered 3s apart."
             (message "No diff available for current permission")))
 
 
+        ;; ── Cross-machine session handoff (MrX <-> MrX2) ────────────
+        ;; Resume a conversation started on the other Mac. Handoffs are staged
+        ;; into ~/shared/agent-sessions/ (Syncthing) by agent-session-handoff.sh
+        ;; export; this imports + resumes one. See that script for the path
+        ;; translation (home swap + symlink resolution).
+        (defun mr-x/agent-handoff--read-meta (file)
+          "Parse KEY=VALUE lines of a handoff meta FILE into an alist.
+Values are read literally (never eval'd), so titles may contain spaces."
+          (with-temp-buffer
+            (insert-file-contents file)
+            (let (kv)
+              (dolist (line (split-string (buffer-string) "\n" t))
+                (when (string-match "\\`\\([A-Z_]+\\)=\\(.*\\)\\'" line)
+                  (push (cons (match-string 1 line) (match-string 2 line)) kv)))
+              (nreverse kv))))
+
+        (defun mr-x/agent-resume-handoff ()
+          "Resume an agent-shell conversation handed off from another fleet machine.
+
+Handoffs are staged in ~/shared/agent-sessions/ (Syncthing-synced) by
+`agent-session-handoff.sh export' on the source Mac.  This picks one,
+imports its transcript into the local ~/.claude (paths rewritten and
+symlinks resolved by the script), then resumes it — forcing the
+resolved project cwd and the Claude config so no agent picker appears
+and the cwd can't mismatch (a mismatch silently yields a BLANK shell).
+
+Handoffs that originated on this machine are skipped."
+          (interactive)
+          (let* ((dir (expand-file-name "~/shared/agent-sessions/"))
+                 (script (expand-file-name
+                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+                 (this-machine
+                  (string-trim
+                   (or (ignore-errors
+                         (with-temp-buffer
+                           (insert-file-contents
+                            (expand-file-name "~/.config/machine-id"))
+                           (buffer-string)))
+                       "")))
+                 (candidates
+                  (delq nil
+                        (mapcar
+                         (lambda (m)
+                           (let* ((kv (mr-x/agent-handoff--read-meta m))
+                                  (id (cdr (assoc "SESSION_ID" kv)))
+                                  (src-home (cdr (assoc "SRC_HOME" kv)))
+                                  (src-cwd (cdr (assoc "SRC_CWD" kv)))
+                                  (src-mach (cdr (assoc "SRC_MACHINE" kv)))
+                                  (title (cdr (assoc "TITLE" kv))))
+                             (when (and id src-home src-cwd
+                                        (not (equal src-mach this-machine)))
+                               (cons (format "%s  ·  %s  ·  %s"
+                                             (if (and title (not (string-empty-p title)))
+                                                 title "(untitled)")
+                                             (or src-mach "?")
+                                             (file-name-nondirectory
+                                              (directory-file-name src-cwd)))
+                                     (list :id id :src-home src-home
+                                           :src-cwd src-cwd)))))
+                         (and (file-directory-p dir)
+                              (directory-files dir t "\\.meta\\'"))))))
+            (unless candidates
+              (user-error "No handoffs waiting in %s" dir))
+            (let* ((choice
+                    (if (= (length candidates) 1)
+                        (car candidates)
+                      (assoc (completing-read "Resume handoff: "
+                                              (mapcar #'car candidates) nil t)
+                             candidates)))
+                   (pl (cdr choice))
+                   (id (plist-get pl :id))
+                   (src-home (plist-get pl :src-home))
+                   (src-cwd (plist-get pl :src-cwd))
+                   (tgt-raw (if (string-prefix-p src-home src-cwd)
+                                (concat (expand-file-name "~")
+                                        (substring src-cwd (length src-home)))
+                              src-cwd))
+                   (tgt-cwd (file-truename tgt-raw)))
+              ;; Place the transcript at the resolved path (script rewrites paths).
+              (with-temp-buffer
+                (unless (zerop (call-process "bash" nil t nil script "import" id))
+                  (user-error "Handoff import failed: %s"
+                              (string-trim (buffer-string)))))
+              ;; Resume with forced cwd + Claude config: no picker, no mismatch.
+              (let ((default-directory (file-name-as-directory tgt-cwd)))
+                (agent-shell--start
+                 :config agent-shell-preferred-agent-config
+                 :session-id id
+                 :new-session t))
+              (message "Resumed handoff %s in %s" id tgt-cwd))))
+
+
         ;; Auto-close diff buffer when permission is accepted/rejected
         (advice-add 'agent-shell--send-permission-response :after
                     (lambda (&rest _)

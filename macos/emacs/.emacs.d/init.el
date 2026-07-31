@@ -2478,7 +2478,8 @@ Called by sketchybar plugin via emacsclient --eval as fallback."
   ;; Vendored from https://github.com/Gleek/.emacs/blob/master/packages/point-stack.el
   (use-package point-stack
     :ensure nil
-    :bind (("s-[" . point-stack-pop)
+    :bind (("s-\\" . point-stack-push)
+           ("s-[" . point-stack-pop)
            ("s-]" . point-stack-forward-stack-pop))
     :config
     (point-stack-setup-advices))
@@ -3254,6 +3255,7 @@ projectile projects appended below."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
+        "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -4367,6 +4369,24 @@ TRAMP can't match under a PTY — both need pipe mode."
     (push `((nil . ,(cdr entry))
             nil . ,(replace-regexp-in-string
                     "project-dashboard--action-" "" (cdr entry)))
+          which-key-replacement-alist))
+
+  ;; Plain-English labels for embark's cryptic meta-actions in the
+  ;; which-key popup ("embark-become" tells you nothing).
+  (dolist (entry '(("embark-become"           . "swap cmd, keep input")
+                   ("embark-export"           . "export→editable buffer")
+                   ("embark-collect"          . "snapshot candidate list")
+                   ("embark-live"             . "live candidate list")
+                   ("embark-act-all"          . "act on all/marked")
+                   ("embark-select"           . "mark for act-all")
+                   ("embark-toggle-quit"      . "toggle close-minibuffer")
+                   ("embark-dired-jump"       . "dired at file")
+                   ("embark-insert-relative-path" . "insert rel path")
+                   ("embark-save-relative-path"   . "copy rel path")
+                   ("embark-eval-replace"     . "eval, replace w/ result")
+                   ("embark-bury-buffer"      . "send buffer to back")))
+    (push `((nil . ,(format "\\`%s\\'" (car entry)))
+            nil . ,(cdr entry))
           which-key-replacement-alist))
 
   ;; macOS file actions
