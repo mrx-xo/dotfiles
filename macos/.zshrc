@@ -241,6 +241,8 @@ alias reload='source ~/.zshrc'
 alias shl='ssh homelab'
 alias shm2='ssh mrx2'
 alias shv='ssh vengeance'
+alias shb='ssh boox'                                     # Termux on the BOOX tablet (needs sshd running there)
+alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd+Shift+B
 
 # HeadlessX stealth scraper (lives on home-lab; normal state is DOWN, ~24s cold start)
 alias hx-up='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all up -d"'

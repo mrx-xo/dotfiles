@@ -73,6 +73,8 @@ brew "docker"
 brew "docker-compose"
 brew "syncthing"
 brew "clang-format"
+brew "android-platform-tools"   # adb — BOOX Tab Ultra C setup (docs/tab-ultra-c-shit.md)
+brew "scrcpy"                   # mirror BOOX handwriting to Mac in real time
 
 # --- Fonts ---
 cask "font-fira-code-nerd-font"
