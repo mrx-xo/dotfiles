@@ -165,6 +165,26 @@ the active tab's bold + cream underline kept so \"you are here\" still
 reads.  Without this the active face would stomp the busy color."
   :group 'major-pane)
 
+(defface major-pane-tab-active-done
+  '((t :inherit major-pane-tab-active
+       :background "#98971a"
+       :box (:line-width (6 . -1) :color "#98971a")))
+  "Face for the active tab with a not-yet-engaged finished turn.
+Brighter olive over the active tab's bold + cream underline — the
+response is ready and stays flagged until the user enters insert state
+in the buffer."
+  :group 'major-pane)
+
+(defface major-pane-tab-active-perms
+  '((t :inherit major-pane-tab-active
+       :background "#cc241d"
+       :box (:line-width (6 . -1) :color "#cc241d")))
+  "Face for the active tab while a permission request is pending.
+Brighter gruvbox red over the active tab's bold + cream underline —
+stays red until the prompt is actually answered, even while you're
+looking at it."
+  :group 'major-pane)
+
 (defface major-pane-tab-attention-done
   '((t :inherit major-pane-tab-inactive
        :foreground "#fbf1c7" :weight bold
@@ -824,14 +844,10 @@ IS-ACTIVE selects the active/inactive face."
             (when win
               (set-window-buffer win buf)
               (select-window win))))))
-    ;; Becoming the active tab clears any unseen-response flag — the user
-    ;; is now looking at it.  Done here so every path that flips `active'
-    ;; (click, SPC navigation, adopt, …) clears without extra hooks.
-    ;; `busy' is live status, not a flag — it survives activation so the
-    ;; tab still shows as cooking when you switch away mid-turn.
-    (when (and is-active (memq (buffer-local-value 'major-pane--tab-attention buf)
-                               '(done perms)))
-      (with-current-buffer buf (setq major-pane--tab-attention nil)))
+    ;; Attention flags survive activation on purpose: passing through a
+    ;; buffer isn't engaging with it.  `done' clears on insert-state
+    ;; entry (`major-pane--attention-clear-on-insert'), `perms' when the
+    ;; prompt is answered, `busy' when the turn resolves.
     (propertize (format " %s%s "
                         (if (eq (buffer-local-value 'major-pane--tab-attention buf)
                                 'busy)
@@ -839,10 +855,11 @@ IS-ACTIVE selects the active/inactive face."
                           "")
                         (major-pane--tab-label buf))
                 'face (cond (is-active
-                             (if (eq (buffer-local-value 'major-pane--tab-attention buf)
-                                     'busy)
-                                 'major-pane-tab-active-busy
-                               'major-pane-tab-active))
+                             (pcase (buffer-local-value 'major-pane--tab-attention buf)
+                               ('busy 'major-pane-tab-active-busy)
+                               ('done 'major-pane-tab-active-done)
+                               ('perms 'major-pane-tab-active-perms)
+                               (_ 'major-pane-tab-active)))
                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
                                ('perms 'major-pane-tab-attention-perms)
                                ('done 'major-pane-tab-attention-done)
@@ -865,18 +882,21 @@ after the user answers, so both land on `busy'.")
 Advice on `agent-shell--emit-event': that function only runs with the
 shell buffer current, so `current-buffer' is the conversation.  Maps
 the event to a state via `major-pane-attention-event-alist'.  `busy'
-is live status and is tracked even on the active tab, which renders it
-with the brighter `major-pane-tab-active-busy' face while cooking.
-`done'/`perms' are unseen-response flags: on the active tab
-the user is already watching, so they just clear `busy' instead."
+is live status; `done'/`perms' are unengaged-response flags set even
+on the active tab — visiting isn't engaging.  The one exception: if
+the user is in the buffer in insert state when the event lands
+(composing the next message), the response counts as seen and the flag
+is skipped."
   (let* ((event (plist-get args :event))
          (entry (assq event major-pane-attention-event-alist))
          (buf (current-buffer))
-         (active (eq buf (major-pane-state-active major-pane--state))))
+         (engaged (and (eq buf (window-buffer (selected-window)))
+                       (bound-and-true-p evil-state)
+                       (eq evil-state 'insert))))
     (when (and entry
                (memq buf (major-pane-state-conversations major-pane--state)))
       (let ((new (cond ((eq (cdr entry) 'busy) 'busy)
-                       (active nil) ; watching it resolve — nothing unseen
+                       (engaged nil) ; typing in it right now — seen
                        (t (cdr entry)))))
         (unless (eq major-pane--tab-attention new)
           (setq major-pane--tab-attention new)
@@ -885,6 +905,21 @@ the user is already watching, so they just clear `busy' instead."
 
 (with-eval-after-load 'agent-shell
   (advice-add 'agent-shell--emit-event :after #'major-pane--attention-note-event))
+
+(defun major-pane--attention-clear-on-insert ()
+  "Clear a conversation's `done' flag when the user enters insert state.
+Insert state is the engagement signal: you're typing a reply, so the
+response has actually been read — not just scrolled past.  Only `done'
+clears here; `perms' means a prompt is still pending (typing doesn't
+answer it) and `busy' is live status."
+  (when (and (eq major-pane--tab-attention 'done)
+             major-pane--state
+             (memq (current-buffer)
+                   (major-pane-state-conversations major-pane--state)))
+    (setq major-pane--tab-attention nil)
+    (force-mode-line-update t)))
+
+(add-hook 'evil-insert-state-entry-hook #'major-pane--attention-clear-on-insert)
 
 (defun major-pane--attention-severity (buffers)
   "Highest attention severity among BUFFERS: `perms', `done', `busy', or nil.
@@ -904,6 +939,93 @@ the user is already watching, so they just clear `busy' instead."
     ('done 'major-pane-tab-attention-done-marker)
     ('busy 'major-pane-tab-attention-busy-marker)
     (_ 'major-pane-dim)))
+
+;;; Visual demos
+;;
+;; Interactive-only harnesses for eyeballing tab styling without real
+;; agent-shell sessions.  They HIJACK `major-pane--state' with fake
+;; "demo @ …" buffers, so running one in a live pane replaces the real
+;; conversation list until you re-register (restart / reopen a shell).
+;; Kept in the shipped file (not sandbox-only) so they always track the
+;; current faces, states, and render API — no drift.
+
+(defun major-pane-attention-demo ()
+  "Fabricate tabs with mixed attention states to preview the coloring.
+Visual check — bypasses real agent-shell registration.  Enough tabs
+that both sides overflow, so the ‹N / N› counters show their colors
+too (red left = a hidden perms convo, orange right = a hidden done
+convo)."
+  (interactive)
+  ;; name . attention  (active tab in the middle so both sides overflow)
+  (let* ((spec '(("~/aaa-perms"  . perms)
+                 ("~/bbb-done"   . done)
+                 ("~/ccc-busy"   . busy)
+                 ("~/ddd-done"   . done)
+                 ("~/eee-active" . nil)
+                 ("~/fff-perms"  . perms)
+                 ("~/ggg-busy"   . busy)
+                 ("~/hhh-done"   . done)))
+         (bufs (mapcar (lambda (s)
+                         (let ((b (get-buffer-create (format "demo @ %s" (car s)))))
+                           (with-current-buffer b
+                             (setq major-pane--tab-attention (cdr s)))
+                           ;; real conversation backdrop (#101112) so the tab
+                           ;; frame/underline read against production chrome,
+                           ;; not the default gray
+                           (major-pane--apply-conversation-background b)
+                           b))
+                       spec))
+         (active (nth 4 bufs)))
+    (setf (major-pane-state-conversations major-pane--state) bufs
+          (major-pane-state-active major-pane--state) active
+          (major-pane-state-mode major-pane--state) 'side)
+    (switch-to-buffer active)
+    (set-window-parameter (selected-window) 'major-pane t)
+    (major-pane--enable-pane-chrome)
+    (major-pane--spinner-sync)
+    (force-mode-line-update t)))
+
+(defun major-pane-attention-lifecycle-demo ()
+  "Animate tabs through the turn lifecycle.
+Visual check.  Four tabs, no overflow; ~/claude runs the full happy
+path (pill → perms → pill → done) while ~/scratch runs a shorter one
+(pill → done)."
+  (interactive)
+  (let* ((names '("~/zsh" "~/dotfiles" "~/claude" "~/scratch"))
+         (bufs (mapcar (lambda (n)
+                         (let ((b (get-buffer-create (format "demo @ %s" n))))
+                           (with-current-buffer b
+                             (setq major-pane--tab-attention nil))
+                           ;; real conversation backdrop (#101112) so tabs read
+                           ;; against production chrome, not the default gray
+                           (major-pane--apply-conversation-background b)
+                           b))
+                       names))
+         (target (nth 2 bufs))
+         (other (nth 3 bufs)))
+    (setf (major-pane-state-conversations major-pane--state) bufs
+          (major-pane-state-active major-pane--state) (car bufs)
+          (major-pane-state-mode major-pane--state) 'side)
+    (switch-to-buffer (car bufs))
+    (set-window-parameter (selected-window) 'major-pane t)
+    (major-pane--enable-pane-chrome)
+    (force-mode-line-update t)
+    (message "lifecycle: idle — turns start in 2s")
+    (dolist (step `((2  ,target busy  "claude: input-submitted → busy (pill)")
+                    (2  ,other  busy  "scratch: input-submitted → busy (pill)")
+                    (5  ,target perms "claude: permission-request → perms")
+                    (7  ,other  done  "scratch: turn-complete → done")
+                    (9  ,target busy  "claude: permission-response → busy (pill)")
+                    (12 ,target done  "claude: turn-complete → done")))
+      (run-at-time (nth 0 step) nil
+                   (lambda (buf state msg)
+                     (when (buffer-live-p buf)
+                       (with-current-buffer buf
+                         (setq major-pane--tab-attention state))
+                       (major-pane--spinner-sync)
+                       (force-mode-line-update t)
+                       (message "lifecycle: %s" msg)))
+                   (nth 1 step) (nth 2 step) (nth 3 step)))))
 
 (defun major-pane--render-tabs ()
   "Build a header-line-format string showing conversation tabs.
@@ -1083,6 +1205,17 @@ When tab-line switching changes the pane window's buffer, sync
 
 ;;; Tab switching
 
+(defun major-pane--focus-conversation (buf)
+  "Make BUF the active conversation, show it in the pane, and focus it.
+Reuses the visible pane window when there is one; otherwise displays
+the pane first."
+  (let ((win (major-pane--visible-window)))
+    (setf (major-pane-state-active major-pane--state) buf)
+    (if win
+        (progn (set-window-buffer win buf)
+               (select-window win))
+      (select-window (major-pane--display buf)))))
+
 (defun major-pane--cycle (delta)
   "Cycle the active conversation by DELTA (+1 = next, -1 = prev).
 Only works when focus is in the pane.  Displays the new active
@@ -1094,14 +1227,28 @@ buffer in the pane window and focuses it."
          (len (length convos))
          (pos (cl-position active convos :test #'eq)))
     (when (and pos (> len 1))
-      (let* ((new-pos (mod (+ pos delta) len))
-             (buf (nth new-pos convos))
-             (win (major-pane--visible-window)))
-        (setf (major-pane-state-active major-pane--state) buf)
-        (if win
-            (progn (set-window-buffer win buf)
-                   (select-window win))
-          (select-window (major-pane--display buf)))))))
+      (major-pane--focus-conversation
+       (nth (mod (+ pos delta) len) convos)))))
+
+(defun major-pane--cycle-done (delta)
+  "Jump to the nearest conversation flagged `done' in direction DELTA.
+Searches tab order starting from the active conversation, wrapping
+around, and skipping the active tab itself.  Unlike plain cycling this
+works from any window — the point is to chase green tabs, so it pulls
+you into the pane (displaying it first if hidden)."
+  (let* ((convos (major-pane-state-conversations major-pane--state))
+         (active (major-pane-state-active major-pane--state))
+         (len (length convos))
+         (pos (or (cl-position active convos :test #'eq) 0))
+         (target (cl-loop for i from 1 below len
+                          for buf = (nth (mod (+ pos (* delta i)) len) convos)
+                          when (and (buffer-live-p buf)
+                                    (eq (buffer-local-value 'major-pane--tab-attention buf)
+                                        'done))
+                          return buf)))
+    (if target
+        (major-pane--focus-conversation target)
+      (message "No finished conversations waiting"))))
 
 ;;;###autoload
 (defun major-pane-next-tab ()
@@ -1114,6 +1261,18 @@ buffer in the pane window and focuses it."
   "Switch to the previous conversation tab."
   (interactive)
   (major-pane--cycle -1))
+
+;;;###autoload
+(defun major-pane-next-done-tab ()
+  "Jump to the next conversation with a finished, unengaged turn (green)."
+  (interactive)
+  (major-pane--cycle-done 1))
+
+;;;###autoload
+(defun major-pane-prev-done-tab ()
+  "Jump to the previous conversation with a finished, unengaged turn (green)."
+  (interactive)
+  (major-pane--cycle-done -1))
 
 ;;; Close
 
