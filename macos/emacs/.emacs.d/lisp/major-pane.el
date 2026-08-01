@@ -1645,6 +1645,16 @@ Uses the configured picker style for the `swap-buffer' action."
 ;; need to focus a conversation without knowing whether it lives in
 ;; the pane or was ejected to the main area.
 
+(defun major-pane--select-window (win)
+  "Select WIN, raising its frame when it lives on another one.
+Plain `select-window' only updates Emacs's internal selection; a
+window on a different frame (e.g. the pane locked to
+`major-pane-home-frame') also needs the OS window raised and given
+input focus, or focus never visibly follows across frames."
+  (unless (eq (window-frame win) (selected-frame))
+    (select-frame-set-input-focus (window-frame win)))
+  (select-window win))
+
 ;;;###autoload
 (defun major-pane-goto-conversation (buf)
   "Focus conversation BUF wherever it lives.
@@ -1654,17 +1664,17 @@ in its main-area window, creating one when the buffer is buried."
   (if (eq 'ejected (buffer-local-value 'major-pane--excluded buf))
       (let ((bwin (get-buffer-window buf t)))
         (if bwin
-            (select-window bwin)
+            (major-pane--select-window bwin)
           (select-window (major-pane--eject-target-window))
           (switch-to-buffer buf)))
     (setf (major-pane-state-active major-pane--state) buf)
     (let ((win (major-pane--visible-window)))
       (if win
           (progn (set-window-buffer win buf)
-                 (select-window win))
+                 (major-pane--select-window win))
         (when (eq 'hidden (major-pane-state-mode major-pane--state))
           (setf (major-pane-state-mode major-pane--state) 'side))
-        (select-window (major-pane--display buf))))))
+        (major-pane--select-window (major-pane--display buf))))))
 
 ;;; Launcher mode
 
