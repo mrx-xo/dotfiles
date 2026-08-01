@@ -244,6 +244,11 @@ alias shv='ssh vengeance'
 alias shb='ssh boox'                                     # Termux on the BOOX tablet (needs sshd running there)
 alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd+Shift+B
 
+# VENGEANCE RGB lights — one headless engine (lightsctl), swappable skins
+alias lights='~/.dotfiles/macos/scripts/lights/lights'          # Textual dashboard
+alias lights-gum='~/.dotfiles/macos/scripts/lights/lights gum'  # gum skin
+alias lightsctl='~/.dotfiles/macos/scripts/lights/lightsctl'    # CLI: status/random/set-effect/…
+
 # HeadlessX stealth scraper (lives on home-lab; normal state is DOWN, ~24s cold start)
 alias hx-up='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all up -d"'
 alias hx-down='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all down"'
