@@ -96,6 +96,7 @@ class LightsApp(App):
         ("r", "randomize", "🎲 random"),
         ("o", "rotation_on", "⟳ rotate"),
         ("p", "pin", "📌 pin"),
+        ("a", "schedule", "🗓 sched"),
         ("]", "bright_up", "☀+"),
         ("[", "bright_down", "☀-"),
         ("tab", "focus_next", "switch"),
@@ -124,8 +125,8 @@ class LightsApp(App):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
-                         "w wake · r random · o rotate · p pin · [ ] bright · q quit",
-                         id="help")
+                         "w wake · r random · o rotate · p pin · a schedule · "
+                         "[ ] bright · q quit", id="help")
         yield Footer()
 
     def on_mount(self):
@@ -152,24 +153,31 @@ class LightsApp(App):
             return
         self.waking = False
         st = self.status
+        if not st.get("on", True):
+            if st.get("forced") == "off":
+                txt = (f"🌑 forced off until {st.get('forced_until')}"
+                       "   —   a = back on schedule")
+            else:
+                txt = "🌙 night — LEDs black   —   pick an effect to light now"
+            self.query_one("#status", Static).update(txt)
+            return
         eff = st.get("effect", "?")
-        if st.get("mode") == "night":
-            txt = "🌙 night — LEDs black (rotation resumes at 08:00)"
+        bright = f"☀ {int(self.brightness * 100)}%"
+        if st.get("forced") == "on":
+            txt = f"● {eff}   🔦 on until {st.get('forced_until')}   {bright}"
         elif st.get("rotation"):
             secs = st.get("seconds_left")
             nxt = "held" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
-            txt = (f"● {eff}   ⟳ {st.get('preset')}   next {nxt}"
-                   f"   ☀ {int(self.brightness * 100)}%")
+            txt = f"● {eff}   ⟳ {st.get('preset')}   next {nxt}   {bright}"
         else:
-            txt = (f"● {eff}   📌 {st.get('mode')}"
-                   f"   ☀ {int(self.brightness * 100)}%")
+            txt = f"● {eff}   📌 {st.get('mode')}   {bright}"
         self.query_one("#status", Static).update(txt)
 
     def active_fn(self):
         if not self.reachable:
             return None
         st = self.status
-        if st.get("mode") == "night":
+        if not st.get("on", True):
             return None
         if st.get("mode") == "random" and st.get("params"):
             return effects.make_parametric(st["params"])
@@ -198,6 +206,21 @@ class LightsApp(App):
         self.call_from_thread(self.apply_state, data)
 
     @work(thread=True)
+    def send_seq(self, cmds):
+        for c in cmds:
+            ctl(*c)
+        data = ctl_json("state", "--json")
+        self.call_from_thread(self.apply_state, data)
+
+    def apply_cmd(self, *cmd):
+        """Change the look; if the lights are off now (night / forced-off),
+        turn them on first so the change is actually visible."""
+        if not self.status.get("on", True):
+            self.send_seq([("on",), cmd])
+        else:
+            self.send(*cmd)
+
+    @work(thread=True)
     def do_wake(self):
         ctl("wake")
 
@@ -216,16 +239,19 @@ class LightsApp(App):
             return
         oid = ev.option.id or ""
         if oid.startswith("e:"):
-            self.send("set-effect", oid[2:])
+            self.apply_cmd("set-effect", oid[2:])
         elif oid.startswith("p:"):
-            self.send("set-preset", oid[2:])
+            self.apply_cmd("set-preset", oid[2:])
 
     def on_button_pressed(self, ev: Button.Pressed):
         if ev.button.id == "rnd":
             self.action_randomize()
 
     def action_randomize(self):
-        self.send("random")
+        self.apply_cmd("random")
+
+    def action_schedule(self):
+        self.send("auto")
 
     def action_rotation_on(self):
         self.send("rotation", "on")

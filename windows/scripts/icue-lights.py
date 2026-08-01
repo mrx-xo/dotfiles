@@ -53,16 +53,33 @@ def seconds_left(control, now):
     return None  # pinned / random hold until the user changes them
 
 
-def write_status(control, name, now, swatch):
+def lights_on(control, now):
+    """Should the LEDs be lit right now?  A manual override (control.force =
+    'on'/'off' with a control.force_until epoch) wins until the next scheduled
+    boundary; otherwise follow the 08:00-23:00 day window."""
+    force = control.get("force")
+    if force in ("on", "off") and now < (control.get("force_until") or 0):
+        return force == "on", True          # (on?, override active)
+    hour = time.localtime(now).tm_hour
+    return DAY_START_HOUR <= hour < DAY_END_HOUR, False
+
+
+def write_status(control, name, now, swatch, is_on, forced):
     try:
+        rotation = is_on and control.get("mode", "rotation") == "rotation"
+        until = control.get("force_until") if forced else None
         STATUS_FILE.write_text(json.dumps({
-            "mode": control.get("mode", "rotation"),
+            "mode": control.get("mode", "rotation") if is_on else "night",
             "preset": control.get("preset", "rotation"),
             "effect": name,
-            "rotation": control.get("mode", "rotation") == "rotation",
+            "on": is_on,
+            "forced": control.get("force") if forced else None,
+            "forced_until": (time.strftime("%H:%M", time.localtime(until))
+                             if until else None),
+            "rotation": rotation,
             "brightness": control.get("brightness", 1.0),
             "params": control.get("params"),  # for random, so UIs can animate
-            "seconds_left": seconds_left(control, now),
+            "seconds_left": seconds_left(control, now) if rotation else None,
             "swatch": swatch,
             "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
         }))
@@ -121,27 +138,29 @@ def main():
                 sdk.set_layer_priority(LAYER_PRIORITY)
                 rig = build_rig(sdk)
                 last_refresh = now
-            if DAY_START_HOUR <= time.localtime(now).tm_hour < DAY_END_HOUR:
-                control = read_control()
+            control = read_control()
+            is_on, forced = lights_on(control, now)
+            if is_on:
                 name, fn = effects.resolve(control, now, EFFECT_MINUTES)
                 bright = control.get("brightness", 1.0)
                 # refresh status ~1s so the swatch/countdown stay live
-                if status != ("day", name) or now - status_ts > 1:
-                    status = ("day", name)
+                if status != ("on", name) or now - status_ts > 1:
+                    status = ("on", name)
                     status_ts = now
                     swatch = [[int(c * bright) for c in px]
                               for px in effects.sample_swatch(fn, now)]
-                    write_status(control, name, now, swatch)
+                    write_status(control, name, now, swatch, True, forced)
                 paint(sdk, rig, fn, now, bright)
                 time.sleep(1.0 / FPS)
             else:
-                if status != ("night", "black"):
-                    status = ("night", "black")
+                # poll control often so a manual "on" lights up within ~2s
+                if status != ("off", None) or now - status_ts > 1:
+                    status = ("off", None)
                     status_ts = now
-                    write_status({"mode": "night"}, "black", now,
-                                 [[0, 0, 0]] * 8)
+                    write_status(control, "black", now, [[0, 0, 0]] * 8,
+                                 False, forced)
                 paint(sdk, rig, lambda x, t: (0, 0, 0), now)
-                time.sleep(30)
+                time.sleep(2)
         except Exception:
             rig = []  # iCUE restarting or device hotplug; rebuild next tick
             time.sleep(5)

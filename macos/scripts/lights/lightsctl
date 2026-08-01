@@ -19,6 +19,7 @@ Talks to the box named by $LIGHTS_HOST (default: vengeance, an ssh alias).
 Control lives in ~/icue-scheduler/{control,status}.json on that box.
 """
 import argparse
+import datetime
 import json
 import os
 import subprocess
@@ -31,6 +32,7 @@ import effects  # noqa: E402
 
 HOST = os.environ.get("LIGHTS_HOST", "vengeance")
 MAC = os.environ.get("LIGHTS_MAC", "34:5A:60:C0:95:87")  # VENGEANCE Realtek NIC
+DAY_START_HOUR, DAY_END_HOUR = 8, 23      # keep in sync with icue-lights.py
 CONTROL = "icue-scheduler/control.json"   # home-relative on the box
 STATUS = "icue-scheduler/status.json"
 _SOCK = f"/tmp/lightsctl-{HOST}.sock"
@@ -75,6 +77,20 @@ def is_reachable():
     return r.returncode == 0
 
 
+def next_boundary(now=None):
+    """Epoch of the next 08:00 or 23:00 — where a manual override expires and
+    the schedule takes back over."""
+    now = now if now is not None else time.time()
+    lt = datetime.datetime.fromtimestamp(now)
+    best = None
+    for h in (DAY_START_HOUR, DAY_END_HOUR):
+        b = lt.replace(hour=h, minute=0, second=0, microsecond=0)
+        if b <= lt:
+            b += datetime.timedelta(days=1)
+        best = b if best is None else min(best, b)
+    return best.timestamp()
+
+
 def send_magic_packet(mac=MAC):
     """Broadcast a Wake-on-LAN magic packet. Works on the local LAN (home);
     from off-LAN you'd relay it via homelab. Only wakes from S5, not sleep."""
@@ -111,12 +127,18 @@ def render_lights(st):
     if not st:
         print("no status yet (lights task not running?)")
         return
-    eff = st.get("effect", "?")
-    if st.get("mode") == "night":
-        print("🌙 night — LEDs black")
+    if not st.get("on", True):
+        if st.get("forced") == "off":
+            print(f"🌑 forced off until {st.get('forced_until')}  "
+                  "(`auto` to resume schedule)")
+        else:
+            print("🌙 night — LEDs black  (pick an effect or `on` to light now)")
         return
+    eff = st.get("effect", "?")
     line = f"● {eff}"
-    if st.get("rotation"):
+    if st.get("forced") == "on":
+        line += f"  🔦 on until {st.get('forced_until')}"
+    elif st.get("rotation"):
         line += f"  ⟳ {st.get('preset')}  next {fmt_countdown(st.get('seconds_left'))}"
     else:
         line += f"  📌 {st.get('mode')}"
@@ -160,6 +182,31 @@ def cmd_wake(args):
             time.sleep(2)
         print("… no answer after 90s — booting from S5 can take a while, "
               "or check BIOS Wake-on-LAN")
+
+
+def _force(state):
+    c = current_control()
+    c["force"] = state
+    c["force_until"] = next_boundary()
+    write_control(c)
+    until = time.strftime("%H:%M", time.localtime(c["force_until"]))
+    return until
+
+
+def cmd_on(args):
+    print(f"🔦 lights forced on until {_force('on')}  (then back on schedule)")
+
+
+def cmd_off(args):
+    print(f"🌑 lights forced off until {_force('off')}  (then back on schedule)")
+
+
+def cmd_auto(args):
+    c = current_control()
+    c.pop("force", None)
+    c.pop("force_until", None)
+    write_control(c)
+    print("🗓  back on schedule (lit 08:00–23:00, black overnight)")
 
 
 def cmd_list(args):
@@ -256,6 +303,9 @@ def main():
     s.set_defaults(fn=cmd_state)
     s = sub.add_parser("wake"); s.add_argument("--wait", action="store_true")
     s.set_defaults(fn=cmd_wake)
+    sub.add_parser("on").set_defaults(fn=cmd_on)
+    sub.add_parser("off").set_defaults(fn=cmd_off)
+    sub.add_parser("auto").set_defaults(fn=cmd_auto)
     s = sub.add_parser("list"); s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_list)
     s = sub.add_parser("set-effect"); s.add_argument("name")

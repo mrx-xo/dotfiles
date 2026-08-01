@@ -20,10 +20,14 @@ while true; do
   "$CTL" state
   echo
   choice=$(gum choose --header "what now?" \
-    "🔌 wake VENGEANCE" "🎨 pick effect" "🎛  pick preset" "🎲 randomize" \
+    "🔌 wake VENGEANCE" "🔦 lights on" "🌑 lights off" "🗓 schedule" \
+    "🎨 pick effect" "🎛  pick preset" "🎲 randomize" \
     "⟳ rotation on" "📌 pin current" "☀ brightness" "🔄 refresh" "✖ quit")
   case "$choice" in
     "🔌 wake VENGEANCE") "$CTL" wake --wait ;;
+    "🔦 lights on")  "$CTL" on ;;
+    "🌑 lights off") "$CTL" off ;;
+    "🗓 schedule")   "$CTL" auto ;;
     "🎨 pick effect")
       name=$(names effects | gum choose --header "effect") || true
       [ -n "${name:-}" ] && "$CTL" set-effect "$name" ;;
