@@ -1,32 +1,49 @@
 #!/usr/bin/env bash
-# agent-session-handoff.sh — hand off a Claude / agent-shell conversation
-# between fleet machines (MrX <-> MrX2) via the Syncthing'd ~/shared folder.
+# agent-session-handoff.sh — hand off / sync agent-shell conversations between
+# fleet machines (MrX <-> MrX2), with home-lab as an always-on hub.
 #
 # A conversation lives entirely in its JSONL transcript at
 #   ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl
-# agent-shell resumes from that file (M-x agent-shell-resume-session, or the
-# dedicated `mr-x/agent-resume-handoff' / SPC c H), so moving the file — with
-# paths rewritten for the target machine — is all it takes to continue a chat
+# agent-shell resumes from that file (mr-x/agent-resume-handoff, SPC c H), so
+# moving it — with paths rewritten for the target machine — continues the chat
 # on the other Mac.
 #
-# Two path adjustments make it work across machines:
+# Two path adjustments make resume work across machines:
 #   1. home differs   (/Users/marcosandrade vs /Users/MrX2)
 #   2. the repo may sit at a different REAL path per machine — MrX2's
 #      ~/.dotfiles is a symlink to ~/dotfiles. Claude Code names its projects
 #      dir from the RESOLVED cwd (pwd -P), so import must resolve symlinks or
-#      the transcript lands in a folder Claude never reads -> blank resume.
+#      the transcript lands where Claude never reads -> blank resume.
 # Everything derives from the LOCAL $HOME, so the same script works either way.
 #
+# Transports:
+#   - `export'/`import' : one-off, via the Syncthing'd ~/shared (peer to peer).
+#   - `sync'            : bidirectional, via home-lab. Pushes YOUR sessions from
+#                         the last RECENT_DAYS, pulls everyone else's. home-lab
+#                         is a dumb blob store (runs no code), namespaced by
+#                         machine so rsync --delete can prune safely.
+# The receiving side (SPC c H) hides handoffs whose project cwd doesn't exist
+# locally, so a chat from a project you don't have here simply won't show up
+# (and reappears on its own if you ever set that project up).
+#
 # Usage:
-#   agent-session-handoff.sh list [substr]      # local sessions (optionally filtered)
-#   agent-session-handoff.sh export <id|substr>  # stage a session into ~/shared
-#   agent-session-handoff.sh import <id|substr>  # pull a synced session into local ~/.claude
-#   agent-session-handoff.sh inbox               # sessions waiting in ~/shared for this machine
+#   agent-session-handoff.sh sync                # push recent local + pull hub
+#   agent-session-handoff.sh list [substr]       # local sessions (optionally filtered)
+#   agent-session-handoff.sh export <id|substr>  # stage one session into ~/shared
+#   agent-session-handoff.sh import <id|substr>  # place a staged session into ~/.claude
+#   agent-session-handoff.sh inbox               # sessions staged for this machine
 
 set -euo pipefail
 
 PROJECTS="$HOME/.claude/projects"
-SHARED="$HOME/shared/agent-sessions"
+SHARED="$HOME/shared/agent-sessions"                # manual export path (Syncthing peer-to-peer)
+STAGING="$HOME/.local/share/agent-session-handoff"  # sync path (non-synced local mirror of the hub)
+MACHINE="$(cat "$HOME/.config/machine-id" 2>/dev/null || hostname)"
+
+# home-lab hub — dumb rsync target for `sync', namespaced by machine.
+REMOTE_HOST="homelab"
+REMOTE_DIR="agent-sessions"   # ~/agent-sessions on the hub
+RECENT_DAYS=7                 # only sessions touched this recently get synced
 
 die() { printf 'agent-session-handoff: %s\n' "$*" >&2; exit 1; }
 
@@ -71,6 +88,26 @@ print(" ".join((title or first or "").split())[:80])
 PY
 }
 
+# Stage a transcript (jsonl + KEY=VALUE meta) into DEST. Echoes the session id.
+# Returns non-zero without staging for metadata stubs that carry no cwd.
+stage_session() {
+  local src="$1" dest="$2" id cwd title
+  id=$(basename "$src" .jsonl)
+  cwd=$(grep -m1 -o '"cwd":"[^"]*"' "$src" | head -1 | sed 's/"cwd":"//;s/"$//') || true
+  [ -n "$cwd" ] || return 1
+  title=$(extract_title "$src")
+  mkdir -p "$dest"
+  cp "$src" "$dest/$id.jsonl"
+  {
+    printf 'SESSION_ID=%s\n'  "$id"
+    printf 'SRC_HOME=%s\n'    "$HOME"
+    printf 'SRC_CWD=%s\n'     "$cwd"
+    printf 'SRC_MACHINE=%s\n' "$MACHINE"
+    printf 'TITLE=%s\n'       "$title"
+  } > "$dest/$id.meta"
+  printf '%s' "$id"
+}
+
 # find a local transcript by exact id or substring; echo its full path
 find_local() {
   local q="$1" matches
@@ -98,53 +135,41 @@ cmd_list() {
 
 cmd_export() {
   local q="${1:-}"; [ -n "$q" ] || die "usage: export <id|substr>"
-  local src id cwd title
+  local src id
   src=$(find_local "$q")
-  id=$(basename "$src" .jsonl)
-  # pull the real cwd straight from the transcript (every message line carries it)
-  cwd=$(grep -m1 -o '"cwd":"[^"]*"' "$src" | head -1 | sed 's/"cwd":"//;s/"$//') || true
-  [ -n "$cwd" ] || die "no cwd in $src — not a resumable transcript (metadata stub?)"
-  title=$(extract_title "$src")
-
-  mkdir -p "$SHARED"
-  cp "$src" "$SHARED/$id.jsonl"
-  # meta is KEY=VALUE, parsed via meta_get (never sourced). TITLE may hold spaces.
-  {
-    printf 'SESSION_ID=%s\n' "$id"
-    printf 'SRC_HOME=%s\n'   "$HOME"
-    printf 'SRC_CWD=%s\n'    "$cwd"
-    printf 'SRC_MACHINE=%s\n' "$(cat "$HOME/.config/machine-id" 2>/dev/null || hostname)"
-    printf 'TITLE=%s\n'      "$title"
-  } > "$SHARED/$id.meta"
-
-  printf 'exported %s\n  title: %s\n  cwd:   %s\n  -> %s\n\nOn the other machine:  agent-session-handoff.sh import %s\n' \
-    "$id" "${title:-(untitled)}" "$cwd" "$SHARED/$id.jsonl" "$id"
+  id=$(stage_session "$src" "$SHARED") \
+    || die "no cwd in $src — not a resumable transcript (metadata stub?)"
+  printf 'exported %s\n  -> %s\n\nOn the other machine:  agent-session-handoff.sh import %s\n' \
+    "$id" "$SHARED/$id.jsonl" "$id"
 }
 
 cmd_inbox() {
-  [ -d "$SHARED" ] || { echo "(nothing in $SHARED)"; return; }
-  local found=
-  for m in "$SHARED"/*.meta; do
+  local found= m
+  while IFS= read -r m; do
     [ -e "$m" ] || continue
     found=1
     printf '%s  from %-8s  %s\n' \
       "$(meta_get SESSION_ID "$m")" "$(meta_get SRC_MACHINE "$m")" \
       "$(meta_get TITLE "$m")"
-  done
-  [ -n "$found" ] || echo "(nothing in $SHARED)"
+  done < <(find "$SHARED" "$STAGING" -name '*.meta' 2>/dev/null)
+  [ -n "$found" ] || echo "(nothing staged — run: agent-session-handoff.sh sync)"
 }
 
 cmd_import() {
   local q="${1:-}"; [ -n "$q" ] || die "usage: import <id|substr>"
-  local meta; meta=$(find "$SHARED" -name "*${q}*.meta" 2>/dev/null | head -1 || true)
-  [ -n "$meta" ] || die "no synced session matching '$q' in $SHARED"
+  local dirs=()
+  [ -d "$SHARED" ] && dirs+=("$SHARED")
+  [ -d "$STAGING" ] && dirs+=("$STAGING")
+  [ ${#dirs[@]} -gt 0 ] || die "no staged sessions (run: sync)"
+  local meta; meta=$(find "${dirs[@]}" -name "*${q}*.meta" 2>/dev/null | head -1 || true)
+  [ -n "$meta" ] || die "no staged session matching '$q'"
 
   local id src_home src_cwd
   id=$(meta_get SESSION_ID "$meta")
   src_home=$(meta_get SRC_HOME "$meta")
   src_cwd=$(meta_get SRC_CWD "$meta")
   [ -n "$id" ] && [ -n "$src_home" ] && [ -n "$src_cwd" ] || die "meta $meta is incomplete"
-  local jsonl="$SHARED/$id.jsonl"
+  local jsonl; jsonl="$(dirname "$meta")/$id.jsonl"
   [ -f "$jsonl" ] || die "meta found but transcript missing: $jsonl"
 
   # translate home prefix, then resolve symlinks the way Claude Code will
@@ -163,10 +188,32 @@ cmd_import() {
     "$id" "$tgt_cwd" "$dest/$id.jsonl" "$tgt_cwd" "$id"
 }
 
+cmd_sync() {
+  command -v rsync >/dev/null 2>&1 || die "rsync not found"
+  # 1. push — stage this machine's recent sessions, mirror our namespace to the
+  #    hub. -maxdepth 2 / -not -name 'agent-*' skips subagent + sidechain files.
+  local outbox n=0 f
+  outbox=$(mktemp -d)
+  while IFS= read -r f; do
+    stage_session "$f" "$outbox" >/dev/null 2>&1 && n=$((n + 1)) || true
+  done < <(find "$PROJECTS" -maxdepth 2 -name '*.jsonl' -not -name 'agent-*' \
+                -mtime -"$RECENT_DAYS" 2>/dev/null)
+  ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR/$MACHINE'" \
+    || { rm -rf "$outbox"; die "cannot reach hub ($REMOTE_HOST)"; }
+  rsync -az --delete "$outbox/" "$REMOTE_HOST:$REMOTE_DIR/$MACHINE/"
+  rm -rf "$outbox"
+  # 2. pull — mirror the whole hub store into local (non-synced) staging.
+  mkdir -p "$STAGING"
+  rsync -az --delete "$REMOTE_HOST:$REMOTE_DIR/" "$STAGING/"
+  printf 'sync: pushed %d recent session(s) as "%s"; pulled hub -> %s\n' \
+    "$n" "$MACHINE" "$STAGING"
+}
+
 case "${1:-}" in
+  sync)   cmd_sync ;;
   list)   shift; cmd_list "${1:-}" ;;
   export) shift; cmd_export "${1:-}" ;;
   import) shift; cmd_import "${1:-}" ;;
   inbox)  cmd_inbox ;;
-  *) die "usage: agent-session-handoff.sh {list|export|import|inbox} [id|substr]" ;;
+  *) die "usage: agent-session-handoff.sh {sync|list|export|import|inbox} [id|substr]" ;;
 esac
