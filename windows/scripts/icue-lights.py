@@ -1,24 +1,29 @@
 """Resident Corsair lighting driver for VENGEANCE.
 
-Day (08:00-23:00): a random EFFECT plays each 5-minute slot (never the
-same one twice in a row), so the rotation keeps surprising you.
+Day (08:00-23:00): plays the effect chosen by ~/icue-scheduler/control.json.
+By default that's the rotation — a random effect from the active preset each
+5-minute slot (never the same twice in a row). control.json can instead pin
+one effect or a 🎲 random parametric look; the Mac `lightsctl` writes it.
 Night: all LEDs black. Runs from logon via scheduled task ICUELights;
 ~/icue-scheduler/stop.flag makes it hand lighting back to iCUE and exit.
 
-Colors are painted at layer priority 135 (above iCUE profiles and
-Wallpaper Engine). No sdk.disconnect() on exit — it SIGILLs in cuesdk
-4.0.84; dropping our layer to 0 then exiting is the clean hand-back.
+Effects live in shared/lights/effects.py (imported below) so the Mac side can
+render identical previews. Colors are painted at layer priority 135 (above
+iCUE profiles and Wallpaper Engine). No sdk.disconnect() on exit — it SIGILLs
+in cuesdk 4.0.84; dropping our layer to 0 then exiting is the clean hand-back.
 Venv: ~/icue-scheduler/.venv (cuesdk). Setup: setup-icue-scheduler.ps1.
 """
-import colorsys
 import json
-import math
-import random
+import sys
 import threading
 import time
 from pathlib import Path
 
-from cuesdk import (CueSdk, CorsairDeviceFilter, CorsairDeviceType,
+# shared effect definitions live at <repo>/shared/lights/effects.py
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "lights"))
+import effects  # noqa: E402
+
+from cuesdk import (CueSdk, CorsairDeviceFilter, CorsairDeviceType,  # noqa: E402
                     CorsairLedColor, CorsairSessionState)
 
 DAY_START_HOUR = 8
@@ -26,73 +31,43 @@ DAY_END_HOUR = 23
 EFFECT_MINUTES = 5
 FPS = 15
 LAYER_PRIORITY = 135
-STOP_FLAG = Path.home() / "icue-scheduler" / "stop.flag"
 
-STATUS_FILE = Path.home() / "icue-scheduler" / "status.json"
-
-BREATH_MIN_S, BREATH_MAX_S = 45, 90  # breath length drifts in this range
-DEPTH_MIN, DEPTH_MAX = 0.7, 1.0      # how far each breath sinks into ember
-
-_breath = {"phase": 0.0, "last_t": None}
+STATE_DIR = Path.home() / "icue-scheduler"
+STOP_FLAG = STATE_DIR / "stop.flag"
+CONTROL_FILE = STATE_DIR / "control.json"
+STATUS_FILE = STATE_DIR / "status.json"
 
 
-def white_ember_breathe(x, t):
-    # Breath length and depth each drift on slow, unrelated cycles, so no
-    # two breaths look alike. Phase is integrated frame-to-frame because
-    # the period keeps changing under it.
-    st = _breath
-    if t != st["last_t"]:
-        period = BREATH_MIN_S + (BREATH_MAX_S - BREATH_MIN_S) * (
-            0.5 + 0.5 * math.sin(t / 137))
-        dt = min(t - st["last_t"], 1.0) if st["last_t"] is not None else 0.0
-        st["phase"] += 2 * math.pi * dt / period
-        st["last_t"] = t
-    depth = DEPTH_MIN + (DEPTH_MAX - DEPTH_MIN) * (
-        0.5 + 0.5 * math.sin(t / 211 + 1))
-    # slight per-LED phase offset (x) so the glow rolls, not pulses flat
-    breath = depth * (0.5 - 0.5 * math.cos(st["phase"] + x * 0.6))
-    # white (sat 0) sinking to ember: saturation up, brightness down to 50%
-    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
+def read_control():
+    try:
+        return json.loads(CONTROL_FILE.read_text())
+    except (OSError, ValueError):
+        return {"mode": "rotation", "preset": "rotation", "brightness": 1.0}
 
 
-# Each effect: (name, f(x, t) -> (r, g, b) floats 0-1).
-# x = LED position across its device (0-1), t = epoch seconds.
-EFFECTS = [
-    ("white-ember breathe", white_ember_breathe),
-    ("hue sweep", lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1)),
-    ("rainbow wave", lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1)),
-    ("purple breathe", lambda x, t: colorsys.hsv_to_rgb(0.78, 1, 0.08 + 0.85 * (0.5 - 0.5 * math.cos(t * math.pi / 3)))),
-    ("ocean drift", lambda x, t: colorsys.hsv_to_rgb(0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9)),
-    ("ember", lambda x, t: colorsys.hsv_to_rgb(0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6))),
-    ("warm gruvbox", lambda x, t: colorsys.hsv_to_rgb(0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9)),
-]
+def seconds_left(control, now):
+    """How long until the visible look next changes."""
+    if control.get("mode", "rotation") == "rotation":
+        slot = EFFECT_MINUTES * 60
+        return int((now // slot + 1) * slot - now)
+    return None  # pinned / random hold until the user changes them
 
 
-def slot_effect_index(now):
-    """Pick a random effect for the current 5-min slot, deterministic within
-    the slot and never equal to the previous slot's pick."""
-    slot = int(now // (EFFECT_MINUTES * 60))
-    idx = random.Random(slot).randrange(len(EFFECTS))
-    prev = random.Random(slot - 1).randrange(len(EFFECTS))
-    if idx == prev:
-        idx = (idx + 1) % len(EFFECTS)
-    return idx
-
-
-def write_status(mode, effect, now):
-    slot = EFFECT_MINUTES * 60
+def write_status(control, name, now, swatch):
     try:
         STATUS_FILE.write_text(json.dumps({
-            "mode": mode,
-            "effect": effect,
-            "since": time.strftime("%H:%M", time.localtime(now // slot * slot)),
-            "next_change": time.strftime(
-                "%H:%M", time.localtime((now // slot + 1) * slot))
-            if mode == "day" else f"{DAY_START_HOUR:02d}:00",
+            "mode": control.get("mode", "rotation"),
+            "preset": control.get("preset", "rotation"),
+            "effect": name,
+            "rotation": control.get("mode", "rotation") == "rotation",
+            "brightness": control.get("brightness", 1.0),
+            "seconds_left": seconds_left(control, now),
+            "swatch": swatch,
             "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
         }))
     except OSError:
         pass
+
 
 connected = threading.Event()
 
@@ -119,11 +94,11 @@ def build_rig(sdk):
     return rig
 
 
-def paint(sdk, rig, fn, t):
+def paint(sdk, rig, fn, t, brightness=1.0):
     for did, leds in rig:
         sdk.set_led_colors(did, [
-            CorsairLedColor(id=lid, a=255,
-                            **dict(zip("rgb", (int(c * 255) for c in fn(x, t)))))
+            CorsairLedColor(id=lid, a=255, **dict(zip(
+                "rgb", (int(c * brightness * 255) for c in fn(x, t)))))
             for lid, x in leds
         ])
 
@@ -135,6 +110,7 @@ def main():
     rig = []
     last_refresh = 0.0
     status = None
+    status_ts = 0.0
     while not STOP_FLAG.exists():
         if not connected.wait(timeout=60):
             continue
@@ -145,17 +121,24 @@ def main():
                 rig = build_rig(sdk)
                 last_refresh = now
             if DAY_START_HOUR <= time.localtime(now).tm_hour < DAY_END_HOUR:
-                idx = slot_effect_index(now)
-                name, fn = EFFECTS[idx]
-                if status != ("day", name):
+                control = read_control()
+                name, fn = effects.resolve(control, now, EFFECT_MINUTES)
+                bright = control.get("brightness", 1.0)
+                # refresh status ~1s so the swatch/countdown stay live
+                if status != ("day", name) or now - status_ts > 1:
                     status = ("day", name)
-                    write_status(*status, now)
-                paint(sdk, rig, fn, now)
+                    status_ts = now
+                    swatch = [[int(c * bright) for c in px]
+                              for px in effects.sample_swatch(fn, now)]
+                    write_status(control, name, now, swatch)
+                paint(sdk, rig, fn, now, bright)
                 time.sleep(1.0 / FPS)
             else:
                 if status != ("night", "black"):
                     status = ("night", "black")
-                    write_status(*status, now)
+                    status_ts = now
+                    write_status({"mode": "night"}, "black", now,
+                                 [[0, 0, 0]] * 8)
                 paint(sdk, rig, lambda x, t: (0, 0, 0), now)
                 time.sleep(30)
         except Exception:

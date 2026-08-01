@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""lightsctl — headless control engine for the VENGEANCE lights.
+
+The single seam between UIs and the machine: every front-end (gum, Textual,
+whatever comes next) calls these subcommands and parses the JSON/ANSI they
+print. No UI ever touches SSH or the control files directly — swap skins
+freely as long as they speak this contract.
+
+  lightsctl status [--json]        current effect, preset, countdown, colors
+  lightsctl list [--json]          available effects and presets
+  lightsctl set-effect NAME        pin one effect
+  lightsctl set-preset NAME        rotation drawing from a preset's pool
+  lightsctl rotation on|off        resume rotation / pin whatever's showing
+  lightsctl random                 roll a fresh parametric look (the 🎲)
+  lightsctl brightness 0.0-1.0     scale overall brightness
+  lightsctl preview NAME [--secs S] animate an effect's colors locally
+
+Talks to the box named by $LIGHTS_HOST (default: vengeance, an ssh alias).
+Control lives in ~/icue-scheduler/{control,status}.json on that box.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared" / "lights"))
+import effects  # noqa: E402
+
+HOST = os.environ.get("LIGHTS_HOST", "vengeance")
+CONTROL = "icue-scheduler/control.json"   # home-relative on the box
+STATUS = "icue-scheduler/status.json"
+_SOCK = f"/tmp/lightsctl-{HOST}.sock"
+_SSH = ["ssh", "-o", "ControlMaster=auto", "-o", f"ControlPath={_SOCK}",
+        "-o", "ControlPersist=120", "-o", "ConnectTimeout=6",
+        "-o", "BatchMode=yes", HOST]
+
+
+def _run(cmd, data=None):
+    return subprocess.run(_SSH + [cmd], input=data, capture_output=True,
+                          text=True)
+
+
+def read_remote(path):
+    r = _run(f"cat {path} 2>/dev/null")
+    if r.returncode != 0 or not r.stdout.strip():
+        return {}
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {}
+
+
+def write_control(control):
+    _run(f"cat > {CONTROL}", data=json.dumps(control))
+
+
+def current_control():
+    c = read_remote(CONTROL)
+    if not c:
+        c = {"mode": "rotation", "preset": "rotation", "brightness": 1.0}
+    c.setdefault("brightness", 1.0)
+    return c
+
+
+# --- rendering -----------------------------------------------------------
+def swatch_bar(swatch, width=4):
+    cells = []
+    for r, g, b in swatch:
+        cells.append(f"\x1b[48;2;{r};{g};{b}m{' ' * width}\x1b[0m")
+    return "".join(cells)
+
+
+def fmt_countdown(secs):
+    if secs is None:
+        return "held"
+    return f"{secs // 60}m{secs % 60:02d}s"
+
+
+# --- commands ------------------------------------------------------------
+def cmd_status(args):
+    st = read_remote(STATUS)
+    if args.json:
+        print(json.dumps(st))
+        return
+    if not st:
+        print("no status yet (is the box awake and the lights task running?)")
+        return
+    eff = st.get("effect", "?")
+    if st.get("mode") == "night":
+        print("🌙 night — LEDs black")
+        return
+    line = f"● {eff}"
+    if st.get("rotation"):
+        line += f"  ⟳ {st.get('preset')}  next {fmt_countdown(st.get('seconds_left'))}"
+    else:
+        line += f"  📌 {st.get('mode')}"
+    bright = st.get("brightness", 1.0)
+    if bright < 1.0:
+        line += f"  ☀ {int(bright * 100)}%"
+    print(line)
+    if st.get("swatch"):
+        print(swatch_bar(st["swatch"]))
+
+
+def cmd_list(args):
+    if args.json:
+        print(json.dumps({"effects": list(effects.EFFECTS),
+                          "presets": {k: v for k, v in effects.PRESETS.items()}}))
+        return
+    print("effects:")
+    for n in effects.EFFECTS:
+        print(f"  {n}")
+    print("presets:")
+    for n, pool in effects.PRESETS.items():
+        print(f"  {n}: {', '.join(pool)}")
+
+
+def cmd_set_effect(args):
+    if args.name not in effects.EFFECTS:
+        sys.exit(f"unknown effect: {args.name} (see: lightsctl list)")
+    c = current_control()
+    c.update(mode="pinned", effect=args.name)
+    write_control(c)
+    print(f"📌 pinned: {args.name}")
+
+
+def cmd_set_preset(args):
+    if args.name not in effects.PRESETS:
+        sys.exit(f"unknown preset: {args.name} (see: lightsctl list)")
+    c = current_control()
+    c.update(mode="rotation", preset=args.name)
+    write_control(c)
+    print(f"⟳ rotation: {args.name}")
+
+
+def cmd_rotation(args):
+    c = current_control()
+    if args.state == "on":
+        c["mode"] = "rotation"
+        write_control(c)
+        print(f"⟳ rotation on ({c.get('preset', 'rotation')})")
+    else:
+        st = read_remote(STATUS)
+        name = st.get("effect")
+        if name in effects.EFFECTS:
+            c.update(mode="pinned", effect=name)
+            print(f"📌 pinned current: {name}")
+        else:
+            c.update(mode="pinned", effect=next(iter(effects.EFFECTS)))
+            print(f"📌 pinned: {c['effect']}")
+        write_control(c)
+
+
+def cmd_random(args):
+    p = effects.random_params()
+    c = current_control()
+    c.update(mode="random", params=p)
+    write_control(c)
+    fn = effects.make_parametric(p)
+    print("🎲 rolled a fresh look:")
+    print(swatch_bar(effects.sample_swatch(fn, time.time())))
+
+
+def cmd_brightness(args):
+    v = max(0.0, min(1.0, args.value))
+    c = current_control()
+    c["brightness"] = v
+    write_control(c)
+    print(f"☀ brightness {int(v * 100)}%")
+
+
+def cmd_preview(args):
+    if args.name not in effects.EFFECTS:
+        sys.exit(f"unknown effect: {args.name}")
+    fn = effects.EFFECTS[args.name]
+    end = time.time() + args.secs
+    try:
+        while time.time() < end:
+            now = time.time()
+            sys.stdout.write("\r" + swatch_bar(
+                effects.sample_swatch(fn, now, 16), width=2))
+            sys.stdout.flush()
+            time.sleep(1 / 30)
+    except KeyboardInterrupt:
+        pass
+    sys.stdout.write("\n")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="lightsctl")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("status"); s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("list"); s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_list)
+    s = sub.add_parser("set-effect"); s.add_argument("name")
+    s.set_defaults(fn=cmd_set_effect)
+    s = sub.add_parser("set-preset"); s.add_argument("name")
+    s.set_defaults(fn=cmd_set_preset)
+    s = sub.add_parser("rotation"); s.add_argument("state", choices=["on", "off"])
+    s.set_defaults(fn=cmd_rotation)
+    s = sub.add_parser("random"); s.set_defaults(fn=cmd_random)
+    s = sub.add_parser("brightness"); s.add_argument("value", type=float)
+    s.set_defaults(fn=cmd_brightness)
+    s = sub.add_parser("preview"); s.add_argument("name")
+    s.add_argument("--secs", type=float, default=6.0)
+    s.set_defaults(fn=cmd_preview)
+
+    args = ap.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
