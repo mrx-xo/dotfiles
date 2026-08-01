@@ -76,7 +76,7 @@ Each entry is a string captured from the buffer.")
     ;; Message
     (let ((count (with-current-buffer shell-buf
                    (length agent-shell-refs--list))))
-      (message "📎 Referenced (%d attached)" count))
+      (message "%s Referenced (%d attached)" (agent-shell-refs--pill-icon) count))
     ;; Update modeline + headerline
     (with-current-buffer shell-buf
       (agent-shell-refs--update-headerline)
@@ -93,7 +93,7 @@ Each entry is a string captured from the buffer.")
         (setq agent-shell-refs--list nil)
         (agent-shell-refs--update-headerline)
         (force-mode-line-update))
-      (message "📎 Refs cleared"))))
+      (message "%s Refs cleared" (agent-shell-refs--pill-icon)))))
 
 (defun agent-shell-refs-remove ()
   "Pick a reference to remove."
@@ -113,7 +113,8 @@ Each entry is a string captured from the buffer.")
         (setq agent-shell-refs--list (delete ref agent-shell-refs--list))
         (agent-shell-refs--update-headerline)
         (force-mode-line-update)
-        (message "📎 Removed (%d remaining)" (length agent-shell-refs--list))))))
+        (message "%s Removed (%d remaining)" (agent-shell-refs--pill-icon)
+                 (length agent-shell-refs--list))))))
 
 ;;; --- Preview ---
 
@@ -124,7 +125,7 @@ Each entry is a string captured from the buffer.")
     (unless buf (user-error "No agent-shell buffer"))
     (let ((refs (buffer-local-value 'agent-shell-refs--list buf)))
       (if (null refs)
-          (message "📎 No refs attached")
+          (message "%s No refs attached" (agent-shell-refs--pill-icon))
         (with-current-buffer (get-buffer-create "*agent-shell-refs*")
           (let ((inhibit-read-only t))
             (erase-buffer)
@@ -143,7 +144,8 @@ Each entry is a string captured from the buffer.")
   "Return modeline string showing ref count, or empty if none."
   (if (and (derived-mode-p 'agent-shell-mode)
            agent-shell-refs--list)
-      (propertize (format " 📎%d" (length agent-shell-refs--list))
+      (propertize (format " %s%d" (agent-shell-refs--pill-icon)
+                           (length agent-shell-refs--list))
                   'face 'agent-shell-refs-modeline-face
                   'help-echo (format "%d reference(s) attached — click to preview"
                                      (length agent-shell-refs--list))
@@ -182,7 +184,8 @@ Each entry is a string captured from the buffer.")
            (shown (seq-take refs max-shown))
            (remaining (- total max-shown))
            (sep (propertize "  │  " 'face 'agent-shell-refs-headerline-separator-face))
-           (clip (propertize "📎 " 'face 'agent-shell-refs-headerline-clip-face))
+           (clip (propertize (concat (agent-shell-refs--pill-icon) " ")
+                              'face 'agent-shell-refs-headerline-clip-face))
            (snippets (mapcar (lambda (ref)
                                (propertize (agent-shell-refs--truncate ref 25)
                                            'face 'agent-shell-refs-headerline-face))

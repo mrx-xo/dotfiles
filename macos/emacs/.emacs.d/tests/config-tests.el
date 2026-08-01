@@ -120,6 +120,13 @@
   "Hydra should be loaded for transient key menus."
   (should (featurep 'hydra)))
 
+(ert-deftest config-test-mode-hydras-defined ()
+  "Per-mode hydras dispatched by `mr-x/mode-hydra' should be defined."
+  (should (fboundp 'mr-x/mode-hydra))
+  (dolist (body '(hydra-dired/body hydra-ibuffer/body hydra-info/body
+                  hydra-ediff/body hydra-window/body hydra-zoom/body))
+    (should (fboundp body))))
+
 ;; Deferred packages — test that autoloads registered the commands,
 ;; even though the library isn't loaded yet.
 
@@ -670,13 +677,17 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
               'mr-x/agent-shell-smart-paste)))
 
 (ert-deftest config-test-agent-shell-permission-keys ()
-  "agent-shell 1/2/3 permission digit keys must be bound and the queue variable must exist."
+  "agent-shell permission actions live on the macro pad (F13-F16); queue variable must exist.
+Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should (boundp 'mr-x/pending-permissions-queue))
-  ;; 1/2/3 are bound to lambdas wrapping mr-x/agent-shell-permission-or-digit
-  (should (config-test--evil-key agent-shell-mode-map 'normal "1"))
-  (should (config-test--evil-key agent-shell-mode-map 'normal "2"))
-  (should (config-test--evil-key agent-shell-mode-map 'normal "3"))
-  (should (config-test--evil-key agent-shell-mode-map 'normal "0")))
+  (should (eq (lookup-key agent-shell-mode-map (kbd "<f13>"))
+              'mr-x/agent-shell-allow))
+  (should (eq (lookup-key agent-shell-mode-map (kbd "<f14>"))
+              'mr-x/agent-shell-deny))
+  (should (eq (lookup-key agent-shell-mode-map (kbd "<f15>"))
+              'mr-x/agent-shell-allow-always))
+  (should (eq (lookup-key agent-shell-mode-map (kbd "<f16>"))
+              'mr-x/agent-shell-view-diff)))
 
 ;; ── SPC c (Agent Shell leader subtree) ─────────────────────────────────────
 

@@ -1404,140 +1404,172 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
   org-roam-ui-update-on-save t
   org-roam-ui-open-on-start t))
 
-;;; ============================================
-;;; Mdox Cheatsheet System
-;;; ============================================
+  ;;; ============================================
+  ;;; Mdox Cheatsheet System
+  ;;; ============================================
 
-(define-minor-mode mr-x/mdox-reader-mode
-  "Clean, distraction-free reading mode for Mdox documentation."
-  :lighter " Mdox"
-  (if mr-x/mdox-reader-mode
-      (progn
-        (read-only-mode 1)
-        (org-modern-mode 1)
-        (olivetti-mode 1)
-        (setq-local olivetti-body-width 80)
-        (display-line-numbers-mode 1)
-        (visual-line-mode 1)
-        (setq-local org-hide-emphasis-markers t)
-        (setq-local header-line-format
-                    (propertize " Mdox  [q] quit  [n/p] navigate  [/] search  [TAB] fold"
-                                'face 'font-lock-comment-face))
-        ;; Start collapsed — see everything at a glance
-        (org-overview)
+  (define-minor-mode mr-x/mdox-reader-mode
+    "Clean, distraction-free reading mode for Mdox documentation."
+    :lighter " Mdox"
+    (if mr-x/mdox-reader-mode
+        (progn
+          (read-only-mode 1)
+          (org-modern-mode 1)
+          (olivetti-mode 1)
+          (setq-local olivetti-body-width 80)
+          (display-line-numbers-mode 1)
+          (visual-line-mode 1)
+          (setq-local org-hide-emphasis-markers t)
+          (setq-local header-line-format
+                      (propertize " Mdox  [q] quit  [n/p] navigate  [/] search  [TAB] fold"
+                                  'face 'font-lock-comment-face))
+          ;; Start collapsed — see everything at a glance
+          (org-overview)
+          (goto-char (point-min))
+          ;; Evil keybindings — buffer-local so they override org-mode's
+          (when (bound-and-true-p evil-mode)
+            (evil-normal-state)
+            (evil-local-set-key 'normal (kbd "q") #'quit-window)
+            (evil-local-set-key 'normal (kbd "n") #'mr-x/mdox-next-heading)
+            (evil-local-set-key 'normal (kbd "p") #'mr-x/mdox-prev-heading)
+            (evil-local-set-key 'normal (kbd "/") #'consult-line)
+            (evil-local-set-key 'normal (kbd "TAB") #'org-cycle)
+            ))
+      ;; Teardown
+      (read-only-mode -1)
+      (org-modern-mode -1)
+      (olivetti-mode -1)
+      (setq-local header-line-format nil)))
+
+  (defun mr-x/mdox-next-heading ()
+    "Navigate to next heading and auto-expand it."
+    (interactive)
+    (org-next-visible-heading 1)
+    (org-show-entry)
+    (org-show-children))
+
+  (defun mr-x/mdox-prev-heading ()
+    "Navigate to previous heading and auto-expand it."
+    (interactive)
+    (org-previous-visible-heading 1)
+    (org-show-entry)
+    (org-show-children))
+
+  (defun mr-x/mdox-view (id)
+    "Open an org-roam node by ID in a pretty popper popup."
+    (interactive)
+    (let* ((node (org-roam-node-from-id id))
+           (file (org-roam-node-file node))
+           (buf (find-file-noselect file)))
+      (with-current-buffer buf
         (goto-char (point-min))
-        ;; Evil keybindings — buffer-local so they override org-mode's
-        (when (bound-and-true-p evil-mode)
-          (evil-normal-state)
-          (evil-local-set-key 'normal (kbd "q") #'quit-window)
-          (evil-local-set-key 'normal (kbd "n") #'mr-x/mdox-next-heading)
-          (evil-local-set-key 'normal (kbd "p") #'mr-x/mdox-prev-heading)
-          (evil-local-set-key 'normal (kbd "/") #'consult-line)
-          (evil-local-set-key 'normal (kbd "TAB") #'org-cycle)
-          ))
-    ;; Teardown
-    (read-only-mode -1)
-    (org-modern-mode -1)
-    (olivetti-mode -1)
-    (setq-local header-line-format nil)))
+        (mr-x/mdox-reader-mode 1))
+      (select-window
+       (display-buffer buf
+                       '((display-buffer-in-side-window)
+                         (side . bottom)
+                         (window-height . 0.45))))))
 
-(defun mr-x/mdox-next-heading ()
-  "Navigate to next heading and auto-expand it."
-  (interactive)
-  (org-next-visible-heading 1)
-  (org-show-entry)
-  (org-show-children))
+  (defun mr-x/mdox-search ()
+    "Fuzzy search all Mdox nodes via org-roam-node-find."
+    (interactive)
+    (let ((org-roam-node-display-template
+           "${title:60} ${tags:20}"))
+      (org-roam-node-find nil "mdox")))
 
-(defun mr-x/mdox-prev-heading ()
-  "Navigate to previous heading and auto-expand it."
-  (interactive)
-  (org-previous-visible-heading 1)
-  (org-show-entry)
-  (org-show-children))
+  (defvar mr-x/shortcuts-file
+    "~/roaming/notes/mr-x-rig-mdox.org"
+    "Path to the rig reference file (shortcuts, commands, workflows).")
 
-(defun mr-x/mdox-view (id)
-  "Open an org-roam node by ID in a pretty popper popup."
-  (interactive)
-  (let* ((node (org-roam-node-from-id id))
-         (file (org-roam-node-file node))
-         (buf (find-file-noselect file)))
-    (with-current-buffer buf
+  (defun mr-x/view-shortcuts ()
+    "Open the shortcuts file in a pretty popper popup."
+    (interactive)
+    (let ((buf (find-file-noselect mr-x/shortcuts-file)))
+      (with-current-buffer buf
+        (goto-char (point-min))
+        (mr-x/mdox-reader-mode 1))
+      (select-window
+       (display-buffer buf
+                       '((display-buffer-in-side-window)
+                         (side . bottom)
+                         (window-height . 0.45))))))
+
+  (defun mr-x/search-shortcuts ()
+    "Open shortcuts file and immediately search with consult-line."
+    (interactive)
+    (find-file mr-x/shortcuts-file)
+    (mr-x/mdox-reader-mode 1)
+    (consult-line))
+
+  ;;; ============================================
+  ;;; File Grab — flat picker over the usual roots
+  ;;; ============================================
+
+  (defvar mr-x/file-grab-roots '("~/.dotfiles" "~/roaming")
+    "Roots that `mr-x/copy-file-path' offers files from.")
+
+  (defun mr-x/file-grab--candidates ()
+    "All files under `mr-x/file-grab-roots' as abbreviated paths.
+Uses fd: respects .gitignore, includes dotfiles, skips .git."
+    (mapcar #'abbreviate-file-name
+            (apply #'process-lines "fd" "--type" "f" "--hidden"
+                   "--exclude" ".git" "--absolute-path" "."
+                   (mapcar #'expand-file-name mr-x/file-grab-roots))))
+
+  (defun mr-x/copy-file-path ()
+    "Pick a file from the usual roots and copy its absolute path.
+Flat list — orderless matches anywhere in the path, no directory
+navigation.  Candidates are file targets, so embark actions
+(`s-r') work on them too."
+    (interactive)
+    (let* ((files (mr-x/file-grab--candidates))
+           (choice (completing-read
+                    "Copy path: "
+                    (lambda (str pred action)
+                      (if (eq action 'metadata)
+                          '(metadata (category . file))
+                        (complete-with-action action files str pred)))
+                    nil t)))
+      (kill-new (expand-file-name choice))
+      (message "Copied: %s" (expand-file-name choice))))
+
+  ;;; ============================================
+  ;;; Mdox Format Spec & Tooling
+  ;;; ============================================
+
+  ;; --- Spec (single source of truth) ---
+  (defvar mr-x/mdox-spec
+    '(:title-suffix "--Mdox"
+      :directory "~/roaming/notes/"
+      :required-headings ("Overview" "Quick Reference" "Concepts" "Patterns" "Gotchas" "Resources")
+      :max-depth 3)
+    "Canonical specification for Mdox document format.
+  All Mdox tooling (scaffolder, linter) derives from this spec.")
+
+  ;; --- Scaffolder ---
+  (defun mr-x/mdox-new (topic)
+    "Create a new Mdox document for TOPIC using the canonical spec."
+    (interactive "sTopic: ")
+    (let* ((slug (downcase (replace-regexp-in-string "[[:space:]]+" "-" (string-trim topic))))
+           (filename (expand-file-name (concat slug "-mdox.org")
+                                       (plist-get mr-x/mdox-spec :directory)))
+           (id (org-id-uuid))
+           (title (concat topic (plist-get mr-x/mdox-spec :title-suffix)))
+           (headings (plist-get mr-x/mdox-spec :required-headings)))
+      (when (file-exists-p filename)
+        (user-error "Mdox already exists: %s" filename))
+      (find-file filename)
+      (insert ":PROPERTIES:\n"
+              ":ID:       " id "\n"
+              ":END:\n"
+              "#+title: " title "\n")
+      (dolist (h headings)
+        (insert "\n* " h "\n"))
+      (save-buffer)
       (goto-char (point-min))
-      (mr-x/mdox-reader-mode 1))
-    (select-window
-     (display-buffer buf
-                     '((display-buffer-in-side-window)
-                       (side . bottom)
-                       (window-height . 0.45))))))
-
-(defun mr-x/mdox-search ()
-  "Fuzzy search all Mdox nodes via org-roam-node-find."
-  (interactive)
-  (let ((org-roam-node-display-template
-         "${title:60} ${tags:20}"))
-    (org-roam-node-find nil "mdox")))
-
-(defvar mr-x/shortcuts-file
-  "~/roaming/notes/mr-x-rig-mdox.org"
-  "Path to the rig reference file (shortcuts, commands, workflows).")
-
-(defun mr-x/view-shortcuts ()
-  "Open the shortcuts file in a pretty popper popup."
-  (interactive)
-  (let ((buf (find-file-noselect mr-x/shortcuts-file)))
-    (with-current-buffer buf
-      (goto-char (point-min))
-      (mr-x/mdox-reader-mode 1))
-    (select-window
-     (display-buffer buf
-                     '((display-buffer-in-side-window)
-                       (side . bottom)
-                       (window-height . 0.45))))))
-
-(defun mr-x/search-shortcuts ()
-  "Open shortcuts file and immediately search with consult-line."
-  (interactive)
-  (find-file mr-x/shortcuts-file)
-  (mr-x/mdox-reader-mode 1)
-  (consult-line))
-
-;;; ============================================
-;;; Mdox Format Spec & Tooling
-;;; ============================================
-
-;; --- Spec (single source of truth) ---
-(defvar mr-x/mdox-spec
-  '(:title-suffix "--Mdox"
-    :directory "~/roaming/notes/"
-    :required-headings ("Overview" "Quick Reference" "Concepts" "Patterns" "Gotchas" "Resources")
-    :max-depth 3)
-  "Canonical specification for Mdox document format.
-All Mdox tooling (scaffolder, linter) derives from this spec.")
-
-;; --- Scaffolder ---
-(defun mr-x/mdox-new (topic)
-  "Create a new Mdox document for TOPIC using the canonical spec."
-  (interactive "sTopic: ")
-  (let* ((slug (downcase (replace-regexp-in-string "[[:space:]]+" "-" (string-trim topic))))
-         (filename (expand-file-name (concat slug "-mdox.org")
-                                     (plist-get mr-x/mdox-spec :directory)))
-         (id (org-id-uuid))
-         (title (concat topic (plist-get mr-x/mdox-spec :title-suffix)))
-         (headings (plist-get mr-x/mdox-spec :required-headings)))
-    (when (file-exists-p filename)
-      (user-error "Mdox already exists: %s" filename))
-    (find-file filename)
-    (insert ":PROPERTIES:\n"
-            ":ID:       " id "\n"
-            ":END:\n"
-            "#+title: " title "\n")
-    (dolist (h headings)
-      (insert "\n* " h "\n"))
-    (save-buffer)
-    (goto-char (point-min))
-    (re-search-forward "^\\* Overview$" nil t)
-    (forward-line 1)
-    (message "Created Mdox: %s" (file-name-nondirectory filename))))
+      (re-search-forward "^\\* Overview$" nil t)
+      (forward-line 1)
+      (message "Created Mdox: %s" (file-name-nondirectory filename))))
 
 
 
@@ -2049,7 +2081,7 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
 
       (doom-modeline-def-modeline 'agent-shell-minimal
         '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
-        '(buffer-position))
+        '())
 
       (with-eval-after-load 'nerd-icons
         (add-to-list 'nerd-icons-mode-icon-alist
@@ -2235,6 +2267,23 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
 
   					  ; keybindings section
     (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
+
+    ;; ── Hyper Emacs layer (hotdox v4 draft d1) ──────────────────────────
+    ;; The hotdox emits real ✦ Hyper; skhd only claims a handful of Hyper
+    ;; combos (e/a/f/h/j/k/l/t/space/1-4) for yabai, so every other Hyper
+    ;; letter falls straight through to Emacs.  These 8 are the Emacs layer:
+    ;; a firmware MO(_EMACS) sends HYPR(<letter>) per key, but they also work
+    ;; today by holding Hyper on the home row.  Keep in sync with the layer
+    ;; in macos/keymap-explorer/index.html (pro5).
+    (global-set-key (kbd "H-i") #'consult-imenu)        ; imenu
+    (global-set-key (kbd "H-b") #'consult-buffer)       ; buffers
+    (global-set-key (kbd "H-g") #'magit-status)         ; magit
+    (global-set-key (kbd "H-s") #'consult-line)         ; search buffer
+    (global-set-key (kbd "H-r") #'consult-recent-file)  ; recent files
+    (global-set-key (kbd "H-p") #'projectile-find-file) ; project find
+    (global-set-key (kbd "H-o") #'ace-window)           ; jump window
+    (global-set-key (kbd "H-d") #'dired-jump)           ; dired here
+
     (global-set-key (kbd "C-<escape>") #'universal-argument)
     (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
     (global-set-key (kbd "<escape>") 'keyboard-escape-quit) ; Make ESC quit prompts
@@ -2568,6 +2617,10 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; Auto-revert mode to automatically refresh buffers when files change on disk
   (global-auto-revert-mode 1)
   (setq global-auto-revert-non-file-buffers t)
+
+  ;; Electric pair: typing ( inserts () with point inside; typing ) steps over
+  ;; the auto-inserted one instead of doubling.  Also handles [] {} "" ``.
+  (electric-pair-mode 1)
 
   ;; DISABLED — this was swallowing echo-area messages too aggressively.
   ;; ;; Suppress echo-area messages while the minibuffer is active so they don't
@@ -3456,6 +3509,7 @@ TASK-ID is the ID shown when Claude runs a background command."
       (mr-x/leader-def
         "t" '(mr-x/sandbox-test-env :wk "Test environment")
         "?" '(mr-x/view-shortcuts :wk "Rig reference")
+        "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
       ;; LSP commands under SPC ;
@@ -4124,13 +4178,66 @@ only sees the freshly restored frames."
   (add-hook 'after-save-hook 'bm-buffer-save)
   (add-hook 'find-file-hook 'bm-buffer-restore)
   (add-hook 'after-revert-hook 'bm-buffer-restore)
+
+  ;; Pure-visual line highlight — "look here" marks, NOT navigable.
+  ;; Distinct from bm marks (which cycle with SPC m n/p): these are just
+  ;; a persistent full-line highlight you toggle on/off. Per-session only
+  ;; (overlays don't survive restart, unlike bm's repository).
+  ;; Loud red face — intentionally louder than `region' (visual mode) so
+  ;; these marks grab attention rather than blend in.
+  (defface mr-x-line-highlight
+    '((t :background "#fb4934" :foreground "#1d2021" :weight bold :extend t))
+    "Face for pure-visual attention-grabbing line highlights.")
+  (defun mr-x/highlight-line-toggle ()
+    "Toggle a persistent full-line highlight on the current line."
+    (interactive)
+    (let ((ov (seq-find (lambda (o) (overlay-get o 'mr-x-hl))
+                        (overlays-at (line-beginning-position)))))
+      (if ov
+          (delete-overlay ov)
+        (let ((o (make-overlay (line-beginning-position)
+                               (min (point-max) (1+ (line-end-position))))))
+          (overlay-put o 'mr-x-hl t)
+          (overlay-put o 'face 'mr-x-line-highlight)))))
+
+  (defun mr-x/highlight-line-clear-buffer ()
+    "Remove all pure-visual line highlights in the current buffer."
+    (interactive)
+    (remove-overlays (point-min) (point-max) 'mr-x-hl t))
+
+  ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
+  (defvar mr-x-line-highlight-colors
+    '(("#fb4934" . "#1d2021")   ; red
+      ("#fe8019" . "#1d2021")   ; orange
+      ("#fabd2f" . "#1d2021")   ; yellow
+      ("#b8bb26" . "#1d2021")   ; green
+      ("#83a598" . "#1d2021")   ; blue
+      ("#d3869b" . "#1d2021"))  ; purple
+    "Cycle of (BACKGROUND . FOREGROUND) pairs for `mr-x-line-highlight'.")
+  (defvar mr-x-line-highlight-color-index 0
+    "Index into `mr-x-line-highlight-colors' for the current color.")
+  (defun mr-x/highlight-line-cycle-color ()
+    "Cycle `mr-x-line-highlight' to the next color; recolors all marks live."
+    (interactive)
+    (setq mr-x-line-highlight-color-index
+          (% (1+ mr-x-line-highlight-color-index)
+             (length mr-x-line-highlight-colors)))
+    (let ((pair (nth mr-x-line-highlight-color-index
+                     mr-x-line-highlight-colors)))
+      (set-face-attribute 'mr-x-line-highlight nil
+                          :background (car pair) :foreground (cdr pair))
+      (message "Line highlight color: %s" (car pair))))
+
   (with-eval-after-load 'general
     (mr-x/leader-def
       "m" '(:ignore t :wk "bookmarks")
       "m m" '(bm-toggle :wk "toggle bookmark")
       "m n" '(bm-next :wk "next bookmark")
       "m p" '(bm-previous :wk "prev bookmark")
-      "m l" '(bm-show-all :wk "list all bookmarks"))))
+      "m l" '(bm-show-all :wk "list all bookmarks")
+      "m h" '(mr-x/highlight-line-toggle :wk "toggle line highlight")
+      "m H" '(mr-x/highlight-line-clear-buffer :wk "clear line highlights")
+      "m c" '(mr-x/highlight-line-cycle-color :wk "cycle highlight color"))))
 
 (use-package bookmark+
   :ensure (:host github :repo "emacsmirror/bookmark-plus")

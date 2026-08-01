@@ -1581,6 +1581,38 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
     (consult-line))
 
   ;;; ============================================
+  ;;; File Grab — flat picker over the usual roots
+  ;;; ============================================
+
+  (defvar mr-x/file-grab-roots '("~/.dotfiles" "~/roaming")
+    "Roots that `mr-x/copy-file-path' offers files from.")
+
+  (defun mr-x/file-grab--candidates ()
+    "All files under `mr-x/file-grab-roots' as abbreviated paths.
+Uses fd: respects .gitignore, includes dotfiles, skips .git."
+    (mapcar #'abbreviate-file-name
+            (apply #'process-lines "fd" "--type" "f" "--hidden"
+                   "--exclude" ".git" "--absolute-path" "."
+                   (mapcar #'expand-file-name mr-x/file-grab-roots))))
+
+  (defun mr-x/copy-file-path ()
+    "Pick a file from the usual roots and copy its absolute path.
+Flat list — orderless matches anywhere in the path, no directory
+navigation.  Candidates are file targets, so embark actions
+(`s-r') work on them too."
+    (interactive)
+    (let* ((files (mr-x/file-grab--candidates))
+           (choice (completing-read
+                    "Copy path: "
+                    (lambda (str pred action)
+                      (if (eq action 'metadata)
+                          '(metadata (category . file))
+                        (complete-with-action action files str pred)))
+                    nil t)))
+      (kill-new (expand-file-name choice))
+      (message "Copied: %s" (expand-file-name choice))))
+
+  ;;; ============================================
   ;;; Mdox Format Spec & Tooling
   ;;; ============================================
 
@@ -2148,7 +2180,7 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
 
       (doom-modeline-def-modeline 'agent-shell-minimal
         '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
-        '(buffer-position))
+        '())
 
       (with-eval-after-load 'nerd-icons
         (add-to-list 'nerd-icons-mode-icon-alist
@@ -2334,6 +2366,23 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
 
   					  ; keybindings section
     (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
+
+    ;; ── Hyper Emacs layer (hotdox v4 draft d1) ──────────────────────────
+    ;; The hotdox emits real ✦ Hyper; skhd only claims a handful of Hyper
+    ;; combos (e/a/f/h/j/k/l/t/space/1-4) for yabai, so every other Hyper
+    ;; letter falls straight through to Emacs.  These 8 are the Emacs layer:
+    ;; a firmware MO(_EMACS) sends HYPR(<letter>) per key, but they also work
+    ;; today by holding Hyper on the home row.  Keep in sync with the layer
+    ;; in macos/keymap-explorer/index.html (pro5).
+    (global-set-key (kbd "H-i") #'consult-imenu)        ; imenu
+    (global-set-key (kbd "H-b") #'consult-buffer)       ; buffers
+    (global-set-key (kbd "H-g") #'magit-status)         ; magit
+    (global-set-key (kbd "H-s") #'consult-line)         ; search buffer
+    (global-set-key (kbd "H-r") #'consult-recent-file)  ; recent files
+    (global-set-key (kbd "H-p") #'projectile-find-file) ; project find
+    (global-set-key (kbd "H-o") #'ace-window)           ; jump window
+    (global-set-key (kbd "H-d") #'dired-jump)           ; dired here
+
     (global-set-key (kbd "C-<escape>") #'universal-argument)
     (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
     (global-set-key (kbd "<escape>") 'keyboard-escape-quit) ; Make ESC quit prompts
@@ -2675,6 +2724,10 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; Auto-revert mode to automatically refresh buffers when files change on disk
   (global-auto-revert-mode 1)
   (setq global-auto-revert-non-file-buffers t)
+
+  ;; Electric pair: typing ( inserts () with point inside; typing ) steps over
+  ;; the auto-inserted one instead of doubling.  Also handles [] {} "" ``.
+  (electric-pair-mode 1)
 
   ;; DISABLED — this was swallowing echo-area messages too aggressively.
   ;; ;; Suppress echo-area messages while the minibuffer is active so they don't
@@ -3579,6 +3632,7 @@ TASK-ID is the ID shown when Claude runs a background command."
       (mr-x/leader-def
         "t" '(mr-x/sandbox-test-env :wk "Test environment")
         "?" '(mr-x/view-shortcuts :wk "Rig reference")
+        "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
       ;; LSP commands under SPC ;
@@ -4301,13 +4355,66 @@ only sees the freshly restored frames."
     (add-hook 'after-save-hook 'bm-buffer-save)
     (add-hook 'find-file-hook 'bm-buffer-restore)
     (add-hook 'after-revert-hook 'bm-buffer-restore)
+
+    ;; Pure-visual line highlight — "look here" marks, NOT navigable.
+    ;; Distinct from bm marks (which cycle with SPC m n/p): these are just
+    ;; a persistent full-line highlight you toggle on/off. Per-session only
+    ;; (overlays don't survive restart, unlike bm's repository).
+    ;; Loud red face — intentionally louder than `region' (visual mode) so
+    ;; these marks grab attention rather than blend in.
+    (defface mr-x-line-highlight
+      '((t :background "#fb4934" :foreground "#1d2021" :weight bold :extend t))
+      "Face for pure-visual attention-grabbing line highlights.")
+    (defun mr-x/highlight-line-toggle ()
+      "Toggle a persistent full-line highlight on the current line."
+      (interactive)
+      (let ((ov (seq-find (lambda (o) (overlay-get o 'mr-x-hl))
+                          (overlays-at (line-beginning-position)))))
+        (if ov
+            (delete-overlay ov)
+          (let ((o (make-overlay (line-beginning-position)
+                                 (min (point-max) (1+ (line-end-position))))))
+            (overlay-put o 'mr-x-hl t)
+            (overlay-put o 'face 'mr-x-line-highlight)))))
+
+    (defun mr-x/highlight-line-clear-buffer ()
+      "Remove all pure-visual line highlights in the current buffer."
+      (interactive)
+      (remove-overlays (point-min) (point-max) 'mr-x-hl t))
+
+    ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
+    (defvar mr-x-line-highlight-colors
+      '(("#fb4934" . "#1d2021")   ; red
+        ("#fe8019" . "#1d2021")   ; orange
+        ("#fabd2f" . "#1d2021")   ; yellow
+        ("#b8bb26" . "#1d2021")   ; green
+        ("#83a598" . "#1d2021")   ; blue
+        ("#d3869b" . "#1d2021"))  ; purple
+      "Cycle of (BACKGROUND . FOREGROUND) pairs for `mr-x-line-highlight'.")
+    (defvar mr-x-line-highlight-color-index 0
+      "Index into `mr-x-line-highlight-colors' for the current color.")
+    (defun mr-x/highlight-line-cycle-color ()
+      "Cycle `mr-x-line-highlight' to the next color; recolors all marks live."
+      (interactive)
+      (setq mr-x-line-highlight-color-index
+            (% (1+ mr-x-line-highlight-color-index)
+               (length mr-x-line-highlight-colors)))
+      (let ((pair (nth mr-x-line-highlight-color-index
+                       mr-x-line-highlight-colors)))
+        (set-face-attribute 'mr-x-line-highlight nil
+                            :background (car pair) :foreground (cdr pair))
+        (message "Line highlight color: %s" (car pair))))
+
     (with-eval-after-load 'general
       (mr-x/leader-def
         "m" '(:ignore t :wk "bookmarks")
         "m m" '(bm-toggle :wk "toggle bookmark")
         "m n" '(bm-next :wk "next bookmark")
         "m p" '(bm-previous :wk "prev bookmark")
-        "m l" '(bm-show-all :wk "list all bookmarks"))))
+        "m l" '(bm-show-all :wk "list all bookmarks")
+        "m h" '(mr-x/highlight-line-toggle :wk "toggle line highlight")
+        "m H" '(mr-x/highlight-line-clear-buffer :wk "clear line highlights")
+        "m c" '(mr-x/highlight-line-cycle-color :wk "cycle highlight color"))))
 
   (use-package bookmark+
     :ensure (:host github :repo "emacsmirror/bookmark-plus")
@@ -6230,39 +6337,14 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
           (kbd "O") #'mr-x/agent-shell-smart-append
           (kbd "p") #'mr-x/agent-shell-smart-paste)
 
-        ;; Context-sensitive permission keys in normal mode
-        ;; When permission pending: respond directly
-        ;; When no permission: pass to evil's digit-argument for motion counts
-        (defun mr-x/agent-shell-permission-or-digit (key action)
-          "If permission pending in current buffer, run ACTION. Otherwise pass KEY as digit-argument."
-          (if (and mr-x/pending-permissions-queue
-                   (cl-some (lambda (p) (eq (current-buffer) (plist-get p :buffer)))
-                            mr-x/pending-permissions-queue))
-              (funcall action)
-            ;; No permission pending - let evil handle as count prefix
-            (let ((last-command-event (string-to-char key)))
-              (call-interactively #'digit-argument))))
-
-        (evil-define-key 'normal agent-shell-mode-map (kbd "1")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "1" #'mr-x/agent-shell-allow)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "2")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "2" #'mr-x/agent-shell-deny)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "3")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "3" #'mr-x/agent-shell-allow-always)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "0")
-          (lambda () (interactive)
-            (cond
-             ;; Permission pending - view diff
-             ((and mr-x/pending-permissions-queue
-                   (cl-some (lambda (p) (eq (current-buffer) (plist-get p :buffer)))
-                            mr-x/pending-permissions-queue))
-              (mr-x/agent-shell-view-diff))
-             ;; Count prefix in progress (e.g. 10j) - append 0
-             (current-prefix-arg
-              (let ((last-command-event ?0))
-                (call-interactively #'digit-argument)))
-             ;; Default - beginning of line
-             (t (call-interactively #'evil-beginning-of-line)))))
+        ;; Permission response keys — bound to the Creator Micro macro pad's
+        ;; F13-F16 (see skhdrc), not digits, so 1/2/3/0 stay evil count
+        ;; prefixes in normal mode. Direct define-key (not evil-define-key)
+        ;; so they fire in every evil state, matching skhd's global reach.
+        (define-key agent-shell-mode-map (kbd "<f13>") #'mr-x/agent-shell-allow)
+        (define-key agent-shell-mode-map (kbd "<f14>") #'mr-x/agent-shell-deny)
+        (define-key agent-shell-mode-map (kbd "<f15>") #'mr-x/agent-shell-allow-always)
+        (define-key agent-shell-mode-map (kbd "<f16>") #'mr-x/agent-shell-view-diff)
 
         ;; Clear prompt with CMD+backspace
         (defun mr-x/agent-shell-clear-prompt ()
@@ -6962,21 +7044,18 @@ Values are read literally (never eval'd), so titles may contain spaces."
                   (push (cons (match-string 1 line) (match-string 2 line)) kv)))
               (nreverse kv))))
 
-        (defun mr-x/agent-resume-handoff ()
-          "Resume an agent-shell conversation handed off from another fleet machine.
+        (defun mr-x/agent-handoff--candidates ()
+          "Return resumable handoffs staged for this machine.
 
-Handoffs are staged in ~/shared/agent-sessions/ (Syncthing-synced) by
-`agent-session-handoff.sh export' on the source Mac.  This picks one,
-imports its transcript into the local ~/.claude (paths rewritten and
-symlinks resolved by the script), then resumes it — forcing the
-resolved project cwd and the Claude config so no agent picker appears
-and the cwd can't mismatch (a mismatch silently yields a BLANK shell).
-
-Handoffs that originated on this machine are skipped."
-          (interactive)
-          (let* ((dir (expand-file-name "~/shared/agent-sessions/"))
-                 (script (expand-file-name
-                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+Scans both the Syncthing peer path (~/shared/agent-sessions, flat) and
+the home-lab sync mirror (~/.local/share/agent-session-handoff, machine
+subdirs).  Each candidate is (LABEL . (:id ID :tgt-cwd DIR)).  Filters
+out handoffs that originated here, and — crucially — those whose project
+cwd does NOT exist locally: you can't stand up the agent in a directory
+you don't have, so the chat simply isn't offered (it reappears on its
+own if you ever set that project up).  Deduped by session id."
+          (let* ((shared (expand-file-name "~/shared/agent-sessions/"))
+                 (staging (expand-file-name "~/.local/share/agent-session-handoff/"))
                  (this-machine
                   (string-trim
                    (or (ignore-errors
@@ -6985,30 +7064,58 @@ Handoffs that originated on this machine are skipped."
                             (expand-file-name "~/.config/machine-id"))
                            (buffer-string)))
                        "")))
-                 (candidates
-                  (delq nil
-                        (mapcar
-                         (lambda (m)
-                           (let* ((kv (mr-x/agent-handoff--read-meta m))
-                                  (id (cdr (assoc "SESSION_ID" kv)))
-                                  (src-home (cdr (assoc "SRC_HOME" kv)))
-                                  (src-cwd (cdr (assoc "SRC_CWD" kv)))
-                                  (src-mach (cdr (assoc "SRC_MACHINE" kv)))
-                                  (title (cdr (assoc "TITLE" kv))))
-                             (when (and id src-home src-cwd
-                                        (not (equal src-mach this-machine)))
-                               (cons (format "%s  ·  %s  ·  %s"
-                                             (if (and title (not (string-empty-p title)))
-                                                 title "(untitled)")
-                                             (or src-mach "?")
-                                             (file-name-nondirectory
-                                              (directory-file-name src-cwd)))
-                                     (list :id id :src-home src-home
-                                           :src-cwd src-cwd)))))
-                         (and (file-directory-p dir)
-                              (directory-files dir t "\\.meta\\'"))))))
+                 (metas (append
+                         (and (file-directory-p shared)
+                              (directory-files shared t "\\.meta\\'"))
+                         (and (file-directory-p staging)
+                              (directory-files-recursively staging "\\.meta\\'"))))
+                 (seen (make-hash-table :test 'equal)))
+            (delq nil
+                  (mapcar
+                   (lambda (m)
+                     (let* ((kv (mr-x/agent-handoff--read-meta m))
+                            (id (cdr (assoc "SESSION_ID" kv)))
+                            (src-home (cdr (assoc "SRC_HOME" kv)))
+                            (src-cwd (cdr (assoc "SRC_CWD" kv)))
+                            (src-mach (cdr (assoc "SRC_MACHINE" kv)))
+                            (title (cdr (assoc "TITLE" kv))))
+                       (when (and id src-home src-cwd
+                                  (not (equal src-mach this-machine))
+                                  (not (gethash id seen)))
+                         (let* ((tgt-raw (if (string-prefix-p src-home src-cwd)
+                                             (concat (expand-file-name "~")
+                                                     (substring src-cwd (length src-home)))
+                                           src-cwd))
+                                (tgt-cwd (file-truename tgt-raw)))
+                           ;; Only offer chats whose project dir exists here.
+                           (when (file-directory-p tgt-cwd)
+                             (puthash id t seen)
+                             (cons (format "%s  ·  %s  ·  %s"
+                                           (if (and title (not (string-empty-p title)))
+                                               title "(untitled)")
+                                           (or src-mach "?")
+                                           (file-name-nondirectory
+                                            (directory-file-name tgt-cwd)))
+                                   (list :id id :tgt-cwd tgt-cwd)))))))
+                   metas))))
+
+        (defun mr-x/agent-resume-handoff ()
+          "Resume an agent-shell conversation from another fleet machine.
+
+Candidates come from `mr-x/agent-handoff--candidates' (see it for the
+staging paths and filtering).  Picks one (auto if there's only one),
+imports its transcript into the local ~/.claude (paths rewritten and
+symlinks resolved by the script), then resumes — forcing the resolved
+project cwd and the Claude config so no agent picker appears and the cwd
+can't mismatch (a mismatch silently yields a BLANK shell).
+
+Populate the list with `agent-session-handoff.sh sync'."
+          (interactive)
+          (let* ((script (expand-file-name
+                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+                 (candidates (mr-x/agent-handoff--candidates)))
             (unless candidates
-              (user-error "No handoffs waiting in %s" dir))
+              (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
             (let* ((choice
                     (if (= (length candidates) 1)
                         (car candidates)
@@ -7017,13 +7124,7 @@ Handoffs that originated on this machine are skipped."
                              candidates)))
                    (pl (cdr choice))
                    (id (plist-get pl :id))
-                   (src-home (plist-get pl :src-home))
-                   (src-cwd (plist-get pl :src-cwd))
-                   (tgt-raw (if (string-prefix-p src-home src-cwd)
-                                (concat (expand-file-name "~")
-                                        (substring src-cwd (length src-home)))
-                              src-cwd))
-                   (tgt-cwd (file-truename tgt-raw)))
+                   (tgt-cwd (plist-get pl :tgt-cwd)))
               ;; Place the transcript at the resolved path (script rewrites paths).
               (with-temp-buffer
                 (unless (zerop (call-process "bash" nil t nil script "import" id))

@@ -74,39 +74,14 @@
           (kbd "O") #'mr-x/agent-shell-smart-append
           (kbd "p") #'mr-x/agent-shell-smart-paste)
 
-        ;; Context-sensitive permission keys in normal mode
-        ;; When permission pending: respond directly
-        ;; When no permission: pass to evil's digit-argument for motion counts
-        (defun mr-x/agent-shell-permission-or-digit (key action)
-          "If permission pending in current buffer, run ACTION. Otherwise pass KEY as digit-argument."
-          (if (and mr-x/pending-permissions-queue
-                   (cl-some (lambda (p) (eq (current-buffer) (plist-get p :buffer)))
-                            mr-x/pending-permissions-queue))
-              (funcall action)
-            ;; No permission pending - let evil handle as count prefix
-            (let ((last-command-event (string-to-char key)))
-              (call-interactively #'digit-argument))))
-
-        (evil-define-key 'normal agent-shell-mode-map (kbd "1")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "1" #'mr-x/agent-shell-allow)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "2")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "2" #'mr-x/agent-shell-deny)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "3")
-          (lambda () (interactive) (mr-x/agent-shell-permission-or-digit "3" #'mr-x/agent-shell-allow-always)))
-        (evil-define-key 'normal agent-shell-mode-map (kbd "0")
-          (lambda () (interactive)
-            (cond
-             ;; Permission pending - view diff
-             ((and mr-x/pending-permissions-queue
-                   (cl-some (lambda (p) (eq (current-buffer) (plist-get p :buffer)))
-                            mr-x/pending-permissions-queue))
-              (mr-x/agent-shell-view-diff))
-             ;; Count prefix in progress (e.g. 10j) - append 0
-             (current-prefix-arg
-              (let ((last-command-event ?0))
-                (call-interactively #'digit-argument)))
-             ;; Default - beginning of line
-             (t (call-interactively #'evil-beginning-of-line)))))
+        ;; Permission response keys — bound to the Creator Micro macro pad's
+        ;; F13-F16 (see skhdrc), not digits, so 1/2/3/0 stay evil count
+        ;; prefixes in normal mode. Direct define-key (not evil-define-key)
+        ;; so they fire in every evil state, matching skhd's global reach.
+        (define-key agent-shell-mode-map (kbd "<f13>") #'mr-x/agent-shell-allow)
+        (define-key agent-shell-mode-map (kbd "<f14>") #'mr-x/agent-shell-deny)
+        (define-key agent-shell-mode-map (kbd "<f15>") #'mr-x/agent-shell-allow-always)
+        (define-key agent-shell-mode-map (kbd "<f16>") #'mr-x/agent-shell-view-diff)
 
         ;; Clear prompt with CMD+backspace
         (defun mr-x/agent-shell-clear-prompt ()
@@ -806,21 +781,18 @@ Values are read literally (never eval'd), so titles may contain spaces."
                   (push (cons (match-string 1 line) (match-string 2 line)) kv)))
               (nreverse kv))))
 
-        (defun mr-x/agent-resume-handoff ()
-          "Resume an agent-shell conversation handed off from another fleet machine.
+        (defun mr-x/agent-handoff--candidates ()
+          "Return resumable handoffs staged for this machine.
 
-Handoffs are staged in ~/shared/agent-sessions/ (Syncthing-synced) by
-`agent-session-handoff.sh export' on the source Mac.  This picks one,
-imports its transcript into the local ~/.claude (paths rewritten and
-symlinks resolved by the script), then resumes it — forcing the
-resolved project cwd and the Claude config so no agent picker appears
-and the cwd can't mismatch (a mismatch silently yields a BLANK shell).
-
-Handoffs that originated on this machine are skipped."
-          (interactive)
-          (let* ((dir (expand-file-name "~/shared/agent-sessions/"))
-                 (script (expand-file-name
-                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+Scans both the Syncthing peer path (~/shared/agent-sessions, flat) and
+the home-lab sync mirror (~/.local/share/agent-session-handoff, machine
+subdirs).  Each candidate is (LABEL . (:id ID :tgt-cwd DIR)).  Filters
+out handoffs that originated here, and — crucially — those whose project
+cwd does NOT exist locally: you can't stand up the agent in a directory
+you don't have, so the chat simply isn't offered (it reappears on its
+own if you ever set that project up).  Deduped by session id."
+          (let* ((shared (expand-file-name "~/shared/agent-sessions/"))
+                 (staging (expand-file-name "~/.local/share/agent-session-handoff/"))
                  (this-machine
                   (string-trim
                    (or (ignore-errors
@@ -829,30 +801,58 @@ Handoffs that originated on this machine are skipped."
                             (expand-file-name "~/.config/machine-id"))
                            (buffer-string)))
                        "")))
-                 (candidates
-                  (delq nil
-                        (mapcar
-                         (lambda (m)
-                           (let* ((kv (mr-x/agent-handoff--read-meta m))
-                                  (id (cdr (assoc "SESSION_ID" kv)))
-                                  (src-home (cdr (assoc "SRC_HOME" kv)))
-                                  (src-cwd (cdr (assoc "SRC_CWD" kv)))
-                                  (src-mach (cdr (assoc "SRC_MACHINE" kv)))
-                                  (title (cdr (assoc "TITLE" kv))))
-                             (when (and id src-home src-cwd
-                                        (not (equal src-mach this-machine)))
-                               (cons (format "%s  ·  %s  ·  %s"
-                                             (if (and title (not (string-empty-p title)))
-                                                 title "(untitled)")
-                                             (or src-mach "?")
-                                             (file-name-nondirectory
-                                              (directory-file-name src-cwd)))
-                                     (list :id id :src-home src-home
-                                           :src-cwd src-cwd)))))
-                         (and (file-directory-p dir)
-                              (directory-files dir t "\\.meta\\'"))))))
+                 (metas (append
+                         (and (file-directory-p shared)
+                              (directory-files shared t "\\.meta\\'"))
+                         (and (file-directory-p staging)
+                              (directory-files-recursively staging "\\.meta\\'"))))
+                 (seen (make-hash-table :test 'equal)))
+            (delq nil
+                  (mapcar
+                   (lambda (m)
+                     (let* ((kv (mr-x/agent-handoff--read-meta m))
+                            (id (cdr (assoc "SESSION_ID" kv)))
+                            (src-home (cdr (assoc "SRC_HOME" kv)))
+                            (src-cwd (cdr (assoc "SRC_CWD" kv)))
+                            (src-mach (cdr (assoc "SRC_MACHINE" kv)))
+                            (title (cdr (assoc "TITLE" kv))))
+                       (when (and id src-home src-cwd
+                                  (not (equal src-mach this-machine))
+                                  (not (gethash id seen)))
+                         (let* ((tgt-raw (if (string-prefix-p src-home src-cwd)
+                                             (concat (expand-file-name "~")
+                                                     (substring src-cwd (length src-home)))
+                                           src-cwd))
+                                (tgt-cwd (file-truename tgt-raw)))
+                           ;; Only offer chats whose project dir exists here.
+                           (when (file-directory-p tgt-cwd)
+                             (puthash id t seen)
+                             (cons (format "%s  ·  %s  ·  %s"
+                                           (if (and title (not (string-empty-p title)))
+                                               title "(untitled)")
+                                           (or src-mach "?")
+                                           (file-name-nondirectory
+                                            (directory-file-name tgt-cwd)))
+                                   (list :id id :tgt-cwd tgt-cwd)))))))
+                   metas))))
+
+        (defun mr-x/agent-resume-handoff ()
+          "Resume an agent-shell conversation from another fleet machine.
+
+Candidates come from `mr-x/agent-handoff--candidates' (see it for the
+staging paths and filtering).  Picks one (auto if there's only one),
+imports its transcript into the local ~/.claude (paths rewritten and
+symlinks resolved by the script), then resumes — forcing the resolved
+project cwd and the Claude config so no agent picker appears and the cwd
+can't mismatch (a mismatch silently yields a BLANK shell).
+
+Populate the list with `agent-session-handoff.sh sync'."
+          (interactive)
+          (let* ((script (expand-file-name
+                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+                 (candidates (mr-x/agent-handoff--candidates)))
             (unless candidates
-              (user-error "No handoffs waiting in %s" dir))
+              (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
             (let* ((choice
                     (if (= (length candidates) 1)
                         (car candidates)
@@ -861,13 +861,7 @@ Handoffs that originated on this machine are skipped."
                              candidates)))
                    (pl (cdr choice))
                    (id (plist-get pl :id))
-                   (src-home (plist-get pl :src-home))
-                   (src-cwd (plist-get pl :src-cwd))
-                   (tgt-raw (if (string-prefix-p src-home src-cwd)
-                                (concat (expand-file-name "~")
-                                        (substring src-cwd (length src-home)))
-                              src-cwd))
-                   (tgt-cwd (file-truename tgt-raw)))
+                   (tgt-cwd (plist-get pl :tgt-cwd)))
               ;; Place the transcript at the resolved path (script rewrites paths).
               (with-temp-buffer
                 (unless (zerop (call-process "bash" nil t nil script "import" id))
