@@ -1534,8 +1534,21 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
     (org-show-entry)
     (org-show-children))
 
+  (defun mr-x/mdox--display (buf)
+    "Show BUF in the mdox reader side window (right, 45% width) and select it.
+Tall-and-narrow fits org outlines + olivetti's 80-col body; sits beside
+your work instead of squishing it.  The window is un-dedicated so
+multi-file lookups can preview-swap buffers in place instead of
+spilling into a second window."
+    (select-window
+     (display-buffer buf
+                     '((display-buffer-in-side-window)
+                       (side . right)
+                       (window-width . 0.45))))
+    (set-window-dedicated-p (selected-window) nil))
+
   (defun mr-x/mdox-view (id)
-    "Open an org-roam node by ID in a pretty popper popup."
+    "Open an org-roam node by ID in the mdox reader popup."
     (interactive)
     (let* ((node (org-roam-node-from-id id))
            (file (org-roam-node-file node))
@@ -1543,11 +1556,7 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
       (with-current-buffer buf
         (goto-char (point-min))
         (mr-x/mdox-reader-mode 1))
-      (select-window
-       (display-buffer buf
-                       '((display-buffer-in-side-window)
-                         (side . bottom)
-                         (window-height . 0.45))))))
+      (mr-x/mdox--display buf)))
 
   (defun mr-x/mdox-search ()
     "Fuzzy search all Mdox nodes via org-roam-node-find."
@@ -1561,17 +1570,79 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
     "Path to the rig reference file (shortcuts, commands, workflows).")
 
   (defun mr-x/view-shortcuts ()
-    "Open the shortcuts file in a pretty popper popup."
+    "Open the shortcuts file in the mdox reader popup."
     (interactive)
     (let ((buf (find-file-noselect mr-x/shortcuts-file)))
       (with-current-buffer buf
         (goto-char (point-min))
         (mr-x/mdox-reader-mode 1))
-      (select-window
-       (display-buffer buf
-                       '((display-buffer-in-side-window)
-                         (side . bottom)
-                         (window-height . 0.45))))))
+      (mr-x/mdox--display buf)))
+
+  ;; --- Search-first lookup: the search IS the UI; the doc opens at the answer ---
+
+  (defun mr-x/mdox--prep-buffers (files)
+    "Visit FILES, ensure reader mode on each; return the buffer list."
+    (mapcar (lambda (f)
+              (let ((b (find-file-noselect (expand-file-name f))))
+                (with-current-buffer b
+                  (unless mr-x/mdox-reader-mode
+                    (mr-x/mdox-reader-mode 1)))
+                b))
+            files))
+
+  (defun mr-x/mdox-lookup (files)
+    "Line-level search-first lookup across mdox FILES.
+Opens the reader popup and immediately starts a live consult search
+inside it; `C-g' aborts AND closes the popup, restoring your windows.
+With multiple FILES, searches them together via `consult-line-multi'."
+    (let ((wconf (current-window-configuration))
+          (bufs (mr-x/mdox--prep-buffers files)))
+      (mr-x/mdox--display (car bufs))
+      (condition-case nil
+          (if (cdr bufs)
+              (consult-line-multi
+               (list :include
+                     (mapcar (lambda (b)
+                               (concat "\\`" (regexp-quote (buffer-name b)) "\\'"))
+                             bufs)))
+            (consult-line))
+        (quit (set-window-configuration wconf)))))
+
+  (defun mr-x/mdox-lookup-headings (files)
+    "Heading-level lookup across mdox FILES via `consult-org-heading'.
+Candidates are org headings (with outline breadcrumbs), not body lines —
+for docs where the heading names the concept.  Same popup/quit contract
+as `mr-x/mdox-lookup'."
+    (let ((wconf (current-window-configuration))
+          (bufs (mr-x/mdox--prep-buffers files)))
+      (mr-x/mdox--display (car bufs))
+      (condition-case nil
+          (consult-org-heading nil (mapcar #'expand-file-name files))
+        (quit (set-window-configuration wconf)))))
+
+  (defun mr-x/rig-lookup (&optional arg)
+    "Live-search the rig doc, landing in the reader popup at the hit.
+With \\[universal-argument] ARG, open the whole doc instead (browse mode)."
+    (interactive "P")
+    (if arg
+        (mr-x/view-shortcuts)
+      (mr-x/mdox-lookup (list mr-x/shortcuts-file))))
+
+  (defvar mr-x/elisp-mdox-files
+    '("~/roaming/notes/emacs-lisp-mdox.org"
+      "~/roaming/notes/emacs-lisp-glossary-mdox.org")
+    "Elisp reference mdoxes searched together by `mr-x/elisp-lookup'.
+Glossary = quick definitions; emacs-lisp = in-depth examples.")
+
+  (defun mr-x/elisp-lookup (&optional arg)
+    "Heading-level search of the elisp reference + glossary mdoxes.
+Headings name the concepts in these docs, so searching \"when\" lands
+on the `when' section instead of every line containing the word.
+With \\[universal-argument] ARG, do a full-text line search instead."
+    (interactive "P")
+    (if arg
+        (mr-x/mdox-lookup mr-x/elisp-mdox-files)
+      (mr-x/mdox-lookup-headings mr-x/elisp-mdox-files)))
 
   (defun mr-x/search-shortcuts ()
     "Open shortcuts file and immediately search with consult-line."
@@ -3631,7 +3702,9 @@ TASK-ID is the ID shown when Claude runs a background command."
 
       (mr-x/leader-def
         "t" '(mr-x/sandbox-test-env :wk "Test environment")
-        "?" '(mr-x/view-shortcuts :wk "Rig reference")
+        "?" '(:ignore t :wk "lookup")
+        "? ?" '(mr-x/rig-lookup :wk "Rig (C-u: browse)")
+        "? e" '(mr-x/elisp-lookup :wk "Elisp")
         "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
