@@ -126,12 +126,12 @@ Gruvbox neutral blue with cream ink."
   :group 'major-pane)
 
 (defface major-pane-tab-active
-  '((t :background "#3c3836" :foreground "#fbf1c7" :weight bold
-       :underline (:color "#fbf1c7" :position 0)
-       :box (:line-width (6 . -1) :color "#3c3836")))
+  '((t :background "#201e1d" :foreground "#fbf1c7" :weight bold
+       :box (:line-width (6 . -4) :color "#fabd2f")))
   "Face for the active conversation tab.
-Dark body with side padding (same-color box) and a cream underline
-along the bottom edge."
+Dimmed body wrapped in a 4px gruvbox-yellow box (no underline).  The
+two dividers touching it also go yellow (see `major-pane--render-tabs')
+so the selected tab reads as one solid yellow-outlined unit."
   :group 'major-pane)
 
 (defface major-pane-tab-inactive
@@ -156,33 +156,24 @@ sandbox lisp/major-pane-tab-schemes-test.el for the shootout)."
   :group 'major-pane)
 
 (defface major-pane-tab-active-busy
-  '((t :inherit major-pane-tab-active
-       :background "#af3a03"
-       :box (:line-width (6 . -1) :color "#af3a03")))
+  '((t :inherit major-pane-tab-active :background "#5c1e02"))
   "Face for the active tab while its agent is generating.
-Faded gruvbox orange — the fiery notch above the inactive pill — with
-the active tab's bold + cream underline kept so \"you are here\" still
-reads.  Without this the active face would stomp the busy color."
+Dimmed orange interior; inherits the active tab's yellow box.  Without
+this the active face would stomp the busy color."
   :group 'major-pane)
 
 (defface major-pane-tab-active-done
-  '((t :inherit major-pane-tab-active
-       :background "#98971a"
-       :box (:line-width (6 . -1) :color "#98971a")))
+  '((t :inherit major-pane-tab-active :background "#50500d"))
   "Face for the active tab with a not-yet-engaged finished turn.
-Brighter olive over the active tab's bold + cream underline — the
-response is ready and stays flagged until the user enters insert state
-in the buffer."
+Dimmed olive interior; inherits the active tab's yellow box.  Stays
+flagged until the user enters insert state in the buffer."
   :group 'major-pane)
 
 (defface major-pane-tab-active-perms
-  '((t :inherit major-pane-tab-active
-       :background "#cc241d"
-       :box (:line-width (6 . -1) :color "#cc241d")))
+  '((t :inherit major-pane-tab-active :background "#6b120e"))
   "Face for the active tab while a permission request is pending.
-Brighter gruvbox red over the active tab's bold + cream underline —
-stays red until the prompt is actually answered, even while you're
-looking at it."
+Dimmed red interior; inherits the active tab's yellow box.  Stays red
+until the prompt is actually answered, even while you're looking at it."
   :group 'major-pane)
 
 (defface major-pane-tab-attention-done
@@ -236,16 +227,46 @@ registered buffer; `done'/`perms' only for a non-active buffer, and
 are cleared when the buffer becomes the active tab (`busy' is not).")
 
 (defface major-pane-tab-separator
-  '((t :foreground "#3c3836" :background "#3c3836"))
+  '((t :foreground "#000000" :background "#000000"))
   "Face for the divider between conversation tabs.
 The default divider is a pixel-width space, which draws the
 :background; the :foreground covers glyph dividers (e.g. │) set via
 `major-pane-tab-divider'."
   :group 'major-pane)
 
+(defface major-pane-tab-separator-active
+  '((t :foreground "#fabd2f" :background "#fabd2f"))
+  "Face for the two dividers flanking the active tab.
+Gruvbox yellow, matching the active tab's box, so the selected tab
+reads as one continuous yellow-outlined unit (see
+`major-pane--render-tabs')."
+  :group 'major-pane)
+
 (defface major-pane-tab-hover
-  '((t :background "#504945" :foreground "#fbf1c7"))
-  "Face for conversation tabs under the mouse."
+  '((t :background "#2b2827" :foreground "#fbf1c7"
+       :box (:line-width (6 . -1) :color "#2b2827")))
+  "Hover face for a plain inactive tab — a subtle darkening.
+Stateful tabs use `major-pane-tab-hover-busy'/`-done'/`-perms' instead,
+so hover dims each into a deeper shade of its own color, not gray.  The
+active tab has no hover (see `major-pane--render-tab')."
+  :group 'major-pane)
+
+(defface major-pane-tab-hover-busy
+  '((t :inherit major-pane-tab-inactive :foreground "#fbf1c7"
+       :background "#4a2109" :box (:line-width (6 . -1) :color "#4a2109")))
+  "Hover face for a busy tab — a darker orange."
+  :group 'major-pane)
+
+(defface major-pane-tab-hover-done
+  '((t :inherit major-pane-tab-inactive :foreground "#fbf1c7" :weight bold
+       :background "#54500a" :box (:line-width (6 . -1) :color "#54500a")))
+  "Hover face for a done tab — a darker green."
+  :group 'major-pane)
+
+(defface major-pane-tab-hover-perms
+  '((t :inherit major-pane-tab-inactive :foreground "#fbf1c7" :weight bold
+       :background "#6b0004" :box (:line-width (6 . -1) :color "#6b0004")))
+  "Hover face for a perms tab — a darker red."
   :group 'major-pane)
 
 (defface major-pane-icon
@@ -865,7 +886,14 @@ IS-ACTIVE selects the active/inactive face."
                                ('done 'major-pane-tab-attention-done)
                                ('busy 'major-pane-tab-attention-busy)))
                             (t 'major-pane-tab-inactive))
-                'mouse-face 'major-pane-tab-hover
+                ;; No hover on the active tab; stateful tabs dim into a
+                ;; darker shade of their own color instead of gray.
+                'mouse-face (unless is-active
+                              (pcase (buffer-local-value 'major-pane--tab-attention buf)
+                                ('busy 'major-pane-tab-hover-busy)
+                                ('done 'major-pane-tab-hover-done)
+                                ('perms 'major-pane-tab-hover-perms)
+                                (_ 'major-pane-tab-hover)))
                 'local-map map)))
 
 (defvar major-pane-attention-event-alist
@@ -1036,18 +1064,30 @@ edges.  The header-line cannot scroll, so slicing is the only way to
 guarantee the active tab is on screen."
   (let* ((convos (major-pane-state-conversations major-pane--state))
          (active (major-pane-state-active major-pane--state))
+         (ai (cl-position active convos :test #'eq))
          (win (major-pane--pane-window))
          ;; all layout math in PIXELS — column math drifts as soon as
          ;; dividers or fillers aren't exact multiples of a char cell
          (avail (if win (window-body-width win t) most-positive-fixnum))
          (sep (major-pane--tab-divider))
+         ;; the two dividers touching the active tab go yellow (same
+         ;; width as `sep', so layout math is unaffected) — the active
+         ;; tab reads as one continuous yellow-outlined unit
+         (ysep (propertize " " 'display '(space :width (2))
+                           'face 'major-pane-tab-separator-active))
          (sep-w (string-pixel-width sep))
          (tabs (mapcar (lambda (b) (major-pane--render-tab b (eq b active)))
                        convos))
          (total (+ (apply #'+ (mapcar #'string-pixel-width tabs))
                    (* sep-w (max 0 (1- (length tabs)))))))
     (if (<= total avail)
-        (mapconcat #'identity tabs sep)
+        ;; join tabs, painting the dividers adjacent to the active tab yellow
+        (let ((parts nil) (n (length tabs)))
+          (dotimes (i n)
+            (push (nth i tabs) parts)
+            (when (< i (1- n))
+              (push (if (and ai (or (= i (1- ai)) (= i ai))) ysep sep) parts)))
+          (apply #'concat (nreverse parts)))
       (major-pane--render-tab-slice tabs convos active avail sep sep-w))))
 
 (defun major-pane--overflow-marker (count dir &optional face)
