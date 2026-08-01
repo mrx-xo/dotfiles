@@ -120,7 +120,7 @@ class LightsApp(App):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
-                         "r random · o rot · p pin · [ ] bright · q quit",
+                         "r random · o rotate · p pin · [ ] bright · q quit",
                          id="help")
         yield Footer()
 

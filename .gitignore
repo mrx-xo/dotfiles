@@ -70,3 +70,4 @@ node_modules/
 
 .mcp.json
 macos/scripts/lights/.venv/
+__pycache__/
