@@ -61,6 +61,7 @@ def write_status(control, name, now, swatch):
             "effect": name,
             "rotation": control.get("mode", "rotation") == "rotation",
             "brightness": control.get("brightness", 1.0),
+            "params": control.get("params"),  # for random, so UIs can animate
             "seconds_left": seconds_left(control, now),
             "swatch": swatch,
             "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),

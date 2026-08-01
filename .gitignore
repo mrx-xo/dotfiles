@@ -69,3 +69,4 @@ node_modules/
 .taskmaster/
 
 .mcp.json
+macos/scripts/lights/.venv/

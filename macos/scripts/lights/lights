@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# lights — single entry point for the VENGEANCE lights control.
+#
+#   lights            launch the Textual dashboard (bootstraps its venv once)
+#   lights gum        launch the gum skin
+#   lights status     any lightsctl subcommand passes straight through
+#   lights random     e.g. quick 🎲 from the shell
+#
+# All three roads lead to the same lightsctl engine — the UIs are just skins.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+case "${1:-tui}" in
+  tui|"")
+    VENV="$DIR/.venv"
+    if [ ! -x "$VENV/bin/python" ]; then
+      echo "first run: setting up the dashboard venv…"
+      python3 -m venv "$VENV"
+      "$VENV/bin/python" -m pip install --quiet --upgrade pip textual
+    fi
+    exec "$VENV/bin/python" "$DIR/lights-tui.py" ;;
+  gum)
+    exec "$DIR/lights-gum.sh" ;;
+  *)
+    exec "$DIR/lightsctl" "$@" ;;
+esac
