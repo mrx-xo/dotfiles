@@ -6,11 +6,17 @@ renders effect swatches LOCALLY at framerate using the shared effects module
 (so the colors animate smoothly without a network round-trip per frame).
 Like the gum skin, it knows nothing about SSH — swap them freely.
 
-Setup (once):  python3 -m pip install --user textual
-Run:           ./lights-tui.py     (or: python3 lights-tui.py)
+Setup (once):  handled by the `lights` launcher (creates .venv, installs textual)
+Run:           lights           (alias)  ·  or  ./lights-tui.py
 
-Keys: ↑/↓ + enter pick effect · r randomize · o rotation on · p pin current
-      [ / ] brightness down/up · q quit
+Vim navigation:
+  j / k        move down / up in the focused list
+  g g / G      jump to top / bottom
+  l / enter    apply the highlighted effect or preset
+  ctrl+d / u   page down / up
+  Tab          switch between the effects and presets lists
+  r            🎲 randomize        o  rotation on      p  pin current
+  [ / ]        brightness down/up  q  quit
 """
 import json
 import subprocess
@@ -24,9 +30,9 @@ import effects  # noqa: E402
 from rich.text import Text  # noqa: E402
 from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
-from textual.containers import Horizontal, Vertical  # noqa: E402
-from textual.widgets import (Button, Footer, Header, OptionList,  # noqa: E402
-                             Static)
+from textual.binding import Binding  # noqa: E402
+from textual.containers import Vertical  # noqa: E402
+from textual.widgets import Button, Footer, Header, OptionList, Static  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
 CTL = str(Path(__file__).resolve().parent / "lightsctl")
@@ -43,6 +49,34 @@ def ctl_json(*args):
         return {}
 
 
+class VimOptionList(OptionList):
+    """OptionList with vim keys: j/k move, gg/G top/bottom, l/enter select."""
+    BINDINGS = [
+        Binding("j", "cursor_down", "down", show=False),
+        Binding("k", "cursor_up", "up", show=False),
+        Binding("G", "last", "bottom", show=False),
+        Binding("l", "select", "select", show=False),
+        Binding("space", "select", "select", show=False),
+        Binding("ctrl+d", "page_down", "page down", show=False),
+        Binding("ctrl+u", "page_up", "page up", show=False),
+    ]
+
+    _g_pending = False
+
+    def on_key(self, event) -> None:
+        # gg -> jump to top (two presses of g)
+        if event.key == "g":
+            if self._g_pending:
+                self._g_pending = False
+                self.action_first()
+            else:
+                self._g_pending = True
+            event.stop()
+            event.prevent_default()
+        else:
+            self._g_pending = False
+
+
 class LightsApp(App):
     CSS = """
     Screen { layout: horizontal; }
@@ -51,8 +85,10 @@ class LightsApp(App):
     #status { height: 3; content-align: left middle; padding: 0 1; }
     #swatch { height: 5; padding: 1 1; }
     #help { color: $text-muted; padding: 0 1; }
+    .hdr { text-style: bold; padding: 0 1; }
     OptionList { height: auto; }
-    Button { width: 100%; margin: 0 0; }
+    OptionList:focus { border-left: thick $accent; }
+    Button { width: 100%; }
     """
     BINDINGS = [
         ("r", "randomize", "🎲 random"),
@@ -60,6 +96,8 @@ class LightsApp(App):
         ("p", "pin", "📌 pin"),
         ("]", "bright_up", "☀+"),
         ("[", "bright_down", "☀-"),
+        ("tab", "focus_next", "switch"),
+        ("shift+tab", "focus_previous", "switch"),
         ("q", "quit", "quit"),
     ]
 
@@ -72,22 +110,24 @@ class LightsApp(App):
         yield Header(show_clock=True)
         with Vertical(id="left"):
             yield Static("effects", classes="hdr")
-            yield OptionList(*[Option(n, id=f"e:{n}")
-                               for n in effects.EFFECTS], id="effects")
+            yield VimOptionList(*[Option(n, id=f"e:{n}")
+                                  for n in effects.EFFECTS], id="effects")
             yield Static("presets", classes="hdr")
-            yield OptionList(*[Option(n, id=f"p:{n}")
-                               for n in effects.PRESETS], id="presets")
-            yield Button("🎲 randomize", id="rnd", variant="warning")
+            yield VimOptionList(*[Option(n, id=f"p:{n}")
+                                  for n in effects.PRESETS], id="presets")
+            yield Button("🎲 randomize (r)", id="rnd", variant="warning")
         with Vertical(id="right"):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
-            yield Static("↑/↓ + enter pick · r random · o rotation · p pin · "
-                         "[ ] brightness · q quit", id="help")
+            yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
+                         "r random · o rot · p pin · [ ] bright · q quit",
+                         id="help")
         yield Footer()
 
     def on_mount(self):
         self.set_interval(1.5, self.poll_status)
         self.set_interval(1 / 20, self.animate)
+        self.query_one("#effects", VimOptionList).focus()
         self.poll_status()
 
     # --- data ----------------------------------------------------------
