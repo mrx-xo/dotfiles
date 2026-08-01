@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """lights-tui.py — Textual dashboard skin for the VENGEANCE lights.
 
-A thin skin over `lightsctl`: it calls the engine for status + control and
+A thin skin over `lightsctl`: it calls the engine for state + control and
 renders effect swatches LOCALLY at framerate using the shared effects module
 (so the colors animate smoothly without a network round-trip per frame).
 Like the gum skin, it knows nothing about SSH — swap them freely.
@@ -15,7 +15,8 @@ Vim navigation:
   l / enter    apply the highlighted effect or preset
   ctrl+d / u   page down / up
   Tab          switch between the effects and presets lists
-  r            🎲 randomize        o  rotation on      p  pin current
+  w            🔌 wake VENGEANCE (Wake-on-LAN, when it's off)
+  r            🎲 randomize        o  rotate on       p  pin current
   [ / ]        brightness down/up  q  quit
 """
 import json
@@ -91,8 +92,9 @@ class LightsApp(App):
     Button { width: 100%; }
     """
     BINDINGS = [
+        ("w", "wake", "🔌 wake"),
         ("r", "randomize", "🎲 random"),
-        ("o", "rotation_on", "⟳ rotation"),
+        ("o", "rotation_on", "⟳ rotate"),
         ("p", "pin", "📌 pin"),
         ("]", "bright_up", "☀+"),
         ("[", "bright_down", "☀-"),
@@ -104,6 +106,8 @@ class LightsApp(App):
     def __init__(self):
         super().__init__()
         self.status = {}
+        self.reachable = True
+        self.waking = False
         self.brightness = 1.0
 
     def compose(self) -> ComposeResult:
@@ -120,40 +124,53 @@ class LightsApp(App):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
-                         "r random · o rotate · p pin · [ ] bright · q quit",
+                         "w wake · r random · o rotate · p pin · [ ] bright · q quit",
                          id="help")
         yield Footer()
 
     def on_mount(self):
-        self.set_interval(1.5, self.poll_status)
+        self.set_interval(2.0, self.poll_state)
         self.set_interval(1 / 20, self.animate)
         self.query_one("#effects", VimOptionList).focus()
-        self.poll_status()
+        self.poll_state()
 
     # --- data ----------------------------------------------------------
     @work(thread=True, exclusive=True)
-    def poll_status(self):
-        st = ctl_json("status", "--json")
-        self.call_from_thread(self.apply_status, st)
+    def poll_state(self):
+        data = ctl_json("state", "--json")
+        self.call_from_thread(self.apply_state, data)
 
-    def apply_status(self, st):
-        self.status = st or {}
+    def apply_state(self, data):
+        self.reachable = bool(data.get("reachable"))
+        self.status = data.get("lights") or {}
         self.brightness = self.status.get("brightness", 1.0)
-        eff = self.status.get("effect", "?")
-        if self.status.get("mode") == "night":
-            txt = "🌙 night — LEDs black"
-        elif self.status.get("rotation"):
-            secs = self.status.get("seconds_left")
+        if not self.reachable:
+            msg = ("🔌 waking VENGEANCE…  (WoL sent, booting from S5)"
+                   if self.waking else
+                   "🔌 VENGEANCE offline  —  press [b]w[/b] to wake")
+            self.query_one("#status", Static).update(msg)
+            return
+        self.waking = False
+        st = self.status
+        eff = st.get("effect", "?")
+        if st.get("mode") == "night":
+            txt = "🌙 night — LEDs black (rotation resumes at 08:00)"
+        elif st.get("rotation"):
+            secs = st.get("seconds_left")
             nxt = "held" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
-            txt = (f"● {eff}   ⟳ {self.status.get('preset')}   next {nxt}"
+            txt = (f"● {eff}   ⟳ {st.get('preset')}   next {nxt}"
                    f"   ☀ {int(self.brightness * 100)}%")
         else:
-            txt = (f"● {eff}   📌 {self.status.get('mode')}"
+            txt = (f"● {eff}   📌 {st.get('mode')}"
                    f"   ☀ {int(self.brightness * 100)}%")
         self.query_one("#status", Static).update(txt)
 
     def active_fn(self):
+        if not self.reachable:
+            return None
         st = self.status
+        if st.get("mode") == "night":
+            return None
         if st.get("mode") == "random" and st.get("params"):
             return effects.make_parametric(st["params"])
         return effects.EFFECTS.get(st.get("effect"))
@@ -177,10 +194,26 @@ class LightsApp(App):
     @work(thread=True)
     def send(self, *args):
         ctl(*args)
-        st = ctl_json("status", "--json")
-        self.call_from_thread(self.apply_status, st)
+        data = ctl_json("state", "--json")
+        self.call_from_thread(self.apply_state, data)
+
+    @work(thread=True)
+    def do_wake(self):
+        ctl("wake")
+
+    def action_wake(self):
+        if self.reachable:
+            self.notify("VENGEANCE is already awake")
+            return
+        self.waking = True
+        self.query_one("#status", Static).update(
+            "🔌 waking VENGEANCE…  (WoL sent, booting from S5)")
+        self.do_wake()
 
     def on_option_list_option_selected(self, ev: OptionList.OptionSelected):
+        if not self.reachable:
+            self.notify("VENGEANCE is offline — press w to wake")
+            return
         oid = ev.option.id or ""
         if oid.startswith("e:"):
             self.send("set-effect", oid[2:])

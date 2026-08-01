@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared" / "lights"
 import effects  # noqa: E402
 
 HOST = os.environ.get("LIGHTS_HOST", "vengeance")
+MAC = os.environ.get("LIGHTS_MAC", "34:5A:60:C0:95:87")  # VENGEANCE Realtek NIC
 CONTROL = "icue-scheduler/control.json"   # home-relative on the box
 STATUS = "icue-scheduler/status.json"
 _SOCK = f"/tmp/lightsctl-{HOST}.sock"
@@ -65,6 +66,32 @@ def current_control():
     return c
 
 
+# --- power / reachability ------------------------------------------------
+def is_reachable():
+    """True if VENGEANCE answers SSH (i.e. awake). ~4s to fail when off."""
+    r = subprocess.run(["ssh", "-o", "ConnectTimeout=4", "-o", "BatchMode=yes",
+                        "-o", "ControlMaster=no", HOST, "true"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def send_magic_packet(mac=MAC):
+    """Broadcast a Wake-on-LAN magic packet. Works on the local LAN (home);
+    from off-LAN you'd relay it via homelab. Only wakes from S5, not sleep."""
+    import socket
+    raw = bytes.fromhex(mac.replace(":", "").replace("-", ""))
+    pkt = b"\xff" * 6 + raw * 16
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    for target in ("255.255.255.255", "192.168.1.255"):
+        for port in (7, 9):
+            try:
+                s.sendto(pkt, (target, port))
+            except OSError:
+                pass
+    s.close()
+
+
 # --- rendering -----------------------------------------------------------
 def swatch_bar(swatch, width=4):
     cells = []
@@ -80,13 +107,9 @@ def fmt_countdown(secs):
 
 
 # --- commands ------------------------------------------------------------
-def cmd_status(args):
-    st = read_remote(STATUS)
-    if args.json:
-        print(json.dumps(st))
-        return
+def render_lights(st):
     if not st:
-        print("no status yet (is the box awake and the lights task running?)")
+        print("no status yet (lights task not running?)")
         return
     eff = st.get("effect", "?")
     if st.get("mode") == "night":
@@ -103,6 +126,40 @@ def cmd_status(args):
     print(line)
     if st.get("swatch"):
         print(swatch_bar(st["swatch"]))
+
+
+def cmd_status(args):
+    st = read_remote(STATUS)
+    if args.json:
+        print(json.dumps(st))
+        return
+    render_lights(st)
+
+
+def cmd_state(args):
+    up = is_reachable()
+    lights = read_remote(STATUS) if up else {}
+    if args.json:
+        print(json.dumps({"reachable": up, "lights": lights}))
+        return
+    if not up:
+        print("🔌 VENGEANCE offline — `lightsctl wake` (or press w) to power on")
+        return
+    print("✅ VENGEANCE online")
+    render_lights(lights)
+
+
+def cmd_wake(args):
+    send_magic_packet()
+    print(f"🔌 magic packet sent to {MAC}")
+    if args.wait:
+        for i in range(45):
+            if is_reachable():
+                print(f"✅ VENGEANCE is up (~{i * 2}s)")
+                return
+            time.sleep(2)
+        print("… no answer after 90s — booting from S5 can take a while, "
+              "or check BIOS Wake-on-LAN")
 
 
 def cmd_list(args):
@@ -195,6 +252,10 @@ def main():
 
     s = sub.add_parser("status"); s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("state"); s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_state)
+    s = sub.add_parser("wake"); s.add_argument("--wait", action="store_true")
+    s.set_defaults(fn=cmd_wake)
     s = sub.add_parser("list"); s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_list)
     s = sub.add_parser("set-effect"); s.add_argument("name")

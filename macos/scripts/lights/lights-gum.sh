@@ -17,12 +17,13 @@ names() {  # names() effects|presets  -> one per line, from lightsctl list
 while true; do
   clear
   gum style --border rounded --padding "0 1" --margin "1 0" --border-foreground 213 "  VENGEANCE lights  "
-  "$CTL" status
+  "$CTL" state
   echo
   choice=$(gum choose --header "what now?" \
-    "🎨 pick effect" "🎛  pick preset" "🎲 randomize" \
+    "🔌 wake VENGEANCE" "🎨 pick effect" "🎛  pick preset" "🎲 randomize" \
     "⟳ rotation on" "📌 pin current" "☀ brightness" "🔄 refresh" "✖ quit")
   case "$choice" in
+    "🔌 wake VENGEANCE") "$CTL" wake --wait ;;
     "🎨 pick effect")
       name=$(names effects | gum choose --header "effect") || true
       [ -n "${name:-}" ] && "$CTL" set-effect "$name" ;;
