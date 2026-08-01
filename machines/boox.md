@@ -90,11 +90,37 @@ reference), notes, agenda. Junk purged post-sync.
 
 - [ ] Static DHCP lease for `192.168.1.107`
 - [x] Olauncher home-screen slots: Termux / KOReader / Syncthing-Fork / Files
-- [ ] **Whitelist Olauncher in BOOX freeze settings** — it wasn't, so the firmware
-      froze it (`enabled=3`) and home reverted to ONYX ContentBrowser. Symptom:
-      `set-home-activity` → "Failed to set default home" + home button opens ONYX.
-      Fix each time: `pm enable --user 0 app.olauncher`; permanent fix is the
-      on-device freeze whitelist.
+- [x] Whitelisted Olauncher in BOOX freeze settings — verified it stays enabled
+      5+ min (was freezing to `enabled=3` and reverting home to ONYX before).
+      If home ever reverts again: `pm enable --user 0 app.olauncher` +
+      `cmd package set-home-activity app.olauncher/.MainActivity`.
+
+## Drawing / BOOX Notes (the native pen app)
+
+- `com.onyx.android.note` is the best pen-latency drawing app but has **NO
+  launcher activity** — it's embedded in the ONYX ContentBrowser. It appears in
+  NO app picker (Olauncher, NaviBall "Open an app", nothing). Kept from debloat.
+- Direct launch works: `am start -n com.onyx.android.note/.note.ui.CreateQuickNoteActivity`
+  (→ ScribbleActivity, the canvas). Saved as `~/.shortcuts/Draw` in Termux.
+- **One-tap on device = the NaviBall floating ball → Button 4 = "Notes"** (a
+  native NaviBall *action*, page 2/3 of the button-action list — NOT the "Open an
+  app" list). Configured via `am start -n com.onyx.floatingbutton/.FloatButtonSettingActivity`.
+- **SOLVED via Lawnchair + widget** (community-verified: lopespm.com minimalist
+  BOOX guide). The ONLY way to reach native Notes from a custom launcher is the
+  ContentBrowser **`NoteGridWidgetProvider`** widget — and that needs a launcher
+  that HOSTS widgets. Olauncher AND KISS are both widget-less minimal launchers,
+  so neither can do it (wasted hours proving this the hard way).
+- **Lawnchair 12.1.0-alpha.4** (GitHub, not F-Droid; v14/v15 betas may reject on
+  Android 11) installed + set as home. Supports widgets. Home activity
+  `app.lawnchair/.LawnchairLauncher`. Shows the system wallpaper (scribble art
+  already set), so no bland default.
+- One-tap Notes = long-press Lawnchair home → Widgets → ContentBrowser → Notes
+  (NoteGrid) widget → drag to home. Manual drag only (widget bind can't be done
+  over adb).
+- Still-installed launchers (fallback, non-destructive): Olauncher, KISS.
+  Extra chase apps (can uninstall): Termux:Widget, Activity Launcher.
+- Root cause of ALL launcher freezes this session: BOOX global auto-freeze;
+  user disabled it 2026-07-31, verified apps stop re-freezing.
 - [ ] Sleep/standby screen wallpaper (scribble art)
 - [x] Termux:Boot → sshd autostart (start-sshd.sh)
 - [x] Launcher swap (Olauncher, Light theme) + KOReader installed
