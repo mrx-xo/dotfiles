@@ -22,7 +22,7 @@
     --violet-soft: rgba(107,79,187,.12);
     --green: #0f6e56;
     --green-soft: rgba(15,110,86,.12);
-    --chg: #a3650a;
+    --chg: var(--red);
     --line: #ddd9cf;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -34,7 +34,7 @@
       --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
       --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
       --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
-      --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: #e8a33d; --line: #262a33;
+      --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: var(--red); --line: #262a33;
     }
   }
   :root[data-theme="dark"] {
@@ -43,7 +43,7 @@
     --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
     --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
     --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
-    --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: #e8a33d; --line: #262a33;
+    --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: var(--red); --line: #262a33;
   }
   :root[data-theme="light"] {
     --bg: #edeae4; --panel: #f6f5f1; --cap: #fbfaf7; --cap-hi: #ffffff;
@@ -51,7 +51,7 @@
     --faint: #a5a29a; --amber: #a3650a; --amber-soft: rgba(163,101,10,.12);
     --blue: #2f6cb3; --blue-soft: rgba(47,108,179,.12); --red: #b3402f;
     --red-soft: rgba(179,64,47,.10); --violet: #6b4fbb; --violet-soft: rgba(107,79,187,.12);
-    --green: #0f6e56; --green-soft: rgba(15,110,86,.12); --chg: #a3650a; --line: #ddd9cf;
+    --green: #0f6e56; --green-soft: rgba(15,110,86,.12); --chg: var(--red); --line: #ddd9cf;
   }
 
   * { box-sizing: border-box; }
@@ -159,6 +159,7 @@
   .tabs button[data-l="2"] .dot { background: var(--blue); }
   .tabs button[data-l="3"] .dot { background: var(--red); }
   .tabs button[data-l="4"] .dot { background: var(--violet); }
+  .tabs button[data-l="5"] .dot { background: var(--green); }
   .tabs button.on { color: var(--ink); border-color: var(--muted); background: var(--cap); }
 
   .reach {
@@ -529,6 +530,7 @@
         <button data-l="2"><span class="dot"></span>2 &middot; Nav</button>
         <button data-l="3"><span class="dot"></span>3 &middot; System</button>
         <button data-l="4"><span class="dot"></span>4 &middot; Game</button>
+        <button data-l="5"><span class="dot"></span>5 &middot; Emacs</button>
       </div>
     </div>
 
@@ -872,14 +874,35 @@ v3_2[42] = K('↓',null,'nav');
 v3_2[43] = K('↑',null,'nav');
 v3_2[44] = K('→',null,'nav');
 
-// ---------- PROPOSED (v4 draft — no increments yet, identical to v3) ----------
+// ---------- PROPOSED (v4 draft — d1: the Emacs layer) ----------
 const pro0 = v3_0.slice();
 const pro2 = v3_2.slice();
+// d1 — reach the Emacs layer by holding #57 (left inner, an ex-arrow dead
+// key). Empty space per the constitution; right hand taps the command.
+pro0[57] = K('Emacs','HOLD','hyp','MO(5)');
 
-const MAPS = { old: [old0, old1, old2, old3, old4],
-               v2:  [cur0, cur1, cur2, cur3, cur4],
-               cur: [v3_0, cur1, v3_2, cur3, cur4],
-               pro: [pro0, cur1, pro2, cur3, cur4] };
+// Emacs layer (5) — one-tap ✦ Hyper commands. skhd claims only a handful of
+// Hyper letters (e/a/f/h/j/k/l/t/space/1-4) for yabai; every other Hyper
+// combo falls straight through to the focused app, so Emacs binds these.
+// +168 bytes measured (empty-layer compile diff, 2026-07-31).
+const pro5 = Array.from({ length: 76 }, () => T);
+pro5[34] = K('imenu','✦i','hyp','HYPR(KC_I)');   // consult-imenu
+pro5[35] = K('buffer','✦b','hyp','HYPR(KC_B)');  // consult-buffer
+pro5[36] = K('magit','✦g','hyp','HYPR(KC_G)');   // magit-status
+pro5[37] = K('search','✦s','hyp','HYPR(KC_S)');  // consult-line
+pro5[38] = K('recent','✦r','hyp','HYPR(KC_R)');  // consult-recent-file
+pro5[23] = K('project','✦p','hyp','HYPR(KC_P)'); // projectile-find-file
+pro5[24] = K('window','✦o','hyp','HYPR(KC_O)');  // ace-window
+pro5[25] = K('dired','✦d','hyp','HYPR(KC_D)');   // dired-jump
+
+// layer 5 exists on every version so MAPS[view][5] never lands undefined —
+// only the proposed board actually carries the Emacs keys (rest transparent).
+const emacsGhost = Array.from({ length: 76 }, () => T);
+
+const MAPS = { old: [old0, old1, old2, old3, old4, emacsGhost],
+               v2:  [cur0, cur1, cur2, cur3, cur4, emacsGhost],
+               cur: [v3_0, cur1, v3_2, cur3, cur4, emacsGhost],
+               pro: [pro0, cur1, pro2, cur3, cur4, pro5] };
 
 // ---------- copy ----------
 const REACH = {
@@ -905,6 +928,11 @@ REACH.cur = REACH.v2.slice();
 REACH.cur[0] = 'Base + the criss-cross: <b>✦ Hyper</b> and <b>◆ Meh</b> on both hands (inner column <i>and</i> home-row <b>I</b>/<b>D</b>) &mdash; hold whichever side is opposite the target key. Tab is back on <b>#58</b>/<b>#59</b>.';
 REACH.cur[2] = 'Hold <b>right thumb Enter</b>. Tab◀/Tab▶ on the home row, arrows one row down, numpad on the right hand.';
 REACH.pro = REACH.cur.slice();
+// layer 5 (Emacs) — only proposed carries it; the rest say "not flashed"
+REACH.old[5] = '<span class="warn">Doesn\'t exist.</span> The pre-Hyper board had no sixth layer.';
+REACH.v2[5]  = '<span class="warn">Not on the board.</span> The Emacs layer is a v4 draft — browse it on <b>proposed</b>.';
+REACH.cur[5] = '<span class="warn">Not flashed yet.</span> Ships with the v4 flash; live today anyway by holding <b>✦ Hyper</b> on the home row. Browse it on <b>proposed</b>.';
+REACH.pro[5] = 'Hold <b>#57</b> (left inner, the ex-arrow dead key) &mdash; right hand taps the command. Keys emit <b>✦ Hyper chords</b>; skhd never claims these letters, so they fall straight through to Emacs.';
 
 const NOTES = {
   old: [
@@ -989,7 +1017,25 @@ NOTES.cur[2] = ['Nav layer — tab switching in firmware (v3)', [
   'Replaced the skhd ✦,/✦. &rarr; Hammerspoon synth (~40ms/press) with zero-latency firmware; the skhd binds were retired at the flash &mdash; one gesture per job, trained once.',
   'Numpad, Del, Home/End/PgUp/PgDn untouched.'
 ]];
-NOTES.pro = NOTES.cur.slice();   // v4 draft — no increments yet
+NOTES.pro = NOTES.cur.slice();
+// layer 5 (Emacs) copy — proposed tells the design story; the rest defer to it
+NOTES.old[5] = ['Not on this board', [
+  'The pre-flash board had no Hyper and no sixth layer &mdash; nothing to show here.'
+]];
+NOTES.v2[5] = ['Not on this board', [
+  '<span class="warn">The Emacs layer is a v4 draft.</span> It lives on <b>proposed</b> until a flash promotes it.'
+]];
+NOTES.cur[5] = ['Not flashed yet', [
+  '<span class="warn">The Emacs layer is a v4 draft (d1).</span> Browse it on <b>proposed</b>.',
+  'It already works <b>today</b> without a flash: the hotdox emits real <span class="k">✦ Hyper</span>, and skhd doesn\'t claim these letters, so holding Hyper + the key reaches Emacs. The layer just makes each a <b>one-tap</b> instead of a hold.'
+]];
+NOTES.pro[5] = ['Emacs layer (v4 draft &middot; d1)', [
+  '<b>Reach:</b> hold <span class="k">#57</span> &mdash; the left-inner ex-arrow dead key, empty since the v2 nav-discipline cull. Right hand taps the command, the "hold opposite the target" pattern Sym/Nav already use.',
+  '<b>Every key is a <span class="k">HYPR(x)</span> chord</b> &mdash; one tap fires ✦+letter, no modifier claw. Curated to letters skhd leaves alone (<span class="k">e a f h j k l t</span> + space + 1&ndash;4 are the yabai binds), so nothing collides.',
+  '<b>Home row (index → pinky):</b> <span class="k">✦i</span> imenu &middot; <span class="k">✦b</span> buffers &middot; <span class="k">✦g</span> magit &middot; <span class="k">✦s</span> search &middot; <span class="k">✦r</span> recent. <b>Top row:</b> <span class="k">✦p</span> project &middot; <span class="k">✦o</span> window &middot; <span class="k">✦d</span> dired.',
+  '<b>Cost:</b> <span class="k">+168 bytes</span> &mdash; measured by an empty-layer compile diff (26210 → 26378, 2026-07-31). 2294 bytes still free; room for ~13 more layers.',
+  '<b>Status:</b> Emacs side is bound and live (<span class="k">emacs.org</span> Hyper block); the layer is a draft &mdash; promotes to firmware on the next flash as <span class="k">MO(5)</span> + an <span class="k">_EMACS</span> layer.'
+]];
 
 // ---------- layout version ledger ----------
 // One integer per flashed layout, forever incrementing — the answer to
@@ -1007,7 +1053,7 @@ const LAYOUTS = {
   cur: { v: 3, commit: 'c6b22e1', status: 'on board — flashed 2026-07-29',
          note: 'criss-cross Hyper/Meh, firmware tab switching, Tab ×2' },
   pro: { v: 4, commit: null, status: 'draft',
-         note: 'no increments yet' }
+         note: 'd1: Emacs layer — one-tap ✦ Hyper commands (+168 bytes)' }
 };
 window.__layoutOnBoard = LAYOUTS.cur.v;   // for the board switcher's eyebrow
 
@@ -1016,7 +1062,14 @@ window.__layoutOnBoard = LAYOUTS.cur.v;   // for the board switcher's eyebrow
 // When a flash promotes the draft, this batch is archived into VERSIONS.md
 // under its layout version and the list restarts at d1 for the next draft.
 // (v3's d1-d4 were archived 2026-07-29.)
-const PRO_LOG = [];
+const PRO_LOG = [
+  { v: 1, date: '2026-07-31', title: 'Emacs layer',
+    what: 'new layer 5 reached by holding #57 (ex-arrow dead key). Eight one-tap ' +
+          '✦ Hyper commands — ✦i imenu · ✦b buffers · ✦g magit · ✦s search · ' +
+          '✦r recent · ✦p project · ✦o window · ✦d dired — on skhd-free Hyper ' +
+          'letters, so they fall through to Emacs. +168 bytes (empty-layer ' +
+          'compile diff). Emacs bindings live now; firmware waits for the flash.' }
+];
 
 const SKHD = [
   ['✦ H/J/K/L', 'yabai focus'],
@@ -1128,7 +1181,9 @@ function render() {
     capPro.textContent = vtag(sel2) + ' — ' + LAYOUTS[sel2].status +
       (sel1 !== sel2 ? ' — changes vs left ringed' : '');
   } else {
-    drawBoard(board1, sel1);
+    // single view: proposed always rings its changes vs current — red, no
+    // compare toggle needed. Other versions show plain (nothing to diff).
+    drawBoard(board1, sel1, sel1 === 'pro' ? 'cur' : null);
   }
 
   const reach = document.getElementById('hd-reach');

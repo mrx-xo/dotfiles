@@ -49,7 +49,18 @@ boards run the ritual (Micro since v3; explorer grew its own version picker
 - Right-half reflash not needed: no RGB/OLED behavior changed vs v2.
 
 ### v4 — draft
-- No increments yet — identical to v3. First change becomes d1.
+- Drafted 2026-07-30 onward:
+  - **d1** — **Emacs layer** (new layer 5, `_EMACS`). Reached by holding `#57`
+    (left-inner ex-arrow dead key, empty since the v2 nav-discipline cull) as
+    `MO(5)`; right hand taps the command — the "hold opposite the target"
+    grip Sym/Nav already use. Eight keys, each a one-tap `HYPR(x)` chord: home
+    row `✦i` imenu · `✦b` buffers · `✦g` magit · `✦s` search · `✦r` recent;
+    top row `✦p` project · `✦o` window · `✦d` dired. Curated to Hyper letters
+    skhd leaves alone (`e a f h j k l t` + space + 1–4 are the yabai binds),
+    so every chord falls through to Emacs. Measured cost **+168 bytes** by an
+    empty-layer compile diff (26210 → 26378; 2294 free). Emacs side is bound
+    and live today (`emacs.org` Hyper block) — works by holding Hyper on the
+    home row even before the flash bakes in the one-tap layer.
 
 ## Ledger — Creator Micro (work_louder/micro)
 
