@@ -126,6 +126,21 @@ out1="$(cat /tmp/at-par1.$$)"; rm -f /tmp/at-par1.$$
 [ "$out2" = "par-two" ] && [ "$out1" = "par-one-start
 par-one-end" ] && ok "concurrent calls serialize cleanly" || bad "concurrent calls serialize cleanly" "out1=$out1 out2=$out2"
 
+# Bug A regression (2026-08-01): pagers must be tamed even when the session
+# was created OUTSIDE the wrapper (the SPC c V / SPC c L attach path) —
+# git piping through `less` in an untamed pane used to hang until the
+# 600s timeout with rc 124.
+TMUX_T="$(command -v tmux || echo /opt/homebrew/bin/tmux)"
+"$TMUX_T" kill-session -t agent 2>/dev/null; sleep 1
+"$TMUX_T" new-session -d -s agent 2>/dev/null; sleep 0.5
+t0=$SECONDS
+out="$(AGENT_TERM_TIMEOUT=15 "$RUN" "$(b64 'git -C ~/.dotfiles log --oneline -60')")"; rc=$?
+el=$((SECONDS - t0))
+lines="$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+[ $rc -eq 0 ] && [ $el -lt 10 ] && [ "$lines" = "60" ] \
+  && ok "pager tamed in externally-created session (git log, ${el}s)" \
+  || bad "pager tamed in externally-created session" "rc=$rc elapsed=${el}s lines=$lines"
+
 # ── Layer 2: rewrite hook bypass rules ─────────────────────────────────────
 section "Layer 2 — agent-tmux-hook.sh rewrite rules"
 HOOK="$SCRIPTS/agent-tmux-hook.sh"

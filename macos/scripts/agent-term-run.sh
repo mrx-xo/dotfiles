@@ -80,11 +80,11 @@ echo $$ >"$LOCK/pid"
 trap 'rm -rf "$LOCK" 2>/dev/null' EXIT
 
 # --- ensure the session exists -------------------------------------------
+# (Pager taming happens per-command in TYPED below, not here: a session
+# created by the attach path — vterm's `tmux new-session -A` — would
+# otherwise stay untamed forever and hang git on `less` for 600s.)
 if ! "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
   "$TMUX_BIN" new-session -d -s "$SESSION" 2>/dev/null || direct
-  # Tame interactive traps in the agent's shell (pagers hang PTYs).
-  "$TMUX_BIN" send-keys -t "$SESSION" -l -- " export GIT_PAGER=cat PAGER=cat LESS=RF" 2>/dev/null
-  "$TMUX_BIN" send-keys -t "$SESSION" Enter 2>/dev/null
   sleep 0.3
 fi
 
@@ -104,7 +104,9 @@ LOG="$LOGDIR/$ID.log"
 # keystrokes never contain the literal marker strings; the DONE line's own
 # echo lands inside the capture and is filtered below. Leading space keeps
 # both out of shell history (hist_ignore_space).
-TYPED=" printf '<<AGENT-%s:%s>>\\n' BEGIN $ID; { $CMD
+# Pager taming rides ahead of BEGIN on every run (idempotent; outside the
+# captured slice) — the shell is shared and may not have been created by us.
+TYPED=" export GIT_PAGER=cat PAGER=cat LESS=RF; printf '<<AGENT-%s:%s>>\\n' BEGIN $ID; { $CMD
 }"
 DONE_TYPED=" printf '<<AGENT-%s:%s:%s>>\\n' DONE $ID \$?"
 

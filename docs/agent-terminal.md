@@ -17,10 +17,19 @@ M-x agent-terminal-demo    the guided tour: opens BOTH views side by side and
                            type into the pane while the observer logs them.
                            Everything stays open; the pane is a real shell.
 
+SPC c L        LIVE mode, one gesture: interception ON + observer + pane in
+               bottom side windows. Again: everything OFF (tmux session survives).
+C-u SPC c L    same, but popped into its own frame — its own OS window,
+               tiled by yabai (throw it on another monitor/space)
+
 SPC c v        toggle the observer buffer (always-on feed, read-only)
 SPC c V        attach the tmux pane (watch/type, only useful when intercepting)
 C-u SPC c V    toggle tmux interception on/off (takes effect next tool call)
 ```
+
+`SPC c L` couples the machine-wide flag to the windows on purpose; the
+granular toggles below still work independently (e.g. close the viewer
+without stopping interception).
 
 Layer 3 (ACP channel) has no keys — it's automatic for new agent-shell
 sessions and only shows itself as `✗ exit N` badges on failed commands.
@@ -77,7 +86,17 @@ same env). The agent receives normal stdout + exit codes and notices nothing.
 reverts instantly.
 
 **Watch:** `SPC c V` attaches a vterm to the session in a side window
-(`tmux attach -t agent` from any terminal works too).
+(`tmux attach -t agent` from any terminal works too). Or skip the
+piecemeal setup entirely: `SPC c L` flips the flag AND opens observer +
+pane together; `C-u SPC c L` puts the pair in a dedicated frame instead
+(found again at teardown via its `agent-terminal-live` frame parameter,
+so renaming the frame can't orphan it).
+
+> Frame-pop implementation note: on this daemon a fresh frame is born
+> already split (persp/popper hooks run *inside* `make-frame`), so the
+> code works from `frame-selected-window` with `ignore-window-parameters`
+> bound — never `frame-root-window`, which is a dead internal parent
+> window there. Full story: [Frame-pop bug ledger](#frame-pop-bug-ledger-2026-07-27).
 
 **How it works:**
 
@@ -112,8 +131,10 @@ anything when tmux is unusable — a broken tmux can never break a tool call.
 and the harness may background slower calls. Treat it as a mode you flip on
 to watch a task, not an always-on.
 
-**Troubleshooting:** commands slow/hanging with the flag on → check for a
-stuck wrapper (`pgrep -fl agent-term-run.sh`), stale lock
+**Troubleshooting:** commands slow/hanging with the flag on → first suspect
+a pager waiting for keys in the pane (git especially — see
+[Field bugs](#field-bugs--first-real-workload-2026-07-28)), then check for
+a stuck wrapper (`pgrep -fl agent-term-run.sh`), stale lock
 (`ls /tmp/agent-term/lock`), or a shell stuck at a continuation prompt in
 the pane (attach and C-c it). Nuclear option: toggle off + `rm -rf
 /tmp/agent-term/lock` + `tmux kill-session -t agent` (it recreates itself).
@@ -203,8 +224,108 @@ Full ERT config suite (includes the same Phase 3 gold-payload tests):
 - `~/.claude/agent-tmux-enabled` — Layer 2 toggle flag (runtime, untracked)
 - `docs/agent-terminal-prd.md` — design history + receipts
 
+## Frame-pop bug ledger (2026-07-27)
+
+Building `C-u SPC c L` took three crashes, each teaching something about how
+frames actually behave on this daemon. Kept here so the next frame-popping
+feature doesn't rediscover them.
+
+**Crash 1 — `delete-other-windows: Cannot make side window the only window`**
+- Naive code: `select-frame-set-input-focus` → `delete-other-windows` →
+  `switch-to-buffer`, all against the *implicit* selected window.
+- Cause: `delete-other-windows` throws exactly this when the selected window
+  is a *side* window — and popper's popup had selection at that moment.
+- Lesson: during/after frame creation, never rely on `selected-window`.
+  Operate on explicit window objects.
+
+**Crash 2 — `ad-Advice-set-window-buffer: Wrong type argument: window-live-p, #<window N>`**
+- First diagnosis (wrong): vterm creation between `split-window` and
+  `set-window-buffer` killing the fresh split. Reordering buffer creation
+  didn't fix it.
+- Real cause, found by step-through probing: **`frame-root-window` was dead
+  immediately after `make-frame`**. A fresh frame here is born with *2*
+  windows — `after-make-frame-functions` (`persp-init-frame`, popper, font
+  lambda, `select-frame`, `evil-init-esc`) run *inside* `make-frame` and
+  split the frame before it returns — so the root window is an internal
+  *parent* node, which is never live and can't take a buffer.
+- Fix: start from `frame-selected-window` (always a live leaf), bind
+  `ignore-window-parameters` to `t`, `delete-other-windows` to collapse the
+  hook-made split (the binding lets it eat protected side windows), then
+  split and set buffers on explicit handles.
+
+**Side discovery — frames here never inherit the current buffer.**
+Stock `make-frame` "displays the current buffer" (its docstring); on this
+config `persp-init-frame` re-points every new frame at its own fresh
+perspective's `*scratch*` before `make-frame` returns. Any code assuming
+either behavior should test, not assume.
+
+**Debugging pattern that cracked it:** wrap each layout step in
+`condition-case` + a log list, eval via emacsclient, and assert
+`window-live-p` after every operation — the failing step was unambiguous in
+one run, after two rounds of plausible-but-wrong fixes shipped blind.
+
+## Field bugs — first real workload (2026-07-28)
+
+Interception's first sustained session surfaced a compound failure. A
+yes/no question took ten minutes because every git command "froze". Two
+bugs, the second caused by the first:
+
+**Bug A — git hangs 600s: the pager thinks a human is watching.
+✅ FIXED 2026-08-01** — taming now rides ahead of the BEGIN marker on
+*every* typed command (idempotent, outside the captured slice), so it no
+longer matters who created the session. Regression-tested: "pager tamed
+in externally-created session" in the smoke suite.
+- The tmux pane is a real PTY, so git sees a tty and pipes output through
+  `less`, which waits forever for a keypress nobody will send. The wrapper
+  times out at 600s, C-c's the pane, returns rc 124.
+- The wrapper *does* type `export GIT_PAGER=cat PAGER=cat LESS=RF` — but
+  **only in its session-creation branch** (`agent-term-run.sh:83-88`). When
+  the session already exists — notably when the attach path created it
+  (`SPC c V` / `SPC c L` → vterm runs `tmux new-session -A -s agent`, no
+  taming) — the exports never happen and every pager-using command is a
+  600s landmine.
+- Note `LESS=RF` isn't full protection anyway (`F` only auto-quits on
+  one-screen output); `GIT_PAGER=cat` is what matters for git.
+
+**Bug B — sentinel eaten mid-flight: `printf` arrives as `intf`.**
+- The DONE marker line is typed (queued into the PTY input buffer) while
+  the command is still running. Normally the shell reads it after the
+  command exits. But a command that *reads the terminal* — exactly what a
+  waiting pager does — consumes the queued characters as input: ` pr` of
+  ` printf` became less keystrokes, the shell got `intf …` → "command not
+  found" → no DONE marker ever printed.
+- Without the marker the wrapper can't tell the command finished, so the
+  harness saw long-running calls and shoved them into background tasks
+  with empty output. From the agent's seat: frozen git, then silence.
+- Implication even after Bug A is fixed: **any** stdin-reading command
+  (interactive prompt, `read`, an editor) can eat the sentinel. The
+  parse-abort rationale for typing DONE on its own line (see wrapper
+  comments) trades away exactly this robustness — a real fix needs the
+  sentinel delivery to not sit in the input queue during execution
+  (e.g. fold it into the same logical input line, or `tmux wait-for`).
+
+## Design direction — readability first (noted 2026-08-01)
+
+The observer's value ceiling is *discernment*: seeing commands means nothing
+if you can't cleanly tell them apart, scroll back through history, and find
+things. Bugs and layers come and go; this is the bar the buffer is held to:
+
+- **Hierarchy**: commands pop, output recedes (dim/indent) — not one flat wall
+- **Navigation**: fold each command, n/p jump between commands, imenu/occur
+- **Outcome at a glance**: exit badge + duration on every entry
+- **Session identity**: stable per-session color + human labels, not UUIDs
+  (labeling work shared with the per-conversation view idea)
+- **Two modes**: the clean reading view AND a raw feed — pretty rules are
+  rendering-time only, so raw stays available as a toggle or twin buffer
+
+Timestamps, dim descriptions, session separators, ↳ attribution, ANSI color,
+and no-yank tail-follow already exist (pinned by atux- tests); new rendering
+rules must grow matching tests.
+
 ## Open items (also in todos.org)
 
+- **Fix Bug B**: sentinel delivery that survives stdin-reading commands
+  (same-logical-line DONE, or tmux wait-for)
 - Interactive check: permission prompt should show the *original* command
   (not wrapper gibberish) while intercepting
 - acp-mobile rendering sanity-check for terminal content
