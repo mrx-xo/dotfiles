@@ -1,6 +1,7 @@
 """Resident Corsair lighting driver for VENGEANCE.
 
-Day (08:00-23:00): rotates through EFFECTS, a new one every 5 minutes.
+Day (08:00-23:00): a random EFFECT plays each 5-minute slot (never the
+same one twice in a row), so the rotation keeps surprising you.
 Night: all LEDs black. Runs from logon via scheduled task ICUELights;
 ~/icue-scheduler/stop.flag makes it hand lighting back to iCUE and exit.
 
@@ -12,6 +13,7 @@ Venv: ~/icue-scheduler/.venv (cuesdk). Setup: setup-icue-scheduler.ps1.
 import colorsys
 import json
 import math
+import random
 import threading
 import time
 from pathlib import Path
@@ -57,7 +59,24 @@ def white_ember_breathe(x, t):
 # x = LED position across its device (0-1), t = epoch seconds.
 EFFECTS = [
     ("white-ember breathe", white_ember_breathe),
+    ("hue sweep", lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1)),
+    ("rainbow wave", lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1)),
+    ("purple breathe", lambda x, t: colorsys.hsv_to_rgb(0.78, 1, 0.08 + 0.85 * (0.5 - 0.5 * math.cos(t * math.pi / 3)))),
+    ("ocean drift", lambda x, t: colorsys.hsv_to_rgb(0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9)),
+    ("ember", lambda x, t: colorsys.hsv_to_rgb(0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6))),
+    ("warm gruvbox", lambda x, t: colorsys.hsv_to_rgb(0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9)),
 ]
+
+
+def slot_effect_index(now):
+    """Pick a random effect for the current 5-min slot, deterministic within
+    the slot and never equal to the previous slot's pick."""
+    slot = int(now // (EFFECT_MINUTES * 60))
+    idx = random.Random(slot).randrange(len(EFFECTS))
+    prev = random.Random(slot - 1).randrange(len(EFFECTS))
+    if idx == prev:
+        idx = (idx + 1) % len(EFFECTS)
+    return idx
 
 
 def write_status(mode, effect, now):
@@ -126,7 +145,7 @@ def main():
                 rig = build_rig(sdk)
                 last_refresh = now
             if DAY_START_HOUR <= time.localtime(now).tm_hour < DAY_END_HOUR:
-                idx = int(now // (EFFECT_MINUTES * 60)) % len(EFFECTS)
+                idx = slot_effect_index(now)
                 name, fn = EFFECTS[idx]
                 if status != ("day", name):
                     status = ("day", name)
