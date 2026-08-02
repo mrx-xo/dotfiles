@@ -33,7 +33,7 @@ from rich.text import Text  # noqa: E402
 from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.containers import Vertical  # noqa: E402
+from textual.containers import Horizontal, Vertical  # noqa: E402
 from textual.widgets import Button, Footer, Header, OptionList, Static  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
@@ -81,12 +81,13 @@ class VimOptionList(OptionList):
 
 class LightsApp(App):
     CSS = """
-    Screen { layout: horizontal; }
-    #left { width: 34; border: round $primary; }
-    #right { border: round $secondary; }
-    #status { height: 3; content-align: left middle; padding: 0 1; }
-    #swatch { height: 5; padding: 1 1; }
-    #help { color: $text-muted; padding: 0 1; }
+    Screen { layout: vertical; }
+    #top { height: auto; border: round $secondary; }
+    #status { height: 1; padding: 0 1; }
+    #swatch { height: 1; padding: 0 1; }
+    #help { height: 1; color: $text-muted; padding: 0 1; }
+    #bottom { height: 1fr; }
+    #effects-col, #presets-col { width: 1fr; border: round $primary; }
     .hdr { text-style: bold; padding: 0 1; }
     OptionList { height: auto; }
     OptionList:focus { border-left: thick $accent; }
@@ -115,21 +116,23 @@ class LightsApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(id="left"):
-            yield Static("effects", classes="hdr")
-            yield VimOptionList(*[Option(n, id=f"e:{n}")
-                                  for n in effects.EFFECTS], id="effects")
-            yield Static("presets", classes="hdr")
-            yield VimOptionList(*[Option(n, id=f"p:{n}")
-                                  for n in effects.PRESETS], id="presets")
-            yield Button("🎲 randomize (r)", id="rnd", variant="warning")
-        with Vertical(id="right"):
+        with Vertical(id="top"):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
                          "w wake · r random · o rotate · p pin · a schedule · "
                          "x reset · "
                          "[ ] bright · q quit", id="help")
+        with Horizontal(id="bottom"):
+            with Vertical(id="effects-col"):
+                yield Static("effects", classes="hdr")
+                yield VimOptionList(*[Option(n, id=f"e:{n}")
+                                      for n in effects.EFFECTS], id="effects")
+            with Vertical(id="presets-col"):
+                yield Static("presets", classes="hdr")
+                yield VimOptionList(*[Option(n, id=f"p:{n}")
+                                      for n in effects.PRESETS], id="presets")
+                yield Button("🎲 randomize (r)", id="rnd", variant="warning")
         yield Footer()
 
     def on_mount(self):
