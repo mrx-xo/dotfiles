@@ -22,6 +22,7 @@ from pathlib import Path
 # shared effect definitions live at <repo>/shared/lights/effects.py
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "lights"))
 import effects  # noqa: E402
+import rig  # noqa: E402
 
 from cuesdk import (CueSdk, CorsairDeviceFilter, CorsairDeviceType,  # noqa: E402
                     CorsairLedColor, CorsairSessionState)
@@ -79,6 +80,7 @@ def write_status(control, name, now, swatch, is_on, forced):
             "rotation": rotation,
             "brightness": control.get("brightness", 1.0),
             "params": control.get("params"),  # for random, so UIs can animate
+            "fans": control.get("fans"),      # per-fan overrides, if any
             "seconds_left": seconds_left(control, now) if rotation else None,
             "swatch": swatch,
             "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
@@ -112,20 +114,32 @@ def build_rig(sdk):
     return rig
 
 
-def paint(sdk, rig, fn, t, brightness=1.0):
-    for did, leds in rig:
-        sdk.set_led_colors(did, [
-            CorsairLedColor(id=lid, a=255, **dict(zip(
-                "rgb", (int(c * brightness * 255) for c in fn(x, t)))))
-            for lid, x in leds
-        ])
+def fan_overrides(control, brightness):
+    """control['fans'] = {group-name: [r, g, b] 0-255} -> {led_id: (r, g, b)}.
+    Unknown group names are ignored (stale control from an older map)."""
+    out = {}
+    for name, col in (control.get("fans") or {}).items():
+        for lid in rig.FANS.get(name, ()):
+            out[lid] = tuple(int(v * brightness) for v in col)
+    return out
+
+
+def paint(sdk, layout, fn, t, brightness=1.0, overrides=None):
+    overrides = overrides or {}
+    for did, leds in layout:
+        colors = []
+        for lid, x in leds:
+            c = overrides.get(lid) or tuple(
+                int(v * brightness * 255) for v in fn(x, t))
+            colors.append(CorsairLedColor(id=lid, r=c[0], g=c[1], b=c[2], a=255))
+        sdk.set_led_colors(did, colors)
 
 
 def main():
     STOP_FLAG.unlink(missing_ok=True)
     sdk = CueSdk()
     sdk.connect(on_state_changed)
-    rig = []
+    layout = []
     last_refresh = 0.0
     status = None
     status_ts = 0.0
@@ -134,9 +148,9 @@ def main():
             continue
         now = time.time()
         try:
-            if now - last_refresh > 300 or not rig:
+            if now - last_refresh > 300 or not layout:
                 sdk.set_layer_priority(LAYER_PRIORITY)
-                rig = build_rig(sdk)
+                layout = build_rig(sdk)
                 last_refresh = now
             control = read_control()
             is_on, forced = lights_on(control, now)
@@ -150,7 +164,8 @@ def main():
                     swatch = [[int(c * bright) for c in px]
                               for px in effects.sample_swatch(fn, now)]
                     write_status(control, name, now, swatch, True, forced)
-                paint(sdk, rig, fn, now, bright)
+                paint(sdk, layout, fn, now, bright,
+                      fan_overrides(control, bright))
                 time.sleep(1.0 / FPS)
             else:
                 # poll control often so a manual "on" lights up within ~2s
@@ -159,10 +174,10 @@ def main():
                     status_ts = now
                     write_status(control, "black", now, [[0, 0, 0]] * 8,
                                  False, forced)
-                paint(sdk, rig, lambda x, t: (0, 0, 0), now)
+                paint(sdk, layout, lambda x, t: (0, 0, 0), now)
                 time.sleep(2)
         except Exception:
-            rig = []  # iCUE restarting or device hotplug; rebuild next tick
+            layout = []  # iCUE restarting or device hotplug; rebuild next tick
             time.sleep(5)
     try:
         sdk.set_layer_priority(0)  # iCUE's lighting wins again

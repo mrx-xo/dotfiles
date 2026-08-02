@@ -9,6 +9,7 @@ freely as long as they speak this contract.
   lightsctl status [--json]        current effect, preset, countdown, colors
   lightsctl list [--json]          available effects and presets
   lightsctl set-effect NAME        pin one effect
+  lightsctl fan NAME COLOR         override one fan/group (see: lightsctl fan)
   lightsctl set-preset NAME        rotation drawing from a preset's pool
   lightsctl rotation on|off        resume rotation / pin whatever's showing
   lightsctl random                 roll a fresh parametric look (the 🎲)
@@ -29,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared" / "lights"))
 import effects  # noqa: E402
+import rig  # noqa: E402
 
 HOST = os.environ.get("LIGHTS_HOST", "vengeance")
 MAC = os.environ.get("LIGHTS_MAC", "34:5A:60:C0:95:87")  # VENGEANCE Realtek NIC
@@ -148,6 +150,9 @@ def render_lights(st):
     print(line)
     if st.get("swatch"):
         print(swatch_bar(st["swatch"]))
+    if st.get("fans"):
+        print("🎯 " + "  ".join(
+            f"{n} {swatch_bar([c], 2)}" for n, c in st["fans"].items()))
 
 
 def cmd_status(args):
@@ -258,6 +263,63 @@ def cmd_rotation(args):
         write_control(c)
 
 
+FAN_COLOR_NAMES = {
+    "red": (255, 0, 0), "orange": (255, 90, 0), "yellow": (255, 220, 0),
+    "green": (0, 255, 0), "cyan": (0, 255, 255), "blue": (0, 0, 255),
+    "purple": (140, 0, 255), "magenta": (255, 0, 255), "pink": (255, 60, 120),
+    "white": (255, 255, 255), "warm": (255, 160, 90), "off": (0, 0, 0),
+}
+
+
+def parse_fan_color(s):
+    if s in FAN_COLOR_NAMES:
+        return list(FAN_COLOR_NAMES[s])
+    hexs = s.lstrip("#")
+    if len(hexs) == 6:
+        try:
+            return [int(hexs[i:i + 2], 16) for i in (0, 2, 4)]
+        except ValueError:
+            pass
+    sys.exit(f"bad color: {s} (name like 'red', or hex like ff8800)")
+
+
+def cmd_fan(args):
+    c = current_control()
+    if not args.name:  # bare `lightsctl fan` — show groups and overrides
+        fans = c.get("fans") or {}
+        for name in list(rig.FANS) + list(rig.ROWS):
+            mark = ""
+            if name in fans:
+                mark = f"  ← {fans[name]} {swatch_bar([fans[name]], 2)}"
+            print(f"  {name}{mark}")
+        return
+    if args.name == "clear":
+        c.pop("fans", None)
+        write_control(c)
+        print("🧹 all fan overrides cleared")
+        return
+    names = rig.ROWS.get(args.name, [args.name])
+    for n in names:
+        if n not in rig.FANS:
+            sys.exit(f"unknown fan: {args.name} (see: lightsctl fan)")
+    if not args.color:
+        sys.exit(f"need a color for {args.name} (or 'clear')")
+    fans = c.setdefault("fans", {})
+    if args.color == "clear":
+        for n in names:
+            fans.pop(n, None)
+        if not fans:
+            c.pop("fans", None)
+        write_control(c)
+        print(f"🧹 cleared: {', '.join(names)}")
+        return
+    col = parse_fan_color(args.color)
+    for n in names:
+        fans[n] = col
+    write_control(c)
+    print(f"🎯 {', '.join(names)} → {swatch_bar([col], 4)}")
+
+
 def cmd_random(args):
     p = effects.random_params()
     c = current_control()
@@ -314,6 +376,9 @@ def main():
     s.set_defaults(fn=cmd_set_preset)
     s = sub.add_parser("rotation"); s.add_argument("state", choices=["on", "off"])
     s.set_defaults(fn=cmd_rotation)
+    s = sub.add_parser("fan"); s.add_argument("name", nargs="?")
+    s.add_argument("color", nargs="?")
+    s.set_defaults(fn=cmd_fan)
     s = sub.add_parser("random"); s.set_defaults(fn=cmd_random)
     s = sub.add_parser("brightness"); s.add_argument("value", type=float)
     s.set_defaults(fn=cmd_brightness)
