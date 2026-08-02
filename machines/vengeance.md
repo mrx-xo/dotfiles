@@ -53,7 +53,9 @@ SSH lands in **Git Bash**, not PowerShell. Hard-won lessons:
 ## Environment
 
 - Window manager: GlazeWM (alt-based binds, gruvbox); keyboard: kanata
-  (home-row mods); AutoHotkey for global Emacs keys
+  (home-row mods). AutoHotkey autostart is DISABLED (2026-08-01) — both
+  emacs.ahk (Win+Shift+E/R) and glaze-game-pause.ahk are off; re-enable via
+  `$EnableAutoHotkey = $true` in windows/bootstrap.ps1
 - Emacs: lean package.el config (~500 lines), NOT the literate macOS setup
 - Shell: PowerShell + Starship; Windows Terminal
 - **No system Python** — `scoop install python` fails (dark/MSI decompress
