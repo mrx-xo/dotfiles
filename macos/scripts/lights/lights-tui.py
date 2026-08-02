@@ -113,6 +113,7 @@ class LightsApp(App):
         self.reachable = True
         self.waking = False
         self.brightness = 1.0
+        self._marks = None  # (active effect, active preset) last rendered
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -147,10 +148,30 @@ class LightsApp(App):
         data = ctl_json("state", "--json")
         self.call_from_thread(self.apply_state, data)
 
+    def mark_active(self):
+        """Color the entry that's actually playing on the box: the live effect,
+        and the live preset when rotation is on."""
+        st = self.status
+        live = self.reachable and st.get("on", True)
+        eff = st.get("effect") if live and st.get("mode") != "random" else None
+        pre = st.get("preset") if live and st.get("rotation") else None
+        if (eff, pre) == self._marks:
+            return
+        self._marks = (eff, pre)
+        for list_id, prefix, names, active in (
+                ("effects", "e:", effects.EFFECTS, eff),
+                ("presets", "p:", effects.PRESETS, pre)):
+            lst = self.query_one(f"#{list_id}", VimOptionList)
+            for n in names:
+                prompt = (Text(f"● {n}", style="bold #50fa7b") if n == active
+                          else Text(f"  {n}"))
+                lst.replace_option_prompt(f"{prefix}{n}", prompt)
+
     def apply_state(self, data):
         self.reachable = bool(data.get("reachable"))
         self.status = data.get("lights") or {}
         self.brightness = self.status.get("brightness", 1.0)
+        self.mark_active()
         if not self.reachable:
             msg = ("🔌 waking VENGEANCE…  (WoL sent, booting from S5)"
                    if self.waking else
