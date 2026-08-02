@@ -16,7 +16,7 @@ Vim navigation:
   ctrl+d / u   page down / up
   Tab          switch between the effects and presets lists
   w            🔌 wake VENGEANCE (Wake-on-LAN, when it's off)
-  r            🎲 randomize        o  rotate on       p  pin current
+  r            🎲 randomize        o  rotate on       p  pin ⇄ unpin
   x            🧼 reset (clean slate: rotation, 100%, no overrides)
   [ / ]        brightness down/up  q  quit
 """
@@ -83,7 +83,7 @@ class LightsApp(App):
     CSS = """
     Screen { layout: vertical; }
     #top { height: auto; border: round $secondary; }
-    #status { height: 1; padding: 0 1; }
+    #status { height: 2; padding: 0 1; }
     #swatch { height: 1; padding: 0 1; }
     #help { height: 1; color: $text-muted; padding: 0 1; }
     #bottom { height: 1fr; }
@@ -97,7 +97,7 @@ class LightsApp(App):
         ("w", "wake", "🔌 wake"),
         ("r", "randomize", "🎲 random"),
         ("o", "rotation_on", "⟳ rotate"),
-        ("p", "pin", "📌 pin"),
+        ("p", "pin", "📌 pin/unpin"),
         ("a", "schedule", "🗓 sched"),
         ("x", "reset", "🧼 reset"),
         ("]", "bright_up", "☀+"),
@@ -121,8 +121,8 @@ class LightsApp(App):
             yield Static("connecting…", id="status")
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
-                         "w wake · r random · o rotate · p pin · a schedule · "
-                         "x reset · "
+                         "w wake · r random · o rotate · p pin/unpin · "
+                         "a schedule · x reset · "
                          "[ ] bright · q quit", id="help")
         with Horizontal(id="bottom"):
             with Vertical(id="effects-col"):
@@ -182,23 +182,36 @@ class LightsApp(App):
         st = self.status
         if not st.get("on", True):
             if st.get("forced") == "off":
-                txt = (f"🌑 forced off until {st.get('forced_until')}"
-                       "   —   a = back on schedule")
+                txt = (f"🌑 FORCED OFF until {st.get('forced_until')}, then "
+                       "back on schedule\n   a: back on schedule now")
             else:
-                txt = "🌙 night — LEDs black   —   pick an effect to light now"
+                txt = ("🗓 on schedule — night, LEDs black until 08:00\n"
+                       "   pick an effect to light up now")
             self.query_one("#status", Static).update(txt)
             return
-        eff = st.get("effect", "?")
-        bright = f"☀ {int(self.brightness * 100)}%"
+        # line 1: who controls power — the schedule, or a manual force
         if st.get("forced") == "on":
-            txt = f"● {eff}   🔦 on until {st.get('forced_until')}   {bright}"
-        elif st.get("rotation"):
-            secs = st.get("seconds_left")
-            nxt = "held" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
-            txt = f"● {eff}   ⟳ {st.get('preset')}   next {nxt}   {bright}"
+            power = (f"🔦 FORCED ON until {st.get('forced_until')}, then back "
+                     "on schedule   ·   a: back to schedule now")
         else:
-            txt = f"● {eff}   📌 {st.get('mode')}   {bright}"
-        self.query_one("#status", Static).update(txt)
+            power = "🗓 on schedule — lit 08:00–23:00, black overnight"
+        # line 2: what look is playing, and whether it changes on its own
+        eff = st.get("effect", "?")
+        mode = st.get("mode")
+        bright = f"☀ {int(self.brightness * 100)}%"
+        if st.get("rotation"):
+            secs = st.get("seconds_left")
+            nxt = "?" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
+            look = (f"⟳ ROTATING '{st.get('preset')}' — now: {eff}, "
+                    f"next roll in {nxt}")
+        elif mode == "random":
+            look = "🎲 RANDOM look — holds until you change it   ·   o: rotate"
+        else:
+            look = (f"📌 PINNED: {eff} — holds until you change it   "
+                    "·   p: unpin")
+        if st.get("fans"):
+            look += f"   ·   🎯 fan overrides: {', '.join(st['fans'])}"
+        self.query_one("#status", Static).update(f"{power}\n{look}   {bright}")
 
     def active_fn(self):
         if not self.reachable:
@@ -212,7 +225,11 @@ class LightsApp(App):
 
     def animate(self):
         fn = self.active_fn()
-        w = max(8, self.query_one("#swatch", Static).size.width - 2)
+        try:
+            swatch = self.query_one("#swatch", Static)
+        except Exception:  # screen tearing down; timer can outlive the widget
+            return
+        w = max(8, swatch.size.width - 2)
         t = time.time()
         text = Text()
         if fn is None:
@@ -223,7 +240,7 @@ class LightsApp(App):
                 r, g, b = fn(x, t)
                 r, g, b = (int(c * self.brightness * 255) for c in (r, g, b))
                 text.append("█", style=f"rgb({r},{g},{b})")
-        self.query_one("#swatch", Static).update(text)
+        swatch.update(text)
 
     # --- control -------------------------------------------------------
     @work(thread=True)
@@ -288,7 +305,11 @@ class LightsApp(App):
         self.send("rotation", "on")
 
     def action_pin(self):
-        self.send("rotation", "off")
+        # toggle: pinned -> unpin (rotation resumes); anything else -> pin it
+        if self.status.get("mode") == "pinned":
+            self.send("rotation", "on")
+        else:
+            self.send("rotation", "off")
 
     def action_bright_up(self):
         self.brightness = min(1.0, round(self.brightness + 0.15, 2))
