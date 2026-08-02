@@ -12,6 +12,8 @@ freely as long as they speak this contract.
   lightsctl fan NAME COLOR         override one fan/group (see: lightsctl fan)
   lightsctl set-preset NAME        rotation drawing from a preset's pool
   lightsctl rotation on|off        resume rotation / pin whatever's showing
+  lightsctl reset                  wipe the slate: rotation, everything preset,
+                                   full brightness, no force, no fan overrides
   lightsctl random                 roll a fresh parametric look (the 🎲)
   lightsctl brightness 0.0-1.0     scale overall brightness
   lightsctl preview NAME [--secs S] animate an effect's colors locally
@@ -263,6 +265,12 @@ def cmd_rotation(args):
         write_control(c)
 
 
+def cmd_reset(args):
+    write_control({"mode": "rotation", "preset": "rotation", "brightness": 1.0})
+    print("🧼 clean slate: rotation over everything, 100% bright, "
+          "no force, no fan overrides")
+
+
 FAN_COLOR_NAMES = {
     "red": (255, 0, 0), "orange": (255, 90, 0), "yellow": (255, 220, 0),
     "green": (0, 255, 0), "cyan": (0, 255, 255), "blue": (0, 0, 255),
@@ -376,6 +384,7 @@ def main():
     s.set_defaults(fn=cmd_set_preset)
     s = sub.add_parser("rotation"); s.add_argument("state", choices=["on", "off"])
     s.set_defaults(fn=cmd_rotation)
+    sub.add_parser("reset").set_defaults(fn=cmd_reset)
     s = sub.add_parser("fan"); s.add_argument("name", nargs="?")
     s.add_argument("color", nargs="?")
     s.set_defaults(fn=cmd_fan)

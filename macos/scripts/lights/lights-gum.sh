@@ -22,7 +22,7 @@ while true; do
   choice=$(gum choose --header "what now?" \
     "🔌 wake VENGEANCE" "🔦 lights on" "🌑 lights off" "🗓 schedule" \
     "🎨 pick effect" "🎛  pick preset" "🎲 randomize" \
-    "⟳ rotation on" "📌 pin current" "☀ brightness" "🔄 refresh" "✖ quit")
+    "⟳ rotation on" "📌 pin current" "☀ brightness" "🧼 reset" "🔄 refresh" "✖ quit")
   case "$choice" in
     "🔌 wake VENGEANCE") "$CTL" wake --wait ;;
     "🔦 lights on")  "$CTL" on ;;
@@ -40,6 +40,7 @@ while true; do
     "☀ brightness")
       v=$(gum choose --header "brightness %" 100 75 50 25 10) || true
       [ -n "${v:-}" ] && "$CTL" brightness "$(python3 -c "print($v/100)")" ;;
+    "🧼 reset")     "$CTL" reset ;;
     "🔄 refresh") : ;;
     "✖ quit"|"") clear; exit 0 ;;
   esac

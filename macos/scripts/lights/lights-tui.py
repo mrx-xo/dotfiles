@@ -17,6 +17,7 @@ Vim navigation:
   Tab          switch between the effects and presets lists
   w            🔌 wake VENGEANCE (Wake-on-LAN, when it's off)
   r            🎲 randomize        o  rotate on       p  pin current
+  x            🧼 reset (clean slate: rotation, 100%, no overrides)
   [ / ]        brightness down/up  q  quit
 """
 import json
@@ -97,6 +98,7 @@ class LightsApp(App):
         ("o", "rotation_on", "⟳ rotate"),
         ("p", "pin", "📌 pin"),
         ("a", "schedule", "🗓 sched"),
+        ("x", "reset", "🧼 reset"),
         ("]", "bright_up", "☀+"),
         ("[", "bright_down", "☀-"),
         ("tab", "focus_next", "switch"),
@@ -126,6 +128,7 @@ class LightsApp(App):
             yield Static("", id="swatch")
             yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
                          "w wake · r random · o rotate · p pin · a schedule · "
+                         "x reset · "
                          "[ ] bright · q quit", id="help")
         yield Footer()
 
@@ -252,6 +255,10 @@ class LightsApp(App):
 
     def action_schedule(self):
         self.send("auto")
+
+    def action_reset(self):
+        self.brightness = 1.0
+        self.send("reset")
 
     def action_rotation_on(self):
         self.send("rotation", "on")
