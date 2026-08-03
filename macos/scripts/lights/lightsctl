@@ -14,6 +14,8 @@ freely as long as they speak this contract.
   lightsctl rotation on|off        resume rotation / pin whatever's showing
   lightsctl reset                  wipe the slate: rotation, everything preset,
                                    full brightness, no force, no fan overrides
+  lightsctl restart-engine         unstick a wedged engine: kill + relaunch the
+                                   ICUELights task on the box
   lightsctl random                 roll a fresh parametric look (the 🎲)
   lightsctl brightness 0.0-1.0     scale overall brightness
   lightsctl preview NAME [--secs S] animate an effect's colors locally
@@ -70,6 +72,46 @@ def current_control():
         c = {"mode": "rotation", "preset": "rotation", "brightness": 1.0}
     c.setdefault("brightness", 1.0)
     return c
+
+
+STALE_SECS = 10  # healthy engine rewrites status.json every ~1s
+
+
+def read_status():
+    """status.json plus its age in seconds — judged entirely by the box's own
+    clock (date vs mtime), so Mac/box clock skew can't fake a wedge.
+    Returns (status_dict, age): (None, None) unreachable, ({}, None) reachable
+    but no status file, (st, None) file present but stat failed."""
+    r = _run(f"cat {STATUS} 2>/dev/null; echo; date +%s; "
+             f"stat -c %Y {STATUS} 2>/dev/null; true")
+    if r.returncode != 0:
+        return None, None
+    st, nums = {}, []
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                st = json.loads(line)
+            except ValueError:
+                pass
+        elif line.isdigit():
+            nums.append(int(line))
+    age = nums[0] - nums[1] if len(nums) == 2 else None
+    return st, age
+
+
+def engine_wedged(st, age):
+    """True when the box answers but the engine isn't painting: status.json
+    missing entirely, or older than the engine's ~1s heartbeat allows."""
+    if st is None:  # unreachable — that's an off box, not a wedged engine
+        return False
+    return age is None or age > STALE_SECS
+
+
+def wedge_banner(age):
+    ago = "missing" if age is None else f"{age}s stale"
+    return (f"⚠ engine wedged — status.json {ago}, control.json is being "
+            "ignored\n  fix: lightsctl restart-engine")
 
 
 # --- power / reachability ------------------------------------------------
@@ -158,24 +200,33 @@ def render_lights(st):
 
 
 def cmd_status(args):
-    st = read_remote(STATUS)
+    st, age = read_status()
+    wedged = engine_wedged(st, age)
     if args.json:
-        print(json.dumps(st))
+        print(json.dumps(dict(st or {}, engine_age=age, wedged=wedged)))
         return
-    render_lights(st)
+    if wedged:
+        print(wedge_banner(age))
+        return
+    render_lights(st or {})
 
 
 def cmd_state(args):
     up = is_reachable()
-    lights = read_remote(STATUS) if up else {}
+    lights, age = read_status() if up else (None, None)
+    wedged = engine_wedged(lights, age)
     if args.json:
-        print(json.dumps({"reachable": up, "lights": lights}))
+        print(json.dumps({"reachable": up, "lights": lights or {},
+                          "engine_age": age, "wedged": wedged}))
         return
     if not up:
         print("🔌 VENGEANCE offline — `lightsctl wake` (or press w) to power on")
         return
     print("✅ VENGEANCE online")
-    render_lights(lights)
+    if wedged:
+        print(wedge_banner(age))
+        return
+    render_lights(lights or {})
 
 
 def cmd_wake(args):
@@ -219,11 +270,12 @@ def cmd_auto(args):
 def cmd_list(args):
     if args.json:
         print(json.dumps({"effects": list(effects.EFFECTS),
+                          "descriptions": effects.DESCRIPTIONS,
                           "presets": {k: v for k, v in effects.PRESETS.items()}}))
         return
     print("effects:")
     for n in effects.EFFECTS:
-        print(f"  {n}")
+        print(f"  {n} — {effects.DESCRIPTIONS.get(n, '')}")
     print("presets:")
     for n, pool in effects.PRESETS.items():
         print(f"  {n}: {', '.join(pool)}")
@@ -269,6 +321,30 @@ def cmd_reset(args):
     write_control({"mode": "rotation", "preset": "rotation", "brightness": 1.0})
     print("🧼 clean slate: rotation over everything, 100% bright, "
           "no force, no fan overrides")
+    st, age = read_status()
+    if engine_wedged(st, age):
+        print(wedge_banner(age))
+
+
+def cmd_restart_engine(args):
+    """The other kind of reset: when the engine process itself is hung (stuck
+    inside a cuesdk call), nobody reads control.json — kill and relaunch it."""
+    print("🔧 killing engine process on the box…")
+    _run("taskkill //IM pythonw.exe //F")  # // dodges Git Bash path mangling;
+    r = _run("MSYS_NO_PATHCONV=1 schtasks /run /tn ICUELights")  # fails ok if
+    if r.returncode != 0:                                        # already dead
+        sys.exit(f"schtasks /run failed: {(r.stderr or r.stdout).strip()}\n"
+                 "(box unreachable? try: lightsctl state)")
+    print("🚀 ICUELights relaunched — waiting for a fresh heartbeat…")
+    for _ in range(15):
+        time.sleep(1)
+        st, age = read_status()
+        if age is not None and age <= 3:
+            print("✅ engine is back:")
+            render_lights(st)
+            return
+    sys.exit("⚠ no fresh status after 15s — on the box, check: "
+             "schtasks /query /tn ICUELights /v")
 
 
 FAN_COLOR_NAMES = {
@@ -385,6 +461,7 @@ def main():
     s = sub.add_parser("rotation"); s.add_argument("state", choices=["on", "off"])
     s.set_defaults(fn=cmd_rotation)
     sub.add_parser("reset").set_defaults(fn=cmd_reset)
+    sub.add_parser("restart-engine").set_defaults(fn=cmd_restart_engine)
     s = sub.add_parser("fan"); s.add_argument("name", nargs="?")
     s.add_argument("color", nargs="?")
     s.set_defaults(fn=cmd_fan)
