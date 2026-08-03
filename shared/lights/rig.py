@@ -49,6 +49,7 @@ FANS = {
 SAT_GAIN = {name: 1.35 for name in
             ("bottom-front", "bottom-mid", "bottom-back",
              "top-front", "top-mid", "top-back", "rear")}
+SAT_GAIN["pump"] = 1.5   # dense diffuser mesh washes color hardest of all
 # (the side pair render rich color natively and need no boost)
 
 
