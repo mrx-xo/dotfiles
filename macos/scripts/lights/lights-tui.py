@@ -15,9 +15,11 @@ Vim navigation:
   l / enter    apply the highlighted effect or preset
   ctrl+d / u   page down / up
   Tab          switch between the effects and presets lists
+  Esc          clear the highlight bar (and the preset detail panel)
   w            🔌 wake VENGEANCE (Wake-on-LAN, when it's off)
   r            🎲 randomize        o  rotate on       p  pin ⇄ unpin
   x            🧼 reset (clean slate: rotation, 100%, no overrides)
+  R            🔧 restart engine (when it wedges and stops obeying controls)
   [ / ]        brightness down/up  q  quit
 """
 import json
@@ -34,7 +36,7 @@ from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Horizontal, Vertical  # noqa: E402
-from textual.widgets import Button, Footer, Header, OptionList, Static  # noqa: E402
+from textual.widgets import Button, Header, OptionList, Static  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
 CTL = str(Path(__file__).resolve().parent / "lightsctl")
@@ -86,6 +88,8 @@ class LightsApp(App):
     #swatch { height: 1; padding: 0 1; }
     #bottom { height: 1fr; }
     #effects-col, #presets-col { width: 1fr; border: round $primary; }
+    #preset-detail, #effect-detail { height: auto; padding: 1 1 0 1;
+                                     color: $text-muted; }
     #status { height: auto; padding: 0 1; background: $boost; }
     #help { height: 1; color: $text-muted; padding: 0 1; }
     .hdr { text-style: bold; padding: 0 1; }
@@ -100,10 +104,12 @@ class LightsApp(App):
         ("p", "pin", "📌 pin/unpin"),
         ("a", "schedule", "🗓 sched"),
         ("x", "reset", "🧼 reset"),
+        ("R", "restart_engine", "🔧 engine"),
         ("]", "bright_up", "☀+"),
         ("[", "bright_down", "☀-"),
         ("tab", "focus_next", "switch"),
         ("shift+tab", "focus_previous", "switch"),
+        Binding("escape", "unhover", "unhover", show=False),
         ("q", "quit", "quit"),
     ]
 
@@ -124,17 +130,19 @@ class LightsApp(App):
                 yield Static("effects", classes="hdr")
                 yield VimOptionList(*[Option(n, id=f"e:{n}")
                                       for n in effects.EFFECTS], id="effects")
+                yield Static("", id="effect-detail")
             with Vertical(id="presets-col"):
                 yield Static("presets", classes="hdr")
                 yield VimOptionList(*[Option(n, id=f"p:{n}")
                                       for n in effects.PRESETS], id="presets")
                 yield Button("🎲 randomize (r)", id="rnd", variant="warning")
+                yield Static("", id="preset-detail")
         yield Static("connecting…", id="status")
-        yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
+        yield Static("j/k move · gg/G top/bottom · l/⏎ apply · esc unhover · "
+                     "Tab switch · "
                      "w wake · r random · o rotate · p pin/unpin · "
-                     "a schedule · x reset · "
+                     "a schedule · x reset · R restart engine · "
                      "[ ] bright · q quit", id="help")
-        yield Footer()
 
     def on_mount(self):
         self.set_interval(2.0, self.poll_state)
@@ -180,6 +188,13 @@ class LightsApp(App):
             self.query_one("#status", Static).update(msg)
             return
         self.waking = False
+        if data.get("wedged"):
+            age = data.get("engine_age")
+            ago = "missing" if age is None else f"{age}s stale"
+            self.query_one("#status", Static).update(
+                f"⚠ ENGINE WEDGED — status {ago}, controls are being ignored\n"
+                "   R: kill + relaunch it (takes a few seconds)")
+            return
         st = self.status
         if not st.get("on", True):
             if st.get("forced") == "off":
@@ -277,6 +292,35 @@ class LightsApp(App):
             "🔌 waking VENGEANCE…  (WoL sent, booting from S5)")
         self.do_wake()
 
+    def on_option_list_option_highlighted(self, ev: OptionList.OptionHighlighted):
+        oid = ev.option.id or ""
+        if oid.startswith("e:"):
+            name = oid[2:]
+            text = Text(name, style="bold")
+            text.append(f"\n{effects.DESCRIPTIONS.get(name, '')}",
+                        style="not bold default")
+            self.query_one("#effect-detail", Static).update(text)
+            return
+        if not oid.startswith("p:"):
+            return
+        name = oid[2:]
+        st = self.status
+        live = (st.get("effect") if self.reachable and st.get("rotation")
+                and st.get("preset") == name else None)
+        text = Text(f"⟳ {name} rotates through:", style="bold")
+        for n in effects.PRESETS.get(name, []):
+            if n == live:
+                text.append(f"\n  ● {n} ← now", style="bold #50fa7b")
+            else:
+                text.append(f"\n  · {n}", style="not bold default")
+        self.query_one("#preset-detail", Static).update(text)
+
+    def action_unhover(self):
+        for lid in ("effects", "presets"):
+            self.query_one(f"#{lid}", VimOptionList).highlighted = None
+        for did in ("preset-detail", "effect-detail"):
+            self.query_one(f"#{did}", Static).update("")
+
     def on_option_list_option_selected(self, ev: OptionList.OptionSelected):
         if not self.reachable:
             self.notify("VENGEANCE is offline — press w to wake")
@@ -300,6 +344,10 @@ class LightsApp(App):
     def action_reset(self):
         self.brightness = 1.0
         self.send("reset")
+
+    def action_restart_engine(self):
+        self.notify("🔧 restarting engine — kill + relaunch, ~5s…")
+        self.send("restart-engine")
 
     def action_rotation_on(self):
         self.send("rotation", "on")

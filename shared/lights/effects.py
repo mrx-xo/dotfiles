@@ -139,6 +139,29 @@ EFFECTS = {
         0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9),
 }
 
+# What each effect looks like, in words — for UIs (TUI detail panel,
+# `lightsctl list`). Keyed exactly like EFFECTS.
+DESCRIPTIONS = {
+    "white-ember breathe": "slow breath from bright white down into ember — "
+                           "length and depth drift so no two breaths match",
+    "ember gradient breathe": "the whole case breathes white→ember together; "
+                              "each fan caps at its own heat, so the shallow "
+                              "end stops golden while the deep end burns",
+    "ember creep": "fans ignite to ember one by one in physical order, hold "
+                   "the burn, then the fire recedes the way it came (90s)",
+    "blood-ram breathe": "the burn, plus a fever: RAM never caps — it slides "
+                         "amber→red to #400000 crimson at the top of every "
+                         "breath; the pump peaks halfway there",
+    "hue sweep": "one solid color everywhere, crawling around the whole hue "
+                 "wheel over 10 minutes",
+    "rainbow wave": "a full rainbow rolling across each device every 6s",
+    "purple breathe": "deep purple pulsing near-black→bright on a steady 6s "
+                      "cycle",
+    "ocean drift": "teals and blues wandering slowly, like light on water",
+    "ember": "flickering coals — orange glow shimmering LED to LED",
+    "warm gruvbox": "a warm amber wash, hue drifting gently over ~9s",
+}
+
 # --- presets: named pools the rotation draws from ------------------------
 # A preset is a list of effect names; rotation picks randomly from the pool
 # each slot. Order/content is the only thing a preset changes.
