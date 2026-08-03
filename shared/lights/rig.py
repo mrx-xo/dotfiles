@@ -26,11 +26,13 @@ FANS = {
     "bottom-front": _fan(1),
     "bottom-mid": _fan(4),
     "bottom-back": _fan(3),
-    # rear exhaust
-    "rear": _fan(6),
-    # side chamber pair (side-front is the one nearer the glass)
-    "side-front": _fan(7),
-    "side-back": _fan(8),
+    # rear exhaust — verified by override paint 2026-08-02: yellow showed
+    # through the rear mesh (originally misread as a side fan)
+    "rear": _fan(7),
+    # side chamber pair, stacked vertically (verified same session: purple
+    # below cyan). _fan(6) was originally misread as the rear exhaust.
+    "side-top": _fan(8),
+    "side-bottom": _fan(6),
     # AIO pump head — hub channel 12, 20 LEDs (unverified visually: showed no
     # color in the identify photo; may be hidden from that angle)
     "pump": list(range(786433, 786453)),
@@ -44,7 +46,7 @@ FANS = {
 # stay off the path (they get u=None; effects fall back or special-case them).
 SPREAD_ORDER = ["bottom-front", "bottom-mid", "bottom-back", "rear",
                 "top-back", "top-mid", "top-front",
-                "side-front", "side-back"]
+                "side-bottom", "side-top"]
 
 
 def led_meta():
@@ -66,6 +68,6 @@ def led_meta():
 ROWS = {
     "top": ["top-front", "top-mid", "top-back"],
     "bottom": ["bottom-front", "bottom-mid", "bottom-back"],
-    "side": ["side-front", "side-back"],
+    "side": ["side-top", "side-bottom"],
     "ram": ["ram-a", "ram-b"],
 }

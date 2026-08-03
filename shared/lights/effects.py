@@ -52,7 +52,7 @@ def white_ember_breathe(x, t):
 # --- fan-aware ember family ----------------------------------------------
 # Effects marked fan_aware get two extra args from the Windows driver:
 #   u     = the LED's fan's fraction along rig.SPREAD_ORDER (0 = bottom-front,
-#           1 = side-back), constant per fan so whole fans move as units.
+#           1 = side-top), constant per fan so whole fans move as units.
 #           None for LEDs outside the spread path (pump); callers without a
 #           rig (previews, swatches) omit it and it falls back to x.
 #   group = the fan/group name from rig.FANS, or None outside the driver.
@@ -74,7 +74,7 @@ def ember_gradient_breathe(x, t, u=None, group=None):
     deep end burns all the way. Identical below the caps, so nothing ever
     looks stuck white."""
     u = x if u is None else u
-    return _heat_color(min(_breath_level(t, x), 0.5 + 0.5 * u))
+    return _heat_color(min(_breath_level(t, x), 0.65 + 0.35 * u))
 
 
 _CRIMSON_V = 0x40 / 255  # #400000 — where the RAM bottoms out at peak inhale
@@ -96,7 +96,7 @@ def blood_ram_breathe(x, t, u=None, group=None):
         return colorsys.hsv_to_rgb(0.045 * (1 - p), 0.5 + 0.5 * p,
                                    0.75 - (0.75 - _CRIMSON_V) * p)
     u = x if u is None else u
-    return _heat_color(min(_breath_level(t, x), 0.5 + 0.5 * u))
+    return _heat_color(min(_breath_level(t, x), 0.65 + 0.35 * u))
 
 
 @_fan_aware
