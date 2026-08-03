@@ -37,6 +37,13 @@ def _breath_level(t, x):
     return depth * (0.5 - 0.5 * math.cos(st["phase"] + x * 0.6))
 
 
+def _breath_raw(t, x):
+    """The breath cycle WITHOUT the depth drift: hits exactly 1.0 at the peak
+    of every inhale. For accents that must bottom out fully each breath."""
+    _breath_level(t, x)  # tick the shared integrator for this frame
+    return 0.5 - 0.5 * math.cos(_breath["phase"] + x * 0.6)
+
+
 def white_ember_breathe(x, t):
     breath = _breath_level(t, x)
     return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
@@ -63,19 +70,22 @@ def ember_gradient_breathe(x, t, u=None, group=None):
     return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
 
 
-_CRIMSON = (0x6c / 255, 0.0, 0.0)  # #6c0000
+_CRIMSON_V = 0x40 / 255  # #400000 — where the RAM bottoms out at peak inhale
 
 
 @_fan_aware
 def blood_ram_breathe(x, t, u=None, group=None):
-    """White-ember breathe everywhere except the RAM sticks, which breathe
-    dark crimson in lockstep with the fans — same _breath_level cycle, so the
-    whole case inhales together. Peaks at exactly #6c0000, floors at 25% so
-    the sticks never fully black out."""
+    """One shared breath for the whole case. At rest (exhaled) everything is
+    white. As the breath deepens, each fan sinks toward ember a little deeper
+    than the one before it (same spread as ember gradient breathe), and the
+    RAM sinks through red to dark crimson — exactly #400000 at peak inhale."""
     if group in ("ram-a", "ram-b"):
-        b = 0.25 + 0.75 * _breath_level(t, x)
-        return tuple(c * b for c in _CRIMSON)
-    return white_ember_breathe(x, t)
+        raw = _breath_raw(t, x)      # full crimson every peak, no depth drift
+        sat = raw ** 0.6             # saturate early: rich red, not pink
+        return colorsys.hsv_to_rgb(0.0, sat, 1 - (1 - _CRIMSON_V) * raw)
+    u = x if u is None else u
+    b = _breath_level(t, x) * (0.35 + 0.65 * u)
+    return colorsys.hsv_to_rgb(0.045, b, 1 - 0.5 * b)
 
 
 @_fan_aware
