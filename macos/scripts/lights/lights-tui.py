@@ -82,12 +82,11 @@ class VimOptionList(OptionList):
 class LightsApp(App):
     CSS = """
     Screen { layout: vertical; }
-    #top { height: auto; border: round $secondary; }
-    #status { height: 2; padding: 0 1; }
     #swatch { height: 1; padding: 0 1; }
-    #help { height: 1; color: $text-muted; padding: 0 1; }
     #bottom { height: 1fr; }
     #effects-col, #presets-col { width: 1fr; border: round $primary; }
+    #status { height: auto; padding: 0 1; background: $boost; }
+    #help { height: 1; color: $text-muted; padding: 0 1; }
     .hdr { text-style: bold; padding: 0 1; }
     OptionList { height: auto; }
     OptionList:focus { border-left: thick $accent; }
@@ -117,13 +116,7 @@ class LightsApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(id="top"):
-            yield Static("connecting…", id="status")
-            yield Static("", id="swatch")
-            yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
-                         "w wake · r random · o rotate · p pin/unpin · "
-                         "a schedule · x reset · "
-                         "[ ] bright · q quit", id="help")
+        yield Static("", id="swatch")
         with Horizontal(id="bottom"):
             with Vertical(id="effects-col"):
                 yield Static("effects", classes="hdr")
@@ -134,6 +127,11 @@ class LightsApp(App):
                 yield VimOptionList(*[Option(n, id=f"p:{n}")
                                       for n in effects.PRESETS], id="presets")
                 yield Button("🎲 randomize (r)", id="rnd", variant="warning")
+        yield Static("connecting…", id="status")
+        yield Static("j/k move · gg/G top/bottom · l/⏎ apply · Tab switch · "
+                     "w wake · r random · o rotate · p pin/unpin · "
+                     "a schedule · x reset · "
+                     "[ ] bright · q quit", id="help")
         yield Footer()
 
     def on_mount(self):
