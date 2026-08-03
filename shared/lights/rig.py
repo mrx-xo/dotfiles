@@ -46,7 +46,10 @@ FANS = {
 # fans — verified by eye at the frozen peak, 2026-08-02. The driver multiplies
 # effect-color saturation by this before painting; explicit fan overrides are
 # NOT compensated (an exact hex stays exact).
-SAT_GAIN = {"bottom-front": 1.35, "bottom-mid": 1.35, "bottom-back": 1.35}
+SAT_GAIN = {name: 1.35 for name in
+            ("bottom-front", "bottom-mid", "bottom-back",
+             "top-front", "top-mid", "top-back", "rear")}
+# (the side pair render rich color natively and need no boost)
 
 
 # the physical path fan-aware effects creep along: bottom row front->back,
