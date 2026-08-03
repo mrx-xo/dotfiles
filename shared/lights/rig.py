@@ -46,10 +46,14 @@ FANS = {
 # fans — verified by eye at the frozen peak, 2026-08-02. The driver multiplies
 # effect-color saturation by this before painting; explicit fan overrides are
 # NOT compensated (an exact hex stays exact).
-SAT_GAIN = {name: 1.35 for name in
+# Values are the k in s' = s * (1 + k*s): the washout these fans add grows
+# with saturation, so the correction must too — a flat multiplier over-boosts
+# mid tones (made the side pair look pale by comparison, 2026-08-02).
+# k=0.31 ~= x1.25 at deep ember, only x1.12 at half saturation.
+SAT_GAIN = {name: 0.31 for name in
             ("bottom-front", "bottom-mid", "bottom-back",
              "top-front", "top-mid", "top-back", "rear")}
-SAT_GAIN["pump"] = 1.5   # dense diffuser mesh washes color hardest of all
+SAT_GAIN["pump"] = 0.55  # dense diffuser mesh washes color hardest of all
 # (the side pair render rich color natively and need no boost)
 
 

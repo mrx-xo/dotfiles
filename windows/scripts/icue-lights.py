@@ -139,10 +139,10 @@ def paint(sdk, layout, fn, t, brightness=1.0, overrides=None):
             if c is None:
                 raw = (fn(x, t, x if u is None else u, group) if aware
                        else fn(x, t))
-                gain = rig.SAT_GAIN.get(group)
-                if gain:  # display calibration: washed-out fans get more sat
-                    h, s, v = colorsys.rgb_to_hsv(*raw)
-                    raw = colorsys.hsv_to_rgb(h, min(1.0, s * gain), v)
+                k = rig.SAT_GAIN.get(group)
+                if k:  # display calibration: s' = s*(1+k*s) — boost grows
+                    h, s, v = colorsys.rgb_to_hsv(*raw)  # with saturation
+                    raw = colorsys.hsv_to_rgb(h, min(1.0, s * (1 + k * s)), v)
                 c = tuple(int(v * brightness * 255) for v in raw)
             colors.append(CorsairLedColor(id=lid, r=c[0], g=c[1], b=c[2], a=255))
         sdk.set_led_colors(did, colors)
