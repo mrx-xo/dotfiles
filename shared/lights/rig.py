@@ -41,6 +41,14 @@ FANS = {
     "ram-b": list(range(524299, 524309)),
 }
 
+# per-fan display calibration. The bottom trio (center-hub LEDs, mostly-white
+# blades) wash mid-saturation colors toward white next to the full-disc side
+# fans — verified by eye at the frozen peak, 2026-08-02. The driver multiplies
+# effect-color saturation by this before painting; explicit fan overrides are
+# NOT compensated (an exact hex stays exact).
+SAT_GAIN = {"bottom-front": 1.35, "bottom-mid": 1.35, "bottom-back": 1.35}
+
+
 # the physical path fan-aware effects creep along: bottom row front->back,
 # up the rear, across the top back->front, then the side pair. RAM and pump
 # stay off the path (they get u=None; effects fall back or special-case them).

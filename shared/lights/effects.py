@@ -88,11 +88,13 @@ def blood_ram_breathe(x, t, u=None, group=None):
     caps — past golden ember its hue slides amber -> red, landing on exactly
     #400000 crimson at the top of every breath (no depth drift on the RAM,
     so every inhale bottoms out fully)."""
-    if group in ("ram-a", "ram-b"):
+    if group in ("ram-a", "ram-b", "pump"):
         h = _breath_raw(t, x)
         if h <= 0.5:
             return _heat_color(h)            # indistinguishable from the fans
         p = (h - 0.5) * 2                    # 0..1 over the too-hot half
+        if group == "pump":
+            p *= 0.5     # pump overshoots halfway: peaks between ember and red
         return colorsys.hsv_to_rgb(0.045 * (1 - p), 0.5 + 0.5 * p,
                                    0.75 - (0.75 - _CRIMSON_V) * p)
     u = x if u is None else u
