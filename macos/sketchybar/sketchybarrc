@@ -203,6 +203,8 @@ sketchybar --add item network right                                  \
                               icon.color=0xFFFFFFFF                   \
                               icon.font="Hack Nerd Font:Propo:18.0"   \
                               label.font="Hack Nerd Font:Propo:18.0"  \
+                              icon.padding_right=8                    \
+                              label.padding_left=6                    \
                               label.drawing=off                       \
                               script='./plugins/network.sh'           \
                               update_freq=10
