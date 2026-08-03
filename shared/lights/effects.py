@@ -24,7 +24,7 @@ DEPTH_MIN, DEPTH_MAX = 0.7, 1.0
 _breath = {"phase": 0.0, "last_t": None}
 
 
-def white_ember_breathe(x, t):
+def _breath_level(t, x):
     st = _breath
     if t != st["last_t"]:
         period = BREATH_MIN_S + (BREATH_MAX_S - BREATH_MIN_S) * (
@@ -34,14 +34,71 @@ def white_ember_breathe(x, t):
         st["last_t"] = t
     depth = DEPTH_MIN + (DEPTH_MAX - DEPTH_MIN) * (
         0.5 + 0.5 * math.sin(t / 211 + 1))
-    breath = depth * (0.5 - 0.5 * math.cos(st["phase"] + x * 0.6))
+    return depth * (0.5 - 0.5 * math.cos(st["phase"] + x * 0.6))
+
+
+def white_ember_breathe(x, t):
+    breath = _breath_level(t, x)
     return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
+
+
+# --- fan-aware ember family ----------------------------------------------
+# Effects marked fan_aware get two extra args from the Windows driver:
+#   u     = the LED's fan's fraction along rig.SPREAD_ORDER (0 = bottom-front,
+#           1 = side-back), constant per fan so whole fans move as units.
+#           None for LEDs outside the spread path (pump); callers without a
+#           rig (previews, swatches) omit it and it falls back to x.
+#   group = the fan/group name from rig.FANS, or None outside the driver.
+def _fan_aware(fn):
+    fn.fan_aware = True
+    return fn
+
+
+@_fan_aware
+def ember_gradient_breathe(x, t, u=None, group=None):
+    """White-ember breathe, but each fan sits at a different depth: front
+    fans stay near-white, the far end breathes full ember."""
+    u = x if u is None else u
+    breath = _breath_level(t, x) * (0.35 + 0.65 * u)
+    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
+
+
+@_fan_aware
+def blood_ram_breathe(x, t, u=None, group=None):
+    """White-ember breathe everywhere except the RAM sticks, which pulse a
+    deep arterial red on their own slow cycle."""
+    if group in ("ram-a", "ram-b"):
+        v = 0.70 + 0.30 * (0.5 - 0.5 * math.cos(t * math.pi / 4))
+        return (v, 0.03 * v, 0.03 * v)
+    return white_ember_breathe(x, t)
+
+
+@_fan_aware
+def ember_creep(x, t, u=None, group=None):
+    """Fans ignite to ember one by one in physical order, hold, then the fire
+    recedes the way it came. 90s per full cycle, soft ignition edges."""
+    u = x if u is None else u
+    p = (t % 90.0) / 90.0
+    if p < 0.42:
+        lit = p / 0.42
+    elif p < 0.58:
+        lit = 1.0
+    else:
+        lit = 1.0 - (p - 0.58) / 0.42
+    heat = max(0.0, min(1.0, (lit * 1.12 - u) / 0.12))
+    hue = 0.09 - 0.045 * heat                       # cool cream -> ember
+    sat = 0.10 + 0.85 * heat
+    val = 0.22 + heat * (0.38 + 0.12 * math.sin(t * 2.2 + u * 9.0))
+    return colorsys.hsv_to_rgb(hue, sat, max(0.0, min(1.0, val)))
 
 
 # --- named effects -------------------------------------------------------
 # Insertion order is preserved; UIs list them in this order.
 EFFECTS = {
     "white-ember breathe": white_ember_breathe,
+    "ember gradient breathe": ember_gradient_breathe,
+    "ember creep": ember_creep,
+    "blood-ram breathe": blood_ram_breathe,
     "hue sweep": lambda x, t: colorsys.hsv_to_rgb((t / 600) % 1, 1, 1),
     "rainbow wave": lambda x, t: colorsys.hsv_to_rgb((x - t / 6) % 1, 1, 1),
     "purple breathe": lambda x, t: colorsys.hsv_to_rgb(
@@ -60,6 +117,8 @@ EFFECTS = {
 PRESETS = {
     "rotation": list(EFFECTS),                       # everything
     "ember-only": ["white-ember breathe"],
+    "obsession": ["white-ember breathe", "ember gradient breathe",
+                  "ember creep", "blood-ram breathe"],
     "chill": ["ocean drift", "warm gruvbox", "white-ember breathe"],
     "party": ["rainbow wave", "hue sweep", "ember"],
 }

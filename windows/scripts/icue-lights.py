@@ -99,19 +99,23 @@ def on_state_changed(evt):
         connected.clear()
 
 
+LED_META = rig.led_meta()  # led id -> (u, group) for fan-aware effects
+
+
 def build_rig(sdk):
     devs, _ = sdk.get_devices(
         CorsairDeviceFilter(device_type_mask=CorsairDeviceType.CDT_All))
-    rig = []
+    layout = []
     for d in devs or []:
         leds, _ = sdk.get_led_positions(d.device_id)
         if not leds:
             continue
         xs = [l.cx for l in leds]
         span = (max(xs) - min(xs)) or 1.0
-        rig.append((d.device_id,
-                    [(l.id, (l.cx - min(xs)) / span) for l in leds]))
-    return rig
+        layout.append((d.device_id,
+                       [(l.id, (l.cx - min(xs)) / span,
+                         *LED_META.get(l.id, (None, None))) for l in leds]))
+    return layout
 
 
 def fan_overrides(control, brightness):
@@ -126,11 +130,15 @@ def fan_overrides(control, brightness):
 
 def paint(sdk, layout, fn, t, brightness=1.0, overrides=None):
     overrides = overrides or {}
+    aware = getattr(fn, "fan_aware", False)
     for did, leds in layout:
         colors = []
-        for lid, x in leds:
-            c = overrides.get(lid) or tuple(
-                int(v * brightness * 255) for v in fn(x, t))
+        for lid, x, u, group in leds:
+            c = overrides.get(lid)
+            if c is None:
+                raw = (fn(x, t, x if u is None else u, group) if aware
+                       else fn(x, t))
+                c = tuple(int(v * brightness * 255) for v in raw)
             colors.append(CorsairLedColor(id=lid, r=c[0], g=c[1], b=c[2], a=255))
         sdk.set_led_colors(did, colors)
 
