@@ -61,13 +61,20 @@ def _fan_aware(fn):
     return fn
 
 
+def _heat_color(h):
+    """The shared burn ramp: 0 = white, 0.5 = golden ember, 1 = deep ember.
+    Same curve as white-ember breathe itself."""
+    return colorsys.hsv_to_rgb(0.045, h, 1 - 0.5 * h)
+
+
 @_fan_aware
 def ember_gradient_breathe(x, t, u=None, group=None):
-    """White-ember breathe, but each fan sits at a different depth: front
-    fans stay near-white, the far end breathes full ember."""
+    """Every fan heats along the same ramp at the same rate; past half-ember
+    each fan caps at its own temperature — the shallow end stops golden, the
+    deep end burns all the way. Identical below the caps, so nothing ever
+    looks stuck white."""
     u = x if u is None else u
-    breath = _breath_level(t, x) * (0.35 + 0.65 * u)
-    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
+    return _heat_color(min(_breath_level(t, x), 0.5 + 0.5 * u))
 
 
 _CRIMSON_V = 0x40 / 255  # #400000 — where the RAM bottoms out at peak inhale
@@ -75,17 +82,21 @@ _CRIMSON_V = 0x40 / 255  # #400000 — where the RAM bottoms out at peak inhale
 
 @_fan_aware
 def blood_ram_breathe(x, t, u=None, group=None):
-    """One shared breath for the whole case. At rest (exhaled) everything is
-    white. As the breath deepens, each fan sinks toward ember a little deeper
-    than the one before it (same spread as ember gradient breathe), and the
-    RAM sinks through red to dark crimson — exactly #400000 at peak inhale."""
+    """The burn. One breath heats the whole case white -> ember together on
+    the same ramp; past half-ember each fan caps at its own temperature. The
+    RAM is the hottest thing in the case: it rides the same ramp but never
+    caps — past golden ember its hue slides amber -> red, landing on exactly
+    #400000 crimson at the top of every breath (no depth drift on the RAM,
+    so every inhale bottoms out fully)."""
     if group in ("ram-a", "ram-b"):
-        raw = _breath_raw(t, x)      # full crimson every peak, no depth drift
-        sat = raw ** 0.6             # saturate early: rich red, not pink
-        return colorsys.hsv_to_rgb(0.0, sat, 1 - (1 - _CRIMSON_V) * raw)
+        h = _breath_raw(t, x)
+        if h <= 0.5:
+            return _heat_color(h)            # indistinguishable from the fans
+        p = (h - 0.5) * 2                    # 0..1 over the too-hot half
+        return colorsys.hsv_to_rgb(0.045 * (1 - p), 0.5 + 0.5 * p,
+                                   0.75 - (0.75 - _CRIMSON_V) * p)
     u = x if u is None else u
-    b = _breath_level(t, x) * (0.35 + 0.65 * u)
-    return colorsys.hsv_to_rgb(0.045, b, 1 - 0.5 * b)
+    return _heat_color(min(_breath_level(t, x), 0.5 + 0.5 * u))
 
 
 @_fan_aware
