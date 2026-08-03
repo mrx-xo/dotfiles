@@ -82,6 +82,7 @@ class VimOptionList(OptionList):
 class LightsApp(App):
     CSS = """
     Screen { layout: vertical; }
+    #bright { height: 1; padding: 0 1; color: $text-muted; }
     #swatch { height: 1; padding: 0 1; }
     #bottom { height: 1fr; }
     #effects-col, #presets-col { width: 1fr; border: round $primary; }
@@ -116,6 +117,7 @@ class LightsApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        yield Static("", id="bright")
         yield Static("", id="swatch")
         with Horizontal(id="bottom"):
             with Vertical(id="effects-col"):
@@ -170,6 +172,7 @@ class LightsApp(App):
         self.status = data.get("lights") or {}
         self.brightness = self.status.get("brightness", 1.0)
         self.mark_active()
+        self.show_brightness()
         if not self.reachable:
             msg = ("🔌 waking VENGEANCE…  (WoL sent, booting from S5)"
                    if self.waking else
@@ -196,7 +199,6 @@ class LightsApp(App):
         # line 2: what look is playing, and whether it changes on its own
         eff = st.get("effect", "?")
         mode = st.get("mode")
-        bright = f"☀ {int(self.brightness * 100)}%"
         if st.get("rotation"):
             secs = st.get("seconds_left")
             nxt = "?" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
@@ -209,7 +211,7 @@ class LightsApp(App):
                     "·   p: unpin")
         if st.get("fans"):
             look += f"   ·   🎯 fan overrides: {', '.join(st['fans'])}"
-        self.query_one("#status", Static).update(f"{power}\n{look}   {bright}")
+        self.query_one("#status", Static).update(f"{power}\n{look}")
 
     def active_fn(self):
         if not self.reachable:
@@ -309,12 +311,18 @@ class LightsApp(App):
         else:
             self.send("rotation", "off")
 
+    def show_brightness(self):
+        self.query_one("#bright", Static).update(
+            f"☀ {int(self.brightness * 100)}%")
+
     def action_bright_up(self):
         self.brightness = min(1.0, round(self.brightness + 0.15, 2))
+        self.show_brightness()
         self.send("brightness", str(self.brightness))
 
     def action_bright_down(self):
         self.brightness = max(0.05, round(self.brightness - 0.15, 2))
+        self.show_brightness()
         self.send("brightness", str(self.brightness))
 
 
