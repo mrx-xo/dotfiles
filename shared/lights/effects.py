@@ -63,13 +63,18 @@ def ember_gradient_breathe(x, t, u=None, group=None):
     return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
 
 
+_CRIMSON = (0x6c / 255, 0.0, 0.0)  # #6c0000
+
+
 @_fan_aware
 def blood_ram_breathe(x, t, u=None, group=None):
-    """White-ember breathe everywhere except the RAM sticks, which pulse a
-    deep arterial red on their own slow cycle."""
+    """White-ember breathe everywhere except the RAM sticks, which breathe
+    dark crimson in lockstep with the fans — same _breath_level cycle, so the
+    whole case inhales together. Peaks at exactly #6c0000, floors at 25% so
+    the sticks never fully black out."""
     if group in ("ram-a", "ram-b"):
-        v = 0.70 + 0.30 * (0.5 - 0.5 * math.cos(t * math.pi / 4))
-        return (v, 0.03 * v, 0.03 * v)
+        b = 0.25 + 0.75 * _breath_level(t, x)
+        return tuple(c * b for c in _CRIMSON)
     return white_ember_breathe(x, t)
 
 
