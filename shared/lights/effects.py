@@ -74,7 +74,7 @@ def ember_gradient_breathe(x, t, u=None, group=None):
     deep end burns all the way. Identical below the caps, so nothing ever
     looks stuck white."""
     u = x if u is None else u
-    return _heat_color(min(_breath_level(t, x), 0.65 + 0.35 * u))
+    return _heat_color(min(_breath_level(t, x), 0.8 + 0.2 * u))
 
 
 _CRIMSON_V = 0x40 / 255  # #400000 — where the RAM bottoms out at peak inhale
@@ -96,7 +96,7 @@ def blood_ram_breathe(x, t, u=None, group=None):
         return colorsys.hsv_to_rgb(0.045 * (1 - p), 0.5 + 0.5 * p,
                                    0.75 - (0.75 - _CRIMSON_V) * p)
     u = x if u is None else u
-    return _heat_color(min(_breath_level(t, x), 0.65 + 0.35 * u))
+    return _heat_color(min(_breath_level(t, x), 0.8 + 0.2 * u))
 
 
 @_fan_aware
