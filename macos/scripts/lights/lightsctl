@@ -16,6 +16,11 @@ freely as long as they speak this contract.
                                    full brightness, no force, no fan overrides
   lightsctl restart-engine         unstick a wedged engine: kill + relaunch the
                                    ICUELights task on the box
+  lightsctl deploy                 ship committed lights code: push to origin,
+                                   pull on the box, restart the engine
+  lightsctl push                   dev loop: scp the WORKING TREE's
+                                   shared/lights/*.py to the box + restart —
+                                   uncommitted code on real LEDs in seconds
   lightsctl random                 roll a fresh parametric look (the 🎲)
   lightsctl brightness 0.0-1.0     scale overall brightness
   lightsctl preview NAME [--secs S] animate an effect's colors locally
@@ -326,9 +331,7 @@ def cmd_reset(args):
         print(wedge_banner(age))
 
 
-def cmd_restart_engine(args):
-    """The other kind of reset: when the engine process itself is hung (stuck
-    inside a cuesdk call), nobody reads control.json — kill and relaunch it."""
+def _restart_engine():
     print("🔧 killing engine process on the box…")
     _run("taskkill //IM pythonw.exe //F")  # // dodges Git Bash path mangling;
     r = _run("MSYS_NO_PATHCONV=1 schtasks /run /tn ICUELights")  # fails ok if
@@ -345,6 +348,69 @@ def cmd_restart_engine(args):
             return
     sys.exit("⚠ no fresh status after 15s — on the box, check: "
              "schtasks /query /tn ICUELights /v")
+
+
+def cmd_restart_engine(args):
+    """The other kind of reset: when the engine process itself is hung (stuck
+    inside a cuesdk call), nobody reads control.json — kill and relaunch it."""
+    _restart_engine()
+
+
+ROOT = Path(__file__).resolve().parents[3]  # ~/.dotfiles
+BOX_CLONE = "dotfiles"                      # home-relative on the box
+
+
+def _git(*argv):
+    return subprocess.run(["git", "-C", str(ROOT), *argv],
+                          capture_output=True, text=True)
+
+
+def cmd_deploy(args):
+    """Ship committed lights code: push to origin if needed, ff-pull in the
+    box's clone (restoring shared/lights first, in case a dirty `push` left
+    working-tree code there), then restart the engine to load it."""
+    dirty = _git("status", "--porcelain", "--", "shared/lights").stdout.strip()
+    if dirty:
+        print("⚠ uncommitted shared/lights changes — these will NOT deploy "
+              "(dev loop: lightsctl push):")
+        print("\n".join(f"    {l}" for l in dirty.splitlines()))
+    unpushed = _git("log", "--oneline", "@{u}..").stdout.strip()
+    if unpushed:
+        print(f"⬆ pushing {len(unpushed.splitlines())} commit(s) to origin…")
+        r = _git("push")
+        if r.returncode != 0:
+            sys.exit(f"git push failed:\n{r.stderr.strip()}")
+    print("⬇ pulling on the box…")
+    r = _run(f"cd ~/{BOX_CLONE} && git checkout -- shared/lights && "
+             "git pull --ff-only")
+    if r.returncode != 0:
+        sys.exit(f"pull failed on the box:\n{(r.stderr or r.stdout).strip()}")
+    print("  " + (r.stdout.strip().splitlines() or ["?"])[-1])
+    _restart_engine()
+
+
+def cmd_push(args):
+    """Dev loop: scp the WORKING TREE's shared/lights/*.py into the box's
+    clone and restart the engine — uncommitted effect code on real LEDs in
+    seconds. Leaves the box's tree dirty on purpose; when it looks right,
+    commit here and `lightsctl deploy` to make it honest."""
+    import py_compile
+    src = sorted((ROOT / "shared" / "lights").glob("*.py"))
+    for p in src:  # don't ship a SyntaxError to the resident engine
+        try:
+            py_compile.compile(str(p), doraise=True)
+        except py_compile.PyCompileError as e:
+            sys.exit(f"not pushing — {p.name} doesn't compile:\n{e}")
+    scp = ["scp", "-o", "ControlMaster=auto", "-o", f"ControlPath={_SOCK}",
+           "-o", "ControlPersist=120", "-o", "BatchMode=yes",
+           *[str(p) for p in src], f"{HOST}:{BOX_CLONE}/shared/lights/"]
+    r = subprocess.run(scp, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"scp failed:\n{r.stderr.strip()}")
+    print(f"📤 pushed working tree: {', '.join(p.name for p in src)}")
+    _restart_engine()
+    print("⚠ box tree is dirty now — when it looks right: "
+          "commit + lightsctl deploy")
 
 
 FAN_COLOR_NAMES = {
@@ -462,6 +528,8 @@ def main():
     s.set_defaults(fn=cmd_rotation)
     sub.add_parser("reset").set_defaults(fn=cmd_reset)
     sub.add_parser("restart-engine").set_defaults(fn=cmd_restart_engine)
+    sub.add_parser("deploy").set_defaults(fn=cmd_deploy)
+    sub.add_parser("push").set_defaults(fn=cmd_push)
     s = sub.add_parser("fan"); s.add_argument("name", nargs="?")
     s.add_argument("color", nargs="?")
     s.set_defaults(fn=cmd_fan)
