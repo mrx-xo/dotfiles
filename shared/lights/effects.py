@@ -162,6 +162,16 @@ DESCRIPTIONS = {
     "warm gruvbox": "a warm amber wash, hue drifting gently over ~9s",
 }
 
+# Visual grouping for UIs — section headers in the effects list. Purely
+# cosmetic: rotation and presets don't look at this. Effects missing here
+# get shown under an "other" header by the UI.
+GROUPS = {
+    "embers": ["white-ember breathe", "ember gradient breathe", "ember creep",
+               "blood-ram breathe", "ember"],
+    "moods": ["purple breathe", "ocean drift", "warm gruvbox"],
+    "party": ["hue sweep", "rainbow wave"],
+}
+
 # --- presets: named pools the rotation draws from ------------------------
 # A preset is a list of effect names; rotation picks randomly from the pool
 # each slot. Order/content is the only thing a preset changes.

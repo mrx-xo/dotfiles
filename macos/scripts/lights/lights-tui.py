@@ -42,6 +42,18 @@ from textual.widgets.option_list import Option  # noqa: E402
 CTL = str(Path(__file__).resolve().parent / "lightsctl")
 
 
+def effect_groups():
+    """effects.GROUPS plus an 'other' bucket for anything not yet grouped,
+    so a new effect never silently vanishes from the list."""
+    groups = {g: [n for n in pool if n in effects.EFFECTS]
+              for g, pool in effects.GROUPS.items()}
+    grouped = {n for pool in groups.values() for n in pool}
+    rest = [n for n in effects.EFFECTS if n not in grouped]
+    if rest:
+        groups["other"] = rest
+    return groups
+
+
 def ctl(*args):
     return subprocess.run([CTL, *args], capture_output=True, text=True)
 
@@ -128,8 +140,12 @@ class LightsApp(App):
         with Horizontal(id="bottom"):
             with Vertical(id="effects-col"):
                 yield Static("effects", classes="hdr")
-                yield VimOptionList(*[Option(n, id=f"e:{n}")
-                                      for n in effects.EFFECTS], id="effects")
+                opts = []
+                for g, pool in effect_groups().items():
+                    opts.append(Option(Text(f"─ {g}", style="dim bold"),
+                                       disabled=True))
+                    opts += [Option(f"    {n}", id=f"e:{n}") for n in pool]
+                yield VimOptionList(*opts, id="effects")
                 yield Static("", id="effect-detail")
             with Vertical(id="presets-col"):
                 yield Static("presets", classes="hdr")
@@ -166,13 +182,13 @@ class LightsApp(App):
         if (eff, pre) == self._marks:
             return
         self._marks = (eff, pre)
-        for list_id, prefix, names, active in (
-                ("effects", "e:", effects.EFFECTS, eff),
-                ("presets", "p:", effects.PRESETS, pre)):
+        for list_id, prefix, names, active, pad in (
+                ("effects", "e:", effects.EFFECTS, eff, "  "),
+                ("presets", "p:", effects.PRESETS, pre, "")):
             lst = self.query_one(f"#{list_id}", VimOptionList)
             for n in names:
-                prompt = (Text(f"● {n}", style="bold #50fa7b") if n == active
-                          else Text(f"  {n}"))
+                prompt = (Text(f"{pad}● {n}", style="bold #50fa7b")
+                          if n == active else Text(f"{pad}  {n}"))
                 lst.replace_option_prompt(f"{prefix}{n}", prompt)
 
     def apply_state(self, data):
