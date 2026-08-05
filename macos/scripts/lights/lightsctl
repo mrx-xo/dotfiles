@@ -333,7 +333,11 @@ def cmd_reset(args):
 
 def _restart_engine():
     print("🔧 killing engine process on the box…")
-    _run("taskkill //IM pythonw.exe //F")  # // dodges Git Bash path mangling;
+    # Engine chain is venv python.exe → base python.exe: uv's pythonw trampoline
+    # spawns *console* python, so the ICUELights task hides the whole chain via
+    # run-hidden.vbs instead of using pythonw. Kill both console + legacy images.
+    _run("taskkill //IM python.exe //F")   # // dodges Git Bash path mangling;
+    _run("taskkill //IM pythonw.exe //F")  # pre-vbs task shape, fails ok
     r = _run("MSYS_NO_PATHCONV=1 schtasks /run /tn ICUELights")  # fails ok if
     if r.returncode != 0:                                        # already dead
         sys.exit(f"schtasks /run failed: {(r.stderr or r.stdout).strip()}\n"

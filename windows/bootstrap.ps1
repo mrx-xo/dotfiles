@@ -186,15 +186,22 @@ if (Test-Path $oldKomorebiLnk) {
 $glazewm   = "$env:USERPROFILE\scoop\shims\glazewm.exe"
 $glazeConf = "$repo\glazewm\config.yaml"
 
+# Console apps (glazewm, kanata, syncthing) are launched through run-hidden.vbs:
+# WindowStyle=7 on the .lnk is ignored when Windows Terminal is the default
+# console host, so each one used to boot into a visible empty terminal that
+# GlazeWM then tiled. wscript + the VBS launches them with no window at all.
+$wscript   = "$env:WINDIR\System32\wscript.exe"
+$runHidden = "$repo\scripts\run-hidden.vbs"
+
 if (Test-Path $glazewm) {
     $ws = New-Object -ComObject WScript.Shell
     $glazeLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "GlazeWM.lnk"
     $sc = $ws.CreateShortcut($glazeLnk)
-    $sc.TargetPath       = $glazewm
-    $sc.Arguments        = "start --config `"$glazeConf`""
+    $sc.TargetPath       = $wscript
+    $sc.Arguments        = "`"$runHidden`" `"$glazewm`" start --config `"$glazeConf`""
     $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.Description       = "Start GlazeWM tiling WM on login (config from dotfiles repo)"
-    $sc.WindowStyle      = 7   # minimized / no window
+    $sc.IconLocation     = "$glazewm,0"
+    $sc.Description       = "Start GlazeWM tiling WM on login, hidden (config from dotfiles repo)"
     $sc.Save()
     Write-Host "Created startup shortcut -> $glazeLnk" -ForegroundColor Green
 } else {
@@ -228,11 +235,11 @@ if (Test-Path $kanata) {
     $ws = New-Object -ComObject WScript.Shell
     $kanataLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "kanata.lnk"
     $sc = $ws.CreateShortcut($kanataLnk)
-    $sc.TargetPath       = $kanata
-    $sc.Arguments        = "--cfg `"$kanataConf`""
+    $sc.TargetPath       = $wscript
+    $sc.Arguments        = "`"$runHidden`" `"$kanata`" --cfg `"$kanataConf`""
     $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.Description       = "Start kanata home row mods on login (config from dotfiles repo)"
-    $sc.WindowStyle      = 7   # minimized / no window
+    $sc.IconLocation     = "$kanata,0"
+    $sc.Description       = "Start kanata home row mods on login, hidden (config from dotfiles repo)"
     $sc.Save()
     Write-Host "Created startup shortcut -> $kanataLnk" -ForegroundColor Green
 } else {
@@ -260,11 +267,12 @@ if (Test-Path $syncthing) {
     $ws = New-Object -ComObject WScript.Shell
     $syncthingLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Syncthing.lnk"
     $sc = $ws.CreateShortcut($syncthingLnk)
-    $sc.TargetPath       = $syncthing
-    $sc.Arguments        = "serve --no-browser"
+    $sc.TargetPath       = $wscript
+    # --no-console detaches syncthing's own console too (belt and suspenders)
+    $sc.Arguments        = "`"$runHidden`" `"$syncthing`" serve --no-browser --no-console"
     $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.Description       = "Start Syncthing (background sync for ~/shared) on login"
-    $sc.WindowStyle      = 7   # minimized / no window
+    $sc.IconLocation     = "$syncthing,0"
+    $sc.Description       = "Start Syncthing (background sync for ~/shared) on login, hidden"
     $sc.Save()
     Write-Host "Created startup shortcut -> $syncthingLnk" -ForegroundColor Green
 } else {

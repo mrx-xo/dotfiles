@@ -8,8 +8,8 @@ $ErrorActionPreference = "Stop"
 
 $venvDir = "$env:USERPROFILE\icue-scheduler"
 $python  = "$venvDir\.venv\Scripts\python.exe"
-$pythonw = "$venvDir\.venv\Scripts\pythonw.exe"
 $script  = "$env:USERPROFILE\dotfiles\windows\scripts\icue-lights.py"
+$vbs     = "$env:USERPROFILE\dotfiles\windows\scripts\run-hidden.vbs"
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     scoop install uv
@@ -22,7 +22,11 @@ if (-not (Test-Path $python)) {
 # cuesdk is Corsair's official binding; the similarly-named cue-sdk is not
 uv pip install --python $python cuesdk
 
+# Not pythonw: uv-venv pythonw.exe is a trampoline that spawns *console*
+# python.exe, and a GUI parent means the child allocates a fresh VISIBLE
+# console — the mystery empty terminal on every boot. Run console python
+# through run-hidden.vbs instead: its hidden console is inherited down the chain.
 schtasks /create /f /tn ICUELights /sc onlogon /it `
-    /tr "`"$pythonw`" `"$script`""
+    /tr "wscript.exe `"$vbs`" `"$python`" `"$script`""
 
 Write-Host "Done. Start now with: schtasks /run /tn ICUELights"
