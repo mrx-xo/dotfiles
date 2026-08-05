@@ -1,0 +1,12 @@
+{
+  "extraPaths": ["shared/lights"],
+  "venvPath": "macos/scripts/lights",
+  "venv": ".venv",
+  "exclude": [
+    "ebak",
+    "**/__pycache__",
+    "**/.venv",
+    "macos/emacs/.emacs.d/elpaca",
+    "macos/emacs/.emacs.d/elpa"
+  ]
+}

@@ -5843,6 +5843,14 @@ get the transcript preview styling."
   (setq lsp-completion-provider :none)  ;; Let Corfu handle completion
   (setq lsp-enable-snippet t))
 
+;; Python LSP via basedpyright (lsp-pyright supports both pyright and basedpyright)
+(use-package lsp-pyright
+  :ensure t
+  :custom
+  (lsp-pyright-langserver-command "basedpyright")
+  :hook ((python-mode . (lambda () (require 'lsp-pyright) (lsp-deferred)))
+         (python-ts-mode . (lambda () (require 'lsp-pyright) (lsp-deferred)))))
+
 ;; LSP UI for better LSP experience
 (use-package lsp-ui
   :ensure t
