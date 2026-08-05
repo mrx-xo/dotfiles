@@ -4170,6 +4170,12 @@ only sees the freshly restored frames."
               (setq-local shr-bullet "  • ")
               (display-line-numbers-mode 1))))
 
+;; html buffers carry inline js, so lookups search all three docsets
+;; instead of whichever one got remembered buffer-locally first
+(add-hook 'web-mode-hook
+          (lambda () (setq-local devdocs-current-docs
+                                 '("javascript" "dom" "html"))))
+
 
 
 (use-package link-hint
@@ -4592,6 +4598,10 @@ TRAMP can't match under a PTY — both need pipe mode."
     (call-process "open" nil 0 nil (expand-file-name file)))
   (define-key embark-file-map (kbd "O") #'embark-open-externally)
   (define-key embark-file-map (kbd "F") #'embark-open-in-finder)
+
+  ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
+  (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
+  (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
 
   ;; Hide which-key popup when embark action completes/aborts
   (advice-add #'embark--quit :after
