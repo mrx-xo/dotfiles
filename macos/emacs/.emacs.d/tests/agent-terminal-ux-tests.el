@@ -93,7 +93,8 @@
        ;; visible structure
        (should (string-match-p "❯ git status" text))
        (should (string-match-p "# Show working tree status" text))
-       (should (string-match-p "── abcd1234" text))  ; session separator
+       ;; separator: cwd-basename label · short id
+       (should (string-match-p "── tmp · abcd1234" text))
        ;; faces: ❯ is the prompt face, command is the command face
        (goto-char (point-min))
        (search-forward "❯")
@@ -137,7 +138,7 @@
      (should (get-text-property (match-beginning 0) 'face)))))
 
 (ert-deftest atux-interrupted-marker ()
-  "Interrupted commands show a visible [interrupted] marker in error face."
+  "Interrupted commands show a ✗ interrupted status line in error face."
   (atux--with-buffer
    (agent-terminal--ingest
     (atux--payload '(:phase "post" :session "sess-int" :cwd "/tmp"
@@ -145,9 +146,73 @@
                      :output "partial\n" :interrupted t)))
    (with-current-buffer (agent-terminal--buffer)
      (goto-char (point-min))
-     (should (search-forward "[interrupted]" nil t))
+     (should (search-forward "✗ interrupted" nil t))
      (should (eq (get-text-property (match-beginning 0) 'face)
                  'agent-terminal-error-face)))))
+
+;; ── readability pass: hierarchy, badges, folding, navigation ───────────
+
+(ert-deftest atux-output-hierarchy ()
+  "Output carries the dim base face and a display-only │ gutter."
+  (atux--with-buffer
+   (atux--ingest "pre" "sess-hier" "echo hi")
+   (atux--ingest "post" "sess-hier" "echo hi" nil "plain-line\n")
+   (with-current-buffer (agent-terminal--buffer)
+     (goto-char (point-min))
+     (search-forward "plain-line")
+     (let ((pos (match-beginning 0)))
+       ;; dim base face present (appended, so ANSI colors can coexist)
+       (should (memq 'agent-terminal-output-face
+                     (ensure-list (get-text-property pos 'face))))
+       ;; gutter is a text property, NOT buffer text (clean kills)
+       (should (get-text-property pos 'line-prefix))
+       (should-not (string-match-p "│" (buffer-substring-no-properties
+                                        (point-min) (point-max))))))))
+
+(ert-deftest atux-duration-badge ()
+  "A pre→post pair renders a ● duration status line."
+  (atux--with-buffer
+   (atux--ingest "pre" "sess-dur" "sleep 0")
+   (atux--ingest "post" "sess-dur" "sleep 0" nil "done\n")
+   (with-current-buffer (agent-terminal--buffer)
+     (goto-char (point-min))
+     (should (re-search-forward "● [0-9]+\\(\\.[0-9]\\)?s" nil t)))))
+
+(ert-deftest atux-fold-toggle ()
+  "TAB folds the output block to a ▸ stub and unfolds it again."
+  (atux--with-buffer
+   (atux--ingest "pre" "sess-fold" "seq 5")
+   (atux--ingest "post" "sess-fold" "seq 5" nil "1\n2\n3\n4\n5\n")
+   (with-current-buffer (agent-terminal--buffer)
+     (goto-char (point-min))
+     (search-forward "❯ seq 5")            ; fold from the command line
+     (agent-terminal-toggle-fold)
+     (let ((ov (seq-find (lambda (o) (overlay-get o 'agent-terminal-fold))
+                         (overlays-in (point-min) (point-max)))))
+       (should ov)
+       (should (string-match-p "▸ 5 lines"
+                               (overlay-get ov 'display))))
+     (agent-terminal-toggle-fold)          ; and back
+     (should-not (seq-find (lambda (o) (overlay-get o 'agent-terminal-fold))
+                           (overlays-in (point-min) (point-max)))))))
+
+(ert-deftest atux-command-navigation ()
+  "n/p jump between ❯ command lines."
+  (atux--with-buffer
+   (atux--ingest "pre" "sess-nav" "echo first")
+   (atux--ingest "post" "sess-nav" "echo first" nil "one\n")
+   (atux--ingest "pre" "sess-nav" "echo second")
+   (with-current-buffer (agent-terminal--buffer)
+     (goto-char (point-min))
+     (agent-terminal-next-command)
+     (should (string-match-p "❯ echo first"
+                             (buffer-substring (point) (line-end-position))))
+     (agent-terminal-next-command)
+     (should (string-match-p "❯ echo second"
+                             (buffer-substring (point) (line-end-position))))
+     (agent-terminal-previous-command)
+     (should (string-match-p "❯ echo first"
+                             (buffer-substring (point) (line-end-position)))))))
 
 ;; ── toggles ────────────────────────────────────────────────────────────
 

@@ -59,6 +59,43 @@
   '((t :inherit error))
   "Face for interruption/error markers.")
 
+(defface agent-terminal-output-face
+  '((t :inherit shadow))
+  "Base face for command output (ANSI-colored spans keep their colors).
+Output recedes; commands pop — that's the hierarchy.")
+
+(defface agent-terminal-ok-face
+  '((t :inherit success))
+  "Face for the ● status dot on completed commands.")
+
+(defcustom agent-terminal-session-colors
+  '("#bd93f9" "#8be9fd" "#50fa7b" "#ffb86c" "#ff79c6" "#f1fa8c")
+  "Palette cycled per session id (separator + attribution labels)."
+  :type '(repeat string))
+
+(defun agent-terminal--session-face (session)
+  "Stable face plist for SESSION, hashed into the palette."
+  (list :foreground
+        (nth (mod (sxhash-equal (or session ""))
+                  (length agent-terminal-session-colors))
+             agent-terminal-session-colors)))
+
+(defun agent-terminal--session-label (session cwd)
+  "Human label for SESSION: cwd basename, falling back to the short id."
+  (let ((base (and cwd (file-name-nondirectory (directory-file-name cwd)))))
+    (if (and base (> (length base) 0))
+        base
+      (agent-terminal--short-session session))))
+
+(defvar agent-terminal--pending (make-hash-table :test #'equal)
+  "Session id → `float-time' of its last pre entry, for duration badges.")
+
+(defun agent-terminal--format-duration (secs)
+  "Compact human duration for SECS."
+  (cond ((< secs 10) (format "%.1fs" secs))
+        ((< secs 60) (format "%ds" (round secs)))
+        (t (format "%dm%02ds" (floor secs 60) (mod (round secs) 60)))))
+
 (defvar agent-terminal--last-session nil
   "Session id of the most recently printed entry, for separators.")
 
@@ -135,52 +172,84 @@ keeps point following the tail unless the user has scrolled up."
             (set-window-point win (point-max))))))))
 
 (defun agent-terminal--maybe-separator (session cwd)
-  "Insert a dim session separator when SESSION differs from the last entry.
-CWD is shown alongside the short session id."
+  "Insert a session separator when SESSION differs from the last entry.
+Label = cwd basename in the session's palette color, then short id + cwd."
   (unless (equal session agent-terminal--last-session)
     (setq agent-terminal--last-session session)
-    (insert (propertize
-             (format "── %s · %s %s\n"
-                     (agent-terminal--short-session session)
-                     (abbreviate-file-name (or cwd ""))
-                     (make-string 20 ?─))
-             'face 'agent-terminal-annotation-face))))
+    (insert (propertize "── " 'face 'agent-terminal-annotation-face)
+            (propertize (format "%s · %s"
+                                (agent-terminal--session-label session cwd)
+                                (agent-terminal--short-session session))
+                        'face (agent-terminal--session-face session))
+            (propertize (format " ── %s %s\n"
+                                (abbreviate-file-name (or cwd ""))
+                                (make-string 12 ?─))
+                        'face 'agent-terminal-annotation-face))))
 
 (defun agent-terminal--insert-command (session cwd command description)
-  "Insert the prompt line for COMMAND (DESCRIPTION as dim comment)."
+  "Insert the prompt line for COMMAND (DESCRIPTION as dim comment).
+Stamps the line with `at-entry' / `at-session' text properties and
+records the start time for the duration badge."
   (agent-terminal--maybe-separator session cwd)
-  (insert (propertize (format "\n[%s] " (format-time-string "%H:%M:%S"))
-                      'face 'agent-terminal-annotation-face))
-  (insert (propertize "❯ " 'face 'agent-terminal-prompt-face))
-  (let ((multiline (string-search "\n" command)))
-    (if multiline
-        (progn
-          (when (> (length description) 0)
-            (insert (propertize (format "# %s" description)
-                                'face 'agent-terminal-annotation-face)
-                    "\n  "))
-          (insert (propertize
-                   (string-replace "\n" "\n  " command)
-                   'face 'agent-terminal-command-face)))
-      (insert (propertize command 'face 'agent-terminal-command-face))
-      (when (> (length description) 0)
-        (insert (propertize (format "    # %s" description)
-                            'face 'agent-terminal-annotation-face)))))
-  (insert "\n"))
+  (puthash session (float-time) agent-terminal--pending)
+  (insert "\n")
+  (let ((beg (point)))
+    (insert (propertize (format "%s " (format-time-string "%H:%M:%S"))
+                        'face 'agent-terminal-annotation-face))
+    (insert (propertize "❯ " 'face 'agent-terminal-prompt-face))
+    (let ((multiline (string-search "\n" command)))
+      (if multiline
+          (progn
+            (when (> (length description) 0)
+              (insert (propertize (format "# %s" description)
+                                  'face 'agent-terminal-annotation-face)
+                      "\n  "))
+            (insert (propertize
+                     (string-replace "\n" "\n  " command)
+                     'face 'agent-terminal-command-face)))
+        (insert (propertize command 'face 'agent-terminal-command-face))
+        (when (> (length description) 0)
+          (insert (propertize (format "    # %s" description)
+                              'face 'agent-terminal-annotation-face)))))
+    (insert "\n")
+    (add-text-properties beg (point)
+                         (list 'at-entry 'command 'at-session session))))
 
 (defun agent-terminal--insert-output (session output interrupted)
-  "Insert OUTPUT below its command; mark INTERRUPTED commands.
-When SESSION isn't the last printed one (interleaved sessions), prefix a
-marker attributing the output."
+  "Insert OUTPUT below its command; append a status line.
+Output gets the dim base face, a display-only │ gutter (never enters the
+kill ring), and `at-entry' 'output stamps so folding/navigation can find
+the block.  Status line: ● + duration, or ✗ interrupted."
   (unless (equal session agent-terminal--last-session)
     (setq agent-terminal--last-session session)
-    (insert (propertize (format "↳ %s:\n" (agent-terminal--short-session session))
-                        'face 'agent-terminal-annotation-face)))
+    (insert (propertize "↳ " 'face 'agent-terminal-annotation-face)
+            (propertize (format "%s:" (agent-terminal--short-session session))
+                        'face (agent-terminal--session-face session))
+            "\n"))
   (when (> (length output) 0)
-    (insert (agent-terminal--truncate-output output))
-    (unless (string-suffix-p "\n" output) (insert "\n")))
-  (when interrupted
-    (insert (propertize "[interrupted]\n" 'face 'agent-terminal-error-face))))
+    (let ((beg (point)))
+      (insert (agent-terminal--truncate-output output))
+      (unless (string-suffix-p "\n" output) (insert "\n"))
+      (add-face-text-property beg (point) 'agent-terminal-output-face t)
+      (add-text-properties
+       beg (point)
+       (list 'at-entry 'output 'at-session session
+             'line-prefix (propertize "  │ " 'face 'agent-terminal-annotation-face)
+             'wrap-prefix "  │   "))))
+  (let* ((t0 (gethash session agent-terminal--pending))
+         (dur (and t0 (agent-terminal--format-duration (- (float-time) t0)))))
+    (remhash session agent-terminal--pending)
+    (cond
+     (interrupted
+      (insert "  "
+              (propertize (concat "✗ interrupted" (if dur (format " · %s" dur) ""))
+                          'face 'agent-terminal-error-face)
+              "\n"))
+     (dur
+      (insert "  "
+              (propertize "●" 'face 'agent-terminal-ok-face)
+              (propertize (format " %s" dur) 'face 'agent-terminal-annotation-face)
+              "\n")))))
 
 (defun agent-terminal--ingest (b64)
   "Entry point for agent-terminal-hook.sh.
@@ -208,6 +277,85 @@ never surface as a user-visible error from a hook."
               (plist-get msg :interrupted)))))
         t)
     (error nil)))
+
+;;; Reading tools — folding + command navigation (readability pass)
+
+(defun agent-terminal--output-block-at (pos)
+  "Return (BEG . END) of the contiguous output block at or after POS.
+Looks forward past the current command line if needed; nil when there is
+no output block before the next command."
+  (save-excursion
+    (goto-char pos)
+    (unless (eq (get-text-property (point) 'at-entry) 'output)
+      ;; walk forward to the next output block, stopping at the next command
+      (let ((m (and (require 'text-property-search nil t)
+                    (text-property-search-forward 'at-entry 'output t))))
+        (when m (goto-char (prop-match-beginning m)))))
+    (when (eq (get-text-property (point) 'at-entry) 'output)
+      (let ((beg (if (and (> (point) (point-min))
+                          (eq (get-text-property (1- (point)) 'at-entry) 'output))
+                     (or (previous-single-property-change (point) 'at-entry)
+                         (point-min))
+                   (point)))
+            (end (or (next-single-property-change (point) 'at-entry)
+                     (point-max))))
+        (cons beg end)))))
+
+(defun agent-terminal-toggle-fold ()
+  "Collapse/expand the output block at point to a ▸ N lines stub.
+From the command line, folds the output right below it."
+  (interactive)
+  (if-let ((block (agent-terminal--output-block-at (point))))
+      (let* ((beg (car block)) (end (cdr block))
+             (ov (seq-find (lambda (o) (overlay-get o 'agent-terminal-fold))
+                           (overlays-in beg end))))
+        (if ov
+            (delete-overlay ov)
+          (let ((o (make-overlay beg end)))
+            (overlay-put o 'agent-terminal-fold t)
+            (overlay-put o 'evaporate t)
+            (overlay-put o 'display
+                         (propertize
+                          (format "  ▸ %d lines folded (TAB)\n"
+                                  (count-lines beg end))
+                          'face 'agent-terminal-annotation-face)))))
+    (message "No output block here")))
+
+(defun agent-terminal-next-command ()
+  "Jump to the next ❯ command line."
+  (interactive)
+  (require 'text-property-search)
+  (let ((m (save-excursion
+             ;; searching from inside a matching region returns THAT region —
+             ;; consume it first so we land on the next one
+             (when (eq (get-text-property (point) 'at-entry) 'command)
+               (text-property-search-forward 'at-entry 'command t))
+             (text-property-search-forward 'at-entry 'command t))))
+    (if m (progn (goto-char (prop-match-beginning m)) (beginning-of-line))
+      (message "No next command"))))
+
+(defun agent-terminal-previous-command ()
+  "Jump to the previous ❯ command line."
+  (interactive)
+  (require 'text-property-search)
+  (let ((m (save-excursion
+             ;; tps-backward inspects the char BEFORE point, so only step
+             ;; out when we're strictly inside the region (not at its start)
+             (when (and (> (point) (point-min))
+                        (eq (get-text-property (1- (point)) 'at-entry) 'command))
+               (text-property-search-backward 'at-entry 'command t))
+             (text-property-search-backward 'at-entry 'command t))))
+    (if m (progn (goto-char (prop-match-beginning m)) (beginning-of-line))
+      (message "No previous command"))))
+
+(define-key agent-terminal-mode-map (kbd "TAB") #'agent-terminal-toggle-fold)
+(define-key agent-terminal-mode-map (kbd "n") #'agent-terminal-next-command)
+(define-key agent-terminal-mode-map (kbd "p") #'agent-terminal-previous-command)
+(with-eval-after-load 'evil
+  (evil-define-key* '(normal motion) agent-terminal-mode-map
+    (kbd "TAB") #'agent-terminal-toggle-fold
+    "n" #'agent-terminal-next-command
+    "p" #'agent-terminal-previous-command))
 
 ;;; Phase 2 — tmux interception (docs/agent-terminal-prd.md)
 
@@ -511,6 +659,7 @@ With prefix arg INCLUDE-LIVE, also run :live tests (vterm attach)."
   (with-current-buffer (agent-terminal--buffer)
     (let ((inhibit-read-only t))
       (erase-buffer)
+      (clrhash agent-terminal--pending)
       (setq agent-terminal--last-session nil))))
 
 ;;;###autoload
