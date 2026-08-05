@@ -50,7 +50,7 @@ def read_control():
 def seconds_left(control, now):
     """How long until the visible look next changes."""
     if control.get("mode", "rotation") == "rotation":
-        slot = EFFECT_MINUTES * 60
+        slot = effects.slot_seconds(control, EFFECT_MINUTES)
         return int((now // slot + 1) * slot - now)
     return None  # pinned / random hold until the user changes them
 
