@@ -6283,3 +6283,11 @@ Appends to the current year's transaction file."
   :vc (:url "https://github.com/xenodium/ytr" :rev :newest)
   :commands (ytr)
   :hook (ytr-mode . evil-emacs-state))
+
+(use-package lights
+  :ensure nil
+  :commands (lights)
+  :init
+  (with-eval-after-load 'general
+    (mr-x/leader-def
+      "L" '(lights :wk "lights"))))

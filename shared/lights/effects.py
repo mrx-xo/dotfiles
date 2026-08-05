@@ -166,6 +166,8 @@ DESCRIPTIONS = {
                       "cycle",
     "ocean drift": "teals and blues wandering slowly, like light on water",
     "ember": "flickering coals — orange glow shimmering LED to LED",
+    "ember even breathe": "white-ember breathe on a metronome: fixed 60s "
+                          "breaths, full depth every time, no drift",
     "warm gruvbox": "a warm amber wash, hue drifting gently over ~9s",
 }
 

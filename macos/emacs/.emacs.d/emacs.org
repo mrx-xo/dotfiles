@@ -8864,3 +8864,20 @@ view commands.
     :commands (ytr)
     :hook (ytr-mode . evil-emacs-state))
 #+end_src
+
+** VENGEANCE Lights
+The Emacs skin for the VENGEANCE RGB rig — =M-x lights= or =SPC L=. Like the
+terminal TUI it is a thin skin over =lightsctl=: 2s state poll, grouped
+effects + presets with a live ● marker, wake/randomize/pin/brightness
+controls, and an animated swatch rendered locally by a persistent
+=swatch-stream.py= subprocess (Emacs can't run the Python effect functions).
+Package in =lisp/lights.el=; =?= inside shows every keybind.
+#+begin_src emacs-lisp
+  (use-package lights
+    :ensure nil
+    :commands (lights)
+    :init
+    (with-eval-after-load 'general
+      (mr-x/leader-def
+        "L" '(lights :wk "lights"))))
+#+end_src

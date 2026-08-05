@@ -908,4 +908,8 @@ which would make every test run pollute crash detection state."
     (should-not mr-x/session-autosave-timer)
     (should-not (member #'mr-x/--write-clean-exit-marker kill-emacs-hook))))
 
+(ert-deftest config-test-lights-available ()
+  "The lights dashboard command should be autoloaded."
+  (should (fboundp 'lights)))
+
 ;;; config-tests.el ends here
