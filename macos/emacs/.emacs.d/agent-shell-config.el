@@ -1242,6 +1242,19 @@ Populate the list with `agent-session-handoff.sh sync'."
 
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)
+
+      (defun mr-x/agent-shell-refs-capture-and-go ()
+        "Capture region as a ref, then jump to the shell prompt in insert mode."
+        (interactive)
+        (agent-shell-refs-capture)
+        (when-let* ((buf (agent-shell-refs--find-shell-buffer)))
+          (if-let* ((win (get-buffer-window buf t)))
+              (progn
+                (select-frame-set-input-focus (window-frame win))
+                (select-window win))
+            (pop-to-buffer buf))
+          (mr-x/agent-shell-smart-insert)))
+
       (with-eval-after-load 'agent-shell
         (agent-shell-refs-setup)
         ;; Visual mode: capture selection as a ref
@@ -1259,6 +1272,7 @@ Populate the list with `agent-session-handoff.sh sync'."
          :states '(normal visual)
          :prefix "SPC"
          "c x r" '(agent-shell-refs-capture :wk "Capture ref")
+         "c x R" '(mr-x/agent-shell-refs-capture-and-go :wk "Capture ref + go")
          "c x c" '(agent-shell-refs-clear :wk "Clear refs")
          "c x p" '(agent-shell-refs-preview :wk "Preview refs")
          "c x d" '(agent-shell-refs-remove :wk "Remove ref")
