@@ -227,8 +227,11 @@ sync_windows() {
   if [ "$c" = pc ] || [ "$r" = pc ]; then
     wake=" & MSYS_NO_PATHCONV=1 schtasks /run /tn mon-wake"
   fi
+  # mon-assert (assert-hz.ps1): topology changes reset displays to the EDID
+  # default 59.95 Hz; this re-asserts 155 (multi-pass, so it wins the race
+  # against the topology task's fallback)
   (ssh -o ConnectTimeout=4 -o BatchMode=yes vengeance \
-     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task$wake" >/dev/null 2>&1 &)
+     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task & MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert$wake" >/dev/null 2>&1 &)
 }
 
 case "${1:-}" in

@@ -244,6 +244,11 @@ alias shv='ssh vengeance'
 alias shb='ssh boox'                                     # Termux on the BOOX tablet (needs sshd running there)
 alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd+Shift+B
 
+# Monitor input switching (DDC) — same script the Creator Micro monitors layer runs
+alias mon='~/.dotfiles/macos/scripts/monitor-mode.sh'    # mon game|mac|split|rsplit|work|status, mon toggle center|right
+alias mtc='mon toggle center'                            # flip center Mac <-> PC
+alias mtr='mon toggle right'                             # flip right  Mac <-> PC
+
 # VENGEANCE RGB lights — one headless engine (lightsctl), swappable skins
 alias lights='~/.dotfiles/macos/scripts/lights/lights'          # Textual dashboard
 alias lights-gum='~/.dotfiles/macos/scripts/lights/lights gum'  # gum skin
