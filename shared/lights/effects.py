@@ -49,6 +49,12 @@ def white_ember_breathe(x, t):
     return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
 
 
+EVEN_BREATH_S = 60
+
+def white_ember_breathe_even(x, t):
+    breath = 0.5 - 0.5 * math.cos(2 * math.pi * t / EVEN_BREATH_S + x * 0.6)
+    return colorsys.hsv_to_rgb(0.045, breath, 1 - 0.5 * breath)
+    
 # --- fan-aware ember family ----------------------------------------------
 # Effects marked fan_aware get two extra args from the Windows driver:
 #   u     = the LED's fan's fraction along rig.SPREAD_ORDER (0 = bottom-front,
@@ -135,6 +141,7 @@ EFFECTS = {
         0.5 + 0.12 * math.sin(t / 7 + x * 2), 0.85, 0.9),
     "ember": lambda x, t: colorsys.hsv_to_rgb(
         0.03 + 0.04 * x, 1, 0.55 + 0.35 * math.sin(t / 2 + x * 6)),
+    "ember even breathe": white_ember_breathe_even,
     "warm gruvbox": lambda x, t: colorsys.hsv_to_rgb(
         0.09 + 0.03 * math.sin(t / 9 + x * 3), 0.85, 0.9),
 }
@@ -167,7 +174,7 @@ DESCRIPTIONS = {
 # get shown under an "other" header by the UI.
 GROUPS = {
     "embers": ["white-ember breathe", "ember gradient breathe", "ember creep",
-               "blood-ram breathe", "ember"],
+               "blood-ram breathe", "ember", "ember even breathe"],
     "moods": ["purple breathe", "ocean drift", "warm gruvbox"],
     "party": ["hue sweep", "rainbow wave"],
 }
@@ -182,7 +189,23 @@ PRESETS = {
                   "ember creep", "blood-ram breathe"],
     "chill": ["ocean drift", "warm gruvbox", "white-ember breathe"],
     "party": ["rainbow wave", "hue sweep", "ember"],
+    "ember-showcase": ["white-ember breathe", "ember gradient breathe",
+                       "ember creep", "blood-ram breathe", "ember"],
 }
+
+# Presets that walk their pool in order, looping, instead of rolling dice
+# each slot. Everything else rotates randomly.
+SEQUENTIAL_PRESETS = {"ember-showcase"}
+
+# Per-preset slot length in seconds; presets not listed here use the
+# driver's default (EFFECT_MINUTES).
+PRESET_SLOT_SECONDS = {"ember-showcase": 75}
+
+
+def slot_seconds(control, slot_minutes=5):
+    """Seconds each effect holds for this control's preset."""
+    return PRESET_SLOT_SECONDS.get((control or {}).get("preset", "rotation"),
+                                   slot_minutes * 60)
 
 
 # --- 🎲 randomize --------------------------------------------------------
@@ -241,7 +264,10 @@ def resolve(control, now, slot_minutes=5):
     # rotation: random effect per slot from the preset pool, no repeats
     pool = PRESETS.get(control.get("preset", "rotation")) or list(EFFECTS)
     pool = [n for n in pool if n in EFFECTS] or list(EFFECTS)
-    slot = int(now // (slot_minutes * 60))
+    slot = int(now // slot_seconds(control, slot_minutes))
+    if control.get("preset") in SEQUENTIAL_PRESETS:
+        name = pool[slot % len(pool)]
+        return name, EFFECTS[name]
     idx = random.Random(slot).randrange(len(pool))
     prev = random.Random(slot - 1).randrange(len(pool))
     if len(pool) > 1 and idx == prev:
