@@ -3708,6 +3708,11 @@ TASK-ID is the ID shown when Claude runs a background command."
         "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
+      ;; Search commands under SPC C-s
+      (mr-x/leader-def
+        "C-s" '(:ignore t :wk "search")
+        "C-s h" '(consult-org-heading :wk "Org headings"))
+
       ;; LSP commands under SPC ;
       (mr-x/leader-def
         ";" '(:ignore t :wk "LSP")
