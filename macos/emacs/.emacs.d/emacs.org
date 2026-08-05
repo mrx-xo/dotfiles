@@ -2996,8 +2996,10 @@ separately lets us do the column math (and responsive layouts) here."
             (split-string
              (replace-regexp-in-string
               trim "" (mr-x/fetch--run
-                       "--logo" "none" "--structure"
-                       "title:separator:os:kernel:uptime:packages:shell:cpu:memory"))
+                       "--logo" "none"
+                       "--custom-format" "{#1;33}Status{#}: swag"
+                       "--structure"
+                       "title:separator:os:kernel:uptime:packages:custom:shell:cpu:memory"))
              "\n"))))
 
   (defun mr-x/fetch--compose-wide ()
