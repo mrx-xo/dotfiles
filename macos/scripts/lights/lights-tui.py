@@ -21,6 +21,7 @@ Vim navigation:
   x            🧼 reset (clean slate: rotation, 100%, no overrides)
   R            🔧 restart engine (when it wedges and stops obeying controls)
   [ / ]        brightness down/up  q  quit
+  ?            keybinds overlay (all of the above, in-app)
 """
 import json
 import subprocess
@@ -36,6 +37,7 @@ from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Horizontal, Vertical  # noqa: E402
+from textual.screen import ModalScreen  # noqa: E402
 from textual.widgets import Button, Header, OptionList, Static  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
@@ -63,6 +65,59 @@ def ctl_json(*args):
         return json.loads(ctl(*args).stdout)
     except ValueError:
         return {}
+
+
+KEYBINDS = [
+    ("navigate", [
+        ("j / k", "move down / up"),
+        ("gg / G", "jump to top / bottom"),
+        ("ctrl+d / ctrl+u", "page down / up"),
+        ("Tab / shift+Tab", "switch between effects and presets"),
+        ("l / enter / space", "apply the highlighted effect or preset"),
+        ("esc", "clear the highlight bar and detail panels"),
+    ]),
+    ("looks", [
+        ("r", "🎲 randomize"),
+        ("o", "⟳ rotation on"),
+        ("p", "📌 pin ⇄ unpin"),
+        ("x", "🧼 reset (clean slate: rotation, 100%, no overrides)"),
+        ("[ / ]", "☀ brightness down / up"),
+    ]),
+    ("power & box", [
+        ("w", "🔌 wake VENGEANCE (Wake-on-LAN, when it's off)"),
+        ("a", "🗓 back on schedule (drop a forced on/off)"),
+        ("R", "🔧 restart engine (when it wedges and ignores controls)"),
+    ]),
+    ("app", [
+        ("?", "toggle this keybinds page"),
+        ("q", "quit"),
+    ]),
+]
+
+
+class HelpScreen(ModalScreen):
+    """Every keybind, one overlay. ? toggles it; esc/q also close."""
+    BINDINGS = [
+        Binding("question_mark", "close", "close", show=False),
+        Binding("escape", "close", "close", show=False),
+        Binding("q", "close", "close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        width = max(len(k) for _, keys in KEYBINDS for k, _ in keys)
+        text = Text()
+        for i, (section, keys) in enumerate(KEYBINDS):
+            if i:
+                text.append("\n")
+            text.append(f"─ {section}\n", style="dim bold")
+            for key, desc in keys:
+                text.append(f"  {key:>{width}}", style="bold #8be9fd")
+                text.append(f"  {desc}\n")
+        text.rstrip()
+        yield Static(text, id="help-body")
+
+    def action_close(self):
+        self.app.pop_screen()
 
 
 class VimOptionList(OptionList):
@@ -102,8 +157,13 @@ class LightsApp(App):
     #effects-col, #presets-col { width: 1fr; border: round $primary; }
     #preset-detail, #effect-detail { height: auto; padding: 1 1 0 1;
                                      color: $text-muted; }
-    #status { height: auto; padding: 0 1; background: $boost; }
+    #status { height: auto; padding: 0 1; background: $boost;
+              border: round $secondary; }
     #help { height: 1; color: $text-muted; padding: 0 1; }
+    HelpScreen { align: center middle; background: $background 60%; }
+    #help-body { width: auto; height: auto; max-height: 90%;
+                 border: round $primary; background: $surface;
+                 padding: 1 2; overflow-y: auto; }
     .hdr { text-style: bold; padding: 0 1; }
     OptionList { height: auto; }
     OptionList:focus { border-left: thick $accent; }
@@ -122,6 +182,7 @@ class LightsApp(App):
         ("tab", "focus_next", "switch"),
         ("shift+tab", "focus_previous", "switch"),
         Binding("escape", "unhover", "unhover", show=False),
+        Binding("question_mark", "help", "keybinds", key_display="?"),
         ("q", "quit", "quit"),
     ]
 
@@ -137,6 +198,7 @@ class LightsApp(App):
         yield Header(show_clock=True)
         yield Static("", id="bright")
         yield Static("", id="swatch")
+        yield Static("connecting…", id="status")
         with Horizontal(id="bottom"):
             with Vertical(id="effects-col"):
                 yield Static("effects", classes="hdr")
@@ -153,12 +215,7 @@ class LightsApp(App):
                                       for n in effects.PRESETS], id="presets")
                 yield Button("🎲 randomize (r)", id="rnd", variant="warning")
                 yield Static("", id="preset-detail")
-        yield Static("connecting…", id="status")
-        yield Static("j/k move · gg/G top/bottom · l/⏎ apply · esc unhover · "
-                     "Tab switch · "
-                     "w wake · r random · o rotate · p pin/unpin · "
-                     "a schedule · x reset · R restart engine · "
-                     "[ ] bright · q quit", id="help")
+        yield Static("? keybinds", id="help")
 
     def on_mount(self):
         self.set_interval(2.0, self.poll_state)
@@ -226,15 +283,14 @@ class LightsApp(App):
             power = (f"🔦 FORCED ON until {st.get('forced_until')}, then back "
                      "on schedule   ·   a: back to schedule now")
         else:
-            power = "🗓 on schedule — lit 08:00–23:00, black overnight"
+            power = "on schedule — lit 08:00–23:00"
         # line 2: what look is playing, and whether it changes on its own
         eff = st.get("effect", "?")
         mode = st.get("mode")
         if st.get("rotation"):
             secs = st.get("seconds_left")
             nxt = "?" if secs is None else f"{secs // 60}m{secs % 60:02d}s"
-            look = (f"⟳ ROTATING '{st.get('preset')}' — now: {eff}, "
-                    f"next roll in {nxt}")
+            look = (f"⟳ ROTATING '{st.get('preset')}' — now: {eff} for {nxt}")
         elif mode == "random":
             look = "🎲 RANDOM look — holds until you change it   ·   o: rotate"
         else:
@@ -350,6 +406,10 @@ class LightsApp(App):
     def on_button_pressed(self, ev: Button.Pressed):
         if ev.button.id == "rnd":
             self.action_randomize()
+
+    def action_help(self):
+        # toggle: ? opens the overlay; HelpScreen's own ? binding closes it
+        self.push_screen(HelpScreen())
 
     def action_randomize(self):
         self.apply_cmd("random")
