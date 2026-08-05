@@ -310,7 +310,14 @@ directly into org files via emacsclient.
   	(define-key phscroll-keymap [wheel-left]  #'phscroll-mwheel-scroll-left)
   	(define-key phscroll-keymap [wheel-right] #'phscroll-mwheel-scroll-right))
 
-      (add-hook 'org-mode-hook #'org-indent-mode)
+      ;; Skip org-indent in hidden buffers (leading-space names, e.g. agent
+      ;; transcript renders): nobody sees them, and org 10.0-pre's headline
+      ;; parser chokes on markdown-shaped content there with an endlessly
+      ;; retried "rx '**' range error" from the org-indent init timer.
+      (defun my/org-indent-unless-hidden ()
+        (unless (string-prefix-p " " (buffer-name))
+          (org-indent-mode 1)))
+      (add-hook 'org-mode-hook #'my/org-indent-unless-hidden)
 
       (use-package org-tidy
   	:ensure t
