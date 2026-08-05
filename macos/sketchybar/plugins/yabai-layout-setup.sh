@@ -29,5 +29,17 @@ sketchybar --add bracket yabai_layout_group '/yabai_layout\..*/'       \
                                     background.corner_radius=10        \
                                     background.height=25
 
+# Pin the app-title (center) item to the portrait display only: the
+# MacBook notch and the light bar across both landscape externals all
+# sit in the middle of the bar, so the center region stays empty there.
+# Portrait is found by shape (h > w), not arrangement-id — ids shuffle
+# on display replug.
+PORTRAIT=$(sketchybar --query displays | jq '[.[] | select(.frame.h > .frame.w)][0]."arrangement-id" // empty')
+if [ -n "$PORTRAIT" ]; then
+  sketchybar --set title display=$PORTRAIT drawing=on
+else
+  sketchybar --set title drawing=off
+fi
+
 # Initial update to set the icons
 sketchybar --update

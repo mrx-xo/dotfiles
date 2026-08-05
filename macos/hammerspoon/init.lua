@@ -125,5 +125,54 @@ displayLayoutWatcher = hs.screen.watcher.new(function()
 end)
 displayLayoutWatcher:start()
 
+-- Hide sketchybar while the auto-hidden macOS menu bar is revealed.
+-- The OS slides its menu bar in when the pointer dwells at the very top
+-- edge of a screen; mirror that trigger so the two bars never stack.
+local sketchybarBin = "/opt/homebrew/bin/sketchybar"
+local sketchybarHidden = false
+local menuBarDwell = nil
+
+local function setSketchybarHidden(hidden)
+  if hidden == sketchybarHidden then return end
+  sketchybarHidden = hidden
+  -- `hidden` isn't animatable, so slide the bar off the top edge instead
+  -- (height 40 + 5px corner radius). tanh 20 ≈ 1/3s ease-out.
+  hs.task.new(sketchybarBin, nil,
+    { "--animate", "tanh", "20", "--bar", "y_offset=" .. (hidden and "-45" or "0") }):start()
+end
+
+local function pointerAtTopEdge()
+  local screen = hs.mouse.getCurrentScreen()
+  if not screen then return false end
+  return hs.mouse.absolutePosition().y <= screen:fullFrame().y + 1
+end
+
+menuBarMouseWatcher = hs.eventtap.new({ hs.eventtap.event.types.mouseMoved }, function()
+  if pointerAtTopEdge() then
+    -- Dwell briefly before hiding so flicks through the top edge
+    -- (and clicks on sketchybar items) don't flash the bar away.
+    if not sketchybarHidden and not menuBarDwell then
+      menuBarDwell = hs.timer.doAfter(0.15, function()
+        menuBarDwell = nil
+        if pointerAtTopEdge() then setSketchybarHidden(true) end
+      end)
+    end
+  else
+    if menuBarDwell then menuBarDwell:stop(); menuBarDwell = nil end
+    -- Re-show once the pointer is clear of the menu bar strip (the OS
+    -- menu bar retracts at the same point).
+    local screen = hs.mouse.getCurrentScreen()
+    if sketchybarHidden and screen
+       and hs.mouse.absolutePosition().y > screen:fullFrame().y + 45 then
+      setSketchybarHidden(false)
+    end
+  end
+  return false
+end)
+menuBarMouseWatcher:start()
+-- Reset to a known-visible state on (re)load so a config reload can't
+-- strand the bar hidden or slid away.
+hs.task.new(sketchybarBin, nil, { "--bar", "hidden=off", "y_offset=0" }):start()
+
 -- Live keymap widget on the portrait display (keymap-explorer PRD)
 dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keymap-widget.lua")
