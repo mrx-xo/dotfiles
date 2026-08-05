@@ -885,15 +885,26 @@ pro0[57] = K('Emacs','HOLD','hyp','MO(5)');
 // Hyper letters (e/a/f/h/j/k/l/t/space/1-4) for yabai; every other Hyper
 // combo falls straight through to the focused app, so Emacs binds these.
 // +168 bytes measured (empty-layer compile diff, 2026-07-31).
+// Model: hold the layer and EVERY letter fires the Emacs command starting
+// with it — each key emits HYPR(<its own letter>) on that letter's Dvorak
+// position. F H J K L E A T stay blank: those Hyper combos are yabai binds.
 const pro5 = Array.from({ length: 76 }, () => T);
-pro5[34] = K('imenu','✦i','hyp','HYPR(KC_I)');   // consult-imenu
-pro5[35] = K('buffer','✦b','hyp','HYPR(KC_B)');  // consult-buffer
-pro5[36] = K('magit','✦g','hyp','HYPR(KC_G)');   // magit-status
-pro5[37] = K('search','✦s','hyp','HYPR(KC_S)');  // consult-line
-pro5[38] = K('recent','✦r','hyp','HYPR(KC_R)');  // consult-recent-file
-pro5[23] = K('project','✦p','hyp','HYPR(KC_P)'); // projectile-find-file
-pro5[24] = K('window','✦o','hyp','HYPR(KC_O)');  // ace-window
-pro5[25] = K('dired','✦d','hyp','HYPR(KC_D)');   // dired-jump
+// left hand
+pro5[18] = K('project','✦p','hyp','HYPR(KC_P)'); // projectile-find-file  ·live
+pro5[30] = K('window','✦o','hyp','HYPR(KC_O)');  // ace-window            ·live
+pro5[33] = K('imenu','✦i','hyp','HYPR(KC_I)');   // consult-imenu         ·live
+pro5[42] = K('ask AI','✦q','hyp','HYPR(KC_Q)');  // mr-x/quick-ask         ·prop
+pro5[45] = K('M-x','✦x','hyp','HYPR(KC_X)');     // execute-ext-command    ·prop
+// right hand
+pro5[23] = K('magit','✦g','hyp','HYPR(KC_G)');   // magit-status          ·live
+pro5[24] = K('agent','✦c','hyp','HYPR(KC_C)');   // agent-shell toggle     ·prop
+pro5[25] = K('recent','✦r','hyp','HYPR(KC_R)');  // consult-recent-file   ·live
+pro5[34] = K('dired','✦d','hyp','HYPR(KC_D)');   // dired-jump            ·live
+pro5[38] = K('search','✦s','hyp','HYPR(KC_S)');  // consult-line          ·live
+pro5[48] = K('buffer','✦b','hyp','HYPR(KC_B)');  // consult-buffer        ·live
+pro5[49] = K('bookmk','✦m','hyp','HYPR(KC_M)');  // consult-bookmark       ·prop
+pro5[50] = K('wrkspc','✦w','hyp','HYPR(KC_W)');  // perspective switch     ·prop
+pro5[51] = K('vterm','✦v','hyp','HYPR(KC_V)');   // mr-x/vterm-popup       ·prop
 
 // layer 5 exists on every version so MAPS[view][5] never lands undefined —
 // only the proposed board actually carries the Emacs keys (rest transparent).
@@ -932,7 +943,7 @@ REACH.pro = REACH.cur.slice();
 REACH.old[5] = '<span class="warn">Doesn\'t exist.</span> The pre-Hyper board had no sixth layer.';
 REACH.v2[5]  = '<span class="warn">Not on the board.</span> The Emacs layer is a v4 draft — browse it on <b>proposed</b>.';
 REACH.cur[5] = '<span class="warn">Not flashed yet.</span> Ships with the v4 flash; live today anyway by holding <b>✦ Hyper</b> on the home row. Browse it on <b>proposed</b>.';
-REACH.pro[5] = 'Hold <b>#57</b> (left inner, the ex-arrow dead key) &mdash; right hand taps the command. Keys emit <b>✦ Hyper chords</b>; skhd never claims these letters, so they fall straight through to Emacs.';
+REACH.pro[5] = 'Hold <b>#57</b> (or the OSL combo) &mdash; then <b>every letter is its Emacs command</b>: ✦i imenu, ✦s search, ✦g magit… each on its own Dvorak key. <b>F H J K L E A T stay blank</b> &mdash; those Hyper combos are your yabai binds, so they can\'t hold Emacs commands.';
 
 const NOTES = {
   old: [
@@ -1029,12 +1040,14 @@ NOTES.cur[5] = ['Not flashed yet', [
   '<span class="warn">The Emacs layer is a v4 draft (d1).</span> Browse it on <b>proposed</b>.',
   'It already works <b>today</b> without a flash: the hotdox emits real <span class="k">✦ Hyper</span>, and skhd doesn\'t claim these letters, so holding Hyper + the key reaches Emacs. The layer just makes each a <b>one-tap</b> instead of a hold.'
 ]];
-NOTES.pro[5] = ['Emacs layer (v4 draft &middot; d1)', [
-  '<b>Reach:</b> hold <span class="k">#57</span> &mdash; the left-inner ex-arrow dead key, empty since the v2 nav-discipline cull. Right hand taps the command, the "hold opposite the target" pattern Sym/Nav already use.',
-  '<b>Every key is a <span class="k">HYPR(x)</span> chord</b> &mdash; one tap fires ✦+letter, no modifier claw. Curated to letters skhd leaves alone (<span class="k">e a f h j k l t</span> + space + 1&ndash;4 are the yabai binds), so nothing collides.',
-  '<b>Home row (index → pinky):</b> <span class="k">✦i</span> imenu &middot; <span class="k">✦b</span> buffers &middot; <span class="k">✦g</span> magit &middot; <span class="k">✦s</span> search &middot; <span class="k">✦r</span> recent. <b>Top row:</b> <span class="k">✦p</span> project &middot; <span class="k">✦o</span> window &middot; <span class="k">✦d</span> dired.',
-  '<b>Cost:</b> <span class="k">+168 bytes</span> &mdash; measured by an empty-layer compile diff (26210 → 26378, 2026-07-31). 2294 bytes still free; room for ~13 more layers.',
-  '<b>Status:</b> Emacs side is bound and live (<span class="k">emacs.org</span> Hyper block); the layer is a draft &mdash; promotes to firmware on the next flash as <span class="k">MO(5)</span> + an <span class="k">_EMACS</span> layer.'
+NOTES.pro[5] = ['Emacs layer (v4 draft &middot; d1) — the speed namespace', [
+  '<b>The model:</b> hold the layer, and every letter fires the Emacs command that <i>starts</i> with it &mdash; each key emits <span class="k">HYPR(letter)</span> on its own Dvorak position. No hunting, no depth: one tap = one command.',
+  '<b>14 commands:</b> <span class="k">✦i</span> imenu · <span class="k">✦s</span> search · <span class="k">✦b</span> buffer · <span class="k">✦g</span> magit · <span class="k">✦r</span> recent · <span class="k">✦p</span> project · <span class="k">✦d</span> dired · <span class="k">✦o</span> window · <span class="k">✦c</span> agent · <span class="k">✦v</span> vterm · <span class="k">✦w</span> workspace · <span class="k">✦m</span> bookmark · <span class="k">✦q</span> ask-AI · <span class="k">✦x</span> M-x. <b>Eight are bound live already</b> (i s b g r p d o); the six marked <span class="k">·prop</span> are proposed.',
+  '<b>Blank = reserved, not free.</b> <span class="k">F H J K L E A T</span> carry no Emacs command &mdash; those Hyper combos are your yabai binds (focus / warp / zoom / agenda / emacs). Window management stays on base Hyper; the layer is Emacs-only.',
+  '<b>Why it beats SPC for the frequent stuff:</b> <span class="k">SPC f</span> is link-hint, <span class="k">SPC s</span> is surf &mdash; the mnemonic letters are already taken. The layer is a second namespace, so <span class="k">✦s</span> search coexists with <span class="k">SPC s</span> surf. No collision.',
+  '<span class="warn">Open question &mdash; files.</span> "files" wants <span class="k">✦f</span>, but ✦f is yabai zoom. Right now files is covered by <span class="k">✦r</span> recent + <span class="k">✦p</span> project + <span class="k">✦b</span> buffer. An explicit find-file would need a non-mnemonic key.',
+  '<b>Free slots for more:</b> <span class="k">N U ; Z Y \' , .</span> &mdash; room to grow without touching the reserved letters.',
+  '<b>Cost:</b> <span class="k">+168 bytes</span> (fixed layer table &mdash; same whether 8 keys or 14). Emacs side: the 8 live ones are in <span class="k">emacs.org</span>; the 6 proposed bind on approval.'
 ]];
 
 // ---------- layout version ledger ----------
@@ -1064,11 +1077,12 @@ window.__layoutOnBoard = LAYOUTS.cur.v;   // for the board switcher's eyebrow
 // (v3's d1-d4 were archived 2026-07-29.)
 const PRO_LOG = [
   { v: 1, date: '2026-07-31', title: 'Emacs layer',
-    what: 'new layer 5 reached by holding #57 (ex-arrow dead key). Eight one-tap ' +
-          '✦ Hyper commands — ✦i imenu · ✦b buffers · ✦g magit · ✦s search · ' +
-          '✦r recent · ✦p project · ✦o window · ✦d dired — on skhd-free Hyper ' +
-          'letters, so they fall through to Emacs. +168 bytes (empty-layer ' +
-          'compile diff). Emacs bindings live now; firmware waits for the flash.' }
+    what: 'new layer 5 reached by holding #57 (ex-arrow dead key). The model: ' +
+          'hold the layer, every letter fires the Emacs command starting with it ' +
+          '(each key = HYPR(letter) on its own Dvorak position). 14 commands ' +
+          'proposed — i s b g r p d o live, plus c v w m q x — all on Hyper ' +
+          'letters skhd leaves free (F H J K L E A T reserved for yabai). ' +
+          '+168 bytes (fixed layer table). Emacs side: 8 live, 6 on approval.' }
 ];
 
 const SKHD = [
