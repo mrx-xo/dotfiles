@@ -141,7 +141,10 @@
           (dolist (mapping '(("typescript" . "typescript-ts")
                              ("tsx" . "tsx-ts")
                              ("javascript" . "js-ts")
-                             ("js" . "js-ts")))
+                             ("js" . "js-ts")
+                             ;; no bash-mode exists, so ```bash blocks
+                             ;; render plain without an alias
+                             ("bash" . "bash-ts")))
             (add-to-list 'agent-shell-markdown-language-mapping mapping))
 
           ;; Rainbow parens in fenced blocks: upstream fontifies with

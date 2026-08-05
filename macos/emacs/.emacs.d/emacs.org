@@ -6477,7 +6477,10 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
           (dolist (mapping '(("typescript" . "typescript-ts")
                              ("tsx" . "tsx-ts")
                              ("javascript" . "js-ts")
-                             ("js" . "js-ts")))
+                             ("js" . "js-ts")
+                             ;; no bash-mode exists, so ```bash blocks
+                             ;; render plain without an alias
+                             ("bash" . "bash-ts")))
             (add-to-list 'agent-shell-markdown-language-mapping mapping))
 
           ;; Rainbow parens in fenced blocks: upstream fontifies with
