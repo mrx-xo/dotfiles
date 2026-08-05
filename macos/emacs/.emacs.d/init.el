@@ -5875,6 +5875,11 @@ get the transcript preview styling."
   :ensure t
   :hook (prog-mode . rainbow-delimiters-mode))
 
+;; color literals (#555, rgb(...)) render with their color as background
+(use-package rainbow-mode
+  :ensure t
+  :hook ((js-ts-mode web-mode css-mode) . rainbow-mode))
+
 (electric-indent-mode -1)
 
 ;; Flycheck for syntax checking
