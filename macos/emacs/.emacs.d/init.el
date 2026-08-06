@@ -4454,171 +4454,195 @@ TRAMP can't match under a PTY — both need pipe mode."
       (advice-add 'projectile-project-root :around #'mr-x/projectile-ignore-remote-a)))
 
 
-;; Vertico + Consult + Orderless + Marginalia + Embark
-;; (compat is declared early, near the elpaca bootstrap, so it's queued
-;; before everything that depends on it.)
+  ;; Vertico + Consult + Orderless + Marginalia + Embark
+  ;; (compat is declared early, near the elpaca bootstrap, so it's queued
+  ;; before everything that depends on it.)
 
-(use-package vertico
-  :ensure t
-  :init
-  (vertico-mode 1)
-  :config
-  (setq vertico-count 15)
-  (setq vertico-cycle t)
-  ;; Evil-friendly navigation in minibuffer
-  (define-key vertico-map (kbd "C-j") #'vertico-next)
-  (define-key vertico-map (kbd "C-k") #'vertico-previous)
-  (define-key vertico-map (kbd "C-l") #'vertico-insert))
+  (use-package vertico
+    :ensure t
+    :init
+    (vertico-mode 1)
+    :config
+    (setq vertico-count 15)
+    (setq vertico-cycle t)
+    ;; Evil-friendly navigation in minibuffer
+    (define-key vertico-map (kbd "C-j") #'vertico-next)
+    (define-key vertico-map (kbd "C-k") #'vertico-previous)
+    (define-key vertico-map (kbd "C-l") #'vertico-insert))
 
-;; Saner filename completion: RET drills into directories instead of
-;; opening dired, DEL deletes whole path components, and typing ~/ or /
-;; mid-path tidies the shadowed prefix.  Only affects file completion —
-;; RET everywhere else keeps normal accept-and-exit.
-(use-package vertico-directory
-  :ensure nil            ;; ships inside the vertico package
-  :after vertico
-  :bind (:map vertico-map
-         ("RET"   . vertico-directory-enter)
-         ("DEL"   . vertico-directory-delete-char)
-         ("M-DEL" . vertico-directory-delete-word))
-  :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
+  ;; Saner filename completion: RET drills into directories instead of
+  ;; opening dired, DEL deletes whole path components, and typing ~/ or /
+  ;; mid-path tidies the shadowed prefix.  Only affects file completion —
+  ;; RET everywhere else keeps normal accept-and-exit.
+  (use-package vertico-directory
+    :ensure nil            ;; ships inside the vertico package
+    :after vertico
+    :bind (:map vertico-map
+           ("RET"   . vertico-directory-enter)
+           ("DEL"   . vertico-directory-delete-char)
+           ("M-DEL" . vertico-directory-delete-word))
+    :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
 
-(use-package orderless
-  :ensure t
-  :custom
-  (completion-styles '(orderless basic))
-  (completion-category-overrides '((file (styles basic partial-completion)))))
+  (use-package orderless
+    :ensure t
+    :custom
+    (completion-styles '(orderless basic))
+    (completion-category-overrides '((file (styles basic partial-completion)))))
 
-(use-package marginalia
-  :ensure t
-  :init
-  (marginalia-mode 1)
-  :config
-  ;; Bookmark+ URL bookmarks store the placeholder "   - no file -" in
-  ;; `filename' and the real URL in `location', so marginalia's stock
-  ;; annotator shows the placeholder.  Prefer `location' when filename
-  ;; is missing or the bmkp placeholder.
-  (defun mr-x/marginalia-annotate-bookmark (cand)
-    "Like `marginalia-annotate-bookmark', but show URLs for bookmark+ URL bookmarks."
-    (when-let* ((bm (assoc cand (bound-and-true-p bookmark-alist))))
-      (marginalia--fields
-       ((marginalia--bookmark-type bm) :width 10 :face 'marginalia-type)
-       ((let ((file (bookmark-prop-get bm 'filename)))
-          (if (or (null file) (string-match-p "- no file -" file))
-              (or (bookmark-prop-get bm 'location) "")
-            file))
-        :truncate 0.5 :face 'marginalia-file-name))))
-  (setf (alist-get 'bookmark marginalia-annotators)
-        '(mr-x/marginalia-annotate-bookmark marginalia-annotate-bookmark builtin none)))
+  (use-package marginalia
+    :ensure t
+    :init
+    (marginalia-mode 1)
+    :config
+    ;; Bookmark+ URL bookmarks store the placeholder "   - no file -" in
+    ;; `filename' and the real URL in `location', so marginalia's stock
+    ;; annotator shows the placeholder.  Prefer `location' when filename
+    ;; is missing or the bmkp placeholder.
+    (defun mr-x/marginalia-annotate-bookmark (cand)
+      "Like `marginalia-annotate-bookmark', but show URLs for bookmark+ URL bookmarks."
+      (when-let* ((bm (assoc cand (bound-and-true-p bookmark-alist))))
+        (marginalia--fields
+         ((marginalia--bookmark-type bm) :width 10 :face 'marginalia-type)
+         ((let ((file (bookmark-prop-get bm 'filename)))
+            (if (or (null file) (string-match-p "- no file -" file))
+                (or (bookmark-prop-get bm 'location) "")
+              file))
+          :truncate 0.5 :face 'marginalia-file-name))))
+    (setf (alist-get 'bookmark marginalia-annotators)
+          '(mr-x/marginalia-annotate-bookmark marginalia-annotate-bookmark builtin none)))
 
-(use-package consult
-  :ensure t
-  :bind (("C-s"     . consult-line)
-         ("C-x b"   . consult-buffer)
-         ("M-g g"   . consult-goto-line)
-         ("M-g M-g" . consult-goto-line)
-         ("M-s r"   . consult-ripgrep)
-         ("M-s l"   . consult-line)
-         ("M-s f"   . consult-find))
-  :config
-  ;; Use consult for xref
-  (setq xref-show-xrefs-function #'consult-xref
-        xref-show-definitions-function #'consult-xref)
-  ;; Preview on consult-line: grab symbol at point
-  (consult-customize consult-line :add-history (thing-at-point 'symbol))
-  ;; Auto-preview in consult-imenu
-  (consult-customize consult-imenu :preview-key 'any))
+  (use-package consult
+    :ensure t
+    :bind (("C-s"     . consult-line)
+           ("C-x b"   . consult-buffer)
+           ("M-g g"   . consult-goto-line)
+           ("M-g M-g" . consult-goto-line)
+           ("M-s r"   . consult-ripgrep)
+           ("M-s l"   . consult-line)
+           ("M-s f"   . consult-find))
+    :config
+    ;; Use consult for xref
+    (setq xref-show-xrefs-function #'consult-xref
+          xref-show-definitions-function #'consult-xref)
+    ;; Preview on consult-line: grab symbol at point
+    (consult-customize consult-line :add-history (thing-at-point 'symbol))
+    ;; Auto-preview in consult-imenu
+    (consult-customize consult-imenu :preview-key 'any))
 
-(use-package embark
-  :ensure t
-  :bind (("s-r" . embark-act)
-         ("s-;" . embark-dwim))
-  :config
-  (setq prefix-help-command #'embark-prefix-help-command)
+  (use-package embark
+    :ensure t
+    :bind (("s-r" . embark-act)
+           ("s-;" . embark-dwim))
+    :config
+    (setq prefix-help-command #'embark-prefix-help-command)
 
-  ;; Use which-key popup instead of a buffer split for embark actions
-  (defun embark-which-key-indicator ()
-    "Embark indicator that shows actions via which-key popup."
-    (lambda (&optional keymap targets prefix)
-      (if (null keymap)
-          (which-key--hide-popup-ignore-command)
-        (which-key--show-keymap
-         (if (eq (plist-get (car targets) :type) 'embark-become)
-             "Become"
-           (format "Act on %s '%s'"
-                   (plist-get (car targets) :type)
-                   (plist-get (car targets) :target)))
-         (if prefix
-             (lookup-key keymap prefix)
-           keymap)
-         nil nil t (lambda (binding)
-                     (not (string-suffix-p "-argument" (cdr binding))))))))
+    ;; Use which-key popup instead of a buffer split for embark actions
+    (defun embark-which-key-indicator ()
+      "Embark indicator that shows actions via which-key popup."
+      (lambda (&optional keymap targets prefix)
+        (if (null keymap)
+            (which-key--hide-popup-ignore-command)
+          (which-key--show-keymap
+           (if (eq (plist-get (car targets) :type) 'embark-become)
+               "Become"
+             (format "Act on %s '%s'"
+                     (plist-get (car targets) :type)
+                     (plist-get (car targets) :target)))
+           (if prefix
+               (lookup-key keymap prefix)
+             keymap)
+           nil nil t (lambda (binding)
+                       (not (string-suffix-p "-argument" (cdr binding))))))))
 
-  (setq embark-indicators '(embark-which-key-indicator
-                            embark-highlight-indicator
-                            embark-isearch-highlight-indicator))
+    (setq embark-indicators '(embark-which-key-indicator
+                              embark-highlight-indicator
+                              embark-isearch-highlight-indicator))
 
-  ;; Short display names for project-dashboard embark actions
-  (dolist (entry '(("m" . "project-dashboard--action-magit")
-                   ("d" . "project-dashboard--action-dired")
-                   ("v" . "project-dashboard--action-vterm")
-                   ("a" . "project-dashboard--action-agent-shell")
-                   ("f" . "project-dashboard--action-find-file")
-                   ("RET" . "project-dashboard--action-open")))
-    (push `((nil . ,(cdr entry))
-            nil . ,(replace-regexp-in-string
-                    "project-dashboard--action-" "" (cdr entry)))
-          which-key-replacement-alist))
+    ;; Short display names for project-dashboard embark actions
+    (dolist (entry '(("m" . "project-dashboard--action-magit")
+                     ("d" . "project-dashboard--action-dired")
+                     ("v" . "project-dashboard--action-vterm")
+                     ("a" . "project-dashboard--action-agent-shell")
+                     ("f" . "project-dashboard--action-find-file")
+                     ("RET" . "project-dashboard--action-open")))
+      (push `((nil . ,(cdr entry))
+              nil . ,(replace-regexp-in-string
+                      "project-dashboard--action-" "" (cdr entry)))
+            which-key-replacement-alist))
 
-  ;; Plain-English labels for embark's cryptic meta-actions in the
-  ;; which-key popup ("embark-become" tells you nothing).
-  (dolist (entry '(("embark-become"           . "swap cmd, keep input")
-                   ("embark-export"           . "export→editable buffer")
-                   ("embark-collect"          . "snapshot candidate list")
-                   ("embark-live"             . "live candidate list")
-                   ("embark-act-all"          . "act on all/marked")
-                   ("embark-select"           . "mark for act-all")
-                   ("embark-toggle-quit"      . "toggle close-minibuffer")
-                   ("embark-dired-jump"       . "dired at file")
-                   ("embark-insert-relative-path" . "insert rel path")
-                   ("embark-save-relative-path"   . "copy rel path")
-                   ("embark-eval-replace"     . "eval, replace w/ result")
-                   ("embark-bury-buffer"      . "send buffer to back")
-                   ("mr-x/rig-lookup"         . "rig lookup")))
-    (push `((nil . ,(format "\\`%s\\'" (car entry)))
-            nil . ,(cdr entry))
-          which-key-replacement-alist))
+    ;; Plain-English labels for embark's cryptic meta-actions in the
+    ;; which-key popup ("embark-become" tells you nothing).
+    (dolist (entry '(("embark-become"           . "swap cmd, keep input")
+                     ("embark-export"           . "export→editable buffer")
+                     ("embark-collect"          . "snapshot candidate list")
+                     ("embark-live"             . "live candidate list")
+                     ("embark-act-all"          . "act on all/marked")
+                     ("embark-select"           . "mark for act-all")
+                     ("embark-toggle-quit"      . "toggle close-minibuffer")
+                     ("embark-dired-jump"       . "dired at file")
+                     ("embark-insert-relative-path" . "insert rel path")
+                     ("embark-save-relative-path"   . "copy rel path")
+                     ("embark-eval-replace"     . "eval, replace w/ result")
+                     ("embark-bury-buffer"      . "send buffer to back")
+                     ("mr-x/rig-lookup"         . "rig lookup")
+                     ("embark-copy-file-to-clipboard" . "copy file→clipboard")
+                     ("mr-x/embark-copy-buffer-path"  . "copy buffer path")))
+      (push `((nil . ,(format "\\`%s\\'" (car entry)))
+              nil . ,(cdr entry))
+            which-key-replacement-alist))
 
-  ;; macOS file actions
-  (defun embark-open-in-finder (file)
-    "Reveal FILE in Finder."
-    (call-process "open" nil 0 nil "-R" (expand-file-name file)))
-  (defun embark-open-externally (file)
-    "Open FILE with default macOS app."
-    (call-process "open" nil 0 nil (expand-file-name file)))
-  (define-key embark-file-map (kbd "O") #'embark-open-externally)
-  (define-key embark-file-map (kbd "F") #'embark-open-in-finder)
+    ;; macOS file actions
+    (defun embark-open-in-finder (file)
+      "Reveal FILE in Finder."
+      (call-process "open" nil 0 nil "-R" (expand-file-name file)))
+    (defun embark-open-externally (file)
+      "Open FILE with default macOS app."
+      (call-process "open" nil 0 nil (expand-file-name file)))
+    (defun embark-copy-file-to-clipboard (file)
+      "Put FILE itself on the macOS clipboard, like Cmd+C on it in Finder.
+Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
+      (call-process "osascript" nil 0 nil "-e"
+                    (format "set the clipboard to POSIX file %S"
+                            (expand-file-name file)))
+      (message "Clipboard: %s" (abbreviate-file-name (expand-file-name file))))
+    (define-key embark-file-map (kbd "O") #'embark-open-externally)
+    (define-key embark-file-map (kbd "F") #'embark-open-in-finder)
+    (define-key embark-file-map (kbd "P") #'embark-copy-file-to-clipboard)
 
-  ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
-  (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
-  (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
+    ;; Y = copy the current buffer's file path, from anywhere in the buffer
+    ;; (target doesn't matter).  The menu-item :filter hides Y entirely in
+    ;; buffers with no file (minibuffer, dired, *scratch*...).
+    (defun mr-x/embark-copy-buffer-path ()
+      "Copy the absolute path of the file the current buffer is visiting."
+      (interactive)
+      (if buffer-file-name
+          (progn (kill-new buffer-file-name)
+                 (message "Copied: %s" (abbreviate-file-name buffer-file-name)))
+        (user-error "Buffer isn't visiting a file")))
+    (define-key embark-general-map (kbd "Y")
+      '(menu-item "copy buffer path" mr-x/embark-copy-buffer-path
+                  :filter (lambda (cmd) (and buffer-file-name cmd))))
 
-  ;; ? = rig lookup on any target; embark injects the target into the
-  ;; consult search, so it opens pre-filled with the thing at point.
-  ;; allow-edit stops embark from auto-submitting the injected query —
-  ;; without it consult-line RETs instantly and the live search never shows
-  (define-key embark-general-map (kbd "?") #'mr-x/rig-lookup)
-  (add-to-list 'embark-target-injection-hooks
-               '(mr-x/rig-lookup embark--allow-edit))
+    ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
+    (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
+    (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
 
-  ;; Hide which-key popup when embark action completes/aborts
-  (advice-add #'embark--quit :after
-              (lambda (&rest _) (which-key--hide-popup-ignore-command))))
+    ;; ? = rig lookup on any target; embark injects the target into the
+    ;; consult search, so it opens pre-filled with the thing at point.
+    ;; allow-edit stops embark from auto-submitting the injected query —
+    ;; without it consult-line RETs instantly and the live search never shows
+    (define-key embark-general-map (kbd "?") #'mr-x/rig-lookup)
+    (add-to-list 'embark-target-injection-hooks
+                 '(mr-x/rig-lookup embark--allow-edit))
 
-(use-package embark-consult
-  :ensure t
-  :after (embark consult)
-  :hook (embark-collect-mode . consult-preview-at-point-mode))
+    ;; Hide which-key popup when embark action completes/aborts
+    (advice-add #'embark--quit :after
+                (lambda (&rest _) (which-key--hide-popup-ignore-command))))
+
+  (use-package embark-consult
+    :ensure t
+    :after (embark consult)
+    :hook (embark-collect-mode . consult-preview-at-point-mode))
 
 
 
