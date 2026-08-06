@@ -5450,6 +5450,27 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     ;; Use project dashboard when switching projects (for other projectile commands)
     (setq projectile-switch-project-action #'project-dashboard--projectile-switch-action))
 
+  ;; Per-project named commands: each repo declares its own vocabulary in its
+  ;; .dir-locals.el (push/deploy/seed-db/whatever), SPC p RET picks by name and
+  ;; runs it in a compilation buffer at the project root.
+  ;; Render ANSI colors in compilation buffers (lightsctl swatches, npm, pytest…)
+  (add-hook 'compilation-filter-hook #'ansi-color-compilation-filter)
+  (defvar mr-x/project-commands nil
+    "Alist of (NAME . SHELL-COMMAND) for this project, set via .dir-locals.el.")
+  (put 'mr-x/project-commands 'safe-local-variable #'listp)
+
+  (defun mr-x/project-command ()
+    "Pick one of this project's named commands and run it at the project root."
+    (interactive)
+    (if-let* ((cmds mr-x/project-commands)
+              (name (completing-read "Command: " (mapcar #'car cmds) nil t)))
+        (let ((default-directory (projectile-project-root)))
+          (compile (cdr (assoc name cmds))))
+      (user-error "No project commands here (set mr-x/project-commands in .dir-locals.el)")))
+
+  (with-eval-after-load 'projectile
+    (define-key projectile-command-map (kbd "RET") #'mr-x/project-command))
+
   ;; dedicated vterm for project
       (defun mr-x/spawn-project-terminal-frame ()
       "Spawn a new frame with a vterm in the current project directory.

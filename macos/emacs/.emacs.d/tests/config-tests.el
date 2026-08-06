@@ -127,6 +127,15 @@
                   hydra-ediff/body hydra-window/body hydra-zoom/body))
     (should (fboundp body))))
 
+(ert-deftest config-test-project-commands ()
+  "Per-project named commands: function defined, dir-locals var safe,
+and bound on RET in `projectile-command-map'."
+  (should (fboundp 'mr-x/project-command))
+  (should (funcall (get 'mr-x/project-commands 'safe-local-variable) '()))
+  (should (require 'projectile nil t))
+  (should (eq (lookup-key projectile-command-map (kbd "RET"))
+              'mr-x/project-command)))
+
 ;; Deferred packages — test that autoloads registered the commands,
 ;; even though the library isn't loaded yet.
 
