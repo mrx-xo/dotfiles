@@ -3811,7 +3811,6 @@ Errors are swallowed per-handler so one bad spec doesn't abort the whole restore
                (when (and config session-id)
                  (agent-shell--start :config config
                                      :session-id session-id
-                                     :session-strategy 'new
                                      :no-focus t
                                      :new-session t)))))
           ('project-dashboard

@@ -786,11 +786,11 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
 ;;; Action Functions
 
 (defun project-dashboard-open-agent-shell ()
-  "Open agent-shell for the current project."
+  "Open a new agent-shell conversation for the current project."
   (interactive)
   (let ((default-directory project-dashboard--project-root))
-    (if (fboundp 'agent-shell)
-        (agent-shell)
+    (if (fboundp 'agent-shell-new-shell)
+        (agent-shell-new-shell)
       (message "agent-shell not available"))))
 
 (defun project-dashboard-open-dired ()
@@ -1323,11 +1323,11 @@ Opens the project dashboard for the selected project."
       (vterm t))))
 
 (defun project-dashboard--action-agent-shell (name)
-  "Open agent-shell in project NAME."
+  "Open a new agent-shell conversation in project NAME."
   (interactive "sProject: ")
   (when-let ((path (project-dashboard--resolve-path name)))
     (let ((default-directory path))
-      (agent-shell))))
+      (agent-shell-new-shell))))
 
 (defun project-dashboard--action-find-file (name)
   "Find file in project NAME."

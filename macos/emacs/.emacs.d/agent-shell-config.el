@@ -362,8 +362,7 @@ with a bare \"1. \" and would otherwise match the list-item regex."
 
         (defun mr-x/agent-panel-spawn-test-env ()
           "Spawn test agent-shell buffers for picker testing.
-Resolves agent config once, overrides session strategy to skip
-the session picker, then spawns shells staggered 3s apart."
+Resolves agent config once, then spawns shells staggered 3s apart."
           (interactive)
           (let ((config (or (agent-shell--resolve-preferred-config)
                             (agent-shell-select-config :prompt "Agent for test shells: ")
@@ -373,8 +372,7 @@ the session picker, then spawns shells staggered 3s apart."
                      for delay from 0 by 3
                      do (run-at-time delay nil
                           (lambda (d c)
-                            (let ((default-directory (expand-file-name d))
-                                  (agent-shell-session-strategy 'new))
+                            (let ((default-directory (expand-file-name d)))
                               (agent-shell--start :config c :no-focus t :new-session t)))
                           dir config))
             (message "Spawning %d test shells (3s apart)..." (length dirs))))
@@ -1064,6 +1062,11 @@ Populate the list with `agent-session-handoff.sh sync'."
                                (agent-shell-anthropic-make-claude-client :buffer buffer))
                :default-model-id (lambda () agent-shell-anthropic-default-model-id)))
 
+        ;; Never show the "new session / resume previous" picker — every
+        ;; shell starts fresh. Deliberate resumes go through agent-recall
+        ;; / SPC c H, which pass session ids explicitly and ignore this.
+        (setq agent-shell-session-strategy 'new)
+
 
       ;; Local slash commands for agent-shell
       (defun mr-x/agent-shell-clear-context ()
@@ -1724,8 +1727,7 @@ Populate the list with `agent-session-handoff.sh sync'."
                     (agent-shell--start
                      :config agent-shell-preferred-agent-config
                      :no-focus t
-                     :new-session t
-                     :session-strategy 'new))
+                     :new-session t))
             (error
              (message "Quick Ask: agent-shell--start failed: %s" (error-message-string err))
              (setq mr-x/quick-ask--shell-buffer nil)
