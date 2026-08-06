@@ -7243,11 +7243,12 @@ Values are read literally (never eval'd), so titles may contain spaces."
 
 Scans both the Syncthing peer path (~/shared/agent-sessions, flat) and
 the home-lab sync mirror (~/.local/share/agent-session-handoff, machine
-subdirs).  Each candidate is (LABEL . (:id ID :tgt-cwd DIR)).  Filters
-out handoffs that originated here, and — crucially — those whose project
-cwd does NOT exist locally: you can't stand up the agent in a directory
-you don't have, so the chat simply isn't offered (it reappears on its
-own if you ever set that project up).  Deduped by session id."
+subdirs).  Each candidate is a plist (:id :tgt-cwd :title :machine
+:project :mtime).  Filters out handoffs that originated here, and —
+crucially — those whose project cwd does NOT exist locally: you can't
+stand up the agent in a directory you don't have, so the chat simply
+isn't offered (it reappears on its own if you ever set that project
+up).  Deduped by session id."
           (let* ((shared (expand-file-name "~/shared/agent-sessions/"))
                  (staging (expand-file-name "~/.local/share/agent-session-handoff/"))
                  (this-machine
@@ -7284,24 +7285,106 @@ own if you ever set that project up).  Deduped by session id."
                            ;; Only offer chats whose project dir exists here.
                            (when (file-directory-p tgt-cwd)
                              (puthash id t seen)
-                             (cons (format "%s  ·  %s  ·  %s"
-                                           (if (and title (not (string-empty-p title)))
-                                               title "(untitled)")
-                                           (or src-mach "?")
-                                           (file-name-nondirectory
-                                            (directory-file-name tgt-cwd)))
-                                   (list :id id :tgt-cwd tgt-cwd)))))))
+                             (list :id id :tgt-cwd tgt-cwd
+                                   :title (if (and title (not (string-empty-p title)))
+                                              title "(untitled)")
+                                   :machine (or src-mach "?")
+                                   :project (file-name-nondirectory
+                                             (directory-file-name tgt-cwd))
+                                   ;; conversation recency: the staged jsonl's
+                                   ;; mtime (stage_session cp -p preserves it,
+                                   ;; rsync -a carries it through the hub)
+                                   :mtime (file-attribute-modification-time
+                                           (file-attributes
+                                            (expand-file-name
+                                             (concat id ".jsonl")
+                                             (file-name-directory m))))))))))
                    metas))))
+
+        (defconst mr-x/agent-handoff--machine-colors
+          '(("mrx" . "#fe8019") ("mrx2" . "#8ec07c")
+            ("vengeance" . "#fb4934") ("home-lab" . "#b8bb26"))
+          "Machine name -> gruvbox accent, per the color-is-machine convention.")
+
+        (defun mr-x/agent-handoff--age (mtime)
+          "Compact relative age of MTIME: 5m, 3h, 2d — or ? when unknown."
+          (if (null mtime) "?"
+            (let ((s (float-time (time-subtract (current-time) mtime))))
+              (cond ((< s 3600) (format "%dm" (max 1 (/ s 60))))
+                    ((< s 86400) (format "%dh" (/ s 3600)))
+                    (t (format "%dd" (/ s 86400)))))))
+
+        (defun mr-x/agent-handoff--read (candidates)
+          "Pick one of CANDIDATES with marginalia-style annotations.
+
+The candidate is the chat title (plus a dim #id chip that also keeps
+identical titles distinct for `completing-read').  Annotations are
+aligned columns — machine (colored per machine), age — and rows are
+grouped by project and sorted newest-first, consult-style."
+          (let* ((table
+                  (mapcar (lambda (pl)
+                            ;; Pad the title to a FIXED 72 columns (truncate
+                            ;; long, space-fill short) so the id chip and the
+                            ;; annotation columns line up on every row.  ASCII
+                            ;; ellipsis on purpose: fonts often draw Unicode …
+                            ;; wider than the 1 column Emacs counts it as,
+                            ;; nudging truncated rows out of alignment.
+                            (cons (concat
+                                   (truncate-string-to-width
+                                    (plist-get pl :title) 72 nil ?\s "...")
+                                   (propertize
+                                    (format "  #%s" (substring (plist-get pl :id) 0 8))
+                                    'face 'shadow))
+                                  pl))
+                          candidates))
+                 (lookup (lambda (cand) (cdr (assoc cand table))))
+                 (annotate
+                  (lambda (cand)
+                    (let* ((pl (funcall lookup cand))
+                           (mach (plist-get pl :machine))
+                           (color (or (cdr (assoc mach mr-x/agent-handoff--machine-colors))
+                                      "#928374")))
+                      (concat
+                       "   "
+                       (propertize (format "%-10s" mach)
+                                   'face `(:foreground ,color :weight bold))
+                       (propertize (format "%6s ago" (mr-x/agent-handoff--age
+                                                      (plist-get pl :mtime)))
+                                   'face 'shadow)))))
+                 (newest-first
+                  (lambda (cands)
+                    (sort cands
+                          (lambda (a b)
+                            (time-less-p
+                             (or (plist-get (funcall lookup b) :mtime) 0)
+                             (or (plist-get (funcall lookup a) :mtime) 0))))))
+                 (group
+                  (lambda (cand transform)
+                    (if transform cand
+                      (plist-get (funcall lookup cand) :project))))
+                 (choice
+                  (completing-read
+                   "Resume handoff: "
+                   (lambda (str pred action)
+                     (if (eq action 'metadata)
+                         `(metadata (category . mr-x-agent-handoff)
+                                    (annotation-function . ,annotate)
+                                    (display-sort-function . ,newest-first)
+                                    (group-function . ,group))
+                       (complete-with-action action (mapcar #'car table) str pred)))
+                   nil t)))
+            (funcall lookup choice)))
 
         (defun mr-x/agent-resume-handoff ()
           "Resume an agent-shell conversation from another fleet machine.
 
 Candidates come from `mr-x/agent-handoff--candidates' (see it for the
-staging paths and filtering).  Picks one (auto if there's only one),
-imports its transcript into the local ~/.claude (paths rewritten and
-symlinks resolved by the script), then resumes — forcing the resolved
-project cwd and the Claude config so no agent picker appears and the cwd
-can't mismatch (a mismatch silently yields a BLANK shell).
+staging paths and filtering), presented by `mr-x/agent-handoff--read'
+(auto-picked when there's only one).  Imports the transcript into the
+local ~/.claude (paths rewritten and symlinks resolved by the script),
+then resumes — forcing the resolved project cwd and the Claude config so
+no agent picker appears and the cwd can't mismatch (a mismatch silently
+yields a BLANK shell).
 
 Populate the list with `agent-session-handoff.sh sync'."
           (interactive)
@@ -7310,13 +7393,9 @@ Populate the list with `agent-session-handoff.sh sync'."
                  (candidates (mr-x/agent-handoff--candidates)))
             (unless candidates
               (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
-            (let* ((choice
-                    (if (= (length candidates) 1)
-                        (car candidates)
-                      (assoc (completing-read "Resume handoff: "
-                                              (mapcar #'car candidates) nil t)
-                             candidates)))
-                   (pl (cdr choice))
+            (let* ((pl (if (= (length candidates) 1)
+                           (car candidates)
+                         (mr-x/agent-handoff--read candidates)))
                    (id (plist-get pl :id))
                    (tgt-cwd (plist-get pl :tgt-cwd)))
               ;; Place the transcript at the resolved path (script rewrites paths).
