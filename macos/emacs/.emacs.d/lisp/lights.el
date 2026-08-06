@@ -162,8 +162,8 @@ turn them on first so the change is actually visible."
     "connecting…")
    ((not lights--reachable)
     (if lights--waking
-        "🔌 waking VENGEANCE…  (WoL sent, booting from S5)"
-      "🔌 VENGEANCE offline  —  press w to wake"))
+        " waking VENGEANCE…  (WoL sent, booting from S5)"
+      " VENGEANCE offline  —  press w to wake"))
    (lights--wedged
     (format (concat "⚠ ENGINE WEDGED — status %s, controls are being"
                     " ignored\n   R: kill + relaunch it (takes a few seconds)")
@@ -171,17 +171,17 @@ turn them on first so the change is actually visible."
                 (format "%ss stale" lights--engine-age) "missing")))
    ((not (lights--on-p))
     (if (equal (lights--st 'forced) "off")
-        (format (concat "🌑 FORCED OFF until %s, then back on schedule\n"
+        (format (concat " FORCED OFF until %s, then back on schedule\n"
                         "   a: back on schedule now")
                 (lights--st 'forced_until))
-      (concat "🗓 on schedule — night, LEDs black until 08:00\n"
+      (concat " on schedule — night, LEDs black until 08:00\n"
               "   pick an effect to light up now")))
    (t
     (let* ((power (if (equal (lights--st 'forced) "on")
-                      (format (concat "🔦 FORCED ON until %s, then back on"
+                      (format (concat " FORCED ON until %s, then back on"
                                       " schedule   ·   a: back to schedule now")
                               (lights--st 'forced_until))
-                    "🗓 on schedule — lit 08:00–23:00, black overnight"))
+                    " on schedule — lit 08:00–23:00, black overnight"))
            (eff (lights--st 'effect "?"))
            (look (cond
                   ((lights--st 'rotation)
@@ -189,13 +189,13 @@ turn them on first so the change is actually visible."
                            (lights--st 'preset) eff
                            (lights--fmt-secs (lights--st 'seconds_left))))
                   ((equal (lights--st 'mode) "random")
-                   "🎲 RANDOM look — holds until you change it   ·   o: rotate")
+                   " RANDOM look — holds until you change it   ·   o: rotate")
                   (t (format
-                      "📌 PINNED: %s — holds until you change it   ·   p: unpin"
+                      " PINNED: %s — holds until you change it   ·   p: unpin"
                       eff))))
            (fans (lights--st 'fans)))
       (when fans
-        (setq look (format "%s   ·   🎯 fan overrides: %s" look
+        (setq look (format "%s   ·    fan overrides: %s" look
                            (string-join (append fans nil) ", "))))
       (concat power "\n" look)))))
 
@@ -246,7 +246,7 @@ turn them on first so the change is actually visible."
              (marks (lights--active-marks))
              (swatch-pos nil))
         (erase-buffer)
-        (insert (propertize (format "☀ %d%%\n" (round (* 100 lights--brightness)))
+        (insert (propertize (format " %d%%\n" (round (* 100 lights--brightness)))
                             'face 'shadow))
         (setq swatch-pos (point))
         (insert "\n\n")                 ; swatch line + blank
@@ -448,7 +448,7 @@ turn them on first so the change is actually visible."
 (defun lights-restart-engine ()
   "Kill + relaunch the engine on the box (for when it wedges)."
   (interactive)
-  (message "🔧 restarting engine — kill + relaunch, ~5s…")
+  (message " restarting engine — kill + relaunch, ~5s…")
   (lights--send "restart-engine"))
 
 (defun lights--set-brightness (delta)
@@ -477,15 +477,15 @@ turn them on first so the change is actually visible."
      ("TAB" "switch between effects and presets")
      ("l / RET" "apply the highlighted effect or preset"))
     ("looks"
-     ("r" "🎲 randomize")
+     ("r" " randomize")
      ("o" "⟳ rotation on")
-     ("p" "📌 pin ⇄ unpin")
-     ("x" "🧼 reset (clean slate: rotation, 100%, no overrides)")
-     ("[ / ]" "☀ brightness down / up"))
+     ("p" " pin ⇄ unpin")
+     ("x" "󰃢 reset (clean slate: rotation, 100%, no overrides)")
+     ("[ / ]" " brightness down / up"))
     ("power & box"
-     ("w" "🔌 wake VENGEANCE (Wake-on-LAN, when it's off)")
-     ("a" "🗓 back on schedule (drop a forced on/off)")
-     ("R" "🔧 restart engine (when it wedges and ignores controls)"))
+     ("w" " wake VENGEANCE (Wake-on-LAN, when it's off)")
+     ("a" " back on schedule (drop a forced on/off)")
+     ("R" " restart engine (when it wedges and ignores controls)"))
     ("app"
      ("?" "this keybinds page")
      ("q" "quit"))))
@@ -551,7 +551,7 @@ turn them on first so the change is actually visible."
 
 (define-derived-mode lights-mode special-mode "lights"
   "Dashboard for the VENGEANCE lights — a thin skin over lightsctl."
-  (setq-local header-line-format " 💡 VENGEANCE lights")
+  (setq-local header-line-format "  VENGEANCE lights")
   (setq-local cursor-type 'bar)
   (setq-local truncate-lines t)
   (hl-line-mode 1)
