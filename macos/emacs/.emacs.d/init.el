@@ -5859,8 +5859,23 @@ get the transcript preview styling."
   :ensure t
   :config
   (require 'cape-keyword)
+  ;; Hide image files from cape-file candidates (typing in agent-shell
+  ;; buffers otherwise pops screenshot names from the cwd — noisy, and slow
+  ;; in image-heavy dirs).  completion-ignored-extensions won't do it:
+  ;; orderless bypasses it, so filter at the capf instead.
+  (defvar mr-x/image-file-ext-re
+    (rx "." (or "png" "jpg" "jpeg" "gif" "webp" "svg" "heic" "bmp" "tiff" "ico") eos)
+    "Extensions hidden from cape-file completion candidates.")
+  (defun mr-x/cape-file-no-images ()
+    "`cape-file', minus image files."
+    (cape-wrap-predicate
+     #'cape-file
+     (lambda (cand)
+       (let ((case-fold-search t))
+         (not (string-match-p mr-x/image-file-ext-re
+                              (if (symbolp cand) (symbol-name cand) cand)))))))
   ;; (add-hook 'completion-at-point-functions #'cape-dabbrev)  ;; heavy: scans all buffers
-  (add-hook 'completion-at-point-functions #'cape-file)
+  (add-hook 'completion-at-point-functions #'mr-x/cape-file-no-images)
   (add-hook 'completion-at-point-functions #'cape-keyword)
   ;; (add-hook 'completion-at-point-functions #'cape-line)    ;; heavy: scans all buffers
   ;; (add-hook 'completion-at-point-functions #'cape-dict)    ;; heavy: reads system dictionary
