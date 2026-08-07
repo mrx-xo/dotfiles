@@ -1246,6 +1246,43 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; Agent Shell Refs - Select text from responses to attach as context
       (require 'agent-shell-refs)
 
+      ;; Agent Shell Bookmark - bookmark-set in an agent-shell buffer records
+      ;; the session; bookmark-jump reopens/resumes it (vendored from
+      ;; dcluna/agent-shell-bookmark, see lisp/agent-shell-bookmark.el)
+      (require 'agent-shell-bookmark)
+
+      ;; Session bookmarks get their own jump (SPC m a) and are hidden from
+      ;; the general SPC m j list. To unhide: rebind "m j" back to
+      ;; plain bookmark-jump.
+      (defun mr-x/agent-shell-bookmark-p (bm)
+        "Non-nil if bookmark BM is an agent-shell session bookmark."
+        (eq (bookmark-get-handler bm) 'agent-shell-bookmark-handler))
+
+      (defun mr-x/agent-shell-bookmark-jump ()
+        "Jump to an agent-shell session bookmark (only sessions offered)."
+        (interactive)
+        (bookmark-maybe-load-default-file)
+        (let ((bookmark-alist (seq-filter #'mr-x/agent-shell-bookmark-p
+                                          bookmark-alist)))
+          (unless bookmark-alist
+            (user-error "No agent-shell session bookmarks yet (SPC m s in a convo)"))
+          (bookmark-jump (bookmark-completing-read "Agent session: "))))
+
+      (defun mr-x/bookmark-jump-no-sessions ()
+        "Like `bookmark-jump', but hide agent-shell session bookmarks."
+        (interactive)
+        (bookmark-maybe-load-default-file)
+        (let ((bookmark-alist (seq-remove #'mr-x/agent-shell-bookmark-p
+                                          bookmark-alist)))
+          (bookmark-jump (bookmark-completing-read "Jump to bookmark: "))))
+
+      (with-eval-after-load 'general
+        (general-define-key
+         :states '(normal visual)
+         :prefix "SPC"
+         "m a" '(mr-x/agent-shell-bookmark-jump :wk "jump to agent session")
+         "m j" '(mr-x/bookmark-jump-no-sessions :wk "jump to bookmark")))
+
       (defun mr-x/agent-shell-refs-capture-and-go ()
         "Capture region as a ref, then jump to the shell prompt in insert mode."
         (interactive)
