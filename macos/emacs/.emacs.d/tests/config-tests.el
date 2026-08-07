@@ -921,4 +921,11 @@ which would make every test run pollute crash detection state."
   "The lights dashboard command should be autoloaded."
   (should (fboundp 'lights)))
 
+(ert-deftest config-test-buffer-pane-marker ()
+  "Pane-membership marker should be advised onto buffer completion metadata."
+  (should (fboundp 'mr-x/buffer-pane-prefix))
+  (should (fboundp 'mr-x/buffer-pane-affixation))
+  (should (advice-member-p 'mr-x/buffer-pane--metadata-get
+                           'completion-metadata-get)))
+
 ;;; config-tests.el ends here

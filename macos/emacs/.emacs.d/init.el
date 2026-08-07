@@ -2557,6 +2557,58 @@ Called by sketchybar plugin via emacsclient --eval as fallback."
 
 
 
+  (defun mr-x/buffer-pane-prefix (name)
+    "Candidate prefix marking pane membership for buffer NAME.
+=▰= in the pane rotation, =⏏= agent buffer ejected/excluded,
+padding otherwise."
+    (let ((buf (get-buffer name)))
+      (cond
+       ((not (and buf
+                  (fboundp 'major-pane--conversation-p)
+                  (boundp 'major-pane-modes)
+                  (apply #'provided-mode-derived-p
+                         (buffer-local-value 'major-mode buf)
+                         major-pane-modes)))
+        "  ")
+       ((major-pane--conversation-p buf)
+        (propertize "▰ " 'face 'success))
+       (t (propertize "⏏ " 'face 'shadow)))))
+
+  (defun mr-x/buffer-pane--bufname (cand)
+    "Resolve candidate CAND to a buffer name.
+Unwraps consult's `multi-category' text property (consult-buffer
+candidates carry (buffer . NAME) there); non-buffer multi candidates
+resolve to nil."
+    (if-let ((multi (get-text-property 0 'multi-category cand)))
+        (and (eq (car multi) 'buffer) (cdr multi))
+      cand))
+
+  (defun mr-x/buffer-pane-affixation (cands annotator)
+    "Affixation for buffer candidates CANDS: pane marker prefix.
+Suffix comes from ANNOTATOR (marginalia's annotation-function) so the
+usual right-side annotations survive."
+    (mapcar (lambda (cand)
+              (list cand
+                    (let ((name (mr-x/buffer-pane--bufname cand)))
+                      (if name (mr-x/buffer-pane-prefix name) "  "))
+                    (or (and annotator (funcall annotator cand)) "")))
+            cands))
+
+  (defun mr-x/buffer-pane--metadata-get (orig metadata prop &rest args)
+    "Inject pane-marker affixation for buffer completion.
+Covers the plain =buffer= category and consult-buffer's
+=multi-category= wrapping."
+    (if (and (eq prop 'affixation-function)
+             (memq (completion-metadata-get metadata 'category)
+                   '(buffer multi-category)))
+        (let ((annotator (apply orig metadata 'annotation-function args)))
+          (lambda (cands) (mr-x/buffer-pane-affixation cands annotator)))
+      (apply orig metadata prop args)))
+
+  (advice-add #'completion-metadata-get :around #'mr-x/buffer-pane--metadata-get)
+
+
+
   (defun mr-x/org-mode-visual-fill ()
     (setq visual-fill-column-width 100
 	  visual-fill-column-center-text t)
