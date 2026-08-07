@@ -2055,17 +2055,11 @@ navigation.  Candidates are file targets, so embark actions
       
       ;; Minimal modeline for agent-shell (just evil state, buffer name, line number)
       (doom-modeline-def-segment agent-shell-refs
-        "Show 📎N when refs are attached in agent-shell."
-        (when (and (derived-mode-p 'agent-shell-mode)
-                   (bound-and-true-p agent-shell-refs--list))
-          (propertize (format " 📎%d" (length agent-shell-refs--list))
-                      'face 'agent-shell-refs-modeline-face
-                      'help-echo "Attached references — click to preview"
-                      'mouse-face 'mode-line-highlight
-                      'local-map (let ((map (make-sparse-keymap)))
-                                   (define-key map [mode-line mouse-1]
-                                               #'agent-shell-refs-preview)
-                                   map))))
+        "Per-type ref counts (e.g. ❝2 📄1) when refs are attached.
+Delegates to agent-shell-refs's own indicator so the icons stay in
+sync with `agent-shell-refs-types'."
+        (when (fboundp 'agent-shell-refs--modeline-indicator)
+          (agent-shell-refs--modeline-indicator)))
 
       (doom-modeline-def-segment agent-shell-inbox
         "Show 📷 with a countdown while armed for an incoming phone screenshot.
