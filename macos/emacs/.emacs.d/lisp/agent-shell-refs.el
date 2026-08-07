@@ -24,8 +24,58 @@
 ;;; --- Data ---
 
 (defvar-local agent-shell-refs--list nil
-  "List of reference strings attached to this agent-shell buffer.
-Each entry is a string captured from the buffer.")
+  "List of references attached to this agent-shell buffer.
+Each entry is a plist (:type TYPE :text TEXT :source SOURCE :line LINE).
+Legacy entries may be bare strings; treat those as :type `quote'.
+Always go through the `agent-shell-refs--ref-*' accessors.")
+
+;;; --- Types ---
+;; One registry drives every visual channel (modeline, headerline,
+;; capture message).  Adding a ref type = one entry here plus, if it
+;; needs to be auto-detected, a clause in `agent-shell-refs--detect-type'.
+
+(defvar agent-shell-refs-types
+  '((quote . (:label "quote" :nerd-fn nerd-icons-mdicon
+              :nerd-name "nf-md-comment_quote" :fallback "❝"))
+    (file  . (:label "file"  :nerd-fn nerd-icons-mdicon
+              :nerd-name "nf-md-file_code_outline" :fallback "📄"))
+    (image . (:label "image" :nerd-fn nerd-icons-mdicon
+              :nerd-name "nf-md-image_outline" :fallback "🖼"))
+    (text  . (:label "text"  :nerd-fn nerd-icons-mdicon
+              :nerd-name "nf-md-text_box_outline" :fallback "❝")))
+  "Alist of ref TYPE symbol → display spec.
+Order matters: the modeline count groups render in this order.")
+
+(defun agent-shell-refs--ref-type (ref)
+  "Type symbol of REF (legacy string refs count as `quote')."
+  (if (stringp ref) 'quote (or (plist-get ref :type) 'quote)))
+
+(defun agent-shell-refs--ref-text (ref)
+  "Captured text of REF."
+  (if (stringp ref) ref (plist-get ref :text)))
+
+(defun agent-shell-refs--ref-source (ref)
+  "Where REF came from: a file path or buffer name, or nil for legacy refs."
+  (and (listp ref) (plist-get ref :source)))
+
+(defun agent-shell-refs--type-icon (type)
+  "Icon string for TYPE from `agent-shell-refs-types'.
+Falls back to the type's plain-text glyph without nerd-icons, and to
+the `quote' spec for unknown types."
+  (let ((spec (or (alist-get type agent-shell-refs-types)
+                  (alist-get 'quote agent-shell-refs-types))))
+    (if (and (require 'nerd-icons nil t)
+             (fboundp (plist-get spec :nerd-fn)))
+        (funcall (plist-get spec :nerd-fn) (plist-get spec :nerd-name))
+      (plist-get spec :fallback))))
+
+(defun agent-shell-refs--detect-type ()
+  "Classify a capture happening in the current buffer."
+  (cond
+   ((derived-mode-p 'agent-shell-mode) 'quote)
+   ((derived-mode-p 'image-mode) 'image)
+   ((buffer-file-name) 'file)
+   (t 'text)))
 
 ;;; --- Faces ---
 
@@ -57,30 +107,45 @@ Each entry is a string captured from the buffer.")
 ;;; --- Capture ---
 
 (defun agent-shell-refs-capture ()
-  "Capture the current region as a reference and pulse it."
+  "Capture the current region as a typed reference and pulse it.
+In an `image-mode' buffer no region is needed — the image's file path
+becomes the ref."
   (interactive)
-  (unless (use-region-p)
-    (user-error "No region selected"))
-  (let ((text (buffer-substring-no-properties (region-beginning) (region-end)))
-        (beg (region-beginning))
-        (end (region-end))
-        (shell-buf (agent-shell-refs--find-shell-buffer)))
-    (unless shell-buf
-      (user-error "No agent-shell buffer found"))
-    (with-current-buffer shell-buf
-      (push text agent-shell-refs--list))
-    ;; Pulse feedback
-    (pulse-momentary-highlight-region beg end 'highlight)
-    ;; Deactivate region
-    (deactivate-mark)
-    ;; Message
-    (let ((count (with-current-buffer shell-buf
-                   (length agent-shell-refs--list))))
-      (message "%s Referenced (%d attached)" (agent-shell-refs--pill-icon) count))
-    ;; Update modeline + headerline
-    (with-current-buffer shell-buf
-      (agent-shell-refs--update-headerline)
-      (force-mode-line-update))))
+  (let* ((type (agent-shell-refs--detect-type))
+         (image-p (eq type 'image)))
+    (unless (or image-p (use-region-p))
+      (user-error "No region selected"))
+    (let* ((text (if image-p
+                     (or (buffer-file-name)
+                         (user-error "Image buffer has no file"))
+                   (buffer-substring-no-properties
+                    (region-beginning) (region-end))))
+           (ref (list :type type
+                      :text text
+                      :source (if (buffer-file-name)
+                                  (abbreviate-file-name (buffer-file-name))
+                                (buffer-name))
+                      :line (unless image-p
+                              (line-number-at-pos (region-beginning)))))
+           (shell-buf (agent-shell-refs--find-shell-buffer)))
+      (unless shell-buf
+        (user-error "No agent-shell buffer found"))
+      (with-current-buffer shell-buf
+        (push ref agent-shell-refs--list))
+      ;; Pulse feedback + drop the region (images have neither)
+      (unless image-p
+        (pulse-momentary-highlight-region (region-beginning) (region-end)
+                                          'highlight)
+        (deactivate-mark))
+      ;; Message carries the type's icon so you see what got classified
+      (let ((count (with-current-buffer shell-buf
+                     (length agent-shell-refs--list))))
+        (message "%s Referenced (%d attached)"
+                 (agent-shell-refs--type-icon type) count))
+      ;; Update modeline + headerline
+      (with-current-buffer shell-buf
+        (agent-shell-refs--update-headerline)
+        (force-mode-line-update)))))
 
 ;;; --- Clear / Remove ---
 
@@ -105,8 +170,11 @@ Each entry is a string captured from the buffer.")
         (user-error "No refs attached"))
       (let* ((candidates (cl-loop for ref in agent-shell-refs--list
                                   for i from 1
-                                  collect (cons (format "%d: %s" i
-                                                        (agent-shell-refs--truncate ref 60))
+                                  collect (cons (format "%d: %s %s" i
+                                                        (agent-shell-refs--type-icon
+                                                         (agent-shell-refs--ref-type ref))
+                                                        (agent-shell-refs--truncate
+                                                         (agent-shell-refs--ref-text ref) 60))
                                                 ref)))
              (choice (completing-read "Remove ref: " candidates nil t))
              (ref (cdr (assoc choice candidates))))
@@ -131,7 +199,16 @@ Each entry is a string captured from the buffer.")
             (erase-buffer)
             (cl-loop for ref in (reverse refs)
                      for i from 1
-                     do (insert (format "── Ref %d ──\n%s\n\n" i ref)))
+                     do (insert (format "── Ref %d [%s]%s ──\n%s\n\n" i
+                                        (or (plist-get
+                                             (alist-get (agent-shell-refs--ref-type ref)
+                                                        agent-shell-refs-types)
+                                             :label)
+                                            "quote")
+                                        (if-let* ((src (agent-shell-refs--ref-source ref)))
+                                            (format " %s" src)
+                                          "")
+                                        (agent-shell-refs--ref-text ref))))
             (goto-char (point-min))
             (special-mode))
           (display-buffer (current-buffer)
@@ -141,11 +218,20 @@ Each entry is a string captured from the buffer.")
 ;;; --- Modeline ---
 
 (defun agent-shell-refs--modeline-indicator ()
-  "Return modeline string showing ref count, or empty if none."
+  "Return modeline string with per-type ref counts, or empty if none.
+One icon+count group per type present, in `agent-shell-refs-types'
+order — e.g. \" ❝2 📄1\"."
   (if (and (derived-mode-p 'agent-shell-mode)
            agent-shell-refs--list)
-      (propertize (format " %s%d" (agent-shell-refs--pill-icon)
-                           (length agent-shell-refs--list))
+      (propertize (concat " "
+                          (string-join
+                           (cl-loop for (type . _) in agent-shell-refs-types
+                                    for n = (cl-count type agent-shell-refs--list
+                                                      :key #'agent-shell-refs--ref-type)
+                                    when (> n 0)
+                                    collect (format "%s %d"
+                                                    (agent-shell-refs--type-icon type) n))
+                           " "))
                   'face 'agent-shell-refs-modeline-face
                   'help-echo (format "%d reference(s) attached — click to preview"
                                      (length agent-shell-refs--list))
@@ -184,13 +270,19 @@ Each entry is a string captured from the buffer.")
            (shown (seq-take refs max-shown))
            (remaining (- total max-shown))
            (sep (propertize "  │  " 'face 'agent-shell-refs-headerline-separator-face))
-           (clip (propertize (concat (agent-shell-refs--pill-icon) " ")
-                              'face 'agent-shell-refs-headerline-clip-face))
+           ;; each snippet carries its own type icon (no global clip icon)
            (snippets (mapcar (lambda (ref)
-                               (propertize (agent-shell-refs--truncate ref 25)
-                                           'face 'agent-shell-refs-headerline-face))
+                               (concat
+                                (propertize
+                                 (concat (agent-shell-refs--type-icon
+                                          (agent-shell-refs--ref-type ref))
+                                         " ")
+                                 'face 'agent-shell-refs-headerline-clip-face)
+                                (propertize (agent-shell-refs--truncate
+                                             (agent-shell-refs--ref-text ref) 25)
+                                            'face 'agent-shell-refs-headerline-face)))
                              shown))
-           (parts (list clip (string-join snippets sep))))
+           (parts (list (string-join snippets sep))))
       (when (> remaining 0)
         (setq parts (append parts
                             (list sep
@@ -210,16 +302,29 @@ Each entry is a string captured from the buffer.")
 
 ;;; --- Submit hook ---
 
+(defun agent-shell-refs--quote-block (text)
+  "TEXT as a markdown-quoted block."
+  (format "> %s" (replace-regexp-in-string "\n" "\n> " text)))
+
+(defun agent-shell-refs--format-one (ref)
+  "Format a single REF for the send block, dispatching on its type."
+  (let ((text (agent-shell-refs--ref-text ref))
+        (source (agent-shell-refs--ref-source ref)))
+    (pcase (agent-shell-refs--ref-type ref)
+      ('image (format "Attached image: %s" (expand-file-name text)))
+      ('file (concat (format "From %s%s:\n" source
+                             (if-let* ((line (plist-get ref :line)))
+                                 (format ":%d" line)
+                               ""))
+                     (agent-shell-refs--quote-block text)))
+      ;; quote / text / unknown: plain quoted block, as before
+      (_ (agent-shell-refs--quote-block text)))))
+
 (defun agent-shell-refs--format-for-send (refs)
   "Format REFS list into a context block string."
-  (let ((formatted (cl-loop for ref in (reverse refs)
-                            for i from 1
-                            collect (format "> %s"
-                                           (replace-regexp-in-string
-                                            "\n" "\n> " ref)))))
-    (concat "<referenced-context>\n"
-            (mapconcat #'identity formatted "\n\n")
-            "\n</referenced-context>\n\n")))
+  (concat "<referenced-context>\n"
+          (mapconcat #'agent-shell-refs--format-one (reverse refs) "\n\n")
+          "\n</referenced-context>\n\n"))
 
 ;;; --- Sent-block pills ---
 ;; After a send, the echoed <referenced-context> block is folded into one
