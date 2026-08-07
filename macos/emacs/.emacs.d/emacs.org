@@ -6101,12 +6101,21 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
          (let ((case-fold-search t))
            (not (string-match-p mr-x/image-file-ext-re
                                 (if (symbolp cand) (symbol-name cand) cand)))))))
+    ;; Same problem from the history side: agent-shell prompts that carried an
+    ;; inline image keep the display prop in comint-input-ring, and corfu
+    ;; renders the actual image in the popup (ugly + slow).  cape-history hands
+    ;; the ring strings over raw, so strip properties before corfu sees them.
+    (defun mr-x/cape-history-no-props ()
+      "`cape-history', with text properties stripped from candidates."
+      (pcase (cape-history)
+        (`(,beg ,end ,table . ,plist)
+         `(,beg ,end ,(mapcar #'substring-no-properties table) ,@plist))))
     ;; (add-hook 'completion-at-point-functions #'cape-dabbrev)  ;; heavy: scans all buffers
     (add-hook 'completion-at-point-functions #'mr-x/cape-file-no-images)
     (add-hook 'completion-at-point-functions #'cape-keyword)
     ;; (add-hook 'completion-at-point-functions #'cape-line)    ;; heavy: scans all buffers
     ;; (add-hook 'completion-at-point-functions #'cape-dict)    ;; heavy: reads system dictionary
-    (add-hook 'completion-at-point-functions #'cape-history)
+    (add-hook 'completion-at-point-functions #'mr-x/cape-history-no-props)
     (add-hook 'completion-at-point-functions #'cape-elisp-block)
     (add-hook 'completion-at-point-functions #'cape-elisp-symbol)
     (add-hook 'completion-at-point-functions #'cape-abbrev))
