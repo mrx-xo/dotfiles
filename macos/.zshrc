@@ -245,7 +245,7 @@ alias shb='ssh boox'                                     # Termux on the BOOX ta
 alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd+Shift+B
 
 # Monitor input switching (DDC) — same script the Creator Micro monitors layer runs
-alias mon='~/.dotfiles/macos/scripts/monitor-mode.sh'    # mon game|mac|split|rsplit|work|status, mon toggle center|right
+alias mon='~/.dotfiles/macos/scripts/monitor-mode.sh'    # mon game|mac|split|rsplit|work|status, mon toggle center|right|3|4
 alias mtc='mon toggle center'                            # flip center Mac <-> PC
 alias mtr='mon toggle right'                             # flip right  Mac <-> PC
 

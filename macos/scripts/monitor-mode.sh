@@ -8,13 +8,13 @@
 #   monitor-mode.sh rsplit          # center -> VENGEANCE, right -> MrX
 #   monitor-mode.sh work            # center -> MrX, right -> work laptop
 #
-# Per-display (mix & match freely):
-#   monitor-mode.sh center mac|pc
-#   monitor-mode.sh right  mac|pc|work
+# Per-display (mix & match freely; 3/4 = yabai display numbers):
+#   monitor-mode.sh center|3 mac|pc
+#   monitor-mode.sh right|4  mac|pc|work
 #
 # Toggles (flip a display between Mac <-> PC):
-#   monitor-mode.sh toggle center
-#   monitor-mode.sh toggle right
+#   monitor-mode.sh toggle center|3
+#   monitor-mode.sh toggle right|4
 #
 # Window layout survives round-trips: before the first mac->away flip
 # in an invocation, every window's display (by UUID) is snapshotted to
@@ -59,6 +59,14 @@ RESTORE_PENDING="" # UUIDs flipped back to mac this invocation
 
 notify() {
   osascript -e "display notification \"$1\" with title \"Monitor Mode\"" || true
+}
+
+display_name() {  # normalize center|right or yabai display number 3|4
+  case "$1" in
+    3|center) echo center ;;
+    4|right)  echo right ;;
+    *) echo "unknown display: $1 (want center|right|3|4)" >&2; exit 1 ;;
+  esac
 }
 
 uuid_for() {
@@ -265,16 +273,17 @@ case "${1:-}" in
     sync_windows
     maybe_restore
     ;;
-  center|right)
+  center|right|3|4)
     [ -n "${2:-}" ] || { echo "usage: $(basename "$0") $1 <mac|pc|work>" >&2; exit 1; }
-    set_display "$1" "$2"
-    notify "$1 -> $2"
+    d=$(display_name "$1")
+    set_display "$d" "$2"
+    notify "$d -> $2"
     sync_windows
     maybe_restore
     ;;
   toggle)
-    [ -n "${2:-}" ] || { echo "usage: $(basename "$0") toggle <center|right>" >&2; exit 1; }
-    toggle_display "$2"
+    [ -n "${2:-}" ] || { echo "usage: $(basename "$0") toggle <center|right|3|4>" >&2; exit 1; }
+    toggle_display "$(display_name "$2")"
     sync_windows
     maybe_restore
     ;;
