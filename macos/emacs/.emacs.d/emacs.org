@@ -3570,6 +3570,7 @@ projectile projects appended below."
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
+        "c y" '(mr-x/agent-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -7758,6 +7759,11 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; the session; bookmark-jump reopens/resumes it (vendored from
       ;; dcluna/agent-shell-bookmark, see lisp/agent-shell-bookmark.el)
       (require 'agent-shell-bookmark)
+
+      ;; Agent Resync - phone turns (acp-mobile via acp-multiplex) land as
+      ;; out-of-turn user chunks the buffer can't render; mark it desynced,
+      ;; block sends, SPC c y replays via agent-shell-reload
+      (require 'mr-x-agent-resync)
 
       ;; Session bookmarks get their own jump (SPC m a) and are hidden from
       ;; the general SPC m j list. To unhide: rebind "m j" back to

@@ -213,6 +213,16 @@ and bound on RET in `projectile-command-map'."
 ;; Tier 3 — "Are my custom functions defined?"
 ;; ═══════════════════════════════════════════════════════════════════════════
 
+;; ── Monitor Mode ───────────────────────────────────────────────────────────
+
+(ert-deftest config-test-mr-x-mon-functions ()
+  "Monitor-mode commands should be defined and the script should exist."
+  (should (fboundp 'mr-x/mon))
+  (should (fboundp 'mr-x/mon-toggle-3))
+  (should (fboundp 'mr-x/mon-toggle-4))
+  (should (fboundp 'mr-x/mon-status))
+  (should (file-executable-p (expand-file-name mr-x/mon-script))))
+
 ;; ── Agent Shell ────────────────────────────────────────────────────────────
 
 (ert-deftest config-test-mr-x-agent-shell-functions ()
@@ -927,5 +937,17 @@ which would make every test run pollute crash detection state."
   (should (fboundp 'mr-x/buffer-pane-affixation))
   (should (advice-member-p 'mr-x/buffer-pane--metadata-get
                            'completion-metadata-get)))
+
+(ert-deftest config-test-agent-resync ()
+  "Phone-turn desync guard should be loaded with both advices installed.
+The send block must sit on `shell-maker-submit' (pre-commit), NOT on
+`agent-shell--handle' — blocking there wedges the buffer busy with a
+committed-but-never-sent prompt."
+  (should (fboundp 'mr-x/agent-resync-buffer))
+  (should (fboundp 'mr-x/agent-resync--bounce-insert))
+  (should (advice-member-p 'mr-x/agent-resync--guard-submit 'shell-maker-submit))
+  (should-not (advice-member-p 'mr-x/agent-resync--guard 'agent-shell--handle))
+  (should (advice-member-p 'mr-x/agent-resync--flag
+                           'agent-shell--make-out-of-session-turn-notification-body)))
 
 ;;; config-tests.el ends here
