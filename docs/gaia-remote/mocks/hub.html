@@ -1,0 +1,182 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GAIA · Apollo</title>
+<style>
+  /* Compatible CSS — hardcoded colors (no CSS vars), flexbox (no grid),
+     display-based show/hide — so it renders on APOLLO's 2012 Silk AND modern browsers. */
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;
+    font-family:-apple-system,"SF Pro Display","Roboto",Helvetica,sans-serif}
+  html,body{height:100%}
+  body{background:#000;color:#F5F6F8;overflow:hidden}
+  .app{max-width:460px;margin:0 auto;height:100%;display:-webkit-box;display:flex;
+    -webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column;padding:14px 14px 16px;position:relative}
+
+  .top{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:start;align-items:flex-start}
+  .icobtn{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;
+    font-size:18px;text-align:center;line-height:42px}
+  .icobtn.pw{color:#5B9DFF}
+  .svg{width:20px;height:20px;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ident{text-align:center;line-height:1.15;padding-top:3px}
+  .ident .s{font-size:10px;letter-spacing:.22em;color:#7E838C;text-transform:uppercase;font-weight:600}
+  .ident .n{font-size:17px;letter-spacing:.02em;font-weight:700}
+  .ident .n b{color:#5B9DFF}
+
+  .np{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;margin:12px 2px 0;padding:12px 14px;
+    background:#0E0F12;border:1px solid rgba(255,255,255,.09);border-radius:14px;color:#F5F6F8;width:calc(100% - 4px)}
+  .np .d{width:7px;height:7px;border-radius:50%;background:#5B9DFF;margin-right:10px}
+  .np .tx{font-size:14px;-webkit-box-flex:1;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left}
+  .np .tx b{font-weight:600}.np .tx span{color:#7E838C}
+  .np .cv{color:#7E838C;font-size:15px}
+
+  .stage{-webkit-box-flex:1;flex:1;display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .pad{-webkit-box-flex:1;flex:1;display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;
+    flex-direction:column;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center}
+  .padbtn{width:150px;height:62px;border-radius:18px;border:1px solid rgba(255,255,255,.09);background:#0E0F12;
+    color:#F5F6F8;font-size:22px;margin-bottom:11px}
+  .padmid{display:-webkit-box;display:flex;-webkit-box-pack:center;justify-content:center;margin-bottom:11px}
+  .padmid .padbtn{width:88px;margin:0 6px}
+  .ok{background:rgba(91,157,255,.15);border-color:#5B9DFF;color:#5B9DFF;font-size:16px;font-weight:700}
+  .subrow{margin-top:2px}
+  .subrow button{border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#7E838C;border-radius:12px;padding:10px 15px;font-size:13px;margin:0 4px}
+
+  .vol{width:52px;display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column;
+    -webkit-box-align:center;align-items:center;height:84%;max-height:400px}
+  .vbtn{width:44px;height:38px;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;border-radius:12px;font-size:13px;margin-bottom:8px}
+  .slider{-webkit-box-flex:1;flex:1;width:44px;background:#0E0F12;border:1px solid rgba(255,255,255,.09);border-radius:22px;position:relative;overflow:hidden;margin-bottom:8px}
+  .slider .fl{position:absolute;left:0;right:0;bottom:0;height:55%;background:#5B9DFF}
+  .mute{width:44px;height:44px;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;border-radius:50%;line-height:42px;text-align:center}
+  .mute.on{color:#FF5470;border-color:#FF5470}
+
+  .bottom{display:-webkit-box;display:flex;margin-top:12px}
+  .bigbtn{-webkit-box-flex:1;flex:1;padding:18px 0;border-radius:18px;border:1px solid rgba(255,255,255,.09);background:#0E0F12;
+    color:#F5F6F8;font-size:15px;font-weight:600;margin:0 5px}
+  .bigbtn .svg{margin-right:7px}
+
+  /* sheets: hidden with display:none (reliable on old Silk) */
+  .scrim{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:none;z-index:9}
+  .scrim.show{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#0B0C0F;
+    border-top-left-radius:24px;border-top-right-radius:24px;border-top:1px solid rgba(255,255,255,.09);
+    padding:12px 16px 24px;display:none;z-index:10}
+  .sheet.show{display:block}
+  .grab{width:38px;height:4px;border-radius:3px;background:rgba(255,255,255,.14);margin:2px auto 14px}
+  .shead{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:center;align-items:center;margin-bottom:14px}
+  .shead .t{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#7E838C;font-weight:600}
+  .x{width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:15px}
+  .appgrid{display:-webkit-box;display:flex;-webkit-box-lines:multiple;flex-wrap:wrap;justify-content:space-between}
+  .atile{width:31.5%;height:104px;border:1px solid rgba(255,255,255,.09);border-radius:18px;background:#0E0F12;margin-bottom:11px;text-align:center;padding-top:20px}
+  .atile .ic{width:44px;height:44px;border-radius:12px;margin:0 auto 9px;color:#fff;font-weight:800;font-size:18px;line-height:44px}
+  .atile .nm{font-size:12px;color:#7E838C;font-weight:500}
+
+  .kbrow{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .kbrow input{-webkit-box-flex:1;flex:1;background:#0E0F12;border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:16px;color:#F5F6F8;font-size:16px;margin-right:10px}
+  .send{background:#5B9DFF;color:#fff;border:none;border-radius:14px;padding:0 20px;height:52px;font-size:15px;font-weight:600}
+  .kbhint{color:#7E838C;font-size:12px;margin-top:10px;text-align:center}
+
+  .screen{position:fixed;top:0;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#000;z-index:20;display:none;padding:14px}
+  .screen.show{display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column}
+  .pbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between;padding:2px 0 14px}
+  .pdown{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:24px}
+  .plabel{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#7E838C;font-weight:600}
+  .poster{-webkit-box-flex:1;flex:1;border-radius:22px;background:-webkit-linear-gradient(300deg,#243B6B,#0B1220);background:linear-gradient(150deg,#243B6B,#0B1220);position:relative;min-height:180px}
+  .poster .ap{position:absolute;top:16px;left:18px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#fff;font-weight:700}
+  .pmeta{padding:18px 4px 4px}
+  .pmeta .t{font-size:28px;font-weight:700;letter-spacing:-.02em}
+  .pmeta .s{color:#7E838C;font-size:14px;margin-top:4px}
+  .ptrack{height:5px;border-radius:3px;background:rgba(255,255,255,.12);margin:16px 4px 8px;position:relative}
+  .ptrack i{position:absolute;left:0;top:0;bottom:0;width:62%;background:#5B9DFF;border-radius:3px}
+  .ptimes{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;color:#7E838C;font-size:12px;padding:0 4px}
+  .ptrans{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;padding:22px 0 10px}
+  .ptrans button{width:62px;height:62px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:20px;margin:0 7px}
+  .ptrans .pp{width:78px;height:78px;background:rgba(91,157,255,.15);border-color:#5B9DFF;color:#5B9DFF;font-size:24px}
+  body.light{background:#EAECEF;color:#0B0C0E}
+  body.light .icobtn,body.light .np,body.light .padbtn,body.light .vbtn,body.light .slider,body.light .mute,body.light .bigbtn,body.light .atile,body.light .x,body.light .kbrow input,body.light .sheet,body.light .screen,body.light .pdown,body.light .ptrans button,body.light .subrow button{background:#fff;border-color:rgba(0,0,0,.09);color:#0B0C0E}
+  body.light .ident .s,body.light .np .tx span,body.light .np .cv,body.light .plabel,body.light .shead .t,body.light .atile .nm,body.light .subrow button,body.light .kbhint,body.light .pmeta .s,body.light .ptimes{color:#6B7078}
+  body.light .ok,body.light .pp{background:rgba(46,107,255,.12);border-color:#2E6BFF;color:#2E6BFF}
+  body.light .scrim{background:rgba(20,25,40,.35)}
+  body.light .grab{background:rgba(0,0,0,.14)}
+</style></head><body>
+<div class="app">
+  <div class="top">
+    <button class="icobtn pw" title="Power"><svg class="svg" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg></button>
+    <div class="ident"><div class="s">Serving GAIA</div><div class="n">as <b>APOLLO</b></div></div>
+    <button class="icobtn" onclick="lt()">◐</button>
+  </div>
+
+  <button class="np" onclick="show('play')">
+    <span class="d"></span><span class="tx"><b>The Bear</b> <span>· Netflix</span></span><span class="cv">&#9662;</span>
+  </button>
+
+  <div class="stage">
+    <div class="pad">
+      <button class="padbtn">&#9650;</button>
+      <div class="padmid"><button class="padbtn">&#9664;</button><button class="padbtn ok">OK</button><button class="padbtn">&#9654;</button></div>
+      <button class="padbtn">&#9660;</button>
+      <div class="subrow"><button>&#8617; Back</button><button>&#8962; Home</button></div>
+    </div>
+    <div class="vol">
+      <button class="vbtn" onclick="vstep(6)">&#9650;</button>
+      <div class="slider" id="sl"><div class="fl" id="fl"></div></div>
+      <button class="vbtn" onclick="vstep(-6)">&#9660;</button>
+      <button class="mute" id="mute" onclick="tmute()"><svg class="svg" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg></button>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <button class="bigbtn" onclick="show('apps')"><svg class="svg" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Apps</button>
+    <button class="bigbtn" onclick="show('kb')"><svg class="svg" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Keyboard</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" onclick="hideAll()"></div>
+
+<div class="sheet" id="apps">
+  <div class="grab"></div>
+  <div class="shead"><span class="t">Launch app</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="appgrid">
+    <div class="atile"><div class="ic" style="background:#E50914">N</div><div class="nm">Netflix</div></div>
+    <div class="atile"><div class="ic" style="background:#FF0000">&#9654;</div><div class="nm">YouTube</div></div>
+    <div class="atile"><div class="ic" style="background:#8E44EC">V</div><div class="nm">ViX</div></div>
+    <div class="atile"><div class="ic" style="background:#1BA5A0">A</div><div class="nm">Angel</div></div>
+    <div class="atile"><div class="ic" style="background:#00A4DC">J</div><div class="nm">Jellyfin</div></div>
+    <div class="atile"><div class="ic" style="background:#5B3FD6">Js</div><div class="nm">Jellyseerr</div></div>
+  </div>
+</div>
+
+<div class="sheet" id="kb">
+  <div class="grab"></div>
+  <div class="shead"><span class="t">Type on TV</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="kbrow"><input id="kbin" placeholder="Search…" autocomplete="off"><button class="send">Send</button></div>
+  <div class="kbhint">Your keyboard types straight into the TV's search box.</div>
+</div>
+
+<div class="screen" id="play">
+  <div class="pbar">
+    <button class="pdown" onclick="hideAll()">&#9662;</button>
+    <span class="plabel">Now Playing</span>
+    <span style="width:46px"></span>
+  </div>
+  <div class="poster"><span class="ap">Netflix</span></div>
+  <div class="pmeta"><div class="t">The Bear</div><div class="s">Season 3 · Episode 5 — Children</div></div>
+  <div class="ptrack"><i></i></div>
+  <div class="ptimes"><span>26:41</span><span>&#8722;16:20</span></div>
+  <div class="ptrans"><button>&#9198;</button><button>&#9194;</button><button class="pp">&#10073;&#10073;</button><button>&#9193;</button><button>&#9197;</button></div>
+</div>
+
+<script>
+  function el(i){return document.getElementById(i);}
+  function lt(){document.body.className=document.body.className.indexOf('light')>-1?'':'light';}
+  function show(id){hideAll();el(id).className+=' show';if(id!=='play')el('scrim').className='scrim show';
+    if(id==='kb'){setTimeout(function(){el('kbin').focus();},80);}}
+  function hideAll(){var a=['apps','kb','play'];for(var i=0;i<a.length;i++){el(a[i]).className=el(a[i]).className.replace(' show','');}
+    el('scrim').className='scrim';}
+  var lvl=55;function setv(v){lvl=Math.max(0,Math.min(100,v));el('fl').style.height=lvl+'%';}
+  function vstep(d){setv(lvl+d);if(muted)tmute();}
+  var muted=false;function tmute(){muted=!muted;el('mute').className=muted?'mute on':'mute';}
+  var sl=el('sl');function fromY(cy){var r=sl.getBoundingClientRect();setv(Math.round((1-(cy-r.top)/r.height)*100));if(muted)tmute();}
+  sl.ontouchstart=function(e){fromY(e.touches[0].clientY);};
+  sl.ontouchmove=function(e){e.preventDefault();fromY(e.touches[0].clientY);};
+  sl.onmousedown=function(e){fromY(e.clientY);};
+  setv(55);
+</script>
+</body></html>

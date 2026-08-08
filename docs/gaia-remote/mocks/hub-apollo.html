@@ -1,0 +1,190 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GAIA · Apollo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Apollo — brass instrument on warm black. Hardcoded palette + flexbox + SVG for old-Silk compatibility. */
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{background:#100D0A;color:#EDE4D3;overflow:hidden;
+    background-image:-webkit-radial-gradient(50% 20%, rgba(185,139,63,.12), rgba(16,13,10,0) 60%);
+    background-image:radial-gradient(60% 34% at 50% 18%, rgba(185,139,63,.12), transparent 60%);
+    font-family:"Cormorant Garamond",Georgia,serif}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  .app{max-width:460px;margin:0 auto;height:100%;display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column;padding:16px 16px 18px;position:relative}
+
+  .top{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between}
+  .rbtn{width:52px;height:52px;border-radius:50%;background:#191410;border:1px solid rgba(185,139,63,.4);position:relative}
+  .ident{text-align:center}
+  .ident .s{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:#B98B3F}
+  .ident .n{font-family:"Cormorant Garamond",Georgia,serif;font-weight:300;font-size:26px;letter-spacing:.02em;line-height:1}
+  .ident .n b{color:#B98B3F;font-weight:500}
+
+  /* now-playing display */
+  .display{margin-top:14px;border:1px solid rgba(185,139,63,.3);border-radius:4px;position:relative;background:#16120E;padding:14px 16px 15px}
+  .display .cap{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#B98B3F}
+  .display .cap b{color:#5C7A6E}
+  .display .t{font-family:"Cormorant Garamond",Georgia,serif;font-weight:500;font-size:30px;line-height:1;margin:6px 0 3px;letter-spacing:.01em}
+  .display .sub{font-size:14px;color:rgba(237,228,211,.6)}
+  .display .bar{height:2px;background:rgba(185,139,63,.22);margin-top:12px;position:relative}
+  .display .bar i{position:absolute;left:0;top:0;bottom:0;width:62%;background:-webkit-linear-gradient(left,#B98B3F,#F2D48A);background:linear-gradient(90deg,#B98B3F,#F2D48A)}
+  .display .cv{position:absolute;top:14px;right:14px;color:#B98B3F;font-size:15px}
+
+  /* sundial nav — the sun graphic */
+  .navwrap{-webkit-box-flex:1;flex:1;display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center}
+  .dial{width:290px;max-width:86%;position:relative}
+  .dial svg{width:100%;height:auto;display:block}
+  .hitok,.hitup,.hitdn,.hitlf,.hitrt{position:absolute;background:none;border:none}
+  .hitok{left:32%;top:32%;width:36%;height:36%;border-radius:50%}
+  .hitup{left:34%;top:2%;width:32%;height:24%}
+  .hitdn{left:34%;bottom:2%;width:32%;height:24%}
+  .hitlf{left:2%;top:34%;width:24%;height:32%}
+  .hitrt{right:2%;top:34%;width:24%;height:32%}
+
+  /* volume — seven strings (lyre) */
+  .vol{margin-top:4px}
+  .strings{display:-webkit-box;display:flex;-webkit-box-align:end;align-items:flex-end;-webkit-box-pack:center;justify-content:center;height:52px}
+  .str{width:5px;margin:0 7px;background:rgba(185,139,63,.28);border-radius:3px}
+  .str.lit{background:-webkit-linear-gradient(bottom,#B98B3F,#F2D48A);background:linear-gradient(0deg,#B98B3F,#F2D48A)}
+  .vlabel{text-align:center;font-size:9.5px;letter-spacing:.26em;text-transform:uppercase;color:#B98B3F;margin-top:9px}
+  .vlabel.muted{color:#A33327}
+
+  /* actions */
+  .acts{display:-webkit-box;display:flex;margin-top:14px}
+  .abtn{-webkit-box-flex:1;flex:1;background:#16120E;border:1px solid rgba(185,139,63,.28);border-radius:4px;color:#EDE4D3;padding:13px 0 9px;margin:0 5px;text-align:center}
+  .abtn .lbl{display:block;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(185,139,63,.75);margin-top:6px}
+  .svg{display:block;margin:0 auto;width:22px;height:22px}
+
+  .toast{position:fixed;top:84px;left:50%;margin-left:-90px;width:180px;text-align:center;background:#241D16;border:1px solid #B98B3F;color:#F2D48A;border-radius:4px;padding:11px 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;display:none;z-index:30;font-family:"IBM Plex Mono",monospace}
+  .toast.show{display:block}
+
+  .scrim{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(8,6,4,.7);display:none;z-index:9}
+  .scrim.show{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#16120E;border-top:1px solid rgba(185,139,63,.35);border-top-left-radius:8px;border-top-right-radius:8px;padding:14px 16px 24px;display:none;z-index:10}
+  .sheet.show{display:block}
+  .grab{width:40px;height:3px;background:rgba(185,139,63,.4);margin:0 auto 16px}
+  .shead{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:center;align-items:center;margin-bottom:16px}
+  .shead .t{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#B98B3F;font-family:"IBM Plex Mono",monospace}
+  .x{width:34px;height:34px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#191410;color:#EDE4D3;font-size:14px}
+  .appgrid{display:-webkit-box;display:flex;-webkit-box-lines:multiple;flex-wrap:wrap;justify-content:space-between}
+  .atile{width:31.5%;border:1px solid rgba(185,139,63,.22);border-radius:4px;background:#100D0A;margin-bottom:11px;text-align:center;padding:18px 0 12px}
+  .atile .ic{width:42px;height:42px;border-radius:8px;margin:0 auto 8px;color:#100D0A;font-weight:700;font-size:17px;line-height:42px;font-family:"IBM Plex Mono",monospace}
+  .atile .nm{font-size:15px;color:rgba(237,228,211,.8)}
+  .kbrow{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .kbrow input{-webkit-box-flex:1;flex:1;background:#100D0A;border:1px solid rgba(185,139,63,.3);border-radius:4px;padding:15px;color:#EDE4D3;font-size:17px;margin-right:10px;font-family:"Cormorant Garamond",serif}
+  .send{background:#B98B3F;color:#100D0A;border:none;border-radius:4px;padding:0 20px;height:50px;font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-family:"IBM Plex Mono",monospace}
+  .kbhint{color:rgba(185,139,63,.7);font-size:12px;margin-top:10px;text-align:center;font-family:"IBM Plex Mono",monospace;letter-spacing:.06em}
+  .screen{position:fixed;top:0;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#100D0A;z-index:20;display:none;padding:16px}
+  .screen.show{display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column}
+  .pbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between;padding:2px 0 14px}
+  .pdown{width:46px;height:46px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#191410;color:#EDE4D3;font-size:22px}
+  .plabel{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:#B98B3F;font-family:"IBM Plex Mono",monospace}
+  .poster{-webkit-box-flex:1;flex:1;border-radius:6px;background:-webkit-radial-gradient(40% 32%,#7C5A22,#16120E);background:radial-gradient(60% 60% at 40% 32%,#7C5A22,#16120E);position:relative;min-height:170px;border:1px solid rgba(185,139,63,.25)}
+  .poster .ap{position:absolute;top:16px;left:18px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#F2D48A;font-family:"IBM Plex Mono",monospace}
+  .pmeta{padding:18px 4px 4px}.pmeta .t{font-family:"Cormorant Garamond",serif;font-size:34px;font-weight:500}.pmeta .s{color:rgba(237,228,211,.6);font-size:14px;margin-top:3px}
+  .ptrack{height:2px;background:rgba(185,139,63,.22);margin:18px 4px 8px;position:relative}.ptrack i{position:absolute;left:0;top:0;bottom:0;width:62%;background:-webkit-linear-gradient(left,#B98B3F,#F2D48A);background:linear-gradient(90deg,#B98B3F,#F2D48A)}
+  .ptimes{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;color:#B98B3F;font-size:11px;padding:0 4px;font-family:"IBM Plex Mono",monospace}
+  .ptrans{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;padding:24px 0 10px}
+  .ptrans button{width:60px;height:60px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#16120E;color:#EDE4D3;font-size:19px;margin:0 8px}.ptrans .pp{width:78px;height:78px;background:#B98B3F;border-color:#B98B3F;color:#100D0A;font-size:23px}
+</style></head><body>
+<div class="app">
+  <div class="top">
+    <button class="rbtn"><svg width="52" height="52" viewBox="0 0 52 52"><g stroke="#A33327" stroke-width="1.8" stroke-linecap="round" fill="none"><circle cx="26" cy="26" r="8.5"/><path d="M26 10.5v-4M26 45.5v4M10.5 26h-4M45.5 26h4M15 15l-3-3M37 37l3 3M37 15l3-3M15 37l-3 3"/></g></svg></button>
+    <div class="ident"><div class="s mono">Serving GAIA</div><div class="n">as <b>Apollo</b></div></div>
+    <button class="rbtn" onclick="show('play')"><svg width="52" height="52" viewBox="0 0 52 52"><g stroke="#B98B3F" stroke-width="1.6" fill="none" stroke-linecap="round"><path d="M18 20h16M18 26h16M18 32h10"/></g></svg></button>
+  </div>
+
+  <div class="display" onclick="show('play')">
+    <div class="cap mono">Netflix &middot; <b>Now Playing</b></div>
+    <div class="t">The Bear</div>
+    <div class="sub mono" style="font-size:11px;letter-spacing:.08em">S3 · E5 — CHILDREN</div>
+    <div class="bar"><i></i></div>
+    <span class="cv">&#9662;</span>
+  </div>
+
+  <div class="navwrap"><div class="dial">
+    <svg viewBox="0 0 260 260" role="img" aria-label="Sundial navigator">
+      <defs>
+        <radialGradient id="sun" cx=".38" cy=".32" r=".8"><stop offset="0" stop-color="#F6E0AA"/><stop offset=".55" stop-color="#C9973F"/><stop offset="1" stop-color="#7C5A22"/></radialGradient>
+        <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#F2D48A" stop-opacity=".28"/><stop offset="1" stop-color="#F2D48A" stop-opacity="0"/></radialGradient>
+      </defs>
+      <circle cx="130" cy="130" r="120" fill="url(#glow)"/>
+      <circle cx="130" cy="130" r="112" fill="none" stroke="#B98B3F" stroke-opacity=".5" stroke-width="1.1"/>
+      <g stroke="#B98B3F" stroke-opacity=".55" stroke-width="1.2"><line x1="130" y1="20" x2="130" y2="36"/><line x1="240" y1="130" x2="224" y2="130"/><line x1="130" y1="240" x2="130" y2="224"/><line x1="20" y1="130" x2="36" y2="130"/></g>
+      <g stroke="#B98B3F" stroke-opacity=".28" stroke-width="1"><line x1="207" y1="53" x2="197" y2="63"/><line x1="207" y1="207" x2="197" y2="197"/><line x1="53" y1="207" x2="63" y2="197"/><line x1="53" y1="53" x2="63" y2="63"/></g>
+      <path id="gn" d="M130 130 L112 30 A102 102 0 0 1 148 30 Z" fill="#F2D48A" fill-opacity=".14"/>
+      <circle cx="130" cy="130" r="58" fill="url(#sun)"/>
+      <circle cx="130" cy="130" r="58" fill="none" stroke="#5A4118" stroke-opacity=".7"/>
+      <circle cx="130" cy="130" r="47" fill="none" stroke="#7C5A22" stroke-opacity=".4"/>
+      <text x="130" y="136" font-family="IBM Plex Mono, monospace" font-size="13" letter-spacing="3" fill="#3B2A0F" text-anchor="middle">OK</text>
+      <g fill="#B98B3F" fill-opacity=".9"><path d="M130 44l7 12h-14z"/><path d="M216 130l-12 7v-14z"/><path d="M130 216l-7-12h14z"/><path d="M44 130l12-7v14z"/></g>
+    </svg>
+    <button class="hitup" onclick="dir('up')"></button>
+    <button class="hitdn" onclick="dir('down')"></button>
+    <button class="hitlf" onclick="dir('left')"></button>
+    <button class="hitrt" onclick="dir('right')"></button>
+    <button class="hitok" onclick="dir('ok')"></button>
+  </div></div>
+
+  <div class="vol">
+    <div class="strings" id="strings"></div>
+    <div class="vlabel mono" id="vlabel">Volume · 4 of 7</div>
+  </div>
+
+  <div class="acts">
+    <button class="abtn" onclick="dir('back')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6l-6 6 6 6"/></svg><span class="lbl">Back</span></button>
+    <button class="abtn" onclick="dir('home')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.6" stroke-linejoin="round"><path d="M4 11l8-6 8 6M6 10v9h12v-9"/></svg><span class="lbl">Home</span></button>
+    <button class="abtn" onclick="show('apps')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.5"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><rect x="13.5" y="13.5" width="7" height="7"/></svg><span class="lbl">Apps</span></button>
+    <button class="abtn" onclick="show('kb')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.4"><rect x="2.5" y="7" width="19" height="10"/><path d="M6 11h.1M10 11h.1M14 11h.1M18 11h.1M7 14h10" stroke-linecap="round"/></svg><span class="lbl">Search</span></button>
+  </div>
+</div>
+
+<div class="toast mono" id="toast"></div>
+<div class="scrim" id="scrim" onclick="hideAll()"></div>
+<div class="sheet" id="apps">
+  <div class="grab"></div><div class="shead"><span class="t">Launch</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="appgrid">
+    <div class="atile"><div class="ic" style="background:#B98B3F">N</div><div class="nm">Netflix</div></div>
+    <div class="atile"><div class="ic" style="background:#B98B3F">Y</div><div class="nm">YouTube</div></div>
+    <div class="atile"><div class="ic" style="background:#B98B3F">V</div><div class="nm">ViX</div></div>
+    <div class="atile"><div class="ic" style="background:#B98B3F">A</div><div class="nm">Angel</div></div>
+    <div class="atile"><div class="ic" style="background:#B98B3F">J</div><div class="nm">Jellyfin</div></div>
+    <div class="atile"><div class="ic" style="background:#B98B3F">Js</div><div class="nm">Jellyseerr</div></div>
+  </div>
+</div>
+<div class="sheet" id="kb">
+  <div class="grab"></div><div class="shead"><span class="t">Type on TV</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="kbrow"><input id="kbin" placeholder="Ask the oracle…" autocomplete="off"><button class="send">Send</button></div>
+  <div class="kbhint">Types straight into the TV's search.</div>
+</div>
+<div class="screen" id="play">
+  <div class="pbar"><button class="pdown" onclick="hideAll()">&#9662;</button><span class="plabel">Now Playing</span><span style="width:46px"></span></div>
+  <div class="poster"><span class="ap">Netflix</span></div>
+  <div class="pmeta"><div class="t">The Bear</div><div class="s mono" style="letter-spacing:.06em">SEASON 3 · EPISODE 5</div></div>
+  <div class="ptrack"><i></i></div>
+  <div class="ptimes"><span>26:41</span><span>&#8722;16:20</span></div>
+  <div class="ptrans"><button>&#9198;</button><button>&#9194;</button><button class="pp">&#10073;&#10073;</button><button>&#9193;</button><button>&#9197;</button></div>
+</div>
+
+<script>
+  function el(i){return document.getElementById(i);}
+  var lvl=4,muted=false;
+  function drawVol(){var s='',h=[16,20,26,32,26,20,16];for(var i=0;i<7;i++){var lit=(!muted&&i<lvl)?' lit':'';s+='<button class="str'+lit+'" style="height:'+h[i]+'px" onclick="setv('+(i+1)+')"></button>';}el('strings').innerHTML=s;
+    el('vlabel').innerHTML=muted?'Silent':'Volume · '+lvl+' of 7';el('vlabel').className=muted?'vlabel mono muted':'vlabel mono';}
+  function setv(v){lvl=v;muted=false;drawVol();}
+  function show(id){hideAll();el(id).className+=' show';if(id!=='play')el('scrim').className='scrim show';if(id==='kb'){setTimeout(function(){el('kbin').focus();},80);}}
+  function hideAll(){var a=['apps','kb','play'];for(var i=0;i<a.length;i++){el(a[i]).className=el(a[i]).className.replace(' show','');}el('scrim').className='scrim';}
+  var tmr;function toast(t){var e=el('toast');e.innerHTML=t;e.className='toast mono show';clearTimeout(tmr);tmr=setTimeout(function(){e.className='toast mono';},850);}
+  var lbl={up:'North',down:'South',left:'West',right:'East',ok:'Select',back:'Back',home:'Home',resume:'Resume · Netflix'};
+  function dir(d){toast(lbl[d]||d);}
+  var dial=el('strings').parentNode; /* placeholder */
+  var pad=document.querySelector('.dial'),sx,sy;
+  function pd(x,y){sx=x;sy=y;}
+  function pe(x,y){var dx=x-sx,dy=y-sy,ax=Math.abs(dx),ay=Math.abs(dy);if(ax<26&&ay<26)return;
+    if(ax>ay){if(dx<0){if(ax>130){dir('resume');return;}dir('left');}else dir('right');}else{if(dy<0)dir('up');else dir('down');}}
+  pad.addEventListener('touchstart',function(e){var t=e.touches[0];pd(t.clientX,t.clientY);},false);
+  pad.addEventListener('touchend',function(e){var t=e.changedTouches[0];pe(t.clientX,t.clientY);},false);
+  drawVol();
+</script>
+</body></html>

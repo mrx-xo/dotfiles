@@ -1,0 +1,200 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GAIA · Apollo (thumb)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:-apple-system,"SF Pro Display","Roboto",Helvetica,sans-serif}
+  html,body{height:100%}
+  body{background:#000;color:#F5F6F8;overflow:hidden}
+  .app{max-width:460px;margin:0 auto;height:100%;display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column;padding:14px 14px 16px;position:relative}
+  .svg{width:20px;height:20px;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+  .top{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:center;align-items:center}
+  .top .r{display:-webkit-box;display:flex}
+  .icobtn{width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:17px;text-align:center;line-height:40px;margin-left:8px}
+  .icobtn.pw{color:#5B9DFF;margin-left:0}
+  .icobtn.hand.on{color:#5B9DFF;border-color:#5B9DFF}
+  .ident{text-align:center;line-height:1.15}
+  .ident .s{font-size:10px;letter-spacing:.22em;color:#7E838C;text-transform:uppercase;font-weight:600}
+  .ident .n{font-size:16px;font-weight:700}.ident .n b{color:#5B9DFF}
+
+  /* DISPLAY zone — the glance area (fills the far/top space) */
+  .display{margin-top:12px;border:1px solid rgba(255,255,255,.09);border-radius:22px;overflow:hidden;position:relative;height:230px;background:#0E0F12}
+  .display .art{position:absolute;top:0;left:0;right:0;height:150px;background:-webkit-linear-gradient(300deg,#243B6B,#0B1220);background:linear-gradient(150deg,#243B6B,#0B1220)}
+  .display .ap{position:absolute;top:14px;left:16px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#fff;font-weight:700}
+  .display .live{position:absolute;top:13px;right:14px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#fff;font-weight:600}
+  .display .live b{color:#5BFF9D}
+  .display .meta{position:absolute;left:16px;right:16px;bottom:14px}
+  .display .t{font-size:24px;font-weight:700;letter-spacing:-.02em}
+  .display .sub{color:#9aa0aa;font-size:13px;margin-top:2px}
+  .display .bar{height:4px;border-radius:3px;background:rgba(255,255,255,.15);margin-top:11px;position:relative}
+  .display .bar i{position:absolute;left:0;top:0;bottom:0;width:62%;background:#5B9DFF;border-radius:3px}
+  .expand{position:absolute;top:110px;right:14px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:20px;font-size:11px;padding:6px 12px}
+
+  /* CONTROL CLUSTER — hugs the reachable (handed) side */
+  .clwrap{-webkit-box-flex:1;flex:1;display:-webkit-box;display:flex;-webkit-box-align:end;align-items:flex-end;-webkit-box-pack:end;justify-content:flex-end}
+  body.pos-left .clwrap{-webkit-box-pack:start;justify-content:flex-start}
+  body.pos-center .clwrap{-webkit-box-pack:center;justify-content:center}
+  .seg{display:-webkit-box;display:flex;border:1px solid rgba(255,255,255,.12);border-radius:11px;overflow:hidden;margin-right:8px}
+  .seg button{width:33px;height:36px;border:none;background:transparent;color:#7E838C;font-size:13px;font-weight:700}
+  .seg button.on{background:rgba(91,157,255,.18);color:#5B9DFF}
+  body.light .seg{border-color:rgba(0,0,0,.14)}body.light .seg button{color:#6B7078}
+  .cluster{width:300px;max-width:100%}
+  .clbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;background:#0E0F12;border:1px solid rgba(255,255,255,.09);border-radius:13px;padding:7px 10px;margin-bottom:11px}
+  .vmute{width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:transparent;color:#F5F6F8;text-align:center;line-height:30px;margin-right:6px}
+  .vmute.on{color:#FF5470;border-color:#FF5470}
+  .vstep{width:30px;height:30px;border:none;background:transparent;color:#F5F6F8;font-size:12px}
+  .vtrack{-webkit-box-flex:1;flex:1;height:7px;border-radius:4px;background:rgba(255,255,255,.13);position:relative;margin:0 5px}
+  .vtrack .fl{position:absolute;left:0;top:0;bottom:0;width:55%;background:#5B9DFF;border-radius:4px}
+
+  .swipe{position:relative;height:196px;border:1px solid rgba(255,255,255,.09);border-radius:22px;background:#08090C}
+  .ok{position:absolute;left:50%;top:50%;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;background:rgba(91,157,255,.13);border:1.5px solid #5B9DFF;color:#5B9DFF;font-size:16px;font-weight:700;line-height:86px;text-align:center;pointer-events:none}
+  .edge{position:absolute;background:transparent;border:none;color:#454A53;font-size:20px}
+  .e-up{top:10px;left:50%;margin-left:-14px}.e-dn{bottom:44px;left:50%;margin-left:-14px}
+  .e-lf{left:12px;top:50%;margin-top:-14px}.e-rt{right:12px;top:50%;margin-top:-14px}
+  .corner{position:absolute;bottom:12px;border:1px solid rgba(255,255,255,.1);background:#0E0F12;color:#B7BdC7;border-radius:12px;padding:9px 14px;font-size:12px}
+  .c-bk{left:12px}.c-hm{right:12px}
+  .hint{position:absolute;left:0;right:0;bottom:54px;text-align:center;color:#3A3F48;font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+
+  .bottom{display:-webkit-box;display:flex;margin-top:11px}
+  .bigbtn{-webkit-box-flex:1;flex:1;padding:16px 0;border-radius:16px;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:15px;font-weight:600;margin:0 5px}
+  .bigbtn .svg{margin-right:7px}
+
+  .toast{position:fixed;top:78px;left:50%;margin-left:-85px;width:170px;text-align:center;background:#16181D;border:1px solid #5B9DFF;color:#F5F6F8;border-radius:20px;padding:11px 0;font-size:15px;font-weight:600;display:none;z-index:30}
+  .toast.show{display:block}
+
+  .scrim{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:none;z-index:9}
+  .scrim.show{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#0B0C0F;border-top-left-radius:24px;border-top-right-radius:24px;border-top:1px solid rgba(255,255,255,.09);padding:12px 16px 24px;display:none;z-index:10}
+  .sheet.show{display:block}
+  .grab{width:38px;height:4px;border-radius:3px;background:rgba(255,255,255,.14);margin:2px auto 14px}
+  .shead{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:center;align-items:center;margin-bottom:14px}
+  .shead .t{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#7E838C;font-weight:600}
+  .x{width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:15px}
+  .appgrid{display:-webkit-box;display:flex;-webkit-box-lines:multiple;flex-wrap:wrap;justify-content:space-between}
+  .atile{width:31.5%;height:104px;border:1px solid rgba(255,255,255,.09);border-radius:18px;background:#0E0F12;margin-bottom:11px;text-align:center;padding-top:20px}
+  .atile .ic{width:44px;height:44px;border-radius:12px;margin:0 auto 9px;color:#fff;font-weight:800;font-size:18px;line-height:44px}
+  .atile .nm{font-size:12px;color:#7E838C;font-weight:500}
+  .kbrow{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .kbrow input{-webkit-box-flex:1;flex:1;background:#0E0F12;border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:16px;color:#F5F6F8;font-size:16px;margin-right:10px}
+  .send{background:#5B9DFF;color:#fff;border:none;border-radius:14px;padding:0 20px;height:52px;font-size:15px;font-weight:600}
+  .kbhint{color:#7E838C;font-size:12px;margin-top:10px;text-align:center}
+  .screen{position:fixed;top:0;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#000;z-index:20;display:none;padding:14px}
+  .screen.show{display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column}
+  .pbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between;padding:2px 0 14px}
+  .pdown{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:24px}
+  .plabel{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#7E838C;font-weight:600}
+  .poster{-webkit-box-flex:1;flex:1;border-radius:22px;background:-webkit-linear-gradient(300deg,#243B6B,#0B1220);background:linear-gradient(150deg,#243B6B,#0B1220);position:relative;min-height:160px}
+  .poster .ap{position:absolute;top:16px;left:18px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#fff;font-weight:700}
+  .pmeta{padding:18px 4px 4px}.pmeta .t{font-size:28px;font-weight:700;letter-spacing:-.02em}.pmeta .s{color:#7E838C;font-size:14px;margin-top:4px}
+  .ptrack{height:5px;border-radius:3px;background:rgba(255,255,255,.12);margin:16px 4px 8px;position:relative}.ptrack i{position:absolute;left:0;top:0;bottom:0;width:62%;background:#5B9DFF;border-radius:3px}
+  .ptimes{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;color:#7E838C;font-size:12px;padding:0 4px}
+  .ptrans{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;padding:22px 0 10px}
+  .ptrans button{width:62px;height:62px;border-radius:50%;border:1px solid rgba(255,255,255,.09);background:#0E0F12;color:#F5F6F8;font-size:20px;margin:0 7px}.ptrans .pp{width:78px;height:78px;background:rgba(91,157,255,.15);border-color:#5B9DFF;color:#5B9DFF;font-size:24px}
+
+  body.light{background:#EAECEF;color:#0B0C0E}
+  body.light .icobtn,body.light .display,body.light .clbar,body.light .swipe,body.light .corner,body.light .bigbtn,body.light .atile,body.light .x,body.light .kbrow input,body.light .sheet,body.light .screen,body.light .pdown,body.light .ptrans button,body.light .vmute,body.light .vstep{background:#fff;border-color:rgba(0,0,0,.09);color:#0B0C0E}
+  body.light .swipe{background:#F3F4F6}
+  body.light .ident .s,body.light .display .sub,body.light .atile .nm,body.light .plabel,body.light .shead .t,body.light .kbhint,body.light .pmeta .s,body.light .ptimes{color:#6B7078}
+  body.light .ok,body.light .pp{background:rgba(46,107,255,.12);border-color:#2E6BFF;color:#2E6BFF}
+  body.light .edge{color:#C2C6CC}body.light .hint{color:#B4B8BF}body.light .vtrack{background:rgba(0,0,0,.12)}body.light .scrim{background:rgba(20,25,40,.35)}
+</style></head><body>
+<div class="app">
+  <div class="top">
+    <button class="icobtn pw"><svg class="svg" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg></button>
+    <div class="ident"><div class="s">Serving GAIA</div><div class="n">as <b>APOLLO</b></div></div>
+    <div class="r">
+      <div class="seg"><button id="pL" onclick="setpos('left')">L</button><button id="pC" onclick="setpos('center')">C</button><button id="pR" class="on" onclick="setpos('right')">R</button></div>
+      <button class="icobtn" onclick="lt()">◐</button>
+    </div>
+  </div>
+
+  <div class="display" onclick="show('play')">
+    <div class="art"></div>
+    <span class="ap">Netflix</span><span class="live">&#9679; <b>Playing</b></span>
+    <button class="expand">Playback &#9662;</button>
+    <div class="meta"><div class="t">The Bear</div><div class="sub">Season 3 · Episode 5 — Children</div>
+      <div class="bar"><i></i></div></div>
+  </div>
+
+  <div class="clwrap">
+    <div class="cluster">
+      <div class="clbar">
+        <button class="vmute" id="mute" onclick="tmute()"><svg class="svg" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg></button>
+        <button class="vstep" onclick="vstep(-6)">&#9664;</button>
+        <div class="vtrack"><div class="fl" id="fl"></div></div>
+        <button class="vstep" onclick="vstep(6)">&#9654;</button>
+      </div>
+      <div class="swipe" id="pad">
+        <button class="edge e-up" onclick="dir('up')">&#9650;</button>
+        <button class="edge e-lf" onclick="dir('left')">&#9664;</button>
+        <button class="edge e-rt" onclick="dir('right')">&#9654;</button>
+        <button class="edge e-dn" onclick="dir('down')">&#9660;</button>
+        <div class="ok">OK</div>
+        <div class="hint">swipe &middot; tap OK</div>
+        <button class="corner c-bk" onclick="dir('back')">&#8617; Back</button>
+        <button class="corner c-hm" onclick="dir('home')">&#8962; Home</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <button class="bigbtn" onclick="show('apps')"><svg class="svg" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Apps</button>
+    <button class="bigbtn" onclick="show('kb')"><svg class="svg" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Keyboard</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="scrim" id="scrim" onclick="hideAll()"></div>
+<div class="sheet" id="apps">
+  <div class="grab"></div><div class="shead"><span class="t">Launch app</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="appgrid">
+    <div class="atile"><div class="ic" style="background:#E50914">N</div><div class="nm">Netflix</div></div>
+    <div class="atile"><div class="ic" style="background:#FF0000">&#9654;</div><div class="nm">YouTube</div></div>
+    <div class="atile"><div class="ic" style="background:#8E44EC">V</div><div class="nm">ViX</div></div>
+    <div class="atile"><div class="ic" style="background:#1BA5A0">A</div><div class="nm">Angel</div></div>
+    <div class="atile"><div class="ic" style="background:#00A4DC">J</div><div class="nm">Jellyfin</div></div>
+    <div class="atile"><div class="ic" style="background:#5B3FD6">Js</div><div class="nm">Jellyseerr</div></div>
+  </div>
+</div>
+<div class="sheet" id="kb">
+  <div class="grab"></div><div class="shead"><span class="t">Type on TV</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="kbrow"><input id="kbin" placeholder="Search…" autocomplete="off"><button class="send">Send</button></div>
+  <div class="kbhint">Your keyboard types straight into the TV's search box.</div>
+</div>
+<div class="screen" id="play">
+  <div class="pbar"><button class="pdown" onclick="hideAll()">&#9662;</button><span class="plabel">Now Playing</span><span style="width:46px"></span></div>
+  <div class="poster"><span class="ap">Netflix</span></div>
+  <div class="pmeta"><div class="t">The Bear</div><div class="s">Season 3 · Episode 5 — Children</div></div>
+  <div class="ptrack"><i></i></div>
+  <div class="ptimes"><span>26:41</span><span>&#8722;16:20</span></div>
+  <div class="ptrans"><button>&#9198;</button><button>&#9194;</button><button class="pp">&#10073;&#10073;</button><button>&#9193;</button><button>&#9197;</button></div>
+</div>
+
+<script>
+  function el(i){return document.getElementById(i);}
+  function tgl(c){var b=document.body,s=' '+b.className+' ';b.className=(s.indexOf(' '+c+' ')>-1?s.replace(' '+c+' ',' '):b.className+' '+c).replace(/^\s+|\s+$/g,'');}
+  function lt(){tgl('light');}
+  function setpos(p){var b=document.body;b.className=b.className.replace(/pos-\w+/g,'').replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');b.className=(b.className+' pos-'+p).replace(/^\s+/,'');el('pL').className=p==='left'?'on':'';el('pC').className=p==='center'?'on':'';el('pR').className=p==='right'?'on':'';}
+  function show(id){hideAll();el(id).className+=' show';if(id!=='play')el('scrim').className='scrim show';if(id==='kb'){setTimeout(function(){el('kbin').focus();},80);}}
+  function hideAll(){var a=['apps','kb','play'];for(var i=0;i<a.length;i++){el(a[i]).className=el(a[i]).className.replace(' show','');}el('scrim').className='scrim';}
+  var lvl=55;function setv(v){lvl=Math.max(0,Math.min(100,v));el('fl').style.width=lvl+'%';}
+  function vstep(d){setv(lvl+d);if(muted)tmute();}
+  var muted=false;function tmute(){muted=!muted;el('mute').className=muted?'vmute on':'vmute';}
+  var tmr;function toast(t){var e=el('toast');e.innerHTML=t;e.className='toast show';clearTimeout(tmr);tmr=setTimeout(function(){e.className='toast';},900);}
+  var lbl={up:'&#9650; Up',down:'&#9660; Down',left:'&#9664; Left',right:'&#9654; Right',ok:'&#9679; OK',back:'&#8617; Back',home:'&#8962; Home',resume:'&#8635; Resume · Netflix'};
+  function dir(d){toast(lbl[d]||d);}
+  var pad=el('pad'),sx,sy;
+  function pd(x,y){sx=x;sy=y;}
+  function pe(x,y,tg){var dx=x-sx,dy=y-sy,ax=Math.abs(dx),ay=Math.abs(dy);
+    if(ax<24&&ay<24){if(tg===pad||(tg&&tg.className==='ok'))dir('ok');return;}
+    if(ax>ay){if(dx<0){if(ax>120){dir('resume');return;}dir('left');}else dir('right');}else{if(dy<0)dir('up');else dir('down');}}
+  pad.addEventListener('touchstart',function(e){var t=e.touches[0];pd(t.clientX,t.clientY);},false);
+  pad.addEventListener('touchmove',function(e){e.preventDefault();},false);
+  pad.addEventListener('touchend',function(e){var t=e.changedTouches[0];pe(t.clientX,t.clientY,e.target);},false);
+  pad.addEventListener('mousedown',function(e){pd(e.clientX,e.clientY);},false);
+  pad.addEventListener('mouseup',function(e){pe(e.clientX,e.clientY,e.target);},false);
+  setv(55);
+  var mp=location.search.match(/pos=(\w+)/);if(mp)setpos(mp[1]);
+  if(location.search.indexOf('light')>-1)lt();
+</script>
+</body></html>
