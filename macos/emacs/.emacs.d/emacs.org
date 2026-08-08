@@ -7851,7 +7851,40 @@ sync and the first prompt must wait for it; retry TRIES times."
               (setq agent-shell-on-exit nil))
             (let ((kill-buffer-query-functions nil))
               (kill-buffer buf))
-            t)))
+            t))
+
+        ;; Convo status → phone cards (like major-pane's busy markers):
+        ;; poll every 3s, write ~/.acp-mobile/status.json (sessionId →
+        ;; busy/permission/idle) only when something changed.  acp-mobile
+        ;; reads it in /api/sessions.
+        (defvar mr-x/agent-status--last nil
+          "Last serialized status JSON, to skip redundant writes.")
+
+        (defun mr-x/agent-status-sync ()
+          "Write every agent-shell convo's busy state to the acp-mobile sidecar."
+          (let ((statuses (make-hash-table :test #'equal)))
+            (dolist (buf (buffer-list))
+              (when-let* (((buffer-live-p buf))
+                          (sid (with-current-buffer buf
+                                 (and (derived-mode-p 'agent-shell-mode)
+                                      (map-nested-elt agent-shell--state
+                                                      '(:session :id))))))
+                (puthash sid
+                         (cond ((seq-find (lambda (p) (eq (plist-get p :buffer) buf))
+                                          (bound-and-true-p mr-x/pending-permissions-queue))
+                                "permission")
+                               ((with-current-buffer buf (shell-maker-busy))
+                                "busy")
+                               (t "idle"))
+                         statuses)))
+            (let ((json (json-serialize statuses)))
+              (unless (equal json mr-x/agent-status--last)
+                (setq mr-x/agent-status--last json)
+                (make-directory (expand-file-name "~/.acp-mobile") t)
+                (with-temp-file (expand-file-name "~/.acp-mobile/status.json")
+                  (insert json))))))
+
+        (run-with-timer 5 3 #'mr-x/agent-status-sync))
 
       ;; Tell acp-multiplex which Emacs buffer owns the session: it
       ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
