@@ -3435,6 +3435,7 @@ projectile projects appended below."
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
+        "c y" '(mr-x/agent-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")

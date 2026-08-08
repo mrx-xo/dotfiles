@@ -1251,6 +1251,11 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; dcluna/agent-shell-bookmark, see lisp/agent-shell-bookmark.el)
       (require 'agent-shell-bookmark)
 
+      ;; Agent Resync - phone turns (acp-mobile via acp-multiplex) land as
+      ;; out-of-turn user chunks the buffer can't render; mark it desynced,
+      ;; block sends, SPC c y replays via agent-shell-reload
+      (require 'mr-x-agent-resync)
+
       ;; Session bookmarks get their own jump (SPC m a) and are hidden from
       ;; the general SPC m j list. To unhide: rebind "m j" back to
       ;; plain bookmark-jump.
