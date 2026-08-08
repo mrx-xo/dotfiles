@@ -10,9 +10,12 @@ BIN_DIR="$HOME/.local/bin"
 
 # Pinned commits reviewed in PRD Phase 0
 ACP_MULTIPLEX_COMMIT="d987060"
-# a2b52e4 (upstream) + local 71d9f81: persistent auth cookie + keep
-# authkey in URL so iOS home-screen web clips stay self-authenticating
-ACP_MOBILE_COMMIT="71d9f81"
+# a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
+# + local 8787b16 (gruvbox theme, real session names via replay preview
+# + labels.json sidecar, iOS standalone polish)
+# + local 714ab25 (rig-match: Iosevka Term Slab webfont, org-level
+# grayscale headers, purple links)
+ACP_MOBILE_COMMIT="e4a8182"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
