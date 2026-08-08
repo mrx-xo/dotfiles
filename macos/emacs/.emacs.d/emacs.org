@@ -7828,19 +7828,31 @@ Populate the list with `agent-session-handoff.sh sync'."
         (defun mr-x/agent-spawn--send-when-ready (buf task tries)
           "Once BUF's ACP session exists: sync labels, then submit TASK (if any).
 The session id arrives seconds after spawn, so both the label→sidecar
-sync and the first prompt must wait for it; retry TRIES times."
+sync and the first prompt must wait for it; retry TRIES times.
+Quit-proof: a desk-side C-g/ESC aborts whatever elisp is mid-flight,
+timer invocations included — one stray quit used to kill the whole
+one-shot chain (no label, no first prompt, no error anywhere).  The
+ready branch runs under `inhibit-quit' and swallows the deferred quit;
+an aborted invocation reschedules itself like a not-ready one."
           (when (buffer-live-p buf)
-            (with-current-buffer buf
-              (if (map-nested-elt agent-shell--state '(:session :id))
-                  (progn
-                    (mr-x/agent-label-sync)
-                    (unless (string-empty-p task)
-                      (goto-char (point-max))
-                      (insert task)
-                      (shell-maker-submit)))
-                (when (> tries 0)
-                  (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
-                               buf task (1- tries)))))))
+            (condition-case nil
+                (with-current-buffer buf
+                  (if (map-nested-elt agent-shell--state '(:session :id))
+                      (let ((inhibit-quit t))
+                        (mr-x/agent-label-sync)
+                        (unless (string-empty-p task)
+                          (goto-char (point-max))
+                          (insert task)
+                          (shell-maker-submit))
+                        (setq quit-flag nil))
+                    (if (> tries 0)
+                        (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
+                                     buf task (1- tries))
+                      (message "agent spawn: %s never became ready" (buffer-name buf)))))
+              ((quit error)
+               (when (> tries 0)
+                 (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
+                              buf task (1- tries)))))))
 
         (defun mr-x/agent-shell-spawn-for-mobile (cwd name task)
           "Spawn an agent-shell convo in CWD, label it NAME, queue TASK."
@@ -7910,7 +7922,32 @@ sync and the first prompt must wait for it; retry TRIES times."
                 (with-temp-file (expand-file-name "~/.acp-mobile/status.json")
                   (insert json))))))
 
-        (run-with-timer 5 3 #'mr-x/agent-status-sync))
+        ;; Label self-heal on the same cadence: one-shot label syncs
+        ;; (phone /api/label evals, the spawn timer chain) can be aborted
+        ;; by a desk-side C-g mid-flight, leaving the rig's label hash
+        ;; and labels.json disagreeing with no error anywhere.  This
+        ;; repeating timer survives aborted ticks by design, so drift
+        ;; lasts 3s at most.
+        (defvar mr-x/agent-label--live-last 'unset
+          "Live (sid . label) pairs at the last sidecar sync.")
+
+        (defun mr-x/agent-label-heal ()
+          "Re-run the label sidecar sync whenever live labels drift."
+          (let (pairs)
+            (dolist (buf (buffer-list))
+              (when-let* (((buffer-live-p buf))
+                          (sid (with-current-buffer buf
+                                 (and (derived-mode-p 'agent-shell-mode)
+                                      (map-nested-elt agent-shell--state
+                                                      '(:session :id))))))
+                (push (cons sid (gethash buf major-pane--labels)) pairs)))
+            (setq pairs (sort pairs (lambda (a b) (string< (car a) (car b)))))
+            (unless (equal pairs mr-x/agent-label--live-last)
+              (mr-x/agent-label-sync)
+              (setq mr-x/agent-label--live-last pairs))))
+
+        (run-with-timer 5 3 #'mr-x/agent-status-sync)
+        (run-with-timer 6 3 #'mr-x/agent-label-heal))
 
       ;; Tell acp-multiplex which Emacs buffer owns the session: it
       ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
