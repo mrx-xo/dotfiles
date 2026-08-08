@@ -128,6 +128,14 @@ rm -f "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
 sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.airdrop-inbox.plist" \
     > "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
 
+# Media upload watcher: phone drops files into iCloud Drive/media-upload,
+# WatchPaths fires media-upload-watcher.sh → private Jellyfin + private Immich.
+# Needs ~/.config/immich-up/env (IMMICH_KEY_MRZ) and immich-go from the Brewfile.
+mkdir -p "$HOME/Library/Logs/media-upload"
+rm -f "$HOME/Library/LaunchAgents/com.marx.media-upload.plist"
+sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.media-upload.plist" \
+    > "$HOME/Library/LaunchAgents/com.marx.media-upload.plist"
+
 # ── 6. Emacs ─────────────────────────────────────────────
 step "Setting up Emacs..."
 if [ ! -d "$HOME/.emacs.d" ]; then
