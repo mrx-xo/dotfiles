@@ -7794,7 +7794,64 @@ Populate the list with `agent-session-handoff.sh sync'."
                     (remhash sid labels)))))
             (make-directory (file-name-directory file) t)
             (with-temp-file file (insert (json-serialize labels)))))
-        (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync))
+        (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync)
+
+        ;; Phone-side labeling: acp-mobile's /api/label calls this via
+        ;; emacsclient (same bridge as /api/kill).  Updates the same
+        ;; major-pane hash the rig uses, then syncs the sidecar — one
+        ;; source of truth, label shows in SPC b b and on phone cards.
+        (defun mr-x/agent-label-set (buffer-name label)
+          "Set LABEL on BUFFER-NAME's convo (empty LABEL clears).  For acp-mobile."
+          (when-let ((buf (get-buffer buffer-name)))
+            (if (string-empty-p label)
+                (remhash buf major-pane--labels)
+              (puthash buf label major-pane--labels))
+            (mr-x/agent-label-sync)
+            t))
+
+        ;; Phone-side spawn/kill: the receiving ends of acp-mobile's
+        ;; /api/spawn (via the agent-shell-spawn script) and /api/kill.
+        ;; The phone-typed name becomes the pane label; a task, if given,
+        ;; is submitted once the session handshake completes.
+        (defun mr-x/agent-spawn--send-when-ready (buf task tries)
+          "Once BUF's ACP session exists: sync labels, then submit TASK (if any).
+The session id arrives seconds after spawn, so both the label→sidecar
+sync and the first prompt must wait for it; retry TRIES times."
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (if (map-nested-elt agent-shell--state '(:session :id))
+                  (progn
+                    (mr-x/agent-label-sync)
+                    (unless (string-empty-p task)
+                      (goto-char (point-max))
+                      (insert task)
+                      (shell-maker-submit)))
+                (when (> tries 0)
+                  (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
+                               buf task (1- tries)))))))
+
+        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task)
+          "Spawn an agent-shell convo in CWD, label it NAME, queue TASK."
+          (let ((dir (file-name-as-directory (expand-file-name cwd))))
+            (unless (file-directory-p dir)
+              (error "No such directory: %s" dir))
+            (let* ((default-directory dir)
+                   (buf (agent-shell--start
+                         :config agent-shell-preferred-agent-config
+                         :new-session t :no-focus t)))
+              (when (and name (not (string-empty-p name)))
+                (puthash buf name major-pane--labels))
+              (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
+              (buffer-name buf))))
+
+        (defun meta-agent-shell-close-session (buffer-name)
+          "Kill BUFFER-NAME's agent-shell session.  Called by acp-mobile /api/kill."
+          (when-let ((buf (get-buffer buffer-name)))
+            (with-current-buffer buf
+              (setq agent-shell-on-exit nil))
+            (let ((kill-buffer-query-functions nil))
+              (kill-buffer buf))
+            t)))
 
       ;; Tell acp-multiplex which Emacs buffer owns the session: it
       ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
