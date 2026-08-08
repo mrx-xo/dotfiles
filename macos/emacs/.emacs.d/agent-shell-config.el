@@ -1361,7 +1361,21 @@ sync and the first prompt must wait for it; retry TRIES times."
                          (cond ((seq-find (lambda (p) (eq (plist-get p :buffer) buf))
                                           (bound-and-true-p mr-x/pending-permissions-queue))
                                 "permission")
-                               ((with-current-buffer buf (shell-maker-busy))
+                               ;; shell-maker-busy only trips for turns THIS
+                               ;; buffer submitted.  Phone-driven turns bypass
+                               ;; shell-maker, but their chunks still stream in
+                               ;; as notifications, and agent-shell stamps
+                               ;; :last-activity-time on every one — so recent
+                               ;; activity means a turn is running no matter
+                               ;; who drives.  (Long silent tool runs can
+                               ;; outlast the window; dot rings again on the
+                               ;; next chunk.)
+                               ((with-current-buffer buf
+                                  (or (shell-maker-busy)
+                                      (when-let ((last (map-elt agent-shell--state
+                                                                :last-activity-time)))
+                                        (< (float-time (time-subtract (current-time) last))
+                                           20))))
                                 "busy")
                                (t "idle"))
                          statuses)))
