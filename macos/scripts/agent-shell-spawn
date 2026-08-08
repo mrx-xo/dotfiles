@@ -1,0 +1,24 @@
+#!/bin/bash
+# agent-shell-spawn NAME CWD [TASK]
+#
+# Bridge for acp-mobile's /api/spawn (see handleSpawn in main.go): asks
+# the Emacs daemon to open a new agent-shell convo in CWD, pane-labeled
+# NAME, optionally submitting TASK as the first prompt once the session
+# handshake completes.  Lives on the daemon's PATH via ~/.local/bin
+# (extraPath in ~/.acp-mobile/config.json).
+set -euo pipefail
+
+name="${1:?usage: agent-shell-spawn NAME CWD [TASK]}"
+cwd="${2:?usage: agent-shell-spawn NAME CWD [TASK]}"
+task="${3:-}"
+
+esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+out=$(emacsclient --eval \
+  "(mr-x/agent-shell-spawn-for-mobile \"$(esc "$cwd")\" \"$(esc "$name")\" \"$(esc "$task")\")")
+
+case "$out" in
+  nil) echo "spawn failed: daemon returned nil" >&2; exit 1 ;;
+  *error*) echo "spawn failed: $out" >&2; exit 1 ;;
+esac
+echo "$out"
