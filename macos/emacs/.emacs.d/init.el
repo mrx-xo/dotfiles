@@ -6406,3 +6406,57 @@ Appends to the current year's transaction file."
   (with-eval-after-load 'general
     (mr-x/leader-def
       "L" '(lights :wk "lights"))))
+
+(defconst mr-x/mon-script "~/.dotfiles/macos/scripts/monitor-mode.sh")
+
+(defun mr-x/mon--run (&rest args)
+  "Run monitor-mode.sh with ARGS asynchronously, echoing output when done."
+  (let ((buf (generate-new-buffer " *mon*")))
+    (set-process-sentinel
+     (apply #'start-process "mon" buf (expand-file-name mr-x/mon-script) args)
+     (lambda (proc _event)
+       (unless (process-live-p proc)
+         (let ((out (with-current-buffer (process-buffer proc)
+                      (string-trim (buffer-string)))))
+           (message "mon %s: %s" (string-join args " ")
+                    (if (string-empty-p out) "done" out))
+           (kill-buffer (process-buffer proc))))))))
+
+(defun mr-x/mon (command)
+  "Run a monitor-mode COMMAND — same args as the `mon' shell alias."
+  (interactive
+   (list (completing-read "mon: "
+                          '("game" "mac" "split" "rsplit" "work" "status"
+                            "toggle 3" "toggle 4"
+                            "3 mac" "3 pc" "4 mac" "4 pc" "4 work"))))
+  (apply #'mr-x/mon--run (split-string command)))
+
+(defun mr-x/mon-toggle-3 ()
+  "Flip the center monitor (yabai 3) between Mac and PC."
+  (interactive)
+  (mr-x/mon--run "toggle" "3"))
+
+(defun mr-x/mon-toggle-4 ()
+  "Flip the right monitor (yabai 4) between Mac and PC."
+  (interactive)
+  (mr-x/mon--run "toggle" "4"))
+
+(defun mr-x/mon-game ()
+  "Center + right -> VENGEANCE."
+  (interactive)
+  (mr-x/mon--run "game"))
+
+(defun mr-x/mon-mac ()
+  "Center + right -> MrX."
+  (interactive)
+  (mr-x/mon--run "mac"))
+
+(defun mr-x/mon-split ()
+  "Center -> MrX, right -> VENGEANCE."
+  (interactive)
+  (mr-x/mon--run "split"))
+
+(defun mr-x/mon-status ()
+  "Echo which machine each monitor points at."
+  (interactive)
+  (mr-x/mon--run "status"))
