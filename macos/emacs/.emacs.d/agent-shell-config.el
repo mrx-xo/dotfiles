@@ -1263,7 +1263,8 @@ Populate the list with `agent-session-handoff.sh sync'."
       (with-eval-after-load 'major-pane
         (defun mr-x/agent-label-sync (&rest _)
           "Write agent-shell buffers' major-pane labels to the acp-mobile sidecar."
-          (let* ((file (expand-file-name "~/.acp-mobile/labels.json"))
+          (let* ((inhibit-quit t)          ; see mr-x/agent-label-set
+                 (file (expand-file-name "~/.acp-mobile/labels.json"))
                  (labels (or (ignore-errors
                                (json-parse-string
                                 (with-temp-buffer
@@ -1290,12 +1291,17 @@ Populate the list with `agent-session-handoff.sh sync'."
         ;; source of truth, label shows in SPC b b and on phone cards.
         (defun mr-x/agent-label-set (buffer-name label)
           "Set LABEL on BUFFER-NAME's convo (empty LABEL clears).  For acp-mobile."
-          (when-let ((buf (get-buffer buffer-name)))
-            (if (string-empty-p label)
-                (remhash buf major-pane--labels)
-              (puthash buf label major-pane--labels))
-            (mr-x/agent-label-sync)
-            t))
+          ;; inhibit-quit: a stray C-g mid-eval once split the state —
+          ;; hash updated, labels.json never written ("*ERROR*: Quit" back
+          ;; to /api/label) — so the rig and the phone disagreed until the
+          ;; next sync.  Hash write + mirror must be atomic wrt quits.
+          (let ((inhibit-quit t))
+            (when-let ((buf (get-buffer buffer-name)))
+              (if (string-empty-p label)
+                  (remhash buf major-pane--labels)
+                (puthash buf label major-pane--labels))
+              (mr-x/agent-label-sync)
+              t)))
 
         ;; Phone-side spawn/kill: the receiving ends of acp-mobile's
         ;; /api/spawn (via the agent-shell-spawn script) and /api/kill.
