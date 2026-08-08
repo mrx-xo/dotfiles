@@ -1,0 +1,107 @@
+<!doctype html><html lang="en" data-theme="dark"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GAIA · Obsidian</title>
+<style>
+  :root[data-theme="dark"]{
+    --bg:#000000; --card:#0E0F12; --raise:#16181D; --line:rgba(255,255,255,.07);
+    --txt:#F5F6F8; --mut:#8A8F98; --accent:#5B9DFF; --accent-soft:rgba(91,157,255,.16);
+    --art1:#243B6B; --art2:#0B1220; --shadow:none;
+  }
+  :root[data-theme="light"]{
+    --bg:#EEF0F3; --card:#FFFFFF; --raise:#FFFFFF; --line:rgba(0,0,0,.07);
+    --txt:#0B0C0E; --mut:#6B7078; --accent:#2E6BFF; --accent-soft:rgba(46,107,255,.12);
+    --art1:#7FA0E8; --art2:#C9D6F2; --shadow:0 1px 3px rgba(20,25,40,.10),0 6px 20px rgba(20,25,40,.06);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"SF Pro Display",Inter,system-ui,sans-serif;
+       padding:16px 16px 26px;max-width:460px;margin:0 auto;-webkit-font-smoothing:antialiased}
+  .bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .room{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;letter-spacing:.01em}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .room .st{color:var(--mut);font-weight:500}
+  .tgl{border:1px solid var(--line);background:var(--card);color:var(--txt);width:38px;height:38px;
+       border-radius:50%;font-size:15px;box-shadow:var(--shadow)}
+
+  .now{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden;box-shadow:var(--shadow)}
+  .art{height:150px;background:linear-gradient(135deg,var(--art1),var(--art2));position:relative}
+  .art .app{position:absolute;top:14px;left:16px;font-size:11px;font-weight:700;letter-spacing:.14em;
+            text-transform:uppercase;color:#fff;opacity:.9}
+  .art .glow{position:absolute;inset:0;background:radial-gradient(120% 80% at 80% 10%,rgba(255,255,255,.14),transparent 60%)}
+  .meta{padding:16px 18px 4px}
+  .title{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.05}
+  .sub{color:var(--mut);font-size:14px;margin-top:5px}
+  .scrub{padding:14px 18px 4px}
+  .track{height:4px;border-radius:3px;background:var(--line);overflow:hidden}
+  .fill{height:100%;width:62%;background:var(--accent);border-radius:3px}
+  .times{display:flex;justify-content:space-between;color:var(--mut);font-size:12px;margin-top:8px;
+         font-variant-numeric:tabular-nums}
+  .transport{display:flex;align-items:center;justify-content:center;gap:26px;padding:8px 0 20px}
+  .tbtn{background:none;border:none;color:var(--txt);font-size:24px;opacity:.9}
+  .play{width:60px;height:60px;border-radius:50%;background:var(--accent-soft);border:1.5px solid var(--accent);
+        color:var(--accent);font-size:24px}
+
+  .search{display:flex;align-items:center;gap:11px;margin:16px 0;background:var(--card);border:1px solid var(--line);
+          border-radius:16px;padding:15px 16px;color:var(--mut);font-size:15px;box-shadow:var(--shadow)}
+  .search .k{margin-left:auto;font-size:13px;border:1px solid var(--line);border-radius:7px;padding:3px 8px;color:var(--mut)}
+
+  .lbl{color:var(--mut);font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin:20px 4px 11px}
+  .apps{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+  .tile{aspect-ratio:1;background:var(--card);border:1px solid var(--line);border-radius:18px;display:flex;
+        flex-direction:column;align-items:center;justify-content:center;gap:9px;box-shadow:var(--shadow)}
+  .tile .ic{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+            font-weight:800;font-size:17px;color:#fff}
+  .tile .nm{font-size:12px;color:var(--mut);font-weight:500}
+
+  .ctl{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-top:22px}
+  .cbtn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:17px 0;color:var(--txt);
+        font-size:15px;font-weight:600;box-shadow:var(--shadow)}
+  .cbtn.wide{grid-column:span 2}
+  .cbtn .s{display:block;color:var(--mut);font-size:11px;font-weight:500;margin-top:2px}
+
+  .nav{display:flex;justify-content:center;gap:8px;margin-top:26px}
+  .nav a{color:var(--mut);text-decoration:none;font-size:12px;padding:7px 13px;border:1px solid var(--line);
+         border-radius:20px}
+  .nav a.on{color:var(--accent);border-color:var(--accent)}
+</style></head><body>
+  <div class="bar">
+    <div class="room"><span class="dot"></span>Living Room <span class="st">· Netflix</span></div>
+    <button class="tgl" onclick="tg()">◐</button>
+  </div>
+
+  <div class="now">
+    <div class="art"><span class="glow"></span><span class="app">Netflix</span></div>
+    <div class="meta"><div class="title">The Bear</div><div class="sub">Season 3 · Episode 5 — Children</div></div>
+    <div class="scrub">
+      <div class="track"><div class="fill"></div></div>
+      <div class="times"><span>26:41</span><span>−16:20</span></div>
+    </div>
+    <div class="transport">
+      <button class="tbtn">⏮</button><button class="play">⏸</button><button class="tbtn">⏭</button>
+    </div>
+  </div>
+
+  <div class="search">🔍 Search on TV <span class="k">type</span></div>
+
+  <div class="lbl">Apps</div>
+  <div class="apps">
+    <div class="tile"><div class="ic" style="background:#E50914">N</div><div class="nm">Netflix</div></div>
+    <div class="tile"><div class="ic" style="background:#FF0000">▶</div><div class="nm">YouTube</div></div>
+    <div class="tile"><div class="ic" style="background:#8E44EC">V</div><div class="nm">ViX</div></div>
+    <div class="tile"><div class="ic" style="background:#1BA5A0">A</div><div class="nm">Angel</div></div>
+    <div class="tile"><div class="ic" style="background:#00A4DC">J</div><div class="nm">Jellyfin</div></div>
+    <div class="tile"><div class="ic" style="background:#113CCF">D</div><div class="nm">Disney+</div></div>
+  </div>
+
+  <div class="ctl">
+    <button class="cbtn">Vol −</button>
+    <button class="cbtn">Vol +</button>
+    <button class="cbtn">Mute</button>
+    <button class="cbtn wide">⏻ Power</button>
+    <button class="cbtn">Apps</button>
+  </div>
+
+  <div class="nav">
+    <a class="on" href="/m/obsidian">Obsidian</a><a href="/m/signal">Signal</a><a href="/m/console">Console</a>
+  </div>
+<script>function tg(){var h=document.documentElement;h.dataset.theme=h.dataset.theme==='light'?'dark':'light';}</script>
+</body></html>

@@ -1,0 +1,234 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GAIA · Apollo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Our ergonomic structure (thumb cluster + L/C/R) in the Apollo brass skin.
+     Clean swipe pad (no ornate dial). Hardcoded palette + flexbox + explicit spacer for Silk. */
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0)}
+  button{outline:none;-webkit-appearance:none;-webkit-user-select:none;user-select:none}
+  html,body{height:100%}
+  body{background:#100D0A;color:#EDE4D3;overflow:hidden;font-family:"Cormorant Garamond",Georgia,serif;
+    background-image:radial-gradient(60% 34% at 50% 16%, rgba(185,139,63,.11), transparent 60%)}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  .app{max-width:460px;margin:0 auto;height:100%;display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column;padding:15px 15px 16px}
+
+  .top{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between}
+  .top .r{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .rbtn{width:46px;height:46px;background:none;border:none}
+  .ident{text-align:center}
+  .ident .s{font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:#EDE4D3}
+  .ident .n{font-weight:300;font-size:23px;letter-spacing:.02em;line-height:1}
+  .ident .n b{color:#B98B3F;font-weight:500}
+  .seg{display:-webkit-box;display:flex;border:1px solid rgba(185,139,63,.35);border-radius:4px;overflow:hidden;margin-right:8px}
+  .seg button{width:30px;height:34px;border:none;background:transparent;color:#B98B3F;font-size:12px;font-family:"IBM Plex Mono",monospace}
+  .seg button.on{background:rgba(185,139,63,.2);color:#F2D48A}
+  .tbtn{width:34px;height:34px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#191410;color:#EDE4D3;font-size:14px}
+
+  .display{margin-top:13px;border:1px solid rgba(185,139,63,.3);border-radius:4px;position:relative;background:#16120E;padding:13px 15px 14px}
+  .display .cap{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#B98B3F}.display .cap b{color:#5C7A6E}
+  .display .t{font-weight:500;font-size:27px;line-height:1;margin:5px 0 3px}
+  .display .sub{font-size:10px;letter-spacing:.1em;color:rgba(237,228,211,.55)}
+  .display .bar{height:2px;background:rgba(185,139,63,.22);margin-top:10px;position:relative}
+  .display .bar i{position:absolute;left:0;top:0;bottom:0;width:62%;background:linear-gradient(90deg,#B98B3F,#F2D48A)}
+  .display .cv{position:absolute;top:13px;right:14px;color:#B98B3F;font-size:14px}
+
+  /* explicit glance band so the cluster stays compact + bottom-thumb on old Silk */
+  .spacer{-webkit-box-flex:1;flex:1;min-height:10px}
+
+  .clwrap{display:-webkit-box;display:flex;-webkit-box-pack:end;justify-content:flex-end}
+  body.pos-left .clwrap{-webkit-box-pack:start;justify-content:flex-start}
+  body.pos-center .clwrap{-webkit-box-pack:center;justify-content:center}
+  .cluster{width:290px;max-width:100%}
+
+  .vlabel{text-align:center;font-size:9px;letter-spacing:.24em;text-transform:uppercase;color:#B98B3F;margin-bottom:7px}
+  .vlabel.muted{color:#A33327}
+  .volbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;background:#16120E;border:1px solid rgba(185,139,63,.28);border-radius:8px;padding:8px 12px;margin-bottom:11px}
+  .vmute{width:30px;height:30px;border-radius:6px;border:1px solid rgba(185,139,63,.3);background:transparent;margin-right:8px}
+  .vmute.on{border-color:#A33327}
+  .vstep{width:28px;height:28px;border:none;background:transparent;color:#B98B3F;font-size:13px}
+  .vtrack{-webkit-box-flex:1;flex:1;height:6px;border-radius:4px;background:rgba(185,139,63,.2);position:relative;margin:0 6px}
+  .vtrack .fl{position:absolute;left:0;top:0;bottom:0;width:57%;background:linear-gradient(90deg,#B98B3F,#F2D48A);border-radius:4px}
+  .vtrack .kn{position:absolute;top:-5px;width:16px;height:16px;border-radius:50%;background:#F2D48A;left:57%;margin-left:-8px}
+
+  /* clean swipe pad — warm glow + gold OK orb, faint arrows */
+  .pad{position:relative;height:172px;border:1px solid rgba(185,139,63,.28);border-radius:16px;background:#16120E;
+    background-image:radial-gradient(52% 60% at 50% 50%, rgba(242,212,138,.09), transparent 62%);-webkit-user-select:none;-webkit-touch-callout:none}
+  .ok{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;
+    background:radial-gradient(circle at 40% 34%, #F6E0AA, #C9973F 72%);color:#3B2A0F;
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:2px;line-height:76px;text-align:center;pointer-events:none}
+  .edge{position:absolute;background:none;border:none;color:#6B5326;font-size:17px}
+  .e-up{top:10px;left:50%;margin-left:-12px}.e-dn{bottom:10px;left:50%;margin-left:-12px}
+  .e-lf{left:12px;top:50%;margin-top:-14px}.e-rt{right:12px;top:50%;margin-top:-14px}
+  .hint{position:absolute;left:0;right:0;bottom:-16px;text-align:center;font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:rgba(185,139,63,.5);font-family:"IBM Plex Mono",monospace}
+  .ok.hold{background:#0A0806;border:1px solid rgba(185,139,63,.55);color:#B98B3F}
+  .opt{position:absolute;display:none;pointer-events:none;padding:7px 10px;border:1px solid rgba(185,139,63,.4);background:#16120E;color:#EDE4D3;border-radius:6px;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;z-index:3}
+  .pad.holding .opt{display:block}
+  .opt.hl{background:#B98B3F;color:#100D0A;border-color:#F2D48A}
+  .opt-nw{top:12px;left:12px}.opt-ne{top:12px;right:12px}.opt-sw{bottom:12px;left:12px}.opt-se{bottom:12px;right:12px}
+  .pad.holding{z-index:16}
+  .dim{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(8,6,4,.66);display:none;z-index:15}
+  .dim.show{display:block}
+
+  .cornrow{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;margin-top:22px}
+  .corn{border:1px solid rgba(185,139,63,.28);background:#16120E;color:#EDE4D3;border-radius:4px;padding:9px 15px;font-size:14px}
+  .corn .lb{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#B98B3F;margin-left:6px}
+
+  .bottom{display:-webkit-box;display:flex;margin-top:12px}
+  .bigbtn{-webkit-box-flex:1;flex:1;padding:13px 0 10px;border-radius:4px;border:1px solid rgba(185,139,63,.28);background:#16120E;color:#EDE4D3;margin:0 5px;text-align:center}
+  .bigbtn .svg{display:block;margin:0 auto 5px;width:20px;height:20px}
+  .bigbtn .lb{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(185,139,63,.8)}
+
+  .toast{position:fixed;top:82px;left:50%;margin-left:-90px;width:180px;text-align:center;background:#241D16;border:1px solid #B98B3F;color:#F2D48A;border-radius:4px;padding:10px 0;font-size:11px;letter-spacing:.16em;text-transform:uppercase;display:none;z-index:30;font-family:"IBM Plex Mono",monospace}
+  .toast.show{display:block}
+
+  .scrim{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(8,6,4,.7);display:none;z-index:9}.scrim.show{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#16120E;border-top:1px solid rgba(185,139,63,.35);border-top-left-radius:8px;border-top-right-radius:8px;padding:14px 16px 24px;display:none;z-index:10}.sheet.show{display:block}
+  .grab{width:40px;height:3px;background:rgba(185,139,63,.4);margin:0 auto 15px}
+  .shead{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;-webkit-box-align:center;align-items:center;margin-bottom:15px}
+  .shead .t{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#B98B3F;font-family:"IBM Plex Mono",monospace}
+  .x{width:34px;height:34px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#191410;color:#EDE4D3;font-size:14px}
+  .appgrid{display:-webkit-box;display:flex;-webkit-box-lines:multiple;flex-wrap:wrap;justify-content:space-between}
+  .atile{width:31.5%;border:1px solid rgba(185,139,63,.22);border-radius:4px;background:#100D0A;margin-bottom:11px;text-align:center;padding:16px 0 11px}
+  .atile .ic{width:40px;height:40px;border-radius:7px;margin:0 auto 7px;color:#100D0A;font-weight:700;font-size:16px;line-height:40px;font-family:"IBM Plex Mono",monospace;background:#B98B3F}
+  .atile .nm{font-size:14px;color:rgba(237,228,211,.8)}
+  .kbrow{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center}
+  .kbrow input{-webkit-box-flex:1;flex:1;background:#100D0A;border:1px solid rgba(185,139,63,.3);border-radius:4px;padding:14px;color:#EDE4D3;font-size:17px;margin-right:10px;font-family:"Cormorant Garamond",serif}
+  .send{background:#B98B3F;color:#100D0A;border:none;border-radius:4px;padding:0 18px;height:48px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;font-family:"IBM Plex Mono",monospace}
+  .kbhint{color:rgba(185,139,63,.7);font-size:11px;margin-top:10px;text-align:center;font-family:"IBM Plex Mono",monospace;letter-spacing:.06em}
+  .screen{position:fixed;top:0;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;background:#100D0A;z-index:20;display:none;padding:16px}
+  .screen.show{display:-webkit-box;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;flex-direction:column}
+  .pbar{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:justify;justify-content:space-between;padding:2px 0 14px}
+  .pdown{width:46px;height:46px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#191410;color:#EDE4D3;font-size:22px}
+  .plabel{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:#B98B3F;font-family:"IBM Plex Mono",monospace}
+  .poster{-webkit-box-flex:1;flex:1;border-radius:6px;background:radial-gradient(60% 60% at 40% 32%,#7C5A22,#16120E);position:relative;min-height:170px;border:1px solid rgba(185,139,63,.25)}
+  .poster .ap{position:absolute;top:16px;left:18px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#F2D48A;font-family:"IBM Plex Mono",monospace}
+  .pmeta{padding:18px 4px 4px}.pmeta .t{font-size:33px;font-weight:500}.pmeta .s{color:rgba(237,228,211,.6);font-size:11px;letter-spacing:.08em;margin-top:3px}
+  .ptrack{height:2px;background:rgba(185,139,63,.22);margin:18px 4px 8px;position:relative}.ptrack i{position:absolute;left:0;top:0;bottom:0;width:62%;background:linear-gradient(90deg,#B98B3F,#F2D48A)}
+  .ptimes{display:-webkit-box;display:flex;-webkit-box-pack:justify;justify-content:space-between;color:#B98B3F;font-size:11px;padding:0 4px;font-family:"IBM Plex Mono",monospace}
+  .ptrans{display:-webkit-box;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;padding:24px 0 10px}
+  .ptrans button{width:58px;height:58px;border-radius:50%;border:1px solid rgba(185,139,63,.3);background:#16120E;color:#EDE4D3;font-size:18px;margin:0 8px}.ptrans .pp{width:76px;height:76px;background:#B98B3F;border-color:#B98B3F;color:#100D0A;font-size:22px}
+
+  body.light{background:#EDE4D3;color:#2A2016;background-image:radial-gradient(60% 34% at 50% 16%,rgba(185,139,63,.14),transparent 60%)}
+  body.light .tbtn,body.light .display,body.light .pad,body.light .volbar,body.light .corn,body.light .bigbtn,body.light .atile,body.light .x,body.light .kbrow input,body.light .sheet,body.light .screen,body.light .pdown,body.light .ptrans button,body.light .vmute{background:#F7F1E6;border-color:rgba(122,90,34,.35);color:#2A2016}
+  body.light .ident .n,body.light .pmeta .t,body.light .display .t{color:#2A2016}
+  body.light .seg{border-color:rgba(122,90,34,.4)}
+</style></head><body>
+<div class="app">
+  <div class="top">
+    <button class="rbtn"><svg width="46" height="46" viewBox="0 0 46 46"><g stroke="#A33327" stroke-width="1.7" stroke-linecap="round" fill="none"><circle cx="23" cy="23" r="7.5"/><path d="M23 9v-3.5M23 40.5v3.5M9 23H5.5M40.5 23H44M13 13l-2.5-2.5M33 33l2.5 2.5M33 13l2.5-2.5M13 33l-2.5 2.5"/></g></svg></button>
+    <div class="ident"><div class="s mono">Serving GAIA</div><div class="n">as <b>Apollo</b></div></div>
+    <div class="r">
+      <div class="seg"><button id="pL" onclick="setpos('left')">L</button><button id="pC" onclick="setpos('center')">C</button><button id="pR" class="on" onclick="setpos('right')">R</button></div>
+      <button class="tbtn" onclick="lt()">◐</button>
+    </div>
+  </div>
+
+  <div class="display" onclick="show('play')">
+    <div class="cap mono">Netflix &middot; <b>Now Playing</b></div>
+    <div class="t">The Bear</div>
+    <div class="sub mono">S3 · E5 — CHILDREN</div>
+    <div class="bar"><i></i></div>
+    <span class="cv">&#9662;</span>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="clwrap"><div class="cluster">
+    <div class="vlabel mono" id="vlabel">Volume</div>
+    <div class="volbar">
+      <button class="vmute" id="muteb" onclick="tmute()"><svg width="17" height="17" viewBox="0 0 30 30" fill="none" stroke="#B98B3F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12v6h4l5 4V8l-5 4H7z"/><path d="M20 12a3 3 0 0 1 0 6"/></svg></button>
+      <button class="vstep" onclick="vstep(-8)">&#9664;</button>
+      <div class="vtrack" id="vt"><div class="fl" id="fl"></div><div class="kn" id="kn"></div></div>
+      <button class="vstep" onclick="vstep(8)">&#9654;</button>
+    </div>
+    <div class="pad" id="pad">
+      <button class="edge e-up" onclick="dir('up')">&#9650;</button>
+      <button class="edge e-lf" onclick="dir('left')">&#9664;</button>
+      <button class="edge e-rt" onclick="dir('right')">&#9654;</button>
+      <button class="edge e-dn" onclick="dir('down')">&#9660;</button>
+      <div class="ok" id="okorb">OK</div>
+      <span class="opt opt-nw" id="opt-nw">Info</span>
+      <span class="opt opt-ne" id="opt-ne">Captions</span>
+      <span class="opt opt-sw" id="opt-sw">Saved</span>
+      <span class="opt opt-se" id="opt-se">Audio</span>
+      <div class="hint">swipe &middot; tap &middot; hold</div>
+    </div>
+    <div class="cornrow">
+      <button class="corn" onclick="dir('back')">&#8617;<span class="lb">Back</span></button>
+      <button class="corn" onclick="dir('home')">&#8962;<span class="lb">Home</span></button>
+    </div>
+  </div></div>
+
+  <div class="bottom">
+    <button class="bigbtn" onclick="show('apps')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.5"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><rect x="13.5" y="13.5" width="7" height="7"/></svg><span class="lb">Apps</span></button>
+    <button class="bigbtn" onclick="show('kb')"><svg class="svg" viewBox="0 0 24 24" fill="none" stroke="#B98B3F" stroke-width="1.4"><rect x="2.5" y="7" width="19" height="10"/><path d="M6 11h.1M10 11h.1M14 11h.1M18 11h.1M7 14h10" stroke-linecap="round"/></svg><span class="lb">Search</span></button>
+  </div>
+</div>
+
+<div class="toast mono" id="toast"></div>
+<div class="dim" id="dim"></div>
+<div class="scrim" id="scrim" onclick="hideAll()"></div>
+<div class="sheet" id="apps">
+  <div class="grab"></div><div class="shead"><span class="t">Launch</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="appgrid">
+    <div class="atile"><div class="ic">N</div><div class="nm">Netflix</div></div>
+    <div class="atile"><div class="ic">Y</div><div class="nm">YouTube</div></div>
+    <div class="atile"><div class="ic">V</div><div class="nm">ViX</div></div>
+    <div class="atile"><div class="ic">A</div><div class="nm">Angel</div></div>
+    <div class="atile"><div class="ic">J</div><div class="nm">Jellyfin</div></div>
+    <div class="atile"><div class="ic">Js</div><div class="nm">Jellyseerr</div></div>
+  </div>
+</div>
+<div class="sheet" id="kb">
+  <div class="grab"></div><div class="shead"><span class="t">Type on TV</span><button class="x" onclick="hideAll()">&#10005;</button></div>
+  <div class="kbrow"><input id="kbin" placeholder="Ask the oracle…" autocomplete="off"><button class="send">Send</button></div>
+  <div class="kbhint">Types straight into the TV's search.</div>
+</div>
+<div class="screen" id="play">
+  <div class="pbar"><button class="pdown" onclick="hideAll()">&#9662;</button><span class="plabel">Now Playing</span><span style="width:46px"></span></div>
+  <div class="poster"><span class="ap">Netflix</span></div>
+  <div class="pmeta"><div class="t">The Bear</div><div class="s mono">SEASON 3 · EPISODE 5</div></div>
+  <div class="ptrack"><i></i></div>
+  <div class="ptimes"><span>26:41</span><span>&#8722;16:20</span></div>
+  <div class="ptrans"><button>&#9198;</button><button>&#9194;</button><button class="pp">&#10073;&#10073;</button><button>&#9193;</button><button>&#9197;</button></div>
+</div>
+
+<script>
+  function el(i){return document.getElementById(i);}
+  function tgl(c){var b=document.body,s=' '+b.className+' ';b.className=(s.indexOf(' '+c+' ')>-1?s.replace(' '+c+' ',' '):b.className+' '+c).replace(/^\s+|\s+$/g,'');}
+  function lt(){tgl('light');}
+  function setpos(p){var b=document.body;b.className=b.className.replace(/pos-\w+/g,'').replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');b.className=(b.className+' pos-'+p).replace(/^\s+/,'');el('pL').className=p==='left'?'on':'';el('pC').className=p==='center'?'on':'';el('pR').className=p==='right'?'on':'';}
+  var lvl=57,muted=false;
+  function setv(v){lvl=Math.max(0,Math.min(100,v));muted=false;el('fl').style.width=lvl+'%';el('kn').style.left=lvl+'%';el('muteb').className='vmute';el('vlabel').innerHTML='Volume';el('vlabel').className='vlabel mono';}
+  function vstep(d){setv(lvl+d);}
+  function tmute(){muted=!muted;el('muteb').className=muted?'vmute on':'vmute';el('vlabel').innerHTML=muted?'Silent':'Volume';el('vlabel').className=muted?'vlabel mono muted':'vlabel mono';}
+  function show(id){hideAll();el(id).className+=' show';if(id!=='play')el('scrim').className='scrim show';if(id==='kb'){setTimeout(function(){el('kbin').focus();},80);}}
+  function hideAll(){var a=['apps','kb','play'];for(var i=0;i<a.length;i++){el(a[i]).className=el(a[i]).className.replace(' show','');}el('scrim').className='scrim';}
+  var tmr;function toast(t){var e=el('toast');e.innerHTML=t;e.className='toast mono show';clearTimeout(tmr);tmr=setTimeout(function(){e.className='toast mono';},850);}
+  var lbl={up:'North',down:'South',left:'West',right:'East',ok:'Select',back:'Back',home:'Home',resume:'Resume · Netflix'};
+  function dir(d){toast(lbl[d]||d);}
+  var pad=el('pad'),sx,sy,holdT,holding=false,sel=null;
+  var MENU={ne:'Captions',nw:'Info',se:'Audio',sw:'Saved'};
+  function setSel(q){sel=q;['ne','nw','se','sw'].forEach(function(k){el('opt-'+k).className='opt opt-'+k+(k===q?' hl':'');});}
+  function openMenu(){holding=true;el('okorb').className='ok hold';pad.className='pad holding';el('dim').className='dim show';setSel(null);}
+  function closeMenu(){holding=false;el('okorb').className='ok';pad.className='pad';el('dim').className='dim';['ne','nw','se','sw'].forEach(function(k){el('opt-'+k).className='opt opt-'+k;});}
+  pad.addEventListener('touchstart',function(e){var t=e.touches[0];sx=t.clientX;sy=t.clientY;holding=false;sel=null;clearTimeout(holdT);if(e.target===pad)holdT=setTimeout(openMenu,420);},false);
+  pad.addEventListener('touchmove',function(e){e.preventDefault();var t=e.touches[0],dx=t.clientX-sx,dy=t.clientY-sy;
+    if(!holding){if(Math.abs(dx)>20||Math.abs(dy)>20)clearTimeout(holdT);}
+    else{if(Math.abs(dx)>18||Math.abs(dy)>18)setSel(dx>=0?(dy<0?'ne':'se'):(dy<0?'nw':'sw'));else setSel(null);}},false);
+  pad.addEventListener('touchend',function(e){clearTimeout(holdT);
+    if(holding){if(sel)toast(MENU[sel]);closeMenu();return;}
+    var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy,ax=Math.abs(dx),ay=Math.abs(dy);
+    if(ax<24&&ay<24){if(e.target===pad)dir('ok');return;}
+    if(ax>ay){if(dx<0){if(ax>120){dir('resume');return;}dir('left');}else dir('right');}else{if(dy<0)dir('up');else dir('down');}},false);
+  var vt=el('vt');function vfrom(x){var r=vt.getBoundingClientRect();setv(Math.round((x-r.left)/r.width*100));}
+  vt.addEventListener('touchstart',function(e){vfrom(e.touches[0].clientX);},false);
+  vt.addEventListener('touchmove',function(e){e.preventDefault();vfrom(e.touches[0].clientX);},false);
+  vt.addEventListener('mousedown',function(e){vfrom(e.clientX);},false);
+  setv(57);
+  var mp=location.search.match(/pos=(\w+)/);if(mp)setpos(mp[1]);if(location.search.indexOf('light')>-1)lt();
+  if(location.search.indexOf('hold')>-1)openMenu();
+</script>
+</body></html>
