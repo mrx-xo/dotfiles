@@ -4716,6 +4716,12 @@ TRAMP can't match under a PTY — both need pipe mode."
   ;; (compat is declared early, near the elpaca bootstrap, so it's queued
   ;; before everything that depends on it.)
 
+  ;; Pin an active minibuffer to the frame that opened it.  The Emacs 28+
+  ;; default (t) relocates it to whichever frame becomes selected — with
+  ;; yabai's focus-follows-mouse, grazing another client frame mid-completion
+  ;; teleports the vertico session there.
+  (setq minibuffer-follows-selected-frame nil)
+
   (use-package vertico
     :ensure t
     :init
