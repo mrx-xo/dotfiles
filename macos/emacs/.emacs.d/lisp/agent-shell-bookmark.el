@@ -70,6 +70,12 @@
 
 ;;; Bookmark jump handler
 
+(declare-function agent-recall-metadata "agent-recall")
+(declare-function agent-recall--restore-allowed-p "agent-recall")
+(declare-function agent-recall--config-with-preferences "agent-recall")
+(declare-function agent-recall--restore-thought-level "agent-recall")
+(defvar agent-recall-restore-functions)
+
 (defun agent-shell-bookmark--find-config (agent-identifier)
   "Resolve AGENT-IDENTIFIER to a full agent config.
 Upstream searched `agent-shell-agent-configs' directly, but entries
@@ -77,6 +83,33 @@ there are lazy maker functions in current agent-shell — resolve via
 `agent-shell--resolve-config-designator' instead."
   (and agent-identifier
        (agent-shell--resolve-config-designator agent-identifier)))
+
+(defun agent-shell-bookmark--resume (session-id project-path agent-identifier)
+  "Resume SESSION-ID in PROJECT-PATH using AGENT-IDENTIFIER's config.
+When agent-recall is available and has metadata for the session,
+restore its saved preferences (model, permission mode via config
+overrides; effort post-init) the same way `agent-recall--start-resume'
+does, honoring `agent-recall-resume-restore-preferences'."
+  (require 'agent-recall nil t)
+  (let* ((default-directory (or project-path default-directory))
+         (config (or (agent-shell-bookmark--find-config agent-identifier)
+                     (agent-shell--resolve-preferred-config)
+                     (agent-shell-select-config
+                      :prompt "Resume with agent: ")))
+         (metadata (and (fboundp 'agent-recall-metadata)
+                        (agent-recall-metadata session-id)))
+         (restore (and metadata (agent-recall--restore-allowed-p metadata)))
+         (config (if restore
+                     (agent-recall--config-with-preferences config metadata)
+                   config))
+         (shell-buffer (agent-shell-start :config config :session-id session-id)))
+    (when (and restore (buffer-live-p shell-buffer))
+      (when-let ((effort (alist-get 'effort metadata)))
+        (agent-recall--restore-thought-level shell-buffer effort))
+      (when (boundp 'agent-recall-restore-functions)
+        (run-hook-with-args 'agent-recall-restore-functions
+                            metadata shell-buffer)))
+    shell-buffer))
 
 (defun agent-shell-bookmark-handler (bmk)
   "Handle jumping to an `agent-shell' bookmark BMK.
@@ -95,22 +128,13 @@ stored ID using the same agent that created it."
       (if (y-or-n-p (format "Buffer `%s' exists.  Switch to it? " buf-name))
           (set-buffer buf)
         (if session-id
-            (let* ((default-directory (or project-path default-directory))
-                   (config (or (agent-shell-bookmark--find-config agent-identifier)
-                               (agent-shell--resolve-preferred-config)
-                               (agent-shell-select-config
-                                :prompt "Resume with agent: "))))
-              (agent-shell-start :config config :session-id session-id))
+            (agent-shell-bookmark--resume session-id project-path
+                                          agent-identifier)
           (let ((default-directory (or project-path default-directory)))
             (agent-shell)))))
      ;; Session ID available — try to resume with the stored agent config.
      (session-id
-      (let* ((default-directory (or project-path default-directory))
-             (config (or (agent-shell-bookmark--find-config agent-identifier)
-                         (agent-shell--resolve-preferred-config)
-                         (agent-shell-select-config
-                          :prompt "Resume with agent: "))))
-        (agent-shell-start :config config :session-id session-id)))
+      (agent-shell-bookmark--resume session-id project-path agent-identifier))
      ;; No session ID — start fresh with session prompt.
      (t
       (let ((default-directory (or project-path default-directory)))
