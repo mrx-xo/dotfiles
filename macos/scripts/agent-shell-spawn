@@ -8,7 +8,7 @@
 # (extraPath in ~/.acp-mobile/config.json).
 set -euo pipefail
 
-name="${1:?usage: agent-shell-spawn NAME CWD [TASK]}"
+name="${1-}"
 cwd="${2:?usage: agent-shell-spawn NAME CWD [TASK]}"
 task="${3:-}"
 
