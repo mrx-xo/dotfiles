@@ -7768,6 +7768,51 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; block sends, SPC c y replays via agent-shell-reload
       (require 'mr-x-agent-resync)
 
+      ;; Mirror major-pane labels into acp-mobile's sidecar
+      ;; (~/.acp-mobile/labels.json, sessionId → label) so phone cards
+      ;; show the same names as the rig.  Syncs ALL live agent-shell
+      ;; buffers on every label change, which handles set + clear alike.
+      (with-eval-after-load 'major-pane
+        (defun mr-x/agent-label-sync (&rest _)
+          "Write agent-shell buffers' major-pane labels to the acp-mobile sidecar."
+          (let* ((file (expand-file-name "~/.acp-mobile/labels.json"))
+                 (labels (or (ignore-errors
+                               (json-parse-string
+                                (with-temp-buffer
+                                  (insert-file-contents file)
+                                  (buffer-string))))
+                             (make-hash-table :test #'equal))))
+            (dolist (buf (buffer-list))
+              (when-let* (((buffer-live-p buf))
+                          (sid (with-current-buffer buf
+                                 (and (derived-mode-p 'agent-shell-mode)
+                                      (map-nested-elt agent-shell--state
+                                                      '(:session :id))))))
+                (let ((label (gethash buf major-pane--labels)))
+                  (if (and label (not (string-empty-p label)))
+                      (puthash sid label labels)
+                    (remhash sid labels)))))
+            (make-directory (file-name-directory file) t)
+            (with-temp-file file (insert (json-serialize labels)))))
+        (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync))
+
+      ;; Tell acp-multiplex which Emacs buffer owns the session: it
+      ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
+      ;; that acp-mobile shows on cards, so phone entries are matchable
+      ;; against rig buffers (e.g. "Claude Agent @ .dotfiles<15>").
+      ;; Injected at client spawn; a reload re-spawns, so renames catch up.
+      (with-eval-after-load 'acp
+        (defun mr-x/acp-inject-multiplex-name (args)
+          "Append ACP_MULTIPLEX_NAME=<buffer name> to `acp-make-client' ARGS."
+          (let* ((buf (or (plist-get args :context-buffer) (current-buffer)))
+                 (name (and (get-buffer buf) (buffer-name (get-buffer buf)))))
+            (if name
+                (plist-put args :environment-variables
+                           (cons (concat "ACP_MULTIPLEX_NAME=" name)
+                                 (plist-get args :environment-variables)))
+              args)))
+        (advice-add 'acp-make-client :filter-args #'mr-x/acp-inject-multiplex-name))
+
       ;; Session bookmarks get their own jump (SPC m a) and are hidden from
       ;; the general SPC m j list. To unhide: rebind "m j" back to
       ;; plain bookmark-jump.
