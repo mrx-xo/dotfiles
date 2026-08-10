@@ -1256,6 +1256,19 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; block sends, SPC c y replays via agent-shell-reload
       (require 'mr-x-agent-resync)
 
+      ;; Transcript appends fire on every streamed chunk — phone-driven
+      ;; turns included — and agent-shell's write-region has no coding
+      ;; binding, so one undecoded byte in a chunk pops the blocking
+      ;; "Select coding system" prompt and the whole daemon (and phone
+      ;; flow behind it) stalls on the minibuffer.  utf-8 emits raw
+      ;; eight-bit chars verbatim, so binding it loses nothing.
+      (defun mr-x/agent-shell--transcript-utf8 (orig &rest args)
+        "Never let a transcript write prompt for a coding system."
+        (let ((coding-system-for-write 'utf-8))
+          (apply orig args)))
+      (advice-add 'agent-shell--append-transcript :around
+                  #'mr-x/agent-shell--transcript-utf8)
+
       ;; Mirror major-pane labels into acp-mobile's sidecar
       ;; (~/.acp-mobile/labels.json, sessionId → label) so phone cards
       ;; show the same names as the rig.  Syncs ALL live agent-shell
@@ -1336,14 +1349,24 @@ an aborted invocation reschedules itself like a not-ready one."
                  (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
                               buf task (1- tries)))))))
 
-        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task)
-          "Spawn an agent-shell convo in CWD, label it NAME, queue TASK."
+        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset)
+          "Spawn an agent-shell convo in CWD, label it NAME, queue TASK.
+PRESET, when non-empty, is a char key into `mr-x/agent-shell-presets'
+\(e.g. \"f\") — the shell launches with that preset's model +
+permission mode, same as C-u SPC c P on the rig."
           (let ((dir (file-name-as-directory (expand-file-name cwd))))
             (unless (file-directory-p dir)
               (error "No such directory: %s" dir))
             (let* ((default-directory dir)
+                   (config (if (and preset (not (string-empty-p preset)))
+                               (let ((tuple (or (assq (string-to-char preset)
+                                                      mr-x/agent-shell-presets)
+                                                (error "No preset for %s" preset))))
+                                 (mr-x/agent-shell--config-with
+                                  (nth 2 tuple) (nth 3 tuple)))
+                             agent-shell-preferred-agent-config))
                    (buf (agent-shell--start
-                         :config agent-shell-preferred-agent-config
+                         :config config
                          :new-session t :no-focus t)))
               (when (and name (not (string-empty-p name)))
                 (puthash buf name major-pane--labels))
