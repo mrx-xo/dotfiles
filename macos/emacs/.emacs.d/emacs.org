@@ -3611,6 +3611,7 @@ projectile projects appended below."
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(mr-x/agent-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
+        "c Y" '(mr-x/agent-live-mode :wk "LIVE 2-way sync (phone turns render)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -7820,6 +7821,10 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; out-of-turn user chunks the buffer can't render; mark it desynced,
       ;; block sends, SPC c y replays via agent-shell-reload
       (require 'mr-x-agent-resync)
+
+      ;; Live 2-way sync (SPC c Y): opt-in per buffer — phone turns
+      ;; render in place instead of locking; lockdown stays the default.
+      (require 'mr-x-agent-live)
 
       ;; Transcript appends fire on every streamed chunk — phone-driven
       ;; turns included — and agent-shell's write-region has no coding

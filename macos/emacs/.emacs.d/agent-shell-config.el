@@ -1266,6 +1266,10 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; block sends, SPC c y replays via agent-shell-reload
       (require 'mr-x-agent-resync)
 
+      ;; Live 2-way sync (SPC c Y): opt-in per buffer — phone turns
+      ;; render in place instead of locking; lockdown stays the default.
+      (require 'mr-x-agent-live)
+
       ;; Transcript appends fire on every streamed chunk — phone-driven
       ;; turns included — and agent-shell's write-region has no coding
       ;; binding, so one undecoded byte in a chunk pops the blocking
