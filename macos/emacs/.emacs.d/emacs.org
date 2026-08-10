@@ -6580,6 +6580,16 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
                                                           '(:background "#504945"))))
     )
         :config
+        ;; Resumed/reloaded sessions replay the WHOLE conversation into
+        ;; the buffer.  The default (minimal) shows only the session
+        ;; title — which made every SPC c y resync look like a fresh
+        ;; empty chat and silently broke the desync-lockdown promise
+        ;; that a resync catches the buffer up on phone turns.
+        ;; (agent-recall's resume renders history through its own
+        ;; transcript path; this knob governs agent-shell's native
+        ;; reload/resume.)
+        (setq agent-shell-session-restore-verbosity 'full)
+
         ;; Rebind: S-<tab> cycles mode, C-<tab> is free for popper
         (define-key agent-shell-mode-map (kbd "<backtab>") #'agent-shell-cycle-session-mode)
         (define-key agent-shell-mode-map (kbd "C-<tab>") nil)
