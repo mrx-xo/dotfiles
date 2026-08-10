@@ -93,6 +93,43 @@
 (set-terminal-coding-system 'utf-8)
 (set-keyboard-coding-system 'utf-8)
 
+;; The blocking "Select coding system (default raw-text)" minibuffer
+;; prompt has repeatedly stalled the daemon mid phone turn (acp-mobile):
+;; some write got text where a char arrived as undecoded bytes (em-dash
+;; as raw \342\200\224), and write-region prompts before writing.  When
+;; raw eight-bit bytes are the only offenders, answering is pointless —
+;; utf-8 emits eight-bit chars back as their original bytes, identical
+;; output to the suggested raw-text — so answer utf-8 automatically and
+;; log buffer, snippet, and backtrace to var/coding-prompt-trap.log to
+;; identify the producer of the undecoded text.  Anything other than
+;; pure raw bytes still prompts normally.
+(defun mr-x/coding-prompt-trap (orig from to codings unsafe &optional rejected default)
+  "Auto-answer the coding-system prompt when only raw bytes are at fault."
+  (let* ((text (if (stringp from) from (buffer-substring-no-properties from to)))
+         (raw-re "[\x3fff80-\x3fffff]")
+         (raw-pos (string-match raw-re text)))
+    (if (and raw-pos
+             (let ((ok (find-coding-systems-string
+                        (replace-regexp-in-string raw-re "" text))))
+               (or (memq 'undecided ok) (memq 'utf-8 ok))))
+        (prog1 'utf-8
+          (ignore-errors
+            (let ((coding-system-for-write 'utf-8)
+                  (bt (with-output-to-string (backtrace)))
+                  (log-file (expand-file-name "var/coding-prompt-trap.log"
+                                              user-emacs-directory)))
+              (write-region
+               (format "%s buffer=%S snippet=%S\n%s\n---\n"
+                       (format-time-string "%F %T")
+                       (buffer-name)
+                       (substring text
+                                  (max 0 (- raw-pos 80))
+                                  (min (length text) (+ raw-pos 20)))
+                       (substring bt 0 (min 4000 (length bt))))
+               nil log-file t 'silent)
+              (message "Raw bytes written as-is (see coding-prompt-trap.log)"))))
+      (funcall orig from to codings unsafe rejected default))))
+(advice-add 'select-safe-coding-system-interactively :around #'mr-x/coding-prompt-trap)
 
 (setq gc-cons-threshold (* 100 1024 1024)) ;; 100MB
 (run-with-idle-timer 5 t #'garbage-collect)
@@ -3436,6 +3473,7 @@ projectile projects appended below."
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
         "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(mr-x/agent-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
+        "c Y" '(mr-x/agent-live-mode :wk "LIVE 2-way sync (phone turns render)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
