@@ -611,11 +611,17 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                        (has-diff (map-elt tool-call :diff))
                        (shell-buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
                                       (seq-first (agent-shell-project-buffers)))))
-                  ;; Push onto queue (most recent first)
+                  ;; Push onto queue (most recent first).  NOTE: upstream
+                  ;; reshaped the tool-call alist — it no longer carries
+                  ;; :tool-call-id (stays nil, kept for legacy sync); the
+                  ;; stable key is :permission-request-id, which
+                  ;; agent-shell--send-permission-response also receives
+                  ;; as :request-id.
                   (push (list :respond (map-elt permission :respond)
                               :options (map-elt permission :options)
                               :tool-call tool-call
                               :tool-call-id tool-call-id
+                              :perm-id (map-elt tool-call :permission-request-id)
                               :buffer shell-buf)
                         mr-x/pending-permissions-queue)
                   (mr-x/pending-permissions-update-legacy)
@@ -628,12 +634,54 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                 ;; Return nil so the button UI still renders as fallback
                 nil))
 
-        ;; Auto-remove from queue when permission is resolved (by any mechanism)
+        ;; Auto-remove from queue when the rig answers (any UI path).
+        ;; Matching on :request-id (= our :perm-id) — the tool-call-id
+        ;; based removal silently matched nothing after upstream dropped
+        ;; :tool-call-id from the tool-call alist, leaking every entry.
         (advice-add 'agent-shell--send-permission-response :after
                     (lambda (&rest args)
-                      (let ((tool-call-id (plist-get args :tool-call-id)))
-                        (when tool-call-id
-                          (mr-x/pending-permissions-remove tool-call-id)))))
+                      (when-let ((perm-id (plist-get args :request-id)))
+                        (setq mr-x/pending-permissions-queue
+                              (cl-remove-if
+                               (lambda (p) (equal (plist-get p :perm-id) perm-id))
+                               mr-x/pending-permissions-queue))
+                        (mr-x/pending-permissions-update-legacy))))
+
+        ;; A permission answered from ANOTHER client (the phone — acp-mobile
+        ;; broadcasts request_permission to every frontend, first answer
+        ;; wins) never passes through agent-shell--send-permission-response
+        ;; here, so its queue entry would rot forever.  The agent always
+        ;; follows a resolved permission with a tool_call_update — treat any
+        ;; post-pending status as resolution: match by perm-id when the
+        ;; state still maps the tool call to one, and sweep id-less entries
+        ;; for the same buffer (claude asks one permission at a time).
+        (defun mr-x/pending-permissions--on-update (&rest args)
+          "Drop queue entries whose tool call progressed (answered elsewhere)."
+          (when mr-x/pending-permissions-queue
+            (let* ((update (map-nested-elt (plist-get args :acp-notification)
+                                           '(params update)))
+                   (state (plist-get args :state)))
+              (when (and (member (map-elt update 'sessionUpdate)
+                                 '("tool_call" "tool_call_update"))
+                         (member (map-elt update 'status)
+                                 '("in_progress" "completed" "failed")))
+                (let* ((tcid (map-elt update 'toolCallId))
+                       (perm-id (and tcid (map-nested-elt
+                                           state
+                                           (list :tool-calls tcid
+                                                 :permission-request-id))))
+                       (buf (map-elt state :buffer)))
+                  (setq mr-x/pending-permissions-queue
+                        (cl-remove-if
+                         (lambda (p)
+                           (or (and perm-id
+                                    (equal (plist-get p :perm-id) perm-id))
+                               (and (null (plist-get p :perm-id))
+                                    (eq (plist-get p :buffer) buf))))
+                         mr-x/pending-permissions-queue))
+                  (mr-x/pending-permissions-update-legacy))))))
+        (advice-add 'agent-shell--on-notification :before
+                    #'mr-x/pending-permissions--on-update)
 
         (defun mr-x/respond-to-permission (kind)
           "Respond to the most recent pending permission with KIND.
