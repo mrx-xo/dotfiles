@@ -1,4 +1,4 @@
-;;; mr-x-agent-resync.el --- Desync guard for multiplexed agent-shell sessions -*- lexical-binding: t; -*-
+;;; syzygy-resync.el --- Desync guard for multiplexed agent-shell sessions -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;;
@@ -23,7 +23,7 @@
 ;; - RET (`shell-maker-submit') refuses before it touches any
 ;;   shell-maker state — blocking later (e.g. `agent-shell--handle')
 ;;   wedges the buffer busy with a committed-but-never-sent prompt.
-;; - `mr-x/agent-resync-buffer' (SPC c y) re-attaches via
+;; - `syzygy-resync-buffer' (SPC c y) re-attaches via
 ;;   `agent-shell-reload': the multiplexer replays the full history,
 ;;   phone turns included, into a fresh buffer.  C-u SPC c y unlocks
 ;;   in place instead (history stays stale until the next reload).
@@ -43,106 +43,106 @@
 (declare-function agent-shell-reload "agent-shell")
 (declare-function evil-normal-state "evil-states")
 
-(defface mr-x/agent-resync-banner
+(defface syzygy-resync-banner
   '((t :background "#ff5555" :foreground "#282a36" :weight bold :extend t))
   "Face for the desync banner (Dracula red).")
 
-(defvar-local mr-x/agent-resync--behind 0
+(defvar-local syzygy-resync--behind 0
   "Count of out-of-turn user turns this buffer has not rendered.")
 
-(defvar-local mr-x/agent-resync--overlay nil
+(defvar-local syzygy-resync--overlay nil
   "Banner overlay shown while the buffer is locked.")
 
-(defun mr-x/agent-resync--locked-p (&optional buf)
+(defun syzygy-resync--locked-p (&optional buf)
   "Non-nil when BUF (default current buffer) is desynced and locked."
-  (> (buffer-local-value 'mr-x/agent-resync--behind (or buf (current-buffer))) 0))
+  (> (buffer-local-value 'syzygy-resync--behind (or buf (current-buffer))) 0))
 
-(defun mr-x/agent-resync--banner-text ()
+(defun syzygy-resync--banner-text ()
   "Banner string for the current desync count."
   (propertize
    (format "  DESYNCED — %d turn(s) sent from phone not shown here — SPC c y to re-sync  \n"
-           mr-x/agent-resync--behind)
-   'face 'mr-x/agent-resync-banner))
+           syzygy-resync--behind)
+   'face 'syzygy-resync-banner))
 
-(defun mr-x/agent-resync--show-banner ()
+(defun syzygy-resync--show-banner ()
   "Create or refresh the banner overlay above the prompt."
   (let ((pos (save-excursion (goto-char (point-max))
                              (line-beginning-position))))
-    (unless (overlayp mr-x/agent-resync--overlay)
-      (setq mr-x/agent-resync--overlay (make-overlay pos pos nil t nil)))
-    (move-overlay mr-x/agent-resync--overlay pos pos)
-    (overlay-put mr-x/agent-resync--overlay 'before-string
-                 (mr-x/agent-resync--banner-text))))
+    (unless (overlayp syzygy-resync--overlay)
+      (setq syzygy-resync--overlay (make-overlay pos pos nil t nil)))
+    (move-overlay syzygy-resync--overlay pos pos)
+    (overlay-put syzygy-resync--overlay 'before-string
+                 (syzygy-resync--banner-text))))
 
-(defun mr-x/agent-resync--bounce-insert ()
+(defun syzygy-resync--bounce-insert ()
   "Kick a locked buffer back out of insert state (buffer-local hook).
 Deferred: switching states from inside the entry hook is unreliable."
-  (when (mr-x/agent-resync--locked-p)
+  (when (syzygy-resync--locked-p)
     (run-with-timer
      0 nil
      (lambda (buf)
        (when (and (buffer-live-p buf)
-                  (mr-x/agent-resync--locked-p buf))
+                  (syzygy-resync--locked-p buf))
          (with-current-buffer buf
            (evil-normal-state)
            (message "%s is %d phone turn(s) behind — SPC c y re-syncs"
-                    (buffer-name) mr-x/agent-resync--behind))))
+                    (buffer-name) syzygy-resync--behind))))
      (current-buffer))))
 
-(defun mr-x/agent-resync--lock ()
+(defun syzygy-resync--lock ()
   "Lock the current buffer: read-only, banner, insert-state bounce."
-  (cl-incf mr-x/agent-resync--behind)
+  (cl-incf syzygy-resync--behind)
   (setq buffer-read-only t)
-  (mr-x/agent-resync--show-banner)
+  (syzygy-resync--show-banner)
   (add-hook 'evil-insert-state-entry-hook
-            #'mr-x/agent-resync--bounce-insert nil t)
+            #'syzygy-resync--bounce-insert nil t)
   (when (and (bound-and-true-p evil-state) (eq evil-state 'insert))
     (evil-normal-state))
   (message "%s: phone turn arrived — buffer locked, SPC c y re-syncs"
            (buffer-name)))
 
-(defun mr-x/agent-resync--unlock ()
+(defun syzygy-resync--unlock ()
   "Lift the lock on the current buffer in place."
-  (setq mr-x/agent-resync--behind 0)
+  (setq syzygy-resync--behind 0)
   (setq buffer-read-only nil)
-  (when (overlayp mr-x/agent-resync--overlay)
-    (delete-overlay mr-x/agent-resync--overlay))
-  (setq mr-x/agent-resync--overlay nil)
+  (when (overlayp syzygy-resync--overlay)
+    (delete-overlay syzygy-resync--overlay))
+  (setq syzygy-resync--overlay nil)
   (remove-hook 'evil-insert-state-entry-hook
-               #'mr-x/agent-resync--bounce-insert t))
+               #'syzygy-resync--bounce-insert t))
 
-(defun mr-x/agent-resync--flag (state &rest _)
+(defun syzygy-resync--flag (state &rest _)
   "Lock STATE's shell buffer.
 Installed on the function agent-shell calls exactly when an
 out-of-turn `user_message_chunk' arrives (another client's turn)."
   (when-let* ((buf (map-elt state :buffer))
               ((buffer-live-p buf)))
     (with-current-buffer buf
-      (mr-x/agent-resync--lock))))
+      (syzygy-resync--lock))))
 
-(defun mr-x/agent-resync--guard-submit (orig &rest args)
+(defun syzygy-resync--guard-submit (orig &rest args)
   "Refuse ORIG (`shell-maker-submit', ARGS) in a locked buffer.
 This runs before shell-maker commits the input, so aborting here
 leaves no half-sent state behind."
-  (if (mr-x/agent-resync--locked-p)
+  (if (syzygy-resync--locked-p)
       (user-error "%s is %d phone turn(s) behind — SPC c y re-syncs (C-u SPC c y unlocks)"
-                  (buffer-name) mr-x/agent-resync--behind)
+                  (buffer-name) syzygy-resync--behind)
     (apply orig args)))
 
-(defun mr-x/agent-resync-buffer (&optional unlock-only)
+(defun syzygy-resync-buffer (&optional unlock-only)
   "Replay this session into a fresh buffer, catching up on phone turns.
 Thin wrapper over `agent-shell-reload'.  With prefix arg UNLOCK-ONLY,
 just lift the lock and allow sending; the phone turns stay hidden
 here until the next reload."
   (interactive "P")
   (if unlock-only
-      (progn (mr-x/agent-resync--unlock)
+      (progn (syzygy-resync--unlock)
              (message "Lock lifted — sends allowed, history still stale"))
     (agent-shell-reload)))
 
 (advice-add 'agent-shell--make-out-of-session-turn-notification-body
-            :before #'mr-x/agent-resync--flag)
-(advice-add 'shell-maker-submit :around #'mr-x/agent-resync--guard-submit)
+            :before #'syzygy-resync--flag)
+(advice-add 'shell-maker-submit :around #'syzygy-resync--guard-submit)
 
-(provide 'mr-x-agent-resync)
-;;; mr-x-agent-resync.el ends here
+(provide 'syzygy-resync)
+;;; syzygy-resync.el ends here

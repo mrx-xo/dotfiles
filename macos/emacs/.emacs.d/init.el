@@ -135,6 +135,7 @@
 (run-with-idle-timer 5 t #'garbage-collect)
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
 
 ;; org-mcp is a local project under ~/roaming (synced via Syncthing); load it
 ;; only when present so a machine without ~/roaming yet doesn't abort all of init.
@@ -3471,9 +3472,9 @@ projectile projects appended below."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
-        "c H" '(mr-x/agent-resume-handoff :wk "Handoff resume (other machine)")
-        "c y" '(mr-x/agent-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
-        "c Y" '(mr-x/agent-live-mode :wk "LIVE 2-way sync (phone turns render)")
+        "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
+        "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
+        "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")

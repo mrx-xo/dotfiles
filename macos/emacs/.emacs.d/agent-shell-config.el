@@ -825,115 +825,8 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
 
         ;; ── Cross-machine session handoff (MrX <-> MrX2) ────────────
-        ;; Resume a conversation started on the other Mac. Handoffs are staged
-        ;; into ~/shared/agent-sessions/ (Syncthing) by agent-session-handoff.sh
-        ;; export; this imports + resumes one. See that script for the path
-        ;; translation (home swap + symlink resolution).
-        (defun mr-x/agent-handoff--read-meta (file)
-          "Parse KEY=VALUE lines of a handoff meta FILE into an alist.
-Values are read literally (never eval'd), so titles may contain spaces."
-          (with-temp-buffer
-            (insert-file-contents file)
-            (let (kv)
-              (dolist (line (split-string (buffer-string) "\n" t))
-                (when (string-match "\\`\\([A-Z_]+\\)=\\(.*\\)\\'" line)
-                  (push (cons (match-string 1 line) (match-string 2 line)) kv)))
-              (nreverse kv))))
-
-        (defun mr-x/agent-handoff--candidates ()
-          "Return resumable handoffs staged for this machine.
-
-Scans both the Syncthing peer path (~/shared/agent-sessions, flat) and
-the home-lab sync mirror (~/.local/share/agent-session-handoff, machine
-subdirs).  Each candidate is (LABEL . (:id ID :tgt-cwd DIR)).  Filters
-out handoffs that originated here, and — crucially — those whose project
-cwd does NOT exist locally: you can't stand up the agent in a directory
-you don't have, so the chat simply isn't offered (it reappears on its
-own if you ever set that project up).  Deduped by session id."
-          (let* ((shared (expand-file-name "~/shared/agent-sessions/"))
-                 (staging (expand-file-name "~/.local/share/agent-session-handoff/"))
-                 (this-machine
-                  (string-trim
-                   (or (ignore-errors
-                         (with-temp-buffer
-                           (insert-file-contents
-                            (expand-file-name "~/.config/machine-id"))
-                           (buffer-string)))
-                       "")))
-                 (metas (append
-                         (and (file-directory-p shared)
-                              (directory-files shared t "\\.meta\\'"))
-                         (and (file-directory-p staging)
-                              (directory-files-recursively staging "\\.meta\\'"))))
-                 (seen (make-hash-table :test 'equal)))
-            (delq nil
-                  (mapcar
-                   (lambda (m)
-                     (let* ((kv (mr-x/agent-handoff--read-meta m))
-                            (id (cdr (assoc "SESSION_ID" kv)))
-                            (src-home (cdr (assoc "SRC_HOME" kv)))
-                            (src-cwd (cdr (assoc "SRC_CWD" kv)))
-                            (src-mach (cdr (assoc "SRC_MACHINE" kv)))
-                            (title (cdr (assoc "TITLE" kv))))
-                       (when (and id src-home src-cwd
-                                  (not (equal src-mach this-machine))
-                                  (not (gethash id seen)))
-                         (let* ((tgt-raw (if (string-prefix-p src-home src-cwd)
-                                             (concat (expand-file-name "~")
-                                                     (substring src-cwd (length src-home)))
-                                           src-cwd))
-                                (tgt-cwd (file-truename tgt-raw)))
-                           ;; Only offer chats whose project dir exists here.
-                           (when (file-directory-p tgt-cwd)
-                             (puthash id t seen)
-                             (cons (format "%s  ·  %s  ·  %s"
-                                           (if (and title (not (string-empty-p title)))
-                                               title "(untitled)")
-                                           (or src-mach "?")
-                                           (file-name-nondirectory
-                                            (directory-file-name tgt-cwd)))
-                                   (list :id id :tgt-cwd tgt-cwd)))))))
-                   metas))))
-
-        (defun mr-x/agent-resume-handoff ()
-          "Resume an agent-shell conversation from another fleet machine.
-
-Candidates come from `mr-x/agent-handoff--candidates' (see it for the
-staging paths and filtering).  Picks one (auto if there's only one),
-imports its transcript into the local ~/.claude (paths rewritten and
-symlinks resolved by the script), then resumes — forcing the resolved
-project cwd and the Claude config so no agent picker appears and the cwd
-can't mismatch (a mismatch silently yields a BLANK shell).
-
-Populate the list with `agent-session-handoff.sh sync'."
-          (interactive)
-          (let* ((script (expand-file-name
-                          "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
-                 (candidates (mr-x/agent-handoff--candidates)))
-            (unless candidates
-              (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
-            (let* ((choice
-                    (if (= (length candidates) 1)
-                        (car candidates)
-                      (assoc (completing-read "Resume handoff: "
-                                              (mapcar #'car candidates) nil t)
-                             candidates)))
-                   (pl (cdr choice))
-                   (id (plist-get pl :id))
-                   (tgt-cwd (plist-get pl :tgt-cwd)))
-              ;; Place the transcript at the resolved path (script rewrites paths).
-              (with-temp-buffer
-                (unless (zerop (call-process "bash" nil t nil script "import" id))
-                  (user-error "Handoff import failed: %s"
-                              (string-trim (buffer-string)))))
-              ;; Resume with forced cwd + Claude config: no picker, no mismatch.
-              (let ((default-directory (file-name-as-directory tgt-cwd)))
-                (agent-shell--start
-                 :config agent-shell-preferred-agent-config
-                 :session-id id
-                 :new-session t))
-              (message "Resumed handoff %s in %s" id tgt-cwd))))
-
+        ;; Moved to lisp/syzygy/syzygy-handoff.el (SPC c H =
+        ;; syzygy-resume-handoff), required via the syzygy umbrella below.
 
         ;; Auto-close diff buffer when permission is accepted/rejected
         (advice-add 'agent-shell--send-permission-response :after
@@ -1309,14 +1202,10 @@ Populate the list with `agent-session-handoff.sh sync'."
       ;; dcluna/agent-shell-bookmark, see lisp/agent-shell-bookmark.el)
       (require 'agent-shell-bookmark)
 
-      ;; Agent Resync - phone turns (acp-mobile via acp-multiplex) land as
-      ;; out-of-turn user chunks the buffer can't render; mark it desynced,
-      ;; block sends, SPC c y replays via agent-shell-reload
-      (require 'mr-x-agent-resync)
-
-      ;; Live 2-way sync (SPC c Y): opt-in per buffer — phone turns
-      ;; render in place instead of locking; lockdown stays the default.
-      (require 'mr-x-agent-live)
+      ;; SYZYGY — cross-device conversation continuity (lisp/syzygy/):
+      ;; resync lockdown (SPC c y), live 2-way sync (SPC c Y), and
+      ;; cross-machine handoff resume (SPC c H).
+      (require 'syzygy)
 
       ;; Transcript appends fire on every streamed chunk — phone-driven
       ;; turns included — and agent-shell's write-region has no coding
@@ -1371,14 +1260,14 @@ Populate the list with `agent-session-handoff.sh sync'."
           (let* ((old-buf (ignore-errors (agent-shell--current-shell)))
                  (name (and old-buf (buffer-name old-buf)))
                  (label (and old-buf (gethash old-buf major-pane--labels)))
-                 (live (and old-buf (buffer-local-value 'mr-x/agent-live-mode old-buf))))
+                 (live (and old-buf (buffer-local-value 'syzygy-live-mode old-buf))))
             (prog1 (apply orig args)
               (when name
                 (when-let ((new-buf (get-buffer name)))
                   (unless (eq new-buf old-buf)
                     (when label (puthash new-buf label major-pane--labels))
                     (when live (with-current-buffer new-buf
-                                 (mr-x/agent-live-mode 1)))))))))
+                                 (syzygy-live-mode 1)))))))))
         (advice-add 'agent-shell-restart :around
                     #'mr-x/agent-label--keep-across-restart)
 

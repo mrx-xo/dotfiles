@@ -938,17 +938,29 @@ which would make every test run pollute crash detection state."
   (should (advice-member-p 'mr-x/buffer-pane--metadata-get
                            'completion-metadata-get)))
 
-(ert-deftest config-test-agent-resync ()
+(ert-deftest config-test-syzygy-resync ()
   "Phone-turn desync guard should be loaded with both advices installed.
 The send block must sit on `shell-maker-submit' (pre-commit), NOT on
 `agent-shell--handle' — blocking there wedges the buffer busy with a
 committed-but-never-sent prompt."
-  (should (fboundp 'mr-x/agent-resync-buffer))
-  (should (fboundp 'mr-x/agent-resync--bounce-insert))
-  (should (advice-member-p 'mr-x/agent-resync--guard-submit 'shell-maker-submit))
-  (should-not (advice-member-p 'mr-x/agent-resync--guard 'agent-shell--handle))
-  (should (advice-member-p 'mr-x/agent-resync--flag
+  (should (fboundp 'syzygy-resync-buffer))
+  (should (fboundp 'syzygy-resync--bounce-insert))
+  (should (advice-member-p 'syzygy-resync--guard-submit 'shell-maker-submit))
+  (should-not (advice-member-p 'syzygy-resync--guard 'agent-shell--handle))
+  (should (advice-member-p 'syzygy-resync--flag
                            'agent-shell--make-out-of-session-turn-notification-body)))
+
+(ert-deftest config-test-syzygy-package ()
+  "The syzygy umbrella loads all three modules with their entry points.
+Live mode's phone-prompt claim must sit on `agent-shell--on-notification',
+and the handoff script the resume command shells out to must exist."
+  (should (featurep 'syzygy))
+  (should (fboundp 'syzygy-live-mode))
+  (should (advice-member-p 'syzygy-live--on-notification
+                           'agent-shell--on-notification))
+  (should (advice-member-p 'syzygy-live--guard-submit 'shell-maker-submit))
+  (should (fboundp 'syzygy-resume-handoff))
+  (should (file-exists-p syzygy-handoff-script)))
 
 (ert-deftest config-test-coding-prompt-trap ()
   "Raw-bytes-only coding prompts must auto-answer utf-8, others still ask.
