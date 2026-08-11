@@ -19,7 +19,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 240e0a7 (pinned messages: long-press pin, header pin icon list)
 # + local 405325a (global pinned view from Sessions screen)
 # + local d3dd311 (iOS: no page-wide selection highlight on long-press)
-ACP_MOBILE_COMMIT="d3dd311"
+# + local 720daad (global pinned view: chat cards, tap into convo pins)
+ACP_MOBILE_COMMIT="720daad"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
