@@ -7916,6 +7916,28 @@ Populate the list with `agent-session-handoff.sh sync'."
             (with-temp-file file (insert (json-serialize labels)))))
         (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync)
 
+        ;; Labels (and live mode) must survive SPC c y: agent-shell-restart
+        ;; kills the buffer and creates a replacement under the same name,
+        ;; but major-pane--labels is keyed by buffer OBJECT — the entry
+        ;; died with the buffer (observed: label vanishing after one
+        ;; resync).  Carry both to the successor; the label-heal timer
+        ;; then mirrors the new session id to labels.json within 3s.
+        (defun mr-x/agent-label--keep-across-restart (orig &rest args)
+          "Carry pane label and live mode across ORIG (`agent-shell-restart')."
+          (let* ((old-buf (ignore-errors (agent-shell--current-shell)))
+                 (name (and old-buf (buffer-name old-buf)))
+                 (label (and old-buf (gethash old-buf major-pane--labels)))
+                 (live (and old-buf (buffer-local-value 'mr-x/agent-live-mode old-buf))))
+            (prog1 (apply orig args)
+              (when name
+                (when-let ((new-buf (get-buffer name)))
+                  (unless (eq new-buf old-buf)
+                    (when label (puthash new-buf label major-pane--labels))
+                    (when live (with-current-buffer new-buf
+                                 (mr-x/agent-live-mode 1)))))))))
+        (advice-add 'agent-shell-restart :around
+                    #'mr-x/agent-label--keep-across-restart)
+
         ;; Phone-side labeling: acp-mobile's /api/label calls this via
         ;; emacsclient (same bridge as /api/kill).  Updates the same
         ;; major-pane hash the rig uses, then syncs the sidecar — one
@@ -8069,6 +8091,11 @@ permission mode, same as C-u SPC c P on the rig."
               (mr-x/agent-label-sync)
               (setq mr-x/agent-label--live-last pairs))))
 
+        ;; Idempotent creation: a re-load must not stack duplicate timers,
+        ;; and a wedged timer object (observed: next-fire 53h in the past,
+        ;; never firing) gets replaced by a fresh one.
+        (cancel-function-timers #'mr-x/agent-status-sync)
+        (cancel-function-timers #'mr-x/agent-label-heal)
         (run-with-timer 5 3 #'mr-x/agent-status-sync)
         (run-with-timer 6 3 #'mr-x/agent-label-heal))
 
