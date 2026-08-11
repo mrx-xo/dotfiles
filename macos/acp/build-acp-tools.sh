@@ -15,7 +15,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + labels.json sidecar, iOS standalone polish)
 # + local 714ab25 (rig-match: Iosevka Term Slab webfont, org-level
 # grayscale headers, purple links)
-ACP_MOBILE_COMMIT="71dc1e9"
+# + local 7ba93e5 (headers match agent-shell's gruvbox org-level remap)
+ACP_MOBILE_COMMIT="7ba93e5"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
