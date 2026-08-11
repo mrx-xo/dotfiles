@@ -17,7 +17,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # grayscale headers, purple links)
 # + local 7ba93e5 (headers match agent-shell's gruvbox org-level remap)
 # + local 240e0a7 (pinned messages: long-press pin, header pin icon list)
-ACP_MOBILE_COMMIT="240e0a7"
+# + local 405325a (global pinned view from Sessions screen)
+ACP_MOBILE_COMMIT="405325a"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
