@@ -99,8 +99,17 @@ ORIG and ARGS as in the advised function."
             (apply orig args)
           ;; The phone's prompt: its own block above ours, same
           ;; "out-of-turn" namespace upstream gives the reply chunks.
+          ;; CRITICAL: tag :last-entry-type with our OWN value, not
+          ;; "user_message_chunk" — upstream reacts to that tag on the
+          ;; next notification by inserting an end-of-prompt marker AT
+          ;; THE PROCESS MARK (replay bookkeeping, agent-shell.el
+          ;; "Replayed user_message_chunks aren't followed by...").
+          ;; Out of turn that injects invisible read-only marker text
+          ;; into the LIVE input region: markers multiply per phone
+          ;; turn, strand any half-typed draft between read-only runs,
+          ;; and block typing entirely — the live-mode wedge.
           (let ((new-turn (not (equal (map-elt state :last-entry-type)
-                                      "user_message_chunk")))
+                                      "phone_user_message_chunk")))
                 (text (or (map-nested-elt notification
                                           '(params update content text))
                           (format "[%s]"
@@ -121,7 +130,7 @@ ORIG and ARGS as in the advised function."
              :create-new new-turn
              :expanded t
              :above-last-prompt t)
-            (map-put! state :last-entry-type "user_message_chunk")))))))
+            (map-put! state :last-entry-type "phone_user_message_chunk")))))))
 
 (defun mr-x/agent-live--guard-submit (orig &rest args)
   "Refuse ORIG (`shell-maker-submit', ARGS) while a phone turn streams."
