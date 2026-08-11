@@ -16,7 +16,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 714ab25 (rig-match: Iosevka Term Slab webfont, org-level
 # grayscale headers, purple links)
 # + local 7ba93e5 (headers match agent-shell's gruvbox org-level remap)
-ACP_MOBILE_COMMIT="7ba93e5"
+# + local 240e0a7 (pinned messages: long-press pin, header pin icon list)
+ACP_MOBILE_COMMIT="240e0a7"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
