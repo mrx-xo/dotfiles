@@ -1,8 +1,8 @@
-;;; mr-x-agent-live.el --- Live 2-way sync for multiplexed agent-shell -*- lexical-binding: t; -*-
+;;; syzygy-live.el --- Live 2-way sync for multiplexed agent-shell -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;;
-;; Companion (and counterpart) to mr-x-agent-resync.el.  The lockdown
+;; Companion (and counterpart) to syzygy-resync.el.  The lockdown
 ;; treats a phone turn landing in an agent-shell buffer as a desync
 ;; and locks the buffer until a reload.  This mode treats it as a
 ;; LIVE conversation instead: the phone's prompt renders in place and
@@ -47,42 +47,42 @@
 
 (declare-function agent-shell--update-fragment "agent-shell")
 (declare-function agent-shell--active-requests-p "agent-shell")
-(defvar mr-x/agent-resync--behind)
+(defvar syzygy-resync--behind)
 
-(defvar-local mr-x/agent-live--last-rx nil
+(defvar-local syzygy-live--last-rx nil
   "`float-time' of the last out-of-turn update seen in this buffer.")
 
-(defvar-local mr-x/agent-live--turn-count 0
+(defvar-local syzygy-live--turn-count 0
   "Counter feeding phone-turn fragment block ids.")
 
 ;;;###autoload
-(define-minor-mode mr-x/agent-live-mode
+(define-minor-mode syzygy-live-mode
   "Render phone turns live in this agent-shell buffer instead of locking.
 Off (default): the desync lockdown handles phone turns as today."
   :lighter " ⇄LIVE"
   (cond
-   ((not mr-x/agent-live-mode)
+   ((not syzygy-live-mode)
     (message "Live mode off — desync lockdown back in effect"))
    ((not (derived-mode-p 'agent-shell-mode))
-    (setq mr-x/agent-live-mode nil)
+    (setq syzygy-live-mode nil)
     (user-error "Not an agent-shell buffer"))
-   ((and (boundp 'mr-x/agent-resync--behind)
-         (> mr-x/agent-resync--behind 0))
-    (setq mr-x/agent-live-mode nil)
+   ((and (boundp 'syzygy-resync--behind)
+         (> syzygy-resync--behind 0))
+    (setq syzygy-live-mode nil)
     (user-error "%s is %d phone turn(s) behind — SPC c y first, then go live"
-                (buffer-name) mr-x/agent-resync--behind))
+                (buffer-name) syzygy-resync--behind))
    (t
     (message "%s is LIVE — phone turns render here as they stream"
              (buffer-name)))))
 
-(defun mr-x/agent-live--out-of-turn-user-chunk-p (state notification)
+(defun syzygy-live--out-of-turn-user-chunk-p (state notification)
   "Non-nil when NOTIFICATION is a user chunk with no request in STATE."
   (and (equal (map-elt notification 'method) "session/update")
        (equal (map-nested-elt notification '(params update sessionUpdate))
               "user_message_chunk")
        (not (agent-shell--active-requests-p state))))
 
-(defun mr-x/agent-live--on-notification (orig &rest args)
+(defun syzygy-live--on-notification (orig &rest args)
   "Around `agent-shell--on-notification': claim phone prompts in live buffers.
 ORIG and ARGS as in the advised function."
   (let* ((state (plist-get args :state))
@@ -90,12 +90,12 @@ ORIG and ARGS as in the advised function."
          (buf (map-elt state :buffer)))
     (if (not (and buf
                   (buffer-live-p buf)
-                  (buffer-local-value 'mr-x/agent-live-mode buf)))
+                  (buffer-local-value 'syzygy-live-mode buf)))
         (apply orig args)
       (with-current-buffer buf
         (unless (agent-shell--active-requests-p state)
-          (setq mr-x/agent-live--last-rx (float-time)))
-        (if (not (mr-x/agent-live--out-of-turn-user-chunk-p state notification))
+          (setq syzygy-live--last-rx (float-time)))
+        (if (not (syzygy-live--out-of-turn-user-chunk-p state notification))
             (apply orig args)
           ;; The phone's prompt: its own block above ours, same
           ;; "out-of-turn" namespace upstream gives the reply chunks.
@@ -118,11 +118,11 @@ ORIG and ARGS as in the advised function."
                                        '(params update content type))
                                       "unknown")))))
             (when new-turn
-              (cl-incf mr-x/agent-live--turn-count))
+              (cl-incf syzygy-live--turn-count))
             (agent-shell--update-fragment
              :state state
              :namespace-id "out-of-turn"
-             :block-id (format "phone-turn-%d" mr-x/agent-live--turn-count)
+             :block-id (format "phone-turn-%d" syzygy-live--turn-count)
              :label-left (propertize "𐆖 phone"
                                      'font-lock-face 'agent-shell-prompt)
              :body text
@@ -132,15 +132,15 @@ ORIG and ARGS as in the advised function."
              :above-last-prompt t)
             (map-put! state :last-entry-type "phone_user_message_chunk")))))))
 
-(defun mr-x/agent-live--guard-submit (orig &rest args)
+(defun syzygy-live--guard-submit (orig &rest args)
   "Refuse ORIG (`shell-maker-submit', ARGS) while a phone turn streams."
-  (if (and mr-x/agent-live-mode
-           mr-x/agent-live--last-rx
-           (< (- (float-time) mr-x/agent-live--last-rx) 2.0))
+  (if (and syzygy-live-mode
+           syzygy-live--last-rx
+           (< (- (float-time) syzygy-live--last-rx) 2.0))
       (user-error "Phone turn streaming — give it a beat")
     (apply orig args)))
 
-(defun mr-x/agent-live--live-prompt-fix (orig prompt)
+(defun syzygy-live--live-prompt-fix (orig prompt)
   "Around `agent-shell--live-input-prompt-p' (ORIG, PROMPT): skip markers.
 After an above-prompt fragment insert, shell-maker re-emits its
 invisible `<shell-maker-end-of-prompt>' marker text after the prompt.
@@ -149,7 +149,7 @@ declare the prompt dead — so every later chunk of the phone turn falls
 back to inserting AFTER the prompt, wedging input behind read-only
 text.  In live buffers, ignore `shell-maker--marker' text when scanning
 for output after the prompt."
-  (if (not mr-x/agent-live-mode)
+  (if (not syzygy-live-mode)
       (funcall orig prompt)
     (let ((end (marker-position (cdr prompt))))
       (or (= end (point-max))
@@ -166,9 +166,9 @@ for output after the prompt."
                               (point-max))))))
             ok)))))
 
-(advice-add 'agent-shell--on-notification :around #'mr-x/agent-live--on-notification)
-(advice-add 'shell-maker-submit :around #'mr-x/agent-live--guard-submit)
-(advice-add 'agent-shell--live-input-prompt-p :around #'mr-x/agent-live--live-prompt-fix)
+(advice-add 'agent-shell--on-notification :around #'syzygy-live--on-notification)
+(advice-add 'shell-maker-submit :around #'syzygy-live--guard-submit)
+(advice-add 'agent-shell--live-input-prompt-p :around #'syzygy-live--live-prompt-fix)
 
-(provide 'mr-x-agent-live)
-;;; mr-x-agent-live.el ends here
+(provide 'syzygy-live)
+;;; syzygy-live.el ends here
