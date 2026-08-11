@@ -3598,7 +3598,7 @@ projectile projects appended below."
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
-        "& e" '(major-pane-eject-conversation :wk "Eject to main window")
+        "& e" '(major-pane-eject-conversation :wk "Eject (C-u: new frame)")
         "& a" '(major-pane-adopt-conversation :wk "Adopt back into pane")
         "& f" '((lambda () (interactive)
                   (let ((current-prefix-arg '(4)))

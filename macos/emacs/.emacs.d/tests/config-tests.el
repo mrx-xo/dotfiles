@@ -950,4 +950,31 @@ committed-but-never-sent prompt."
   (should (advice-member-p 'mr-x/agent-resync--flag
                            'agent-shell--make-out-of-session-turn-notification-body)))
 
+(ert-deftest config-test-coding-prompt-trap ()
+  "Raw-bytes-only coding prompts must auto-answer utf-8, others still ask.
+The blocking \"Select coding system\" prompt stalled the daemon during
+phone turns (acp-mobile); the trap answers for pure raw-byte text and
+falls through to the interactive prompt for anything else."
+  (should (advice-member-p 'mr-x/coding-prompt-trap
+                           'select-safe-coding-system-interactively))
+  ;; Raw bytes only -> auto-answer utf-8, orig never called.
+  (should (eq 'utf-8
+              (mr-x/coding-prompt-trap
+               (lambda (&rest _) 'prompted)
+               (concat "x " (string-to-multibyte (unibyte-string #xe2 #x80 #x94)))
+               nil nil '(utf-8) nil 'raw-text)))
+  ;; No raw bytes -> defer to the interactive prompt.
+  (should (eq 'prompted
+              (mr-x/coding-prompt-trap
+               (lambda (&rest _) 'prompted)
+               "clean text" nil nil '(utf-8) nil 'raw-text))))
+
+(ert-deftest config-test-agent-shell-transcript-coding ()
+  "Transcript appends must carry an explicit utf-8 write coding.
+agent-shell's `write-region' has no coding binding; one undecoded byte
+in a streamed chunk pops the blocking coding-system prompt mid-turn."
+  (should (fboundp 'mr-x/agent-shell--transcript-utf8))
+  (should (advice-member-p 'mr-x/agent-shell--transcript-utf8
+                           'agent-shell--append-transcript)))
+
 ;;; config-tests.el ends here

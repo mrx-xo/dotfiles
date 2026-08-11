@@ -1380,8 +1380,12 @@ only window, splits a main area off beside it."
                     nil
                     (if (eq major-pane-direction 'left) 'right 'left))))
 
-(defun major-pane--do-eject (buf)
-  "Unregister BUF from the pane and display it in a main window."
+(defun major-pane--do-eject (buf &optional new-frame)
+  "Unregister BUF from the pane and display it in a main window.
+With non-nil NEW-FRAME, pop BUF out into a freshly created frame
+instead of a main window on this frame.  The frame is tagged with
+the `major-pane-eject-frame' parameter so adopting the buffer back
+deletes it."
   (let* ((win (major-pane--pane-window))
          (was-shown (and (window-live-p win) (eq (window-buffer win) buf))))
     (with-current-buffer buf
@@ -1405,22 +1409,30 @@ only window, splits a main area off beside it."
         (set-window-parameter win 'header-line-format nil)
         (unless (eq win (frame-root-window (window-frame win)))
           (delete-window win))))
-    (select-window (major-pane--eject-target-window))
-    (switch-to-buffer buf)))
+    (if new-frame
+        (let ((frame (make-frame '((major-pane-eject-frame . t)))))
+          (select-frame-set-input-focus frame)
+          (switch-to-buffer buf))
+      (select-window (major-pane--eject-target-window))
+      (switch-to-buffer buf))))
 
 ;;;###autoload
-(defun major-pane-eject-conversation ()
+(defun major-pane-eject-conversation (&optional new-frame)
   "Eject a conversation from the major-pane into the main window area.
 The buffer is unregistered — pane tabs, `major-pane-toggle', the
 pickers, and the display-buffer routing all ignore it from here on —
 and shown in a regular (non-pane) window, creating one when the pane
 is alone on the frame.  When focus is in the pane, ejects the active
-conversation; otherwise prompts with the picker.  Bring it back with
-`major-pane-adopt-conversation'."
-  (interactive)
+conversation; otherwise prompts with the picker.  With a prefix
+argument (\\[universal-argument]), NEW-FRAME, the conversation pops
+out into a new frame of its own instead.  Bring it back with
+`major-pane-adopt-conversation' (which also closes that frame)."
+  (interactive "P")
   (if (major-pane--in-pane-p (current-buffer))
-      (major-pane--do-eject (current-buffer))
-    (major-pane-pick-buffer #'major-pane--do-eject 'eject)))
+      (major-pane--do-eject (current-buffer) new-frame)
+    (major-pane-pick-buffer (lambda (buf)
+                              (major-pane--do-eject buf new-frame))
+                            'eject)))
 
 (defun major-pane--do-adopt (buf)
   "Re-register ejected BUF and display it in the pane.
@@ -1430,10 +1442,16 @@ Returns the pane window."
     (setq-local major-pane--excluded nil))
   (major-pane--register-conversation buf)
   (let ((win (major-pane-display-buffer-action buf nil)))
-    ;; Don't leave the conversation duplicated in a main window.
+    ;; Don't leave the conversation duplicated in a main window, and
+    ;; close frames that only existed to host the ejected buffer.
     (dolist (w (get-buffer-window-list buf nil t))
       (unless (window-parameter w 'major-pane)
-        (switch-to-prev-buffer w)))
+        (let ((frame (window-frame w)))
+          (if (and (frame-parameter frame 'major-pane-eject-frame)
+                   (eq w (frame-root-window frame))
+                   (cdr (frame-list)))
+              (delete-frame frame)
+            (switch-to-prev-buffer w)))))
     win))
 
 ;;;###autoload
