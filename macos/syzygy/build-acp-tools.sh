@@ -2,6 +2,12 @@
 # Build acp-multiplex + acp-mobile at the reviewed/pinned commits (R2.4/R2.5,
 # docs/prd-remote-agent-access.md). Installs into ~/.local/bin.
 #
+# acp-mobile builds from the Marx-A00 fork: local UI work lands as commits
+# on its `syzygy` branch (history log below), and the pinned hashes don't
+# exist on ElleNajt's upstream. acp-multiplex has no local commits and
+# builds from upstream. Fork workflow: commit in ~/src/acp-mobile, push to
+# `fork syzygy`, bump the pin here.
+#
 # Usage: ./build-acp-tools.sh
 set -euo pipefail
 
@@ -26,10 +32,10 @@ ACP_MOBILE_COMMIT="cb2dbb6"
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
 build() {
-  local repo="$1" commit="$2"
+  local owner="$1" repo="$2" commit="$3"
   local dir="$SRC_DIR/$repo"
   if [[ ! -d "$dir" ]]; then
-    git clone "https://github.com/ElleNajt/$repo.git" "$dir"
+    git clone "https://github.com/$owner/$repo.git" "$dir"
   fi
   git -C "$dir" fetch --quiet
   git -C "$dir" checkout --quiet "$commit"
@@ -37,5 +43,5 @@ build() {
   echo "built $repo @ $commit -> $BIN_DIR/$repo"
 }
 
-build acp-multiplex "$ACP_MULTIPLEX_COMMIT"
-build acp-mobile "$ACP_MOBILE_COMMIT"
+build ElleNajt acp-multiplex "$ACP_MULTIPLEX_COMMIT"
+build Marx-A00 acp-mobile "$ACP_MOBILE_COMMIT"
