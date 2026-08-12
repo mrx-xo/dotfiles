@@ -28,7 +28,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 720daad (global pinned view: chat cards, tap into convo pins)
 # + local cb2dbb6 (chat header: three-dot menu w/ Pinned + Kill)
 # + local 1c84a11 (nav header: title toggles Sessions/Projects, no ↻)
-ACP_MOBILE_COMMIT="1c84a11"
+# + local 1b954f9 (nav caret: SVG chevron, vertically centered)
+ACP_MOBILE_COMMIT="1b954f9"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
