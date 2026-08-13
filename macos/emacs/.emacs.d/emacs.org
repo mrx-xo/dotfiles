@@ -3640,7 +3640,7 @@ projectile projects appended below."
         "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "Bypass Perms")
         "c ." '(agent-shell-set-session-model :wk "Set model")
         "c T" '(agent-shell-open-transcript :wk "Open transcript")
-        "c q" '(agent-shell-queue-request :wk "Queue request")
+        "c q" '(agent-shell-prompt-queue :wk "Queue request")
         "c l" '(:ignore t :wk "Logs")
         "c l l" '(agent-shell-toggle-logging :wk "Toggle logging")
         "c l v" '(agent-shell-view-traffic :wk "View traffic")
