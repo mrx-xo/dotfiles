@@ -1861,7 +1861,22 @@ navigation.  Candidates are file targets, so embark actions
     :config
     ;; Run on macOS or when running as daemon (window-system is nil in daemon)
     (when (or (daemonp) (memq window-system '(mac ns x)))
-      (exec-path-from-shell-initialize)))
+      (exec-path-from-shell-initialize))
+    ;; nvm-installed CLIs (claude-agent-acp, acp-multiplex, MCP servers) live in
+    ;; ~/.nvm/versions/node/<ver>/bin, which nvm exports only from an *interactive*
+    ;; shell (.zshrc).  exec-path-from-shell uses a *login* shell, so a launchd
+    ;; daemon never sees them and agent-shell errors "claude-agent-acp not found".
+    ;; Unless a copy is already on PATH (e.g. a brew-global /opt/homebrew/bin one,
+    ;; as on MrX), splice in the newest nvm node bin that actually holds the binary.
+    (unless (executable-find "claude-agent-acp")
+      (let ((dir (car (seq-filter
+                       (lambda (d) (file-exists-p (expand-file-name "claude-agent-acp" d)))
+                       (sort (file-expand-wildcards "~/.nvm/versions/node/*/bin")
+                             #'file-newer-than-file-p)))))
+        (when dir
+          (setq dir (expand-file-name dir))
+          (add-to-list 'exec-path dir)
+          (setenv "PATH" (concat dir path-separator (getenv "PATH")))))))
 
 #+end_src
 
