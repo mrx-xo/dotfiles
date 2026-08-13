@@ -919,7 +919,7 @@ grouped by project and sorted newest-first, consult-style."
                    nil t)))
             (funcall lookup choice)))
 
-        (defun mr-x/agent-resume-handoff ()
+        (defun mr-x/agent-resume-handoff (&optional sync)
           "Resume an agent-shell conversation from another fleet machine.
 
 Candidates come from `mr-x/agent-handoff--candidates' (see it for the
@@ -930,10 +930,19 @@ then resumes — forcing the resolved project cwd and the Claude config so
 no agent picker appears and the cwd can't mismatch (a mismatch silently
 yields a BLANK shell).
 
-Populate the list with `agent-session-handoff.sh sync'."
-          (interactive)
+The candidate list is populated by `agent-session-handoff.sh sync'.  With
+a prefix argument (\\[universal-argument]), run that sync first to pull the
+latest sessions from the other machines before listing."
+          (interactive "P")
           (let* ((script (expand-file-name
                           "~/.dotfiles/macos/scripts/agent-session-handoff.sh"))
+                 (_ (when sync
+                      (message "Syncing handoffs…")
+                      (with-temp-buffer
+                        (if (zerop (call-process "bash" nil t nil script "sync"))
+                            (message "Handoff sync done")
+                          (message "Handoff sync failed: %s"
+                                   (string-trim (buffer-string)))))))
                  (candidates (mr-x/agent-handoff--candidates)))
             (unless candidates
               (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
