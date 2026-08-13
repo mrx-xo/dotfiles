@@ -32,6 +32,7 @@ function which ($cmd) { (Get-Command $cmd -ErrorAction SilentlyContinue).Source 
 function gs { git status @args }
 function gl { git log --oneline --graph --decorate -20 @args }
 function dotfiles { Set-Location "$HOME\dotfiles" }
+function remacs { & "$HOME\dotfiles\windows\scripts\emacs-restart.ps1" }   # restart the Emacs daemon + fresh frame
 
 # UTF-8 so the nerd-font glyphs render correctly.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
