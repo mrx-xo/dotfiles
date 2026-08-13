@@ -97,7 +97,9 @@ stage_session() {
   [ -n "$cwd" ] || return 1
   title=$(extract_title "$src")
   mkdir -p "$dest"
-  cp "$src" "$dest/$id.jsonl"
+  # -p keeps the transcript's mtime (rsync -a carries it through the hub), so
+  # the SPC c H picker can show real conversation recency, not stage time.
+  cp -p "$src" "$dest/$id.jsonl"
   {
     printf 'SESSION_ID=%s\n'  "$id"
     printf 'SRC_HOME=%s\n'    "$HOME"
