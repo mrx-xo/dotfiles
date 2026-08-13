@@ -1,0 +1,17 @@
+[Unit]
+Description=SYZYGY launcher (acp-mobile front door + WoL relay for MrX)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/syzygy/syzygy-launcher.py
+Restart=always
+RestartSec=3
+# wakeonlan just sends a UDP broadcast — no privileges needed
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
