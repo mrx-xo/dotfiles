@@ -4683,13 +4683,16 @@ Auto-enables in Lisp modes. (Uses lispy under the hood; elpaca pulls it in.)
         (evil-local-set-key 'normal "Y"
           (lambda () (interactive) (dired-copy-filename-as-kill 0)))))
 
-    (add-hook 'dired-mode-hook
-  	  (lambda ()
-  	    (dired-hide-details-mode 1)
-  	    (display-line-numbers-mode 1)
-  	    ;; Show dotfiles in git repos, hide them elsewhere
-  	    (unless (locate-dominating-file default-directory ".git")
-  	      (dired-omit-mode 1)))))
+    (defun mr-x/dired-setup ()
+      (dired-hide-details-mode 1)
+      (display-line-numbers-mode 1)
+      ;; Show dotfiles in git repos, hide them elsewhere.
+      ;; Remote: skip the .git walk — locate-dominating-file stats every
+      ;; parent dir, each one a TRAMP round trip.
+      (unless (file-remote-p default-directory)
+        (unless (locate-dominating-file default-directory ".git")
+          (dired-omit-mode 1))))
+    (add-hook 'dired-mode-hook #'mr-x/dired-setup))
 
   (use-package dired-x
     :ensure nil 
@@ -4705,7 +4708,12 @@ Auto-enables in Lisp modes. (Uses lispy under the hood; elpaca pulls it in.)
 
     (use-package all-the-icons-dired
       :ensure t
-      :hook (dired-mode . all-the-icons-dired-mode))
+      :init
+      ;; Icons stat each file — over TRAMP that's a round trip per entry.
+      (defun mr-x/all-the-icons-dired-maybe ()
+        (unless (file-remote-p default-directory)
+          (all-the-icons-dired-mode 1)))
+      :hook (dired-mode . mr-x/all-the-icons-dired-maybe))
 
     (use-package dired-preview
       :ensure t
@@ -5030,9 +5038,14 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   ;; diff-hl — inline git diff markers in the fringe
   (use-package diff-hl
     :ensure t
+    :init
+    ;; Remote dired: diff-hl runs git over the TRAMP connection per dir.
+    (defun mr-x/diff-hl-dired-maybe ()
+      (unless (file-remote-p default-directory)
+        (diff-hl-dired-mode 1)))
     :hook ((prog-mode . diff-hl-mode)
            (text-mode . diff-hl-mode)
-           (dired-mode . diff-hl-dired-mode)
+           (dired-mode . mr-x/diff-hl-dired-maybe)
            (magit-post-refresh . diff-hl-magit-post-refresh))
     :config
     (diff-hl-flydiff-mode 1))
