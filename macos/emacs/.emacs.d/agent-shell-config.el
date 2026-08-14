@@ -231,12 +231,18 @@ no longer carry the upstream label face, so they never match twice."
                       (delete-region pos next)
                       (save-excursion (goto-char pos) (insert new))
                       (setq next (+ pos (length new)))
-                      ;; carry layout/action props; drop mouse-face (loud) and
-                      ;; cursor-sensor-functions (echo-area spam)
-                      (dolist (p '(keymap pointer line-prefix wrap-prefix
-                                   agent-shell-markdown-frozen rear-nonsticky))
-                        (when-let* ((v (plist-get props p)))
-                          (put-text-property pos next p v)))
+                      ;; Carry every original text property except the visual
+                      ;; ones re-set below (`face' is per-segment in `new';
+                      ;; mouse-face/cursor-sensor are intentionally quieted).
+                      ;; This keeps agent-shell-ui-section ('body), read-only
+                      ;; and front-sticky intact so the fragment body's property
+                      ;; run stays contiguous.  Carrying only a hand-picked
+                      ;; subset severed that run at the label, so a later
+                      ;; collapse couldn't hide past it and the source block
+                      ;; stayed visible after an expand/collapse cycle.
+                      (cl-loop for (p v) on props by #'cddr
+                               unless (memq p '(face mouse-face cursor-sensor-functions))
+                               do (put-text-property pos next p v))
                       (put-text-property pos next 'mouse-face 'mr-x/agent-shell-label-hover)
                       ;; blend the label into the block panel: append the
                       ;; panel face so icon/name colors win but its bg and
@@ -1523,8 +1529,12 @@ permission mode, same as C-u SPC c P on the rig."
       (use-package agent-shell-tool-group
         :ensure (:host github :repo "Gleek/agent-shell-tool-group")
         :after agent-shell
-        :config
-        (agent-shell-tool-group-mode 1))
+        ;; Disabled 2026-08-14: after the agent-shell rendering rewrite,
+        ;; group headers render jammed onto the previous fragment's line
+        ;; (Gleek's --insert-header has no leading-newline guard, and there
+        ;; is no updated release).  Package stays installed for debugging;
+        ;; re-enable with:  :config (agent-shell-tool-group-mode 1)
+        )
 
 
       ;; Agent Shell Manager - Dashboard for managing multiple agent sessions
