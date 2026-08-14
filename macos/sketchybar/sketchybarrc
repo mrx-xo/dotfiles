@@ -25,7 +25,7 @@ sketchybar --bar height=40        \
                  margin=0         \
                  y_offset=0       \
                  corner_radius=5  \
-                 padding_left=0   \
+                 padding_left=8   \
                  padding_right=0  \
                  color=0x00000000
 

@@ -141,7 +141,7 @@
     "c n"   '(mr-x/agent-shell-new-smart :wk "new shell (smart)")
     "c o"   '(agent-shell-other-buffer :wk "other buffer")
     "c i"   '(agent-shell-interrupt :wk "interrupt")
-    "c q"   '(agent-shell-queue-request :wk "queue request")
+    "c q"   '(agent-shell-prompt-queue :wk "queue request")
     "c p"   '(agent-shell-yank-dwim :wk "paste (smart)")
     "c d"   '(agent-shell-send-dwim :wk "send dwim")
     "c R"   '(agent-shell-send-region :wk "send region")
