@@ -127,6 +127,17 @@
     "d e" '((lambda () (interactive) (dired (expand-file-name "dotfiles" (or (getenv "USERPROFILE") "~")))) :wk "dired dotfiles")
     "d H" '(dired-omit-mode :wk "toggle omit")
     "d p" '(dired-preview-global-mode :wk "toggle preview")
+    ;; git (magit) — same letters as the macOS config
+    "g"   '(:ignore t :wk "git")
+    "g g" '(magit-status :wk "status")
+    "g d" '(magit-diff-unstaged :wk "diff unstaged")
+    "g l" '(magit-log-current :wk "log current")
+    "g L" '(magit-log-all :wk "log all")
+    "g b" '(magit-blame :wk "blame")
+    "g c" '(magit-branch-or-checkout :wk "branch or checkout")
+    "g p" '(magit-push-current :wk "push current")
+    "g P" '(magit-pull-branch :wk "pull branch")
+    "g f" '(magit-fetch :wk "fetch")
     ;; windows
     "w"   '(:keymap evil-window-map :package evil :wk "window")
     ;; quit / restart
@@ -322,6 +333,15 @@
           (side . right)
           (window-width . 0.5))))
 
+;; ---------- Git (magit) ----------
+;; Essentials build: plain magit, no delta/difftastic/pane-aware display (those
+;; are the macOS setup). Deferred — first `SPC g g' autoloads and installs it.
+(use-package magit
+  :commands (magit-status magit-get-current-branch)
+  :custom
+  ;; magit takes over the frame, restores the window layout on quit.
+  (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1))
+
 ;; ---------- Lua + LSP (eglot is built-in) ----------
 (use-package lua-mode
   :mode "\\.lua\\'"
@@ -493,6 +513,26 @@
   (agent-recall-browse-preview t)
   :hook (agent-shell-mode . agent-recall-track-sessions))
 
+;; ---------- MrX agent-shell comfort layer ----------
+;; major-pane side panel + display routing, smart editing keys, launch
+;; presets, picker-based send commands. The portable modules
+;; (major-pane.el, mr-x-agent-send.el) load straight from the repo's
+;; macos/ lisp dir — one copy, both machines; the Windows glue lives in
+;; windows/emacs/.emacs.d/lisp/agent-shell-extras.el. Anchored to
+;; USERPROFILE (Emacs `~' on Windows is %APPDATA%\Roaming, not the home
+;; the dotfiles repo lives under).
+(dolist (dir '("dotfiles/macos/emacs/.emacs.d/lisp"
+               "dotfiles/windows/emacs/.emacs.d/lisp"))
+  (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
+(require 'agent-shell-extras)
+
+;; The repo's .dir-locals.el sets mr-x/project-cmd-alist (per-project commands,
+;; consumed by mr-x/project-command on the Mac side). This Windows config
+;; doesn't use it, but Emacs still processes the dir-local on every visit and
+;; would prompt unless the value is known-safe. The `-alist' name is non-risky,
+;; so this predicate silences the prompt for good.
+(put 'mr-x/project-cmd-alist 'safe-local-variable #'listp)
+
 (provide 'init)
 ;;; init.el ends here
 (custom-set-variables
@@ -500,7 +540,11 @@
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(package-selected-packages nil))
+ '(package-selected-packages
+   '(agent-recall consult corfu dired-preview doom-modeline doom-themes
+                  evil-collection general ligature lua-mode marginalia
+                  nerd-icons-completion nerd-icons-dired orderless
+                  org-modern vertico)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
