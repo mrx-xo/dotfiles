@@ -168,31 +168,12 @@ grouped by project and sorted newest-first, consult-style."
            nil t)))
     (funcall lookup choice)))
 
-;;;###autoload
-(defun syzygy-resume-handoff (&optional sync)
-  "Resume an agent-shell conversation from another fleet machine.
-
-Candidates come from `syzygy-handoff--candidates' (see it for the
-staging paths and filtering), presented by `syzygy-handoff--read'
-(auto-picked when there's only one).  Imports the transcript into the
-local ~/.claude (paths rewritten and symlinks resolved by the script),
-then resumes — forcing the resolved project cwd and the Claude config so
-no agent picker appears and the cwd can't mismatch (a mismatch silently
-yields a BLANK shell).
-
-The candidate list is populated by `agent-session-handoff.sh sync'.  With
-a prefix argument (\\[universal-argument]), run that sync first to pull the
-latest sessions from the other machines before listing."
-  (interactive "P")
-  (let* ((_ (when sync
-              (message "Syncing handoffs…")
-              (with-temp-buffer
-                (if (zerop (call-process "bash" nil t nil
-                                         syzygy-handoff-script "sync"))
-                    (message "Handoff sync done")
-                  (message "Handoff sync failed: %s"
-                           (string-trim (buffer-string)))))))
-         (candidates (syzygy-handoff--candidates)))
+(defun syzygy-handoff--pick-and-resume ()
+  "List staged handoffs, pick one, import it, and resume it locally.
+Assumes any sync has already run.  Forces the resolved project cwd and
+the Claude config so no agent picker appears and the cwd can't mismatch
+\(a mismatch silently yields a BLANK shell)."
+  (let ((candidates (syzygy-handoff--candidates)))
     (unless candidates
       (user-error "No resumable handoffs — run `agent-session-handoff.sh sync', or the projects aren't set up here"))
     (let* ((pl (if (= (length candidates) 1)
@@ -206,6 +187,13 @@ latest sessions from the other machines before listing."
                                      syzygy-handoff-script "import" id))
           (user-error "Handoff import failed: %s"
                       (string-trim (buffer-string)))))
+      ;; Tag the session in agent-recall's sidecar so the handoff surfaces in
+      ;; the recall browser/stats (this is human-facing metadata — the agent
+      ;; sees the separate isMeta note the import step wrote into the transcript).
+      (when (fboundp 'agent-recall-metadata-merge)
+        (agent-recall-metadata-merge
+         id `((handoff-from . ,(plist-get pl :machine))
+              (handoff-date . ,(format-time-string "%F")))))
       ;; Resume with forced cwd + Claude config: no picker, no mismatch.
       (let ((default-directory (file-name-as-directory tgt-cwd)))
         (agent-shell--start
@@ -213,6 +201,74 @@ latest sessions from the other machines before listing."
          :session-id id
          :new-session t))
       (message "Resumed handoff %s in %s" id tgt-cwd))))
+
+(defun syzygy-handoff--sync-filter (proc chunk)
+  "Relay each complete line of CHUNK from PROC to the echo area.
+The script narrates its progress on stderr (SSHing in, pushing, pulling
+…); we show the latest line live so the sync isn't a silent freeze.  A
+copy of everything is kept in the process buffer for the failure report."
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (goto-char (point-max))
+      (insert chunk)))
+  (let ((pending (concat (process-get proc 'syzygy-pending) chunk)))
+    (while (string-match "\n" pending)
+      (let ((line (string-trim (substring pending 0 (match-beginning 0)))))
+        (setq pending (substring pending (match-end 0)))
+        (unless (string-empty-p line)
+          (message "Handoff sync: %s" line))))
+    (process-put proc 'syzygy-pending pending)))
+
+;;;###autoload
+(defun syzygy-resume-handoff (&optional sync)
+  "Resume an agent-shell conversation from another fleet machine.
+
+Candidates come from `syzygy-handoff--candidates' (see it for the
+staging paths and filtering), presented by `syzygy-handoff--read'
+(auto-picked when there's only one).  Imports the transcript into the
+local ~/.claude (paths rewritten and symlinks resolved by the script),
+then resumes.  See `syzygy-handoff--pick-and-resume'.
+
+The candidate list is populated by `agent-session-handoff.sh'.  With a
+prefix argument (\\[universal-argument]), run a full `sync-all' first:
+SSH into each fleet peer and have it push its own latest chats to the hub
+before we pull, so a conversation you just left on the other Mac is
+actually there to grab (a sleeping peer is skipped, not fatal).  This is
+the \"true\" sync you want almost always.  With a double prefix
+(\\[universal-argument] \\[universal-argument]), run a local-only `sync'
+instead — push+pull the hub without prodding peers (faster when they're
+known asleep).
+
+The sync runs asynchronously so its progress streams into the echo area;
+the picker opens when it finishes.  Without a prefix arg there's no sync
+and the picker opens immediately."
+  (interactive "P")
+  (let ((sync-cmd (cond ((equal sync '(16)) "sync")
+                        (sync "sync-all"))))
+    (if (not sync-cmd)
+        (syzygy-handoff--pick-and-resume)
+      (message "Handoff sync (%s) starting…" sync-cmd)
+      (make-process
+       :name "syzygy-handoff-sync"
+       :buffer (generate-new-buffer " *syzygy-handoff-sync*")
+       :command (list "bash" syzygy-handoff-script sync-cmd)
+       :connection-type 'pipe
+       :noquery t
+       :filter #'syzygy-handoff--sync-filter
+       :sentinel
+       (lambda (proc _event)
+         (when (memq (process-status proc) '(exit signal))
+           (let ((buf (process-buffer proc)))
+             (if (zerop (process-exit-status proc))
+                 (progn
+                   (message "Handoff sync (%s) done — pick a chat" sync-cmd)
+                   (when (buffer-live-p buf) (kill-buffer buf))
+                   (syzygy-handoff--pick-and-resume))
+               (message "Handoff sync (%s) failed: %s" sync-cmd
+                        (if (buffer-live-p buf)
+                            (with-current-buffer buf
+                              (string-trim (buffer-string)))
+                          "(no output)"))))))))))
 
 (provide 'syzygy-handoff)
 ;;; syzygy-handoff.el ends here
