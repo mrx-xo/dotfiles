@@ -28,8 +28,8 @@
 
 (declare-function agent-shell-insert "agent-shell")
 (declare-function agent-shell-cwd "agent-shell")
-(declare-function agent-shell-queue-request "agent-shell")
-(declare-function agent-shell--read-queue-prompt "agent-shell")
+(declare-function agent-shell-prompt-queue "agent-shell")
+(declare-function agent-shell--prompt-queue-read "agent-shell")
 (declare-function agent-shell--get-region-context "agent-shell")
 (declare-function agent-shell--get-files-context "agent-shell")
 (declare-function agent-shell--buffer-files "agent-shell")
@@ -46,8 +46,8 @@ busy, open the queue prompt prefilled with TEXT so the request is
 queued behind the in-flight response."
   (if (with-current-buffer buf (shell-maker-busy))
       (with-current-buffer buf
-        (agent-shell-queue-request
-         (agent-shell--read-queue-prompt :initial (concat text "\n\n"))))
+        (agent-shell-prompt-queue
+         (agent-shell--prompt-queue-read :initial (concat text "\n\n"))))
     (save-window-excursion
       (agent-shell-insert :text text :shell-buffer buf :no-focus t))))
 
