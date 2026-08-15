@@ -8,7 +8,8 @@
 ;; Three visual feedback channels:
 ;;   1. Modeline segment — 📎N when refs are queued
 ;;   2. Pulse — region flashes on capture
-;;   3. Headerline — truncated snippets bar above the buffer
+;;   3. Input preview — truncated snippets bar above the input line
+;;      (overlay before-string; clear with the ref commands, not backspace)
 ;;
 ;; Keybindings (configured externally):
 ;;   - Capture:  visual-mode binding → agent-shell-refs-capture
@@ -142,9 +143,9 @@ becomes the ref."
                      (length agent-shell-refs--list))))
         (message "%s Referenced (%d attached)"
                  (agent-shell-refs--type-icon type) count))
-      ;; Update modeline + headerline
+      ;; Update modeline + input preview
       (with-current-buffer shell-buf
-        (agent-shell-refs--update-headerline)
+        (agent-shell-refs--update-input-preview)
         (force-mode-line-update)))))
 
 ;;; --- Clear / Remove ---
@@ -156,7 +157,7 @@ becomes the ref."
     (when buf
       (with-current-buffer buf
         (setq agent-shell-refs--list nil)
-        (agent-shell-refs--update-headerline)
+        (agent-shell-refs--update-input-preview)
         (force-mode-line-update))
       (message "%s Refs cleared" (agent-shell-refs--pill-icon)))))
 
@@ -179,7 +180,7 @@ becomes the ref."
              (choice (completing-read "Remove ref: " candidates nil t))
              (ref (cdr (assoc choice candidates))))
         (setq agent-shell-refs--list (delete ref agent-shell-refs--list))
-        (agent-shell-refs--update-headerline)
+        (agent-shell-refs--update-input-preview)
         (force-mode-line-update)
         (message "%s Removed (%d remaining)" (agent-shell-refs--pill-icon)
                  (length agent-shell-refs--list))))))
@@ -248,10 +249,15 @@ order — e.g. \" ❝2 📄1\"."
 
 (put 'agent-shell-refs--modeline-construct 'risky-local-variable t)
 
-;;; --- Headerline ---
+;;; --- Input preview ---
+;; A display-only bar above the current input line showing which refs are
+;; queued, BEFORE you send.  It lives in an overlay `before-string', so it
+;; never enters the buffer text shell-maker sends and can't be corrupted by
+;; typing/backspace — clear it with the ref commands, not the keyboard.
+;; (The header-line is unavailable: agent-shell owns it for its config bar.)
 
-(defvar-local agent-shell-refs--headerline-active nil
-  "Non-nil when our headerline is installed.")
+(defvar-local agent-shell-refs--preview-overlay nil
+  "Overlay rendering the queued-refs bar above the input line.")
 
 (defun agent-shell-refs--truncate (text max-len)
   "Truncate TEXT to MAX-LEN chars, collapsing whitespace, adding … if needed."
@@ -260,45 +266,50 @@ order — e.g. \" ❝2 📄1\"."
         clean
       (concat (substring clean 0 (- max-len 1)) "…"))))
 
-(defun agent-shell-refs--headerline-format ()
-  "Build the headerline string from current refs."
-  (if (null agent-shell-refs--list)
-      nil
+(defun agent-shell-refs--preview-bar-string ()
+  "Build the queued-refs pill bar shown above the input line.
+Chips reuse the sent-block pill styling (see `agent-shell-refs--pill'),
+so a queued ref reads the same before and after it's sent."
+  (when agent-shell-refs--list
     (let* ((refs (reverse agent-shell-refs--list))
            (total (length refs))
            (max-shown 3)
            (shown (seq-take refs max-shown))
            (remaining (- total max-shown))
-           (sep (propertize "  │  " 'face 'agent-shell-refs-headerline-separator-face))
-           ;; each snippet carries its own type icon (no global clip icon)
-           (snippets (mapcar (lambda (ref)
-                               (concat
-                                (propertize
-                                 (concat (agent-shell-refs--type-icon
-                                          (agent-shell-refs--ref-type ref))
-                                         " ")
-                                 'face 'agent-shell-refs-headerline-clip-face)
-                                (propertize (agent-shell-refs--truncate
-                                             (agent-shell-refs--ref-text ref) 25)
-                                            'face 'agent-shell-refs-headerline-face)))
-                             shown))
-           (parts (list (string-join snippets sep))))
-      (when (> remaining 0)
-        (setq parts (append parts
-                            (list sep
-                                  (propertize (format "+%d more" remaining)
-                                              'face 'agent-shell-refs-headerline-more-face)))))
-      (apply #'concat parts))))
+           (chips (mapcar #'agent-shell-refs--preview-chip shown))
+           (bar (string-join chips " ")))
+      (if (> remaining 0)
+          (concat bar "  "
+                  (propertize (format "+%d more" remaining)
+                              'face 'agent-shell-refs-headerline-more-face))
+        bar))))
 
-(defun agent-shell-refs--update-headerline ()
-  "Set or clear the headerline based on current refs."
-  (if agent-shell-refs--list
-      (progn
-        (setq header-line-format '(:eval (agent-shell-refs--headerline-format)))
-        (setq agent-shell-refs--headerline-active t))
-    (when agent-shell-refs--headerline-active
-      (setq header-line-format nil)
-      (setq agent-shell-refs--headerline-active nil))))
+(defun agent-shell-refs--input-line-start ()
+  "Position at the start of the current input's prompt line, or nil.
+Uses the same last-prompt search the submit advice relies on, so the
+preview sits on whatever line you're about to type into."
+  (save-excursion
+    (goto-char (point-max))
+    (when (re-search-backward comint-prompt-regexp nil t)
+      (line-beginning-position))))
+
+(defun agent-shell-refs--update-input-preview ()
+  "Refresh the queued-refs preview overlay above the input line.
+Rebuilt from scratch each call: drop the old overlay, and when refs are
+queued and a prompt exists, anchor a fresh zero-width overlay whose
+`before-string' is the snippet bar plus a newline (its own line above
+the prompt)."
+  (when (overlayp agent-shell-refs--preview-overlay)
+    (delete-overlay agent-shell-refs--preview-overlay)
+    (setq agent-shell-refs--preview-overlay nil))
+  (let ((pos (and agent-shell-refs--list
+                  (agent-shell-refs--input-line-start))))
+    (when pos
+      (let ((ov (make-overlay pos pos)))
+        (overlay-put ov 'before-string
+                     (concat (agent-shell-refs--preview-bar-string) "\n"))
+        (overlay-put ov 'agent-shell-refs-preview t)
+        (setq agent-shell-refs--preview-overlay ov)))))
 
 ;;; --- Submit hook ---
 
@@ -401,6 +412,19 @@ Lives in an overlay `before-string', so only mouse-1 can reach it."
                   'mouse-face 'agent-shell-refs-pill-hover-face
                   'help-echo "click: toggle referenced context"
                   'agent-shell-refs-pill t))))
+
+(defun agent-shell-refs--preview-chip (ref)
+  "A sent-style pill chip for the queued REF plist (display only).
+Mirrors `agent-shell-refs--pill' visually so a ref looks identical
+before and after send; carries no keymap since there's nothing to
+toggle until it's been sent."
+  (let ((s (concat " " (agent-shell-refs--pill-icon) " "
+                   (agent-shell-refs--truncate
+                    (agent-shell-refs--ref-text ref)
+                    agent-shell-refs-pill-snippet-length)
+                   " ▸ ")))
+    (add-face-text-property 0 (length s) 'agent-shell-refs-pill-face t s)
+    s))
 
 (defun agent-shell-refs--pillify-block-at (tag-beg)
   "Overlay-fold the raw refs block whose opening tag starts at TAG-BEG.
@@ -527,7 +551,7 @@ case agent-shell rewrites the echoed input region asynchronously."
             (insert refs-text))))
       ;; Clear refs
       (setq agent-shell-refs--list nil)
-      (agent-shell-refs--update-headerline)
+      (agent-shell-refs--update-input-preview)
       (force-mode-line-update))
     (prog1 (apply orig-fun args)
       (when had-refs
