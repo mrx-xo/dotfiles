@@ -1980,14 +1980,15 @@ navigation.  Candidates are file targets, so embark actions
       ;; Optional: set the shell explicitly if needed
       ;; (setq vterm-shell "/bin/zsh")
       
-      ;; Wrapper to open vterm in popper's popup position from the start
+      ;; A plain multi-vterm already lands in the bottom popup slot: its
+      ;; switch-to-buffer routes through display-buffer (we set
+      ;; switch-to-buffer-obey-display-actions) where the popup rule in
+      ;; display-buffer-alist matches.  This wrapper is just the
+      ;; intention-revealing name.
       (defun mr-x/vterm-popup ()
-        "Open multi-vterm in popper's popup position."
+        "Open multi-vterm in the bottom popup slot."
         (interactive)
-        (let ((buf (save-window-excursion
-                     (multi-vterm)
-                     (current-buffer))))
-          (display-buffer buf)))
+        (multi-vterm))
 
       (defun mr-x/vterm-in-dir ()
         "Open a vterm in a directory chosen via prompt."
@@ -1996,12 +1997,14 @@ navigation.  Candidates are file targets, so embark actions
           (multi-vterm)))
 
       (defun mr-x/vterm-buffer ()
-        "Open multi-vterm in current window, bypassing popper."
+        "Open multi-vterm as a normal buffer in the current window.
+`display-buffer-overriding-action' outranks the popup rule in
+`display-buffer-alist' — the formal escape hatch; marking the
+buffer 'raised keeps popper from re-adopting it."
         (interactive)
-        (let ((buf (save-window-excursion
-                     (multi-vterm)
-                     (current-buffer))))
-          (switch-to-buffer buf)))
+        (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+          (multi-vterm))
+        (setq-local popper-popup-status 'raised))
 
       (defun mr-x/vterm-frame ()
         "Open multi-vterm in a new dedicated frame, free from popper."
@@ -3018,9 +3021,8 @@ inside display-buffer before major-pane may be loaded."
             ;; ERT test results
             "\\*ert\\*"
             ert-results-mode
-            ;; Mdox viewer buffers
-            ".*--[Mm]dox.*"
-            ".*shortcuts.*\\.org$"
+            ;; (Mdox reader buffers are NOT popper's: they live in a right
+            ;; side window owned by `mr-x/mdox--display'.)
             ;; Agent shell manager
             "\\*Agent-Shell Buffers\\*"
             agent-shell-manager-mode
@@ -3028,24 +3030,54 @@ inside display-buffer before major-pane may be loaded."
             ;; DevDocs
             devdocs-mode))
     :config
-    (setq popper-display-control t)
-    (setq popper-display-function #'popper-select-popup-at-bottom)
+    ;; Placement lives in `display-buffer-alist' (rule below); popper only
+    ;; TRACKS popups: toggle, cycle, echo, perspective grouping.  Callers
+    ;; that need an exception use `display-buffer-overriding-action' (which
+    ;; outranks the alist by design), plus buffer-local `popper-popup-status'
+    ;; 'raised to opt a buffer out of popup-hood for good.
+    (setq popper-display-control nil)
     ;; Use Cmd+Ctrl+N for dispatch keys (macOS intercepts M-N)
     (setq popper-echo-dispatch-keys '("s-C-1" "s-C-2" "s-C-3" "s-C-4" "s-C-5"
                                        "s-C-6" "s-C-7" "s-C-8" "s-C-9" "s-C-0"))
-    ;; Give the agent-shell manager a taller popup (~40% of frame)
-    (setq popper-window-height
-          (lambda (win)
-            (let ((buf-name (buffer-name (window-buffer win)))
-                  (buf-mode (buffer-local-value 'major-mode (window-buffer win))))
-              (cond
-               ((string-match-p "\\*Agent-Shell Buffers\\*" buf-name)
-                (floor (frame-height) 2.5))
-               ((eq buf-mode 'devdocs-mode)
-                (floor (frame-height) 2.5))
-               (t (popper--fit-window-height win))))))
     (popper-mode +1)
-    (popper-echo-mode +1))
+    (popper-echo-mode +1)
+
+    (defun mr-x/popup-buffer-p (buffer-or-name &optional _action)
+      "display-buffer-alist condition: BUFFER-OR-NAME belongs in the popup.
+Same membership popper used when it controlled display: an already
+tracked popup stays one, 'raised opts out, and fresh buffers match
+`popper-reference-buffers' by name/mode."
+      (let ((buf (get-buffer buffer-or-name)))
+        (and buf
+             (with-current-buffer buf
+               (or (memq popper-popup-status '(popup user-popup))
+                   (unless (eq popper-popup-status 'raised)
+                     (popper-popup-p buf)))))))
+
+    (defun mr-x/popup-window-height (win)
+      "Size popup WIN: ~40% of the frame for the agent-shell manager and
+DevDocs, fit-to-content within 1/6..1/3 of the frame for the rest.
+NOTE: `window-height' functions must resize the window themselves —
+returning a number is a silent no-op."
+      (let* ((buf (window-buffer win))
+             (fixed (when (or (string-match-p "\\*Agent-Shell Buffers\\*"
+                                              (buffer-name buf))
+                              (eq (buffer-local-value 'major-mode buf)
+                                  'devdocs-mode))
+                      (floor (frame-height) 2.5))))
+        (fit-window-to-buffer win
+                              (or fixed (floor (frame-height) 3))
+                              (or fixed (floor (frame-height) 6)))))
+
+    ;; THE popup placement rule: bottom side window, selected on display
+    ;; (parity with the old popper-select-popup-at-bottom).
+    (add-to-list 'display-buffer-alist
+                 '(mr-x/popup-buffer-p
+                   (display-buffer-in-side-window)
+                   (side . bottom)
+                   (slot . 0)
+                   (window-height . mr-x/popup-window-height)
+                   (body-function . select-window))))
 #+end_src
 *** Scratch Buffer Setup
 #+begin_src emacs-lisp

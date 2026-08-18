@@ -378,6 +378,31 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   (should (fboundp 'mr-x/vterm-frame))
   (should (fboundp 'mr-x/vterm-restart)))
 
+(ert-deftest config-test-popup-placement-policy ()
+  "Popup placement lives in display-buffer-alist; popper only tracks.
+Popper must NOT control display, the popup rule must be present, and a
+'raised buffer must escape the rule (mr-x/vterm-buffer relies on it)."
+  (should (null popper-display-control))
+  (should (fboundp 'mr-x/popup-buffer-p))
+  (should (fboundp 'mr-x/popup-window-height))
+  (let ((rule (assq 'mr-x/popup-buffer-p display-buffer-alist)))
+    (should rule)
+    (should (memq 'display-buffer-in-side-window (cadr rule)))
+    (should (equal '(side . bottom) (assq 'side (cddr rule)))))
+  ;; membership: vterm names in, raised buffers out, mdox names out
+  (let ((buf (generate-new-buffer "*vterm-policy-test*")))
+    (unwind-protect
+        (progn
+          (should (mr-x/popup-buffer-p buf))
+          (with-current-buffer buf
+            (setq-local popper-popup-status 'raised))
+          (should-not (mr-x/popup-buffer-p buf)))
+      (kill-buffer buf)))
+  (let ((buf (generate-new-buffer "node--Mdox-thing")))
+    (unwind-protect
+        (should-not (mr-x/popup-buffer-p buf))
+      (kill-buffer buf))))
+
 ;; ── Org / Agenda ───────────────────────────────────────────────────────────
 
 (ert-deftest config-test-mr-x-org-agenda-core ()

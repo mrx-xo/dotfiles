@@ -1798,168 +1798,171 @@ navigation.  Candidates are file targets, so embark actions
 
 
 
-  (use-package vterm
-    :ensure t
-    :config
-    ;; Prevent evil-collection from messing with vterm keys
+    (use-package vterm
+      :ensure t
+      :config
+      ;; Prevent evil-collection from messing with vterm keys
 
 
-    (setq vterm-scroll-to-bottom-on-output nil)
-    (with-eval-after-load 'evil-collection
-      (setq evil-collection-vterm-bind-escape-in-insert nil)
-      (delete 'vterm evil-collection-mode-list)))
+      (setq vterm-scroll-to-bottom-on-output nil)
+      (with-eval-after-load 'evil-collection
+        (setq evil-collection-vterm-bind-escape-in-insert nil)
+        (delete 'vterm evil-collection-mode-list)))
 
-  (use-package multi-vterm
-    :ensure t
-    :after (evil vterm)
-    :config
-    ;; Set buffer name prefix to "vterm"
-    (setq multi-vterm-buffer-name "vterm")
-    ;; Set dedicated terminal height
-    (setq multi-vterm-dedicated-window-height-percent 40)
-    
-    ;; Setup vterm with evil properly
-    (add-hook 'vterm-mode-hook
-              (lambda ()
-                (setq-local evil-insert-state-cursor 'box)
-                (evil-insert-state)))
-    
-    ;; Basic vterm configuration
-    (setq vterm-keymap-exceptions nil)
-    
-    ;; Define keys after vterm-mode-map exists
-    (with-eval-after-load 'vterm
-      (define-key vterm-mode-map [return] #'vterm-send-return)
+    (use-package multi-vterm
+      :ensure t
+      :after (evil vterm)
+      :config
+      ;; Set buffer name prefix to "vterm"
+      (setq multi-vterm-buffer-name "vterm")
+      ;; Set dedicated terminal height
+      (setq multi-vterm-dedicated-window-height-percent 40)
       
-      ;; Pass through common terminal keys in insert mode
-      (evil-define-key 'insert vterm-mode-map (kbd "C-e")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-f")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-a")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-v")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-b")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-w")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-u")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-n")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-m")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-p")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-j")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-k")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-r")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-t")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-g")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-c")      #'vterm--self-insert)
-      (evil-define-key 'insert vterm-mode-map (kbd "C-SPC")    #'vterm--self-insert)
+      ;; Setup vterm with evil properly
+      (add-hook 'vterm-mode-hook
+                (lambda ()
+                  (setq-local evil-insert-state-cursor 'box)
+                  (evil-insert-state)))
       
-      ;; CMD+Backspace to clear line (send C-u to terminal)
-      (evil-define-key 'insert vterm-mode-map (kbd "s-<backspace>") 
-        (lambda () (interactive) (vterm-send-key "u" nil nil t)))
+      ;; Basic vterm configuration
+      (setq vterm-keymap-exceptions nil)
       
-      ;; Option+Backspace to delete word (send M-DEL to terminal)  
-      (evil-define-key 'insert vterm-mode-map (kbd "M-<backspace>")
-        (lambda () (interactive) (vterm-send-key "<backspace>" nil t nil)))
+      ;; Define keys after vterm-mode-map exists
+      (with-eval-after-load 'vterm
+        (define-key vterm-mode-map [return] #'vterm-send-return)
+        
+        ;; Pass through common terminal keys in insert mode
+        (evil-define-key 'insert vterm-mode-map (kbd "C-e")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-f")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-a")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-v")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-b")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-w")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-u")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-n")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-m")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-p")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-j")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-k")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-r")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-t")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-g")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-c")      #'vterm--self-insert)
+        (evil-define-key 'insert vterm-mode-map (kbd "C-SPC")    #'vterm--self-insert)
+        
+        ;; CMD+Backspace to clear line (send C-u to terminal)
+        (evil-define-key 'insert vterm-mode-map (kbd "s-<backspace>") 
+          (lambda () (interactive) (vterm-send-key "u" nil nil t)))
+        
+        ;; Option+Backspace to delete word (send M-DEL to terminal)  
+        (evil-define-key 'insert vterm-mode-map (kbd "M-<backspace>")
+          (lambda () (interactive) (vterm-send-key "<backspace>" nil t nil)))
+        
+        ;; Normal mode keys
+        (evil-define-key 'normal vterm-mode-map (kbd ",c")       #'multi-vterm)
+        (evil-define-key 'normal vterm-mode-map (kbd ",n")       #'multi-vterm-next)
+        (evil-define-key 'normal vterm-mode-map (kbd ",p")       #'multi-vterm-prev)
+        (evil-define-key 'normal vterm-mode-map (kbd "i")        #'evil-insert-resume)
+        (evil-define-key 'normal vterm-mode-map (kbd "o")        #'evil-insert-resume)
+        (evil-define-key 'normal vterm-mode-map (kbd "<return>") #'evil-insert-resume)
+        
+        ;; Paste in normal mode - send clipboard to vterm
+        (evil-define-key 'normal vterm-mode-map (kbd "p")
+          (lambda () (interactive)
+            (vterm-send-string (current-kill 0))))
+        
+        ;; CMD+Enter to send/execute in both modes
+        (evil-define-key 'normal vterm-mode-map (kbd "s-<return>") #'vterm-send-return)
+        (evil-define-key 'insert vterm-mode-map (kbd "s-<return>") #'vterm-send-return)))
+
+
+
+
+      ;; Optional: set the shell explicitly if needed
+      ;; (setq vterm-shell "/bin/zsh")
       
-      ;; Normal mode keys
-      (evil-define-key 'normal vterm-mode-map (kbd ",c")       #'multi-vterm)
-      (evil-define-key 'normal vterm-mode-map (kbd ",n")       #'multi-vterm-next)
-      (evil-define-key 'normal vterm-mode-map (kbd ",p")       #'multi-vterm-prev)
-      (evil-define-key 'normal vterm-mode-map (kbd "i")        #'evil-insert-resume)
-      (evil-define-key 'normal vterm-mode-map (kbd "o")        #'evil-insert-resume)
-      (evil-define-key 'normal vterm-mode-map (kbd "<return>") #'evil-insert-resume)
-      
-      ;; Paste in normal mode - send clipboard to vterm
-      (evil-define-key 'normal vterm-mode-map (kbd "p")
-        (lambda () (interactive)
-          (vterm-send-string (current-kill 0))))
-      
-      ;; CMD+Enter to send/execute in both modes
-      (evil-define-key 'normal vterm-mode-map (kbd "s-<return>") #'vterm-send-return)
-      (evil-define-key 'insert vterm-mode-map (kbd "s-<return>") #'vterm-send-return)))
+      ;; A plain multi-vterm already lands in the bottom popup slot: its
+      ;; switch-to-buffer routes through display-buffer (we set
+      ;; switch-to-buffer-obey-display-actions) where the popup rule in
+      ;; display-buffer-alist matches.  This wrapper is just the
+      ;; intention-revealing name.
+      (defun mr-x/vterm-popup ()
+        "Open multi-vterm in the bottom popup slot."
+        (interactive)
+        (multi-vterm))
+
+      (defun mr-x/vterm-in-dir ()
+        "Open a vterm in a directory chosen via prompt."
+        (interactive)
+        (let ((default-directory (read-directory-name "vterm dir: ")))
+          (multi-vterm)))
+
+      (defun mr-x/vterm-buffer ()
+        "Open multi-vterm as a normal buffer in the current window.
+`display-buffer-overriding-action' outranks the popup rule in
+`display-buffer-alist' — the formal escape hatch; marking the
+buffer 'raised keeps popper from re-adopting it."
+        (interactive)
+        (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+          (multi-vterm))
+        (setq-local popper-popup-status 'raised))
+
+      (defun mr-x/vterm-frame ()
+        "Open multi-vterm in a new dedicated frame, free from popper."
+        (interactive)
+        (let ((buf (save-window-excursion
+                     (multi-vterm)
+                     (current-buffer)))
+              (frame (make-frame `((name . ,(format "Terminal: %s" default-directory))
+                                   (unsplittable . t)))))
+          (select-frame-set-input-focus frame)
+          (delete-other-windows)
+          (switch-to-buffer buf)
+          (set-window-dedicated-p (selected-window) t)
+          ;; Tell popper this buffer is "raised" — removes POP status
+          ;; and prevents popper from re-classifying it
+          (setq-local popper-popup-status 'raised)))
+
+      (defun mr-x/vterm-restart ()
+        "Restart the current vterm in the same window and directory."
+        (interactive)
+        (unless (derived-mode-p 'vterm-mode)
+          (user-error "Not in a vterm buffer"))
+        (let ((dir default-directory)
+              (old-buf (current-buffer)))
+          (let ((default-directory dir))
+            (vterm (generate-new-buffer-name "vterm")))
+          (when (buffer-live-p old-buf)
+            (kill-buffer old-buf))))
+
+      (defun mr-x/vterm-homelab ()
+        "Open a vterm and SSH into homelab."
+        (interactive)
+        (let ((buf (save-window-excursion
+                     (multi-vterm)
+                     (current-buffer))))
+          (display-buffer buf)
+          (with-current-buffer buf
+            (vterm-send-string "ssh homelab")
+            (vterm-send-return))))
 
 
+    ;; (use-package multi-vterm
+    ;; 	 :config
+    ;; 	 (add-hook 'vterm-mode-hook
+    ;; 			 (lambda ()
+    ;; 			 (setq-local evil-insert-state-cursor 'box)
+    ;; 			 (evil-insert-state)))
 
+    ;; 	 (define-key vterm-mode-map [return]                      #'vterm-send-return)
 
-    ;; Optional: set the shell explicitly if needed
-    ;; (setq vterm-shell "/bin/zsh")
-    
-    ;; Wrapper to open vterm in popper's popup position from the start
-    (defun mr-x/vterm-popup ()
-      "Open multi-vterm in popper's popup position."
-      (interactive)
-      (let ((buf (save-window-excursion
-                   (multi-vterm)
-                   (current-buffer))))
-        (display-buffer buf)))
+    ;; 	 (setq vterm-keymap-exceptions nil))
 
-    (defun mr-x/vterm-in-dir ()
-      "Open a vterm in a directory chosen via prompt."
-      (interactive)
-      (let ((default-directory (read-directory-name "vterm dir: ")))
-        (multi-vterm)))
-
-    (defun mr-x/vterm-buffer ()
-      "Open multi-vterm in current window, bypassing popper."
-      (interactive)
-      (let ((buf (save-window-excursion
-                   (multi-vterm)
-                   (current-buffer))))
-        (switch-to-buffer buf)))
-
-    (defun mr-x/vterm-frame ()
-      "Open multi-vterm in a new dedicated frame, free from popper."
-      (interactive)
-      (let ((buf (save-window-excursion
-                   (multi-vterm)
-                   (current-buffer)))
-            (frame (make-frame `((name . ,(format "Terminal: %s" default-directory))
-                                 (unsplittable . t)))))
-        (select-frame-set-input-focus frame)
-        (delete-other-windows)
-        (switch-to-buffer buf)
-        (set-window-dedicated-p (selected-window) t)
-        ;; Tell popper this buffer is "raised" — removes POP status
-        ;; and prevents popper from re-classifying it
-        (setq-local popper-popup-status 'raised)))
-
-    (defun mr-x/vterm-restart ()
-      "Restart the current vterm in the same window and directory."
-      (interactive)
-      (unless (derived-mode-p 'vterm-mode)
-        (user-error "Not in a vterm buffer"))
-      (let ((dir default-directory)
-            (old-buf (current-buffer)))
-        (let ((default-directory dir))
-          (vterm (generate-new-buffer-name "vterm")))
-        (when (buffer-live-p old-buf)
-          (kill-buffer old-buf))))
-
-    (defun mr-x/vterm-homelab ()
-      "Open a vterm and SSH into homelab."
-      (interactive)
-      (let ((buf (save-window-excursion
-                   (multi-vterm)
-                   (current-buffer))))
-        (display-buffer buf)
-        (with-current-buffer buf
-          (vterm-send-string "ssh homelab")
-          (vterm-send-return))))
-
-
-  ;; (use-package multi-vterm
-  ;; 	 :config
-  ;; 	 (add-hook 'vterm-mode-hook
-  ;; 			 (lambda ()
-  ;; 			 (setq-local evil-insert-state-cursor 'box)
-  ;; 			 (evil-insert-state)))
-
-  ;; 	 (define-key vterm-mode-map [return]                      #'vterm-send-return)
-
-  ;; 	 (setq vterm-keymap-exceptions nil))
-
-(use-package ghostel
-  :ensure (:host github :repo "dakra/ghostel"
-		 :files ("lisp/*.el" "build.zig" "build.zig.zon" "symbols.map"
-			 "src" "vendor" "etc")))
+  (use-package ghostel
+    :ensure (:host github :repo "dakra/ghostel"
+  		 :files ("lisp/*.el" "build.zig" "build.zig.zon" "symbols.map"
+  			 "src" "vendor" "etc")))
 
 
 
@@ -2895,9 +2898,8 @@ inside display-buffer before major-pane may be loaded."
             ;; ERT test results
             "\\*ert\\*"
             ert-results-mode
-            ;; Mdox viewer buffers
-            ".*--[Mm]dox.*"
-            ".*shortcuts.*\\.org$"
+            ;; (Mdox reader buffers are NOT popper's: they live in a right
+            ;; side window owned by `mr-x/mdox--display'.)
             ;; Agent shell manager
             "\\*Agent-Shell Buffers\\*"
             agent-shell-manager-mode
@@ -2905,24 +2907,54 @@ inside display-buffer before major-pane may be loaded."
             ;; DevDocs
             devdocs-mode))
     :config
-    (setq popper-display-control t)
-    (setq popper-display-function #'popper-select-popup-at-bottom)
+    ;; Placement lives in `display-buffer-alist' (rule below); popper only
+    ;; TRACKS popups: toggle, cycle, echo, perspective grouping.  Callers
+    ;; that need an exception use `display-buffer-overriding-action' (which
+    ;; outranks the alist by design), plus buffer-local `popper-popup-status'
+    ;; 'raised to opt a buffer out of popup-hood for good.
+    (setq popper-display-control nil)
     ;; Use Cmd+Ctrl+N for dispatch keys (macOS intercepts M-N)
     (setq popper-echo-dispatch-keys '("s-C-1" "s-C-2" "s-C-3" "s-C-4" "s-C-5"
                                        "s-C-6" "s-C-7" "s-C-8" "s-C-9" "s-C-0"))
-    ;; Give the agent-shell manager a taller popup (~40% of frame)
-    (setq popper-window-height
-          (lambda (win)
-            (let ((buf-name (buffer-name (window-buffer win)))
-                  (buf-mode (buffer-local-value 'major-mode (window-buffer win))))
-              (cond
-               ((string-match-p "\\*Agent-Shell Buffers\\*" buf-name)
-                (floor (frame-height) 2.5))
-               ((eq buf-mode 'devdocs-mode)
-                (floor (frame-height) 2.5))
-               (t (popper--fit-window-height win))))))
     (popper-mode +1)
-    (popper-echo-mode +1))
+    (popper-echo-mode +1)
+
+    (defun mr-x/popup-buffer-p (buffer-or-name &optional _action)
+      "display-buffer-alist condition: BUFFER-OR-NAME belongs in the popup.
+Same membership popper used when it controlled display: an already
+tracked popup stays one, 'raised opts out, and fresh buffers match
+`popper-reference-buffers' by name/mode."
+      (let ((buf (get-buffer buffer-or-name)))
+        (and buf
+             (with-current-buffer buf
+               (or (memq popper-popup-status '(popup user-popup))
+                   (unless (eq popper-popup-status 'raised)
+                     (popper-popup-p buf)))))))
+
+    (defun mr-x/popup-window-height (win)
+      "Size popup WIN: ~40% of the frame for the agent-shell manager and
+DevDocs, fit-to-content within 1/6..1/3 of the frame for the rest.
+NOTE: `window-height' functions must resize the window themselves —
+returning a number is a silent no-op."
+      (let* ((buf (window-buffer win))
+             (fixed (when (or (string-match-p "\\*Agent-Shell Buffers\\*"
+                                              (buffer-name buf))
+                              (eq (buffer-local-value 'major-mode buf)
+                                  'devdocs-mode))
+                      (floor (frame-height) 2.5))))
+        (fit-window-to-buffer win
+                              (or fixed (floor (frame-height) 3))
+                              (or fixed (floor (frame-height) 6)))))
+
+    ;; THE popup placement rule: bottom side window, selected on display
+    ;; (parity with the old popper-select-popup-at-bottom).
+    (add-to-list 'display-buffer-alist
+                 '(mr-x/popup-buffer-p
+                   (display-buffer-in-side-window)
+                   (side . bottom)
+                   (slot . 0)
+                   (window-height . mr-x/popup-window-height)
+                   (body-function . select-window))))
 
 
 (setq initial-major-mode 'org-mode)
