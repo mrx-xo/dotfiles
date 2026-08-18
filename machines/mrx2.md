@@ -5,6 +5,12 @@
 
 ## Roles
 
+- **Kokoro TTS host for the HA voice pipeline** (since 2026-08-15) — Wyoming
+  server on `:10210`, native venv `~/kokoro-wyoming` (uv python 3.12),
+  LaunchAgent `com.marx.kokoro`, logs `/tmp/kokoro.log`. Casa Assist's voice
+  (`bf_emma` + Spanish auto-routing) depends on this box being awake — keep it
+  on AC with sleep disabled. Source of truth: home-lab repo
+  `services/kokoro/` (patch/main.py + mrx2/com.marx.kokoro.plist).
 - **Secondary (portable) Ollama host** — ~15 tok/s, tailnet-only
   (`mrx2:11434` from other machines; localhost here). NOT auto-started:
   bring it up with `~/roaming/projects/home-lab/scripts/ollama-ctl.sh start`.
