@@ -6667,8 +6667,9 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
         (define-key agent-shell-mode-map (kbd "<backtab>") #'agent-shell-cycle-session-mode)
         (define-key agent-shell-mode-map (kbd "C-<tab>") nil)
         
-        ;; CMD+Enter to submit prompt from normal mode (lazy mode)
+        ;; CMD+Enter to submit prompt from normal OR insert mode (lazy mode)
         (evil-define-key 'normal agent-shell-mode-map (kbd "s-<return>") #'shell-maker-submit)
+        (evil-define-key 'insert agent-shell-mode-map (kbd "s-<return>") #'shell-maker-submit)
 
         ;; Smart insert/append - jump to prompt if in history area
         (defun mr-x/agent-shell-smart-insert ()
@@ -8143,8 +8144,8 @@ permission mode, same as C-u SPC c P on the rig."
         (general-define-key
          :states '(normal visual)
          :prefix "SPC"
-         "c x r" '(agent-shell-refs-capture :wk "Capture ref")
-         "c x R" '(mr-x/agent-shell-refs-capture-and-go :wk "Capture ref + go")
+         "c x r" '(mr-x/agent-shell-refs-capture-and-go :wk "Capture ref + go")
+         "c x R" '(agent-shell-refs-capture :wk "Capture ref")
          "c x c" '(agent-shell-refs-clear :wk "Clear refs")
          "c x p" '(agent-shell-refs-preview :wk "Preview refs")
          "c x d" '(agent-shell-refs-remove :wk "Remove ref")
