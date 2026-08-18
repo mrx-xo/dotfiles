@@ -1727,38 +1727,90 @@ navigation.  Candidates are file targets, so embark actions
 
 
 
-(pcase system-type
-  ('gnu/linux "It's Linux!")
-  ('windows-nt "It's Windows!")
-  ('darwin "It's macOS!"))
+  (pcase system-type
+    ('gnu/linux "It's Linux!")
+    ('windows-nt "It's Windows!")
+    ('darwin "It's macOS!"))
 
-(if (daemonp)
-    (message "Loading in the daemon!")
-  (message "Loading in regular Emacs!"))
+  (if (daemonp)
+      (message "Loading in the daemon!")
+    (message "Loading in regular Emacs!"))
 
-(defun mr-x/set-font-faces ()
-  (message "Setting faces!")
-  ;; Font family differs per machine (mrx has "Iosevka", others may only
-  ;; have the Nerd Font build) — pick the first one actually installed.
-  (set-face-attribute 'default nil
-                      :font (cond ((find-font (font-spec :name "Iosevka")) "Iosevka")
-                                  ((find-font (font-spec :name "Iosevka Nerd Font")) "Iosevka Nerd Font")
-                                  ((find-font (font-spec :name "IosevkaTermSlab Nerd Font Mono")) "IosevkaTermSlab Nerd Font Mono")
-                                  (t "Menlo"))
-                      :height 240)
-  ;; Enable SF Symbols rendering (macOS)
-  (when (eq system-type 'darwin)
-    (set-fontset-font t nil "SF Pro Display" nil 'append)))
+  (defun mr-x/set-font-faces ()
+    (message "Setting faces!")
+    ;; tty frames (e.g. emacsclient -t over ssh from CALLIOPE) can't see GUI
+    ;; fonts — find-font returns nil for everything and the Menlo fallback
+    ;; would clobber the default face on ALL frames, GUI included. Fonts are
+    ;; meaningless on a tty anyway, so only touch faces for graphic frames.
+    (when (display-graphic-p)
+      ;; Font family differs per machine (mrx has "Iosevka", others may only
+      ;; have the Nerd Font build) — pick the first one actually installed.
+      (set-face-attribute 'default nil
+                          :font (cond ((find-font (font-spec :name "Iosevka")) "Iosevka")
+                                      ((find-font (font-spec :name "Iosevka Nerd Font")) "Iosevka Nerd Font")
+                                      ((find-font (font-spec :name "IosevkaTermSlab Nerd Font Mono")) "IosevkaTermSlab Nerd Font Mono")
+                                      (t "Menlo"))
+                          :height 240)
+      ;; Enable SF Symbols rendering (macOS)
+      (when (eq system-type 'darwin)
+        (set-fontset-font t nil "SF Pro Display" nil 'append))))
 
-  ;; Set the fixed pitch face
+    ;; Set the fixed pitch face
 
-(if (daemonp)
-    (add-hook 'after-make-frame-functions
+  (if (daemonp)
+      (add-hook 'after-make-frame-functions
 		(lambda (frame)
 		  (setq doom-modeline-icon t)
 		  (with-selected-frame frame
 		    (mr-x/set-font-faces))))
-  (mr-x/set-font-faces))
+    (mr-x/set-font-faces))
+
+  (defun mr-x/eink-tty-faces (frame)
+    "Black-on-white face overrides for tty frames (CALLIOPE via emx).
+Per-frame only — the dark theme's light accent colors are unreadable on
+the tablet's white e-ink, but themes are global, so instead of switching
+theme we override the high-traffic faces just on the tty frame. GUI
+frames never match the `unless' and keep the theme untouched."
+    (unless (display-graphic-p frame)
+      ;; tty renders the menu bar as a text row eating the top line —
+      ;; menu-bar-lines is per-frame, so only tablet frames lose it
+      (set-frame-parameter frame 'menu-bar-lines 0)
+      (pcase-dolist (`(,face . ,attrs)
+                     '((default (:foreground "#000000" :background "#ffffff"))
+                       (fringe (:background "#ffffff"))
+                       (region (:foreground "#000000" :background "#c6c6c6"))
+                       (hl-line (:background "#e4e4e4"))
+                       (cursor (:background "#000000"))
+                       (minibuffer-prompt (:foreground "#000000" :weight bold))
+                       (mode-line (:foreground "#000000" :background "#d0d0d0"))
+                       (mode-line-inactive (:foreground "#585858" :background "#eeeeee"))
+                       (font-lock-comment-face (:foreground "#585858"))
+                       (link (:foreground "#00005f" :underline t))
+                       (org-link (:foreground "#00005f" :underline t))
+                       (org-level-1 (:foreground "#000000" :weight bold))
+                       (org-level-2 (:foreground "#000000" :weight bold))
+                       (org-level-3 (:foreground "#262626" :weight bold))
+                       (org-level-4 (:foreground "#262626"))
+                       (org-todo (:foreground "#5f0000" :weight bold))
+                       (org-done (:foreground "#005f00" :weight bold))
+                       (org-date (:foreground "#00005f"))
+                       (org-agenda-date (:foreground "#000000" :weight bold))
+                       (org-agenda-date-today (:foreground "#000000" :weight bold :underline t))
+                       ;; org "hides" leading stars by painting them background-color;
+                       ;; must track the e-ink white or they reappear as dark stars
+                       (org-hide (:foreground "#ffffff"))
+                       (line-number (:foreground "#8a8a8a" :background "#ffffff"))
+                       (line-number-current-line (:foreground "#000000" :background "#e4e4e4" :weight bold))))
+        (when (facep face)
+          (apply #'set-face-attribute face frame (car attrs))))))
+
+  (add-hook 'after-make-frame-functions #'mr-x/eink-tty-faces)
+
+  ;; org re-runs org-hide's face spec (face-spec-recalc), wiping per-frame
+  ;; attributes — the only face in the e-ink set that gets clobbered. An
+  ;; override spec keyed on (type tty) survives recalc: tty frames stay
+  ;; white, GUI frames fall through to the theme.
+  (face-spec-set 'org-hide '((((type tty)) :foreground "#ffffff")) 'face-override-spec)
 
 
 
