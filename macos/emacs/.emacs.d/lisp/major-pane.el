@@ -1896,13 +1896,16 @@ the window that was active before the pane was shown."
                 (major-pane-state-active major-pane--state) buf
                 (major-pane-state-mode major-pane--state) 'full)
           ;; The pane window is soft-dedicated; release it so our own
-          ;; switch-to-buffer doesn't hit the dedication prompt.  The
-          ;; saved window configuration restores dedication on the way
-          ;; back to side mode.
+          ;; switch-to-buffer doesn't hit the dedication prompt, then
+          ;; re-dedicate once the buffer is in place — otherwise the
+          ;; full-frame window is ordinary and any same-window command
+          ;; (dired-jump &c.) replaces the conversation.  Soft still
+          ;; lets tab switching through (set-window-buffer).
           (when (window-dedicated-p (selected-window))
             (set-window-dedicated-p (selected-window) nil))
           (switch-to-buffer buf)
-          (delete-other-windows))))
+          (delete-other-windows)
+          (set-window-dedicated-p (selected-window) 'soft))))
      ;; Visible: hide it
      (win
       (setf (major-pane-state-active major-pane--state) buf
