@@ -242,6 +242,15 @@ reads as one continuous yellow-outlined unit (see
 `major-pane--render-tabs')."
   :group 'major-pane)
 
+(defface major-pane-tab-anchor-rail
+  '((t :background "#fe8019"))
+  "Face for the left edge rail on anchored tabs.
+Gruvbox orange — the rig's \"user\" accent (phone UI prompt rail,
+LIVE badge), and bright against the dark burnt-orange busy
+backgrounds (#5c1e02/#99551d), so the rail stays legible on every
+attention state."
+  :group 'major-pane)
+
 (defface major-pane-tab-hover
   '((t :background "#2b2827" :foreground "#fbf1c7"
        :box (:line-width (6 . -1) :color "#2b2827")))
@@ -439,6 +448,7 @@ if it was last).  When no conversations remain, clear active."
             (delq buf convos))
       (major-pane--remove-conversation-background buf)
       (remhash buf major-pane--labels)
+      (setq major-pane--anchored (delq buf major-pane--anchored))
       (when (eq buf (major-pane-state-active major-pane--state))
         (let ((remaining (major-pane-state-conversations major-pane--state)))
           (setf (major-pane-state-active major-pane--state)
@@ -513,6 +523,43 @@ Empty input clears the label."
                    (message "Label cleared for %s" (buffer-name buf)))
           (puthash buf input major-pane--labels)
           (message "Labeled %s as \"%s\"" (buffer-name buf) input))))))
+
+;;; Anchoring
+
+(defvar major-pane--anchored nil
+  "Anchored conversation buffers, in the order they were anchored.
+Anchored convos sort to the left of the tab row and carry a blue
+edge rail.  Session-scoped, like `major-pane--labels'.")
+
+(defun major-pane--ordered-convos ()
+  "Conversation list with anchored buffers first, in anchor order.
+Tab rendering and cycling both consume this, so navigation follows
+the visual order."
+  (let ((convos (major-pane-state-conversations major-pane--state)))
+    (append (cl-remove-if-not (lambda (b) (memq b convos))
+                              major-pane--anchored)
+            (cl-remove-if (lambda (b) (memq b major-pane--anchored))
+                          convos))))
+
+;;;###autoload
+(defun major-pane-anchor-toggle ()
+  "Toggle the current (or active) conversation as anchored.
+Anchored convos hold the left side of the tab row in anchor order,
+marked by a blue edge rail."
+  (interactive)
+  (let ((buf (if (memq (current-buffer)
+                       (major-pane-state-conversations major-pane--state))
+                 (current-buffer)
+               (major-pane-state-active major-pane--state))))
+    (cond
+     ((null buf) (user-error "No conversation to anchor"))
+     ((memq buf major-pane--anchored)
+      (setq major-pane--anchored (delq buf major-pane--anchored))
+      (message "%s unanchored" (buffer-name buf)))
+     (t
+      (setq major-pane--anchored (append major-pane--anchored (list buf)))
+      (message "%s anchored left" (buffer-name buf))))
+    (force-mode-line-update t)))
 
 ;;; Display
 
@@ -869,32 +916,63 @@ IS-ACTIVE selects the active/inactive face."
     ;; buffer isn't engaging with it.  `done' clears on insert-state
     ;; entry (`major-pane--attention-clear-on-insert'), `perms' when the
     ;; prompt is answered, `busy' when the turn resolves.
-    (propertize (format " %s%s "
-                        (if (eq (buffer-local-value 'major-pane--tab-attention buf)
-                                'busy)
-                            (concat (major-pane--spinner-frame) " ")
-                          "")
-                        (major-pane--tab-label buf))
-                'face (cond (is-active
-                             (pcase (buffer-local-value 'major-pane--tab-attention buf)
-                               ('busy 'major-pane-tab-active-busy)
-                               ('done 'major-pane-tab-active-done)
-                               ('perms 'major-pane-tab-active-perms)
-                               (_ 'major-pane-tab-active)))
-                            ((pcase (buffer-local-value 'major-pane--tab-attention buf)
-                               ('perms 'major-pane-tab-attention-perms)
-                               ('done 'major-pane-tab-attention-done)
-                               ('busy 'major-pane-tab-attention-busy)))
-                            (t 'major-pane-tab-inactive))
-                ;; No hover on the active tab; stateful tabs dim into a
-                ;; darker shade of their own color instead of gray.
-                'mouse-face (unless is-active
+    (let* ((live (and (boundp 'syzygy-live-mode)
+                      (buffer-local-value 'syzygy-live-mode buf)))
+           (spin (if (eq (buffer-local-value 'major-pane--tab-attention buf)
+                         'busy)
+                     (concat (major-pane--spinner-frame) " ")
+                   ""))
+           (str (propertize
+                 (format " %s%s%s "
+                         spin
+                         (major-pane--tab-label buf)
+                         (if live " ●" ""))
+                 'face (cond (is-active
                               (pcase (buffer-local-value 'major-pane--tab-attention buf)
-                                ('busy 'major-pane-tab-hover-busy)
-                                ('done 'major-pane-tab-hover-done)
-                                ('perms 'major-pane-tab-hover-perms)
-                                (_ 'major-pane-tab-hover)))
-                'local-map map)))
+                                ('busy 'major-pane-tab-active-busy)
+                                ('done 'major-pane-tab-active-done)
+                                ('perms 'major-pane-tab-active-perms)
+                                (_ 'major-pane-tab-active)))
+                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
+                                ('perms 'major-pane-tab-attention-perms)
+                                ('done 'major-pane-tab-attention-done)
+                                ('busy 'major-pane-tab-attention-busy)))
+                             (t 'major-pane-tab-inactive))
+                 ;; No hover on the active tab; stateful tabs dim into a
+                 ;; darker shade of their own color instead of gray.
+                 'mouse-face (unless is-active
+                               (pcase (buffer-local-value 'major-pane--tab-attention buf)
+                                 ('busy 'major-pane-tab-hover-busy)
+                                 ('done 'major-pane-tab-hover-done)
+                                 ('perms 'major-pane-tab-hover-perms)
+                                 (_ 'major-pane-tab-hover)))
+                 'local-map map)))
+      ;; syzygy-live dot (trails the title, clear of the busy spinner):
+      ;; red foreground only, so the tab's state face still supplies the
+      ;; background on active/attention tabs.
+      (when live
+        (add-face-text-property (- (length str) 2) (1- (length str))
+                                '(:foreground "#fb4934") nil str))
+      ;; Anchored: orange rail on the tab's left edge (doom-modeline
+      ;; bar-style pixel space), outside the state face so attention
+      ;; backgrounds start right after it, plus a matching underline
+      ;; across the tab.  Underline color reads from the rail face so
+      ;; the two can't drift apart.
+      (if (memq buf major-pane--anchored)
+          (progn
+            ;; :position 0 drops the underline from the baseline to the
+            ;; descent line so it meets the full-height rail instead of
+            ;; floating a few pixels above the tab's bottom edge.
+            (add-face-text-property
+             0 (length str)
+             `(:underline (:color ,(face-background 'major-pane-tab-anchor-rail nil t)
+                           :position 0))
+             nil str)
+            (concat (propertize " " 'display '(space :width (6))
+                                'face 'major-pane-tab-anchor-rail
+                                'local-map map)
+                    str))
+        str))))
 
 (defvar major-pane-attention-event-alist
   '((input-submitted . busy)
@@ -1062,7 +1140,7 @@ keeps the active tab visible (expanded alternately left/right so it
 stays roughly centered), with dim ‹N / N› overflow counters at the
 edges.  The header-line cannot scroll, so slicing is the only way to
 guarantee the active tab is on screen."
-  (let* ((convos (major-pane-state-conversations major-pane--state))
+  (let* ((convos (major-pane--ordered-convos))
          (active (major-pane-state-active major-pane--state))
          (ai (cl-position active convos :test #'eq))
          (win (major-pane--pane-window))
@@ -1262,7 +1340,7 @@ Only works when focus is in the pane.  Displays the new active
 buffer in the pane window and focuses it."
   (unless (major-pane--in-pane-p (current-buffer))
     (user-error "Not in the major-pane"))
-  (let* ((convos (major-pane-state-conversations major-pane--state))
+  (let* ((convos (major-pane--ordered-convos))
          (active (major-pane-state-active major-pane--state))
          (len (length convos))
          (pos (cl-position active convos :test #'eq)))
@@ -1276,7 +1354,7 @@ Searches tab order starting from the active conversation, wrapping
 around, and skipping the active tab itself.  Unlike plain cycling this
 works from any window — the point is to chase green tabs, so it pulls
 you into the pane (displaying it first if hidden)."
-  (let* ((convos (major-pane-state-conversations major-pane--state))
+  (let* ((convos (major-pane--ordered-convos))
          (active (major-pane-state-active major-pane--state))
          (len (length convos))
          (pos (or (cl-position active convos :test #'eq) 0))
