@@ -2316,6 +2316,12 @@ The package's 1s poll timer forces modeline updates, so this ticks."
                                                  #'agent-shell-inbox-disarm)
                                      map)))))
 
+      (doom-modeline-def-segment syzygy-live
+        "⇄ LIVE badge while phone turns render in this buffer (SPC c Y).
+Delegates to syzygy-live's own indicator."
+        (when (fboundp 'syzygy-live--modeline-indicator)
+          (syzygy-live--modeline-indicator)))
+
       ;; Modal indicator: the evil state as a plain, slightly enlarged
       ;; letter (n/i/v/r/o/m/e) colored by the state face — no icon, no
       ;; box, always renders regardless of font.  `doom-modeline--evil'
@@ -2390,7 +2396,7 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
           indent-info buffer-encoding major-mode process vcs check time))
 
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(bar modals buffer-info syzygy-live agent-shell-refs agent-shell-inbox)
         '())
 
       (with-eval-after-load 'nerd-icons
@@ -3860,6 +3866,7 @@ projectile projects appended below."
         "& w" '(major-pane-focus :wk "Focus pane")
         "& n" '(major-pane-new-chat :wk "New chat")
         "& l" '(major-pane-set-label :wk "Label conversation")
+        "& p" '(major-pane-anchor-toggle :wk "Anchor tab left (blue rail)")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
         "& k" '(major-pane-close-conversation :wk "Close conversation")

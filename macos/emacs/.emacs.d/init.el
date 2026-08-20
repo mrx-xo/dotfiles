@@ -1281,6 +1281,11 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
 
 
 
+;; Resolve symlinks on visit so a project-repo symlink (e.g.
+;; ~/.dotfiles/TODO.org -> ~/roaming/notes/dotfiles.org) opens as the
+;; real roam file and agenda/roam treat it normally
+(setq find-file-visit-truename t)
+
    (use-package org-roam
    :ensure t
    :demand t
@@ -1812,7 +1817,29 @@ frames never match the `unless' and keep the theme untouched."
   ;; white, GUI frames fall through to the theme.
   (face-spec-set 'org-hide '((((type tty)) :foreground "#ffffff")) 'face-override-spec)
 
-
+  (defun mr-x/calliope-emx (&optional sleep)
+    "Wake CALLIOPE and launch emx — live emacs on the e-ink.
+With prefix arg SLEEP, put the tablet's screen to sleep instead.
+Runs calliope-wake.sh asynchronously; the script wakes the screen
+over the tailnet (adb), wipes stale Termux sessions and daemon tty
+frames, and opens a fresh emx session. Tablet must be on a charger
+— asleep off-charger means Wi-Fi is off and nothing can reach it.
+Output lands in the *calliope* buffer."
+    (interactive "P")
+    (let ((script (expand-file-name "~/.dotfiles/macos/scripts/calliope-wake.sh"))
+          (buf (get-buffer-create "*calliope*")))
+      (with-current-buffer buf (erase-buffer))
+      (message "CALLIOPE: %s..." (if sleep "sleeping screen" "waking + launching emx"))
+      (make-process
+       :name "calliope-wake"
+       :buffer buf
+       :command (if sleep (list script "sleep") (list script "emx"))
+       :sentinel
+       (lambda (proc _event)
+         (when (memq (process-status proc) '(exit signal))
+           (if (zerop (process-exit-status proc))
+               (message "CALLIOPE: %s" (if sleep "screen asleep" "emx live on the e-ink"))
+             (message "CALLIOPE: failed (off charger / needs adb re-arm?) — see *calliope*")))))))
 
 
 
@@ -2186,6 +2213,12 @@ The package's 1s poll timer forces modeline updates, so this ticks."
                                                  #'agent-shell-inbox-disarm)
                                      map)))))
 
+      (doom-modeline-def-segment syzygy-live
+        "⇄ LIVE badge while phone turns render in this buffer (SPC c Y).
+Delegates to syzygy-live's own indicator."
+        (when (fboundp 'syzygy-live--modeline-indicator)
+          (syzygy-live--modeline-indicator)))
+
       ;; Modal indicator: the evil state as a plain, slightly enlarged
       ;; letter (n/i/v/r/o/m/e) colored by the state face — no icon, no
       ;; box, always renders regardless of font.  `doom-modeline--evil'
@@ -2260,7 +2293,7 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
           indent-info buffer-encoding major-mode process vcs check time))
 
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar modals buffer-info agent-shell-refs agent-shell-inbox)
+        '(bar modals buffer-info syzygy-live agent-shell-refs agent-shell-inbox)
         '())
 
       (with-eval-after-load 'nerd-icons
@@ -3694,6 +3727,7 @@ projectile projects appended below."
         "& w" '(major-pane-focus :wk "Focus pane")
         "& n" '(major-pane-new-chat :wk "New chat")
         "& l" '(major-pane-set-label :wk "Label conversation")
+        "& p" '(major-pane-anchor-toggle :wk "Anchor tab left (blue rail)")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
@@ -4401,131 +4435,156 @@ only sees the freshly restored frames."
 
 
 
-  (use-package evil-collection
+    (use-package evil-collection
+      :ensure t
+      :after evil
+      :init
+      (setq evil-collection-repl-submit-state '(normal insert))
+      :config
+      (evil-collection-init))
+
+  (use-package evil-org
+    :ensure t
+    :after org
+    :hook (org-mode . evil-org-mode)
+    :config
+    (require 'evil-org-agenda)
+    (evil-org-agenda-set-keys))
+
+  (use-package evil-snipe
     :ensure t
     :after evil
-    :init
-    (setq evil-collection-repl-submit-state '(normal insert))
     :config
-    (evil-collection-init))
+    (evil-snipe-mode +1)
+    (evil-snipe-override-mode +1))  ;; Replace default f/F/t/T with snipe
 
-(use-package evil-org
-  :ensure t
-  :after org
-  :hook (org-mode . evil-org-mode)
-  :config
-  (require 'evil-org-agenda)
-  (evil-org-agenda-set-keys))
+  (use-package evil-nerd-commenter
+    :ensure t
+    :after evil
+    :config
+    (define-key evil-normal-state-map "gc" 'evilnc-comment-operator)
+    (define-key evil-visual-state-map "gc" 'evilnc-comment-operator)
+    (global-set-key (kbd "s-/") 'evilnc-comment-or-uncomment-lines))
 
-(use-package evil-snipe
-  :ensure t
-  :after evil
-  :config
-  (evil-snipe-mode +1)
-  (evil-snipe-override-mode +1))  ;; Replace default f/F/t/T with snipe
+  (use-package evil-visual-mark-mode
+    :ensure t
+    :after evil
+    :config
+    (evil-visual-mark-mode))
 
-(use-package evil-nerd-commenter
-  :ensure t
-  :after evil
-  :config
-  (define-key evil-normal-state-map "gc" 'evilnc-comment-operator)
-  (define-key evil-visual-state-map "gc" 'evilnc-comment-operator)
-  (global-set-key (kbd "s-/") 'evilnc-comment-or-uncomment-lines))
+  (use-package bm
+    :ensure t
+    :demand t
+    :init
+    (setq bm-repository-file (expand-file-name "bm-repository" user-emacs-directory))
+    (setq bm-buffer-persistence t)
+    (setq bm-restore-repository-on-load t)
+    :config
+    (setq bm-cycle-all-buffers t)
+    (setq bm-highlight-style 'bm-highlight-only-fringe)
+    (add-hook 'after-init-hook 'bm-repository-load)
+    (add-hook 'kill-buffer-hook 'bm-buffer-save)
+    (add-hook 'kill-emacs-hook 'bm-buffer-save)
+    (add-hook 'kill-emacs-hook 'bm-repository-save)
+    (add-hook 'after-save-hook 'bm-buffer-save)
+    (add-hook 'find-file-hook 'bm-buffer-restore)
+    (add-hook 'after-revert-hook 'bm-buffer-restore)
 
-(use-package evil-visual-mark-mode
-  :ensure t
-  :after evil
-  :config
-  (evil-visual-mark-mode))
+    ;; Pure-visual line highlight — "look here" marks, NOT navigable.
+    ;; Distinct from bm marks (which cycle with SPC m n/p): these are just
+    ;; a persistent full-line highlight you toggle on/off. Per-session only
+    ;; (overlays don't survive restart, unlike bm's repository).
+    ;; Loud red face — intentionally louder than `region' (visual mode) so
+    ;; these marks grab attention rather than blend in.
+    (defface mr-x-line-highlight
+      '((t :background "#fb4934" :foreground "#1d2021" :weight bold :extend t))
+      "Face for pure-visual attention-grabbing line highlights.")
+    (defun mr-x/highlight-line-toggle ()
+      "Toggle a persistent full-line highlight on the current line."
+      (interactive)
+      (let ((ov (seq-find (lambda (o) (overlay-get o 'mr-x-hl))
+                          (overlays-at (line-beginning-position)))))
+        (if ov
+            (delete-overlay ov)
+          (let ((o (make-overlay (line-beginning-position)
+                                 (min (point-max) (1+ (line-end-position))))))
+            (overlay-put o 'mr-x-hl t)
+            (overlay-put o 'face 'mr-x-line-highlight)))))
 
-(use-package bm
-  :ensure t
-  :demand t
-  :init
-  (setq bm-repository-file (expand-file-name "bm-repository" user-emacs-directory))
-  (setq bm-buffer-persistence t)
-  (setq bm-restore-repository-on-load t)
-  :config
-  (setq bm-cycle-all-buffers t)
-  (setq bm-highlight-style 'bm-highlight-only-fringe)
-  (add-hook 'after-init-hook 'bm-repository-load)
-  (add-hook 'kill-buffer-hook 'bm-buffer-save)
-  (add-hook 'kill-emacs-hook 'bm-buffer-save)
-  (add-hook 'kill-emacs-hook 'bm-repository-save)
-  (add-hook 'after-save-hook 'bm-buffer-save)
-  (add-hook 'find-file-hook 'bm-buffer-restore)
-  (add-hook 'after-revert-hook 'bm-buffer-restore)
+    (defun mr-x/highlight-line-clear-buffer ()
+      "Remove all pure-visual line highlights in the current buffer."
+      (interactive)
+      (remove-overlays (point-min) (point-max) 'mr-x-hl t))
 
-  ;; Pure-visual line highlight — "look here" marks, NOT navigable.
-  ;; Distinct from bm marks (which cycle with SPC m n/p): these are just
-  ;; a persistent full-line highlight you toggle on/off. Per-session only
-  ;; (overlays don't survive restart, unlike bm's repository).
-  ;; Loud red face — intentionally louder than `region' (visual mode) so
-  ;; these marks grab attention rather than blend in.
-  (defface mr-x-line-highlight
-    '((t :background "#fb4934" :foreground "#1d2021" :weight bold :extend t))
-    "Face for pure-visual attention-grabbing line highlights.")
-  (defun mr-x/highlight-line-toggle ()
-    "Toggle a persistent full-line highlight on the current line."
-    (interactive)
-    (let ((ov (seq-find (lambda (o) (overlay-get o 'mr-x-hl))
-                        (overlays-at (line-beginning-position)))))
-      (if ov
-          (delete-overlay ov)
-        (let ((o (make-overlay (line-beginning-position)
-                               (min (point-max) (1+ (line-end-position))))))
-          (overlay-put o 'mr-x-hl t)
-          (overlay-put o 'face 'mr-x-line-highlight)))))
+    ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
+    (defvar mr-x-line-highlight-colors
+      '(("#fb4934" . "#1d2021")   ; red
+        ("#fe8019" . "#1d2021")   ; orange
+        ("#fabd2f" . "#1d2021")   ; yellow
+        ("#b8bb26" . "#1d2021")   ; green
+        ("#83a598" . "#1d2021")   ; blue
+        ("#d3869b" . "#1d2021"))  ; purple
+      "Cycle of (BACKGROUND . FOREGROUND) pairs for `mr-x-line-highlight'.")
+    (defvar mr-x-line-highlight-color-index 0
+      "Index into `mr-x-line-highlight-colors' for the current color.")
+    (defun mr-x/highlight-line-cycle-color ()
+      "Cycle `mr-x-line-highlight' to the next color; recolors all marks live."
+      (interactive)
+      (setq mr-x-line-highlight-color-index
+            (% (1+ mr-x-line-highlight-color-index)
+               (length mr-x-line-highlight-colors)))
+      (let ((pair (nth mr-x-line-highlight-color-index
+                       mr-x-line-highlight-colors)))
+        (set-face-attribute 'mr-x-line-highlight nil
+                            :background (car pair) :foreground (cdr pair))
+        (message "Line highlight color: %s" (car pair))))
 
-  (defun mr-x/highlight-line-clear-buffer ()
-    "Remove all pure-visual line highlights in the current buffer."
-    (interactive)
-    (remove-overlays (point-min) (point-max) 'mr-x-hl t))
+    (with-eval-after-load 'general
+      (mr-x/leader-def
+        "m" '(:ignore t :wk "bookmarks")
+        "m m" '(bm-toggle :wk "toggle bookmark")
+        "m n" '(bm-next :wk "next bookmark")
+        "m p" '(bm-previous :wk "prev bookmark")
+        "m l" '(bm-show-all :wk "list all bookmarks")
+        "m h" '(mr-x/highlight-line-toggle :wk "toggle line highlight")
+        "m H" '(mr-x/highlight-line-clear-buffer :wk "clear line highlights")
+        "m c" '(mr-x/highlight-line-cycle-color :wk "cycle highlight color"))))
 
-  ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
-  (defvar mr-x-line-highlight-colors
-    '(("#fb4934" . "#1d2021")   ; red
-      ("#fe8019" . "#1d2021")   ; orange
-      ("#fabd2f" . "#1d2021")   ; yellow
-      ("#b8bb26" . "#1d2021")   ; green
-      ("#83a598" . "#1d2021")   ; blue
-      ("#d3869b" . "#1d2021"))  ; purple
-    "Cycle of (BACKGROUND . FOREGROUND) pairs for `mr-x-line-highlight'.")
-  (defvar mr-x-line-highlight-color-index 0
-    "Index into `mr-x-line-highlight-colors' for the current color.")
-  (defun mr-x/highlight-line-cycle-color ()
-    "Cycle `mr-x-line-highlight' to the next color; recolors all marks live."
-    (interactive)
-    (setq mr-x-line-highlight-color-index
-          (% (1+ mr-x-line-highlight-color-index)
-             (length mr-x-line-highlight-colors)))
-    (let ((pair (nth mr-x-line-highlight-color-index
-                     mr-x-line-highlight-colors)))
-      (set-face-attribute 'mr-x-line-highlight nil
-                          :background (car pair) :foreground (cdr pair))
-      (message "Line highlight color: %s" (car pair))))
-
-  (with-eval-after-load 'general
+  (use-package bookmark+
+    :ensure (:host github :repo "emacsmirror/bookmark-plus")
+    :after general
+    :config
+    (defun mr-x/bookmark-edit-location (bookmark)
+      "Edit the target (file/dir path or URL) of BOOKMARK, then save.
+Prompts for BOOKMARK by name, defaults the new value to its current
+target, and updates the correct field: URL bookmarks store their
+target in `location', file/dired bookmarks in `filename'. For
+file/dired bookmarks the remembered point-context is cleared, so the
+jump lands on the new target instead of trying to relocate to text
+from the old one. The change is persisted with `bookmark-save'."
+      (interactive (list (bookmark-completing-read "Edit bookmark")))
+      (bookmark-maybe-load-default-file)
+      (if (bmkp-url-bookmark-p bookmark)
+          (let ((new (read-string "New URL: "
+                                  (bookmark-prop-get bookmark 'location))))
+            (bookmark-prop-set bookmark 'location new)
+            (message "Bookmark %S -> %s" bookmark new))
+        (let* ((current (or (bookmark-get-filename bookmark) ""))
+               (new (expand-file-name (read-file-name "New location: " nil current))))
+          (bookmark-prop-set bookmark 'filename new)
+          ;; Old point-context is meaningless once the target changes.
+          (bookmark-prop-set bookmark 'front-context-string nil)
+          (bookmark-prop-set bookmark 'rear-context-string nil)
+          (bookmark-prop-set bookmark 'position nil)
+          (message "Bookmark %S -> %s" bookmark new)))
+      (bookmark-save))
     (mr-x/leader-def
-      "m" '(:ignore t :wk "bookmarks")
-      "m m" '(bm-toggle :wk "toggle bookmark")
-      "m n" '(bm-next :wk "next bookmark")
-      "m p" '(bm-previous :wk "prev bookmark")
-      "m l" '(bm-show-all :wk "list all bookmarks")
-      "m h" '(mr-x/highlight-line-toggle :wk "toggle line highlight")
-      "m H" '(mr-x/highlight-line-clear-buffer :wk "clear line highlights")
-      "m c" '(mr-x/highlight-line-cycle-color :wk "cycle highlight color"))))
-
-(use-package bookmark+
-  :ensure (:host github :repo "emacsmirror/bookmark-plus")
-  :after general
-  :config
-  (mr-x/leader-def
-    "m s" '(bookmark-set :wk "set named bookmark")
-    "m j" '(bookmark-jump :wk "jump to bookmark")
-    "m d" '(bookmark-delete :wk "delete bookmark")
-    "m L" '(bookmark-bmenu-list :wk "list named bookmarks")
-    "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
+      "m s" '(bookmark-set :wk "set named bookmark")
+      "m j" '(bookmark-jump :wk "jump to bookmark")
+      "m e" '(mr-x/bookmark-edit-location :wk "edit bookmark target")
+      "m d" '(bookmark-delete :wk "delete bookmark")
+      "m L" '(bookmark-bmenu-list :wk "list named bookmarks")
+      "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
 
 
 

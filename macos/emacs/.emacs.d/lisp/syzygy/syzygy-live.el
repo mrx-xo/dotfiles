@@ -75,6 +75,17 @@ Off (default): the desync lockdown handles phone turns as today."
     (message "%s is LIVE — phone turns render here as they stream"
              (buffer-name)))))
 
+(defun syzygy-live--modeline-indicator ()
+  "Red live dot for the agent-shell doom-modeline segment — same
+mark major-pane puts on the convo's tab.  agent-shell buffers use the
+config's `agent-shell-minimal' layout (no misc-info), so the dot rides
+a dedicated segment there rather than `global-mode-string' or the
+mode's lighter."
+  (when syzygy-live-mode
+    (propertize " ● "
+                'face '(:foreground "#fb4934" :weight bold)
+                'help-echo "syzygy-live: phone turns render here — SPC c Y to turn off")))
+
 (defun syzygy-live--out-of-turn-user-chunk-p (state notification)
   "Non-nil when NOTIFICATION is a user chunk with no request in STATE."
   (and (equal (map-elt notification 'method) "session/update")
