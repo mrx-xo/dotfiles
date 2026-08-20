@@ -29,7 +29,9 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local cb2dbb6 (chat header: three-dot menu w/ Pinned + Kill)
 # + local 1c84a11 (nav header: title toggles Sessions/Projects, no ↻)
 # + local 1b954f9 (nav caret: SVG chevron, vertically centered)
-ACP_MOBILE_COMMIT="1b954f9"
+# + local 433ae84 (copy: HTTP-safe clipboard fallback, selectable bubbles)
+# + local e8120da (peek: markdown + chat-style bubbles in preview sheet)
+ACP_MOBILE_COMMIT="e8120da"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
