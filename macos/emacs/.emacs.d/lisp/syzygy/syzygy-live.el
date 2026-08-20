@@ -49,6 +49,20 @@
 (declare-function agent-shell--active-requests-p "agent-shell")
 (defvar syzygy-resync--behind)
 
+(defgroup syzygy nil
+  "Cross-device conversation continuity for agent-shell."
+  :group 'tools
+  :prefix "syzygy-")
+
+(defcustom syzygy-live-default t
+  "When non-nil, new agent-shell conversations start with live mode on.
+A fresh convo is never behind, so enabling at creation always passes
+the desync guard.  `syzygy-live-mode' (SPC c Y) stays the per-buffer
+opt-out; sessions restored by resync/handoff carry their previous
+live state instead."
+  :type 'boolean
+  :group 'syzygy)
+
 (defvar-local syzygy-live--last-rx nil
   "`float-time' of the last out-of-turn update seen in this buffer.")
 
@@ -75,16 +89,31 @@ Off (default): the desync lockdown handles phone turns as today."
     (message "%s is LIVE — phone turns render here as they stream"
              (buffer-name)))))
 
+(defun syzygy-live--maybe-enable ()
+  "Turn on live mode in a freshly created conversation buffer.
+On `agent-shell-mode-hook' so it runs at creation, before any turn
+can put the buffer behind.  Quiet: the LIVE message on every spawn
+would be noise when it's the default."
+  (when syzygy-live-default
+    (let ((inhibit-message t))
+      (syzygy-live-mode 1))))
+
+;; Hook var referenced without requiring agent-shell (batch-load rule).
+(add-hook 'agent-shell-mode-hook #'syzygy-live--maybe-enable)
+
 (defun syzygy-live--modeline-indicator ()
-  "Red live dot for the agent-shell doom-modeline segment — same
-mark major-pane puts on the convo's tab.  agent-shell buffers use the
-config's `agent-shell-minimal' layout (no misc-info), so the dot rides
-a dedicated segment there rather than `global-mode-string' or the
-mode's lighter."
-  (when syzygy-live-mode
-    (propertize " ● "
-                'face '(:foreground "#fb4934" :weight bold)
-                'help-echo "syzygy-live: phone turns render here — SPC c Y to turn off")))
+  "Modeline indicator for the agent-shell doom-modeline segment.
+RETIRED 2026-08-20: live mode became the default
+\(`syzygy-live-default'), so the red dot marked every buffer and
+meant nothing.  Body kept for a possible polarity flip (mark NOT-live
+buffers instead).  The doom-modeline segment still delegates here, so
+un-commenting the body is all a revival takes."
+  nil
+  ;; (when syzygy-live-mode
+  ;;   (propertize " ● "
+  ;;               'face '(:foreground "#fb4934" :weight bold)
+  ;;               'help-echo "syzygy-live: phone turns render here — SPC c Y to turn off"))
+  )
 
 (defun syzygy-live--out-of-turn-user-chunk-p (state notification)
   "Non-nil when NOTIFICATION is a user chunk with no request in STATE."
