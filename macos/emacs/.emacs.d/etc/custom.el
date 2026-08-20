@@ -4,7 +4,7 @@
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(bmkp-last-as-first-bookmark-file "~/.emacs.d/var/bookmark-default.el")
+ '(bmkp-last-as-first-bookmark-file "/Users/marcosandrade/.emacs.d/var/bookmark-default.el")
  '(custom-safe-themes
    '("b7a09eb77a1e9b98cafba8ef1bd58871f91958538f6671b22976ea38c2580755"
      "8c7e832be864674c220f9a9361c851917a93f921fedb7717b1b5ece47690c098"
@@ -16,7 +16,6 @@
  '(org-agenda-files
    '("/Users/marcosandrade/roaming/notes/health.org"
      "/Users/marcosandrade/roaming/notes/cleaning.org"
-     "/Users/marcosandrade/roaming/notes/trip-to-bali.org"
      "/Users/marcosandrade/roaming/notes/digital-identity-redux.org"
      "/Users/marcosandrade/roaming/notes/spanish-speaking-temp.org"
      "/Users/marcosandrade/roaming/notes/liked-purchases.org"
@@ -66,7 +65,6 @@
      "/Users/marcosandrade/roaming/notes/psych-journal.org"
      "/Users/marcosandrade/roaming/notes/umn-iti-ccaps.org"
      "/Users/marcosandrade/roaming/notes/webdaw.org"
-     "/Users/marcosandrade/roaming/notes/routines.org"
      "/Users/marcosandrade/roaming/notes/jayce-weekly-meeting.org"
      "/Users/marcosandrade/roaming/notes/job-tracking.org"
      "/Users/marcosandrade/roaming/notes/milpas-loan-underwriting.org"
@@ -77,6 +75,7 @@
      "/Users/marcosandrade/roaming/notes/job-seeking.org"
      "/Users/marcosandrade/roaming/notes/clothes-mentor.org"
      "/Users/marcosandrade/roaming/notes/random.org"
+     "/Users/marcosandrade/roaming/notes/homelab.org"
      "/Users/marcosandrade/roaming/notes/virtual-bid.org"
      "/Users/marcosandrade/roaming/notes/work-general.org"
      "/Users/marcosandrade/roaming/notes/finances-2.org"
@@ -88,6 +87,8 @@
      "/Users/marcosandrade/roaming/notes/desired-purchases-project.org"
      "/Users/marcosandrade/roaming/notes/york.org"
      "/Users/marcosandrade/roaming/notes/technology-study.org"
+     "/Users/marcosandrade/roaming/notes/dataannotation.org"
+     "/Users/marcosandrade/roaming/notes/routines.org"
      "/Users/marcosandrade/roaming/notes/cloudburst-general.org"
      "/Users/marcosandrade/roaming/notes/git-immersion.org"
      "/Users/marcosandrade/roaming/notes/windows-pc.org"

@@ -1359,6 +1359,11 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
 
 #+begin_src emacs-lisp
 
+  ;; Resolve symlinks on visit so a project-repo symlink (e.g.
+  ;; ~/.dotfiles/TODO.org -> ~/roaming/notes/dotfiles.org) opens as the
+  ;; real roam file and agenda/roam treat it normally
+  (setq find-file-visit-truename t)
+
      (use-package org-roam
      :ensure t
      :demand t
@@ -1901,7 +1906,29 @@ frames never match the `unless' and keep the theme untouched."
   ;; white, GUI frames fall through to the theme.
   (face-spec-set 'org-hide '((((type tty)) :foreground "#ffffff")) 'face-override-spec)
 
-
+  (defun mr-x/calliope-emx (&optional sleep)
+    "Wake CALLIOPE and launch emx — live emacs on the e-ink.
+With prefix arg SLEEP, put the tablet's screen to sleep instead.
+Runs calliope-wake.sh asynchronously; the script wakes the screen
+over the tailnet (adb), wipes stale Termux sessions and daemon tty
+frames, and opens a fresh emx session. Tablet must be on a charger
+— asleep off-charger means Wi-Fi is off and nothing can reach it.
+Output lands in the *calliope* buffer."
+    (interactive "P")
+    (let ((script (expand-file-name "~/.dotfiles/macos/scripts/calliope-wake.sh"))
+          (buf (get-buffer-create "*calliope*")))
+      (with-current-buffer buf (erase-buffer))
+      (message "CALLIOPE: %s..." (if sleep "sleeping screen" "waking + launching emx"))
+      (make-process
+       :name "calliope-wake"
+       :buffer buf
+       :command (if sleep (list script "sleep") (list script "emx"))
+       :sentinel
+       (lambda (proc _event)
+         (when (memq (process-status proc) '(exit signal))
+           (if (zerop (process-exit-status proc))
+               (message "CALLIOPE: %s" (if sleep "screen asleep" "emx live on the e-ink"))
+             (message "CALLIOPE: failed (off charger / needs adb re-arm?) — see *calliope*")))))))
 
 #+end_src
 
@@ -4713,9 +4740,34 @@ only sees the freshly restored frames."
     :ensure (:host github :repo "emacsmirror/bookmark-plus")
     :after general
     :config
+    (defun mr-x/bookmark-edit-location (bookmark)
+      "Edit the target (file/dir path or URL) of BOOKMARK, then save.
+Prompts for BOOKMARK by name, defaults the new value to its current
+target, and updates the correct field: URL bookmarks store their
+target in `location', file/dired bookmarks in `filename'. For
+file/dired bookmarks the remembered point-context is cleared, so the
+jump lands on the new target instead of trying to relocate to text
+from the old one. The change is persisted with `bookmark-save'."
+      (interactive (list (bookmark-completing-read "Edit bookmark")))
+      (bookmark-maybe-load-default-file)
+      (if (bmkp-url-bookmark-p bookmark)
+          (let ((new (read-string "New URL: "
+                                  (bookmark-prop-get bookmark 'location))))
+            (bookmark-prop-set bookmark 'location new)
+            (message "Bookmark %S -> %s" bookmark new))
+        (let* ((current (or (bookmark-get-filename bookmark) ""))
+               (new (expand-file-name (read-file-name "New location: " nil current))))
+          (bookmark-prop-set bookmark 'filename new)
+          ;; Old point-context is meaningless once the target changes.
+          (bookmark-prop-set bookmark 'front-context-string nil)
+          (bookmark-prop-set bookmark 'rear-context-string nil)
+          (bookmark-prop-set bookmark 'position nil)
+          (message "Bookmark %S -> %s" bookmark new)))
+      (bookmark-save))
     (mr-x/leader-def
       "m s" '(bookmark-set :wk "set named bookmark")
       "m j" '(bookmark-jump :wk "jump to bookmark")
+      "m e" '(mr-x/bookmark-edit-location :wk "edit bookmark target")
       "m d" '(bookmark-delete :wk "delete bookmark")
       "m L" '(bookmark-bmenu-list :wk "list named bookmarks")
       "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
