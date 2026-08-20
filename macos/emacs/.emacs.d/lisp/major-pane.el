@@ -916,17 +916,14 @@ IS-ACTIVE selects the active/inactive face."
     ;; buffer isn't engaging with it.  `done' clears on insert-state
     ;; entry (`major-pane--attention-clear-on-insert'), `perms' when the
     ;; prompt is answered, `busy' when the turn resolves.
-    (let* ((live (and (boundp 'syzygy-live-mode)
-                      (buffer-local-value 'syzygy-live-mode buf)))
-           (spin (if (eq (buffer-local-value 'major-pane--tab-attention buf)
+    (let* ((spin (if (eq (buffer-local-value 'major-pane--tab-attention buf)
                          'busy)
                      (concat (major-pane--spinner-frame) " ")
                    ""))
            (str (propertize
-                 (format " %s%s%s "
+                 (format " %s%s "
                          spin
-                         (major-pane--tab-label buf)
-                         (if live " ●" ""))
+                         (major-pane--tab-label buf))
                  'face (cond (is-active
                               (pcase (buffer-local-value 'major-pane--tab-attention buf)
                                 ('busy 'major-pane-tab-active-busy)
@@ -947,12 +944,14 @@ IS-ACTIVE selects the active/inactive face."
                                  ('perms 'major-pane-tab-hover-perms)
                                  (_ 'major-pane-tab-hover)))
                  'local-map map)))
-      ;; syzygy-live dot (trails the title, clear of the busy spinner):
-      ;; red foreground only, so the tab's state face still supplies the
-      ;; background on active/attention tabs.
-      (when live
-        (add-face-text-property (- (length str) 2) (1- (length str))
-                                '(:foreground "#fb4934") nil str))
+      ;; syzygy-live dot RETIRED 2026-08-20: live mode became the default
+      ;; (`syzygy-live-default'), so every tab wore the dot and it marked
+      ;; nothing.  Kept for a possible polarity flip (dot = NOT live).
+      ;; To re-enable: bind live via (buffer-local-value 'syzygy-live-mode
+      ;; buf), add a trailing (if live " ●" "") to the format above, then:
+      ;; (when live
+      ;;   (add-face-text-property (- (length str) 2) (1- (length str))
+      ;;                           '(:foreground "#fb4934") nil str))
       ;; Anchored: orange rail on the tab's left edge (doom-modeline
       ;; bar-style pixel space), outside the state face so attention
       ;; backgrounds start right after it, plus a matching underline
