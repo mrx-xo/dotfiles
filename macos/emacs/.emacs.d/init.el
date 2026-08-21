@@ -5630,18 +5630,21 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   ;; runs it in a compilation buffer at the project root.
   ;; Render ANSI colors in compilation buffers (lightsctl swatches, npm, pytest…)
   (add-hook 'compilation-filter-hook #'ansi-color-compilation-filter)
-  (defvar mr-x/project-commands nil
+  (defvar mr-x/project-cmd-alist nil
     "Alist of (NAME . SHELL-COMMAND) for this project, set via .dir-locals.el.")
-  (put 'mr-x/project-commands 'safe-local-variable #'listp)
+  ;; Name deliberately avoids a `*-commands' suffix: Emacs auto-flags such
+  ;; names as risky, which overrides the safe predicate below and re-prompts
+  ;; on every visit. A `-alist' suffix is not risky, so this actually sticks.
+  (put 'mr-x/project-cmd-alist 'safe-local-variable #'listp)
 
   (defun mr-x/project-command ()
     "Pick one of this project's named commands and run it at the project root."
     (interactive)
-    (if-let* ((cmds mr-x/project-commands)
+    (if-let* ((cmds mr-x/project-cmd-alist)
               (name (completing-read "Command: " (mapcar #'car cmds) nil t)))
         (let ((default-directory (projectile-project-root)))
           (compile (cdr (assoc name cmds))))
-      (user-error "No project commands here (set mr-x/project-commands in .dir-locals.el)")))
+      (user-error "No project commands here (set mr-x/project-cmd-alist in .dir-locals.el)")))
 
   (with-eval-after-load 'projectile
     (define-key projectile-command-map (kbd "RET") #'mr-x/project-command))
