@@ -394,6 +394,13 @@ The symbol `ejected' means the user sent it out of the pane with
 any other non-nil value marks a deliberately hidden background
 session (see `major-pane-exclude-buffer').")
 
+(defvar major-pane-launch-ejected nil
+  "When non-nil, conversation buffers created now are born ejected.
+Let-bind around a launch (see `major-pane-new-ejected-chat') and the
+mode hook marks the new buffer `ejected' instead of registering it —
+identical to running `major-pane-eject-conversation' at birth, minus
+the register/unregister churn.")
+
 
 ;;; Conversations lifecycle
 
@@ -458,12 +465,18 @@ if it was last).  When no conversations remain, clear active."
 (defun major-pane--on-agent-shell-mode ()
   "Hook run when `agent-shell-mode' starts.
 Registers the buffer, sets up unregister on kill, and optionally
-prompts for a label."
-  (major-pane--register-conversation (current-buffer))
-  (when (not (eq 'hidden (major-pane-state-mode major-pane--state)))
-    (setf (major-pane-state-active major-pane--state) (current-buffer)))
+prompts for a label.  With `major-pane-launch-ejected' bound, the
+buffer is marked ejected instead of registered (no label prompt)."
+  (if major-pane-launch-ejected
+      (setq-local major-pane--excluded 'ejected)
+    (major-pane--register-conversation (current-buffer))
+    (when (not (eq 'hidden (major-pane-state-mode major-pane--state)))
+      (setf (major-pane-state-active major-pane--state) (current-buffer))))
+  ;; Kill hook even when born ejected: adopting registers the buffer,
+  ;; and killing it after that must still unregister.
   (add-hook 'kill-buffer-hook #'major-pane--unregister-conversation nil t)
-  (when major-pane-prompt-label-on-start
+  (when (and major-pane-prompt-label-on-start
+             (not major-pane-launch-ejected))
     (let ((buf (current-buffer)))
       (run-at-time 0 nil
                    (lambda ()
@@ -2041,6 +2054,30 @@ panel but keep the cursor in the current window."
   (interactive)
   (setf (major-pane-state-mode major-pane--state) 'side)
   (agent-shell))
+
+;;;###autoload
+(defun major-pane-new-ejected-chat (&optional new-frame)
+  "Start a new agent-shell chat that is born ejected.
+The buffer never registers with the pane — tabs, `major-pane-toggle',
+the pickers, and the display-buffer routing all ignore it, exactly as
+if `major-pane-eject-conversation' had run at birth.  It lands in a
+main-area window, or with a prefix argument (\\[universal-argument]),
+NEW-FRAME, in a frame of its own.  Bring it into the pane anytime
+with `major-pane-adopt-conversation' (which also closes that frame)."
+  (interactive "P")
+  (require 'agent-shell)
+  (let* ((major-pane-launch-ejected t)
+         (config (or (and (fboundp 'agent-shell--resolve-preferred-config)
+                          (agent-shell--resolve-preferred-config))
+                     (agent-shell-select-config :prompt "Start new agent: ")
+                     (user-error "No agent config found")))
+         (buf (agent-shell--start :config config :no-focus t :new-session t)))
+    (if new-frame
+        (let ((frame (make-frame '((major-pane-eject-frame . t)))))
+          (select-frame-set-input-focus frame)
+          (switch-to-buffer buf))
+      (select-window (major-pane--eject-target-window))
+      (switch-to-buffer buf))))
 
 (provide 'major-pane)
 ;;; major-pane.el ends here
