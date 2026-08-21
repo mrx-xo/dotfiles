@@ -915,6 +915,65 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
                 (org-agenda-compact-blocks nil)
                 (org-agenda-format-date "\n  %A, %B %e")))
 
+              ("F" "Focus (no habits)"
+               ((agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀎆" "Schedule"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-skip-function
+                          '(or (mr-x/agenda-skip-habits)
+                               (mr-x/agenda-skip-untimed)))
+                         (org-agenda-prefix-format '((agenda . "  %-12t")))
+                         (org-agenda-time-grid '((daily today)
+                                                 (800 1000 1200 1400 1600 1800 2000)
+                                                 "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈" "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"))))
+                (agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀋀" "Do Today"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-include-diary nil)
+                         (org-agenda-skip-function
+                          '(or (mr-x/agenda-skip-habits)
+                               (mr-x/agenda-skip-timed)
+                               (mr-x/agenda-skip-if-deadline)))
+                         (org-super-agenda-groups '((:auto-map mr-x/org-get-category)))
+                         (org-agenda-cmp-user-defined #'mr-x/agenda-cmp-next-first)
+                         (org-agenda-sorting-strategy '(user-defined-up))
+                         (org-agenda-prefix-format '((agenda . "  ▲ ")))
+                         (org-agenda-time-grid nil)
+                         (org-agenda-format-date "")))
+                (agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀞟" "Deadlines"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-include-diary nil)
+                         (org-agenda-entry-types '(:deadline))
+                         (org-deadline-warning-days 14)
+                         (org-super-agenda-groups '((:auto-map mr-x/org-get-category)))
+                         (org-agenda-prefix-format '((agenda . "  ▲ ")))
+                         (org-agenda-deadline-leaders '("Due!  " "In %3d d. " "%2d d. ago "))
+                         (org-agenda-time-grid nil)
+                         (org-agenda-format-date "")))
+                (tags-todo "+Active/NEXT"
+                           ((org-agenda-overriding-header
+                             (mr-x/agenda-header "􀀤" "Do Next"))
+                            (org-agenda-skip-function
+                             '(org-agenda-skip-entry-if 'scheduled))
+                            (org-agenda-prefix-format "  ▲ ")
+                            (org-super-agenda-groups '((:auto-map mr-x/org-get-category))))))
+               ((org-agenda-remove-tags t)
+                (org-agenda-scheduled-leaders '("" ""))
+                (org-agenda-deadline-leaders '("" "In %3d d. " "%2d d. ago "))
+                (org-agenda-skip-deadline-if-done t)
+                (org-agenda-skip-scheduled-if-done t)
+                (org-agenda-show-log nil)
+                (org-agenda-current-time-string "")
+                (org-agenda-compact-blocks nil)
+                (org-agenda-format-date "\n  %A, %B %e")))
+
               ("r" "Review"
                ((alltodo ""
                          ((org-agenda-overriding-header
@@ -3288,7 +3347,12 @@ Falls back to a one-liner if fastfetch isn't installed."
         "a c" '(mr-x/org-agenda-custom :wk "classic")
         "a d" '(mr-x/org-agenda-dashboard :wk "dashboard")
         "a f" '(mr-x/org-agenda-focus :wk "focus")
+        "a F" '(mr-x/org-agenda-focus-no-habits :wk "focus (no habits)")
         "a v" '(mr-x/org-agenda-full :wk "full view")
+        "." '(:ignore t :wk "calliope")
+        ". a" '(mr-x/calliope-send-agenda :wk "agenda")
+        ". s" '(mr-x/calliope-send-scratch :wk "global scratch")
+        ". b" '(mr-x/calliope-send-buffer :wk "this buffer")
         ;; "m" 'mu4e
         "f" 'link-hint-open-link
         "p" 'projectile-command-map
@@ -3863,9 +3927,62 @@ TASK-ID is the ID shown when Claude runs a background command."
       (interactive)
       (org-agenda nil "f"))
 
+    (defun mr-x/org-agenda-focus-no-habits ()
+      (interactive)
+      (org-agenda nil "F"))
+
     (defun mr-x/org-agenda-full ()
       (interactive)
       (org-agenda nil "v"))
+
+
+
+  (defun mr-x/calliope-frame ()
+    "Return the CALLIOPE tty frame (the sole non-graphic frame), or nil.
+CALLIOPE connects via `emx' as an `emacsclient -t' tty; the main
+Emacs frames are all graphic, so the lone non-graphic frame is it."
+    (seq-find (lambda (f) (not (display-graphic-p f))) (frame-list)))
+
+  (defun mr-x/calliope-display-buffer (buffer)
+    "Display BUFFER (a buffer or name) full-frame on CALLIOPE's e-ink.
+Signals a `user-error' if no CALLIOPE frame is connected."
+    (let ((frame (mr-x/calliope-frame)))
+      (unless frame
+        (user-error "No CALLIOPE frame connected (run emx on the tablet)"))
+      (with-selected-frame frame
+        (switch-to-buffer buffer)
+        (delete-other-windows))
+      frame))
+
+  (defun mr-x/calliope-send-buffer (&optional buffer)
+    "Send BUFFER (default: current buffer) to CALLIOPE's e-ink display."
+    (interactive)
+    (let ((buf (get-buffer (or buffer (current-buffer)))))
+      (mr-x/calliope-display-buffer buf)
+      (message "Sent %s to CALLIOPE" (buffer-name buf))))
+
+  (defun mr-x/calliope-send-scratch ()
+    "Send the shared *global-scratch* buffer to CALLIOPE's e-ink display."
+    (interactive)
+    (let ((buf (get-buffer-create "*global-scratch*")))
+      (with-current-buffer buf
+        (unless (derived-mode-p 'org-mode)
+          (org-mode)
+          (insert mr-x/global-scratch-header)
+          (goto-char (point-max))))
+      (mr-x/calliope-send-buffer buf)))
+
+  (defun mr-x/calliope-send-agenda ()
+    "Build the Focus (no habits) agenda directly on CALLIOPE's e-ink.
+The agenda is rendered inside CALLIOPE's frame so its window layout
+and dimensions match the e-ink, not the Mac."
+    (interactive)
+    (let ((frame (mr-x/calliope-frame)))
+      (unless frame
+        (user-error "No CALLIOPE frame connected (run emx on the tablet)"))
+      (with-selected-frame frame
+        (org-agenda nil "F"))
+      (message "Sent agenda to CALLIOPE")))
 
 
 
