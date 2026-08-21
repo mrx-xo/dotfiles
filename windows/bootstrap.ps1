@@ -56,6 +56,18 @@ foreach ($target in $links.Keys) {
     Write-Host "Linked $link -> $target" -ForegroundColor Green
 }
 
+# Renaming a startup shortcut to "<name>.lnk.disabled" parks that autostart on
+# purpose (kanata and GlazeWM live like this today). Every Startup shortcut
+# below goes through this guard so a bootstrap re-run doesn't resurrect it.
+# Re-enable by renaming the file back to .lnk and re-running bootstrap.
+function Test-StartupDisabled([string]$lnkPath) {
+    if (Test-Path "$lnkPath.disabled") {
+        Write-Host "Skipping $(Split-Path $lnkPath -Leaf) (found .disabled twin; rename it back to re-enable)" -ForegroundColor Yellow
+        return $true
+    }
+    return $false
+}
+
 # ---------------------------------------------------------------------------
 # Emacs daemon: autostart on login + a client launcher shortcut.
 # Shortcuts can't be symlinked from the repo, so we (re)create them here.
@@ -74,14 +86,16 @@ if (Test-Path $runemacs) {
 
     # Autostart the daemon (windowless) on login.
     $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Daemon.lnk"
-    $sc = $ws.CreateShortcut($startupLnk)
-    $sc.TargetPath       = $runemacs
-    $sc.Arguments        = "--daemon"
-    $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.Description       = "Start Emacs server (daemon) on login"
-    $sc.WindowStyle      = 7   # minimized / no window
-    $sc.Save()
-    Write-Host "Created startup shortcut -> $startupLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $startupLnk)) {
+        $sc = $ws.CreateShortcut($startupLnk)
+        $sc.TargetPath       = $runemacs
+        $sc.Arguments        = "--daemon"
+        $sc.WorkingDirectory = $env:USERPROFILE
+        $sc.Description       = "Start Emacs server (daemon) on login"
+        $sc.WindowStyle      = 7   # minimized / no window
+        $sc.Save()
+        Write-Host "Created startup shortcut -> $startupLnk" -ForegroundColor Green
+    }
 
     # Desktop launcher: open a frame, starting the daemon if it isn't running.
     # Arguments are stored literally here, so the empty -a "" survives (PowerShell
@@ -99,14 +113,16 @@ if (Test-Path $runemacs) {
     # Autostart a client frame on login (matches the macOS launchd emacsclient job).
     # Connects to the daemon started above; -a "" cold-starts one if it lost the race.
     $frameLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Frame.lnk"
-    $sc = $ws.CreateShortcut($frameLnk)
-    $sc.TargetPath       = $emacsclientw
-    $sc.Arguments        = '-c -a ""'
-    $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.IconLocation     = "$emacsExe,0"
-    $sc.Description       = "Open an Emacs frame on login (connects to daemon, starts it if needed)"
-    $sc.Save()
-    Write-Host "Created frame shortcut   -> $frameLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $frameLnk)) {
+        $sc = $ws.CreateShortcut($frameLnk)
+        $sc.TargetPath       = $emacsclientw
+        $sc.Arguments        = '-c -a ""'
+        $sc.WorkingDirectory = $env:USERPROFILE
+        $sc.IconLocation     = "$emacsExe,0"
+        $sc.Description       = "Open an Emacs frame on login (connects to daemon, starts it if needed)"
+        $sc.Save()
+        Write-Host "Created frame shortcut   -> $frameLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "Emacs not found at $emacsBin - skipping daemon/client shortcuts." -ForegroundColor Yellow
 }
@@ -124,13 +140,15 @@ $ahkScript = "$repo\autohotkey\emacs.ahk"
 if ((Test-Path $ahkExe) -and (Test-Path $ahkScript)) {
     $ws = New-Object -ComObject WScript.Shell
     $hotkeysLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Hotkeys.lnk"
-    $sc = $ws.CreateShortcut($hotkeysLnk)
-    $sc.TargetPath       = $ahkExe
-    $sc.Arguments        = "`"$ahkScript`""
-    $sc.WorkingDirectory = Split-Path $ahkScript -Parent
-    $sc.Description       = "Emacs global hotkeys (AutoHotkey)"
-    $sc.Save()
-    Write-Host "Created hotkeys shortcut  -> $hotkeysLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $hotkeysLnk)) {
+        $sc = $ws.CreateShortcut($hotkeysLnk)
+        $sc.TargetPath       = $ahkExe
+        $sc.Arguments        = "`"$ahkScript`""
+        $sc.WorkingDirectory = Split-Path $ahkScript -Parent
+        $sc.Description       = "Emacs global hotkeys (AutoHotkey)"
+        $sc.Save()
+        Write-Host "Created hotkeys shortcut  -> $hotkeysLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "AutoHotkey or emacs.ahk not found - skipping hotkeys shortcut." -ForegroundColor Yellow
 }
@@ -146,13 +164,15 @@ $gamePauseScript = "$repo\autohotkey\glaze-game-pause.ahk"
 if ((Test-Path $ahkExe) -and (Test-Path $gamePauseScript)) {
     $ws = New-Object -ComObject WScript.Shell
     $gamePauseLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "GlazeWM Game Pause.lnk"
-    $sc = $ws.CreateShortcut($gamePauseLnk)
-    $sc.TargetPath       = $ahkExe
-    $sc.Arguments        = "`"$gamePauseScript`""
-    $sc.WorkingDirectory = Split-Path $gamePauseScript -Parent
-    $sc.Description       = "Auto-pause GlazeWM while a fullscreen app is focused"
-    $sc.Save()
-    Write-Host "Created game-pause shortcut -> $gamePauseLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $gamePauseLnk)) {
+        $sc = $ws.CreateShortcut($gamePauseLnk)
+        $sc.TargetPath       = $ahkExe
+        $sc.Arguments        = "`"$gamePauseScript`""
+        $sc.WorkingDirectory = Split-Path $gamePauseScript -Parent
+        $sc.Description       = "Auto-pause GlazeWM while a fullscreen app is focused"
+        $sc.Save()
+        Write-Host "Created game-pause shortcut -> $gamePauseLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "AutoHotkey or glaze-game-pause.ahk not found - skipping game-pause shortcut." -ForegroundColor Yellow
 }
@@ -196,14 +216,16 @@ $runHidden = "$repo\scripts\run-hidden.vbs"
 if (Test-Path $glazewm) {
     $ws = New-Object -ComObject WScript.Shell
     $glazeLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "GlazeWM.lnk"
-    $sc = $ws.CreateShortcut($glazeLnk)
-    $sc.TargetPath       = $wscript
-    $sc.Arguments        = "`"$runHidden`" `"$glazewm`" start --config `"$glazeConf`""
-    $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.IconLocation     = "$glazewm,0"
-    $sc.Description       = "Start GlazeWM tiling WM on login, hidden (config from dotfiles repo)"
-    $sc.Save()
-    Write-Host "Created startup shortcut -> $glazeLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $glazeLnk)) {
+        $sc = $ws.CreateShortcut($glazeLnk)
+        $sc.TargetPath       = $wscript
+        $sc.Arguments        = "`"$runHidden`" `"$glazewm`" start --config `"$glazeConf`""
+        $sc.WorkingDirectory = $env:USERPROFILE
+        $sc.IconLocation     = "$glazewm,0"
+        $sc.Description       = "Start GlazeWM tiling WM on login, hidden (config from dotfiles repo)"
+        $sc.Save()
+        Write-Host "Created startup shortcut -> $glazeLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "GlazeWM not found (scoop install glazewm) - skipping autostart." -ForegroundColor Yellow
 }
@@ -234,14 +256,16 @@ $kanataConf = "$repo\kanata\kanata.kbd"
 if (Test-Path $kanata) {
     $ws = New-Object -ComObject WScript.Shell
     $kanataLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "kanata.lnk"
-    $sc = $ws.CreateShortcut($kanataLnk)
-    $sc.TargetPath       = $wscript
-    $sc.Arguments        = "`"$runHidden`" `"$kanata`" --cfg `"$kanataConf`""
-    $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.IconLocation     = "$kanata,0"
-    $sc.Description       = "Start kanata home row mods on login, hidden (config from dotfiles repo)"
-    $sc.Save()
-    Write-Host "Created startup shortcut -> $kanataLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $kanataLnk)) {
+        $sc = $ws.CreateShortcut($kanataLnk)
+        $sc.TargetPath       = $wscript
+        $sc.Arguments        = "`"$runHidden`" `"$kanata`" --cfg `"$kanataConf`""
+        $sc.WorkingDirectory = $env:USERPROFILE
+        $sc.IconLocation     = "$kanata,0"
+        $sc.Description       = "Start kanata home row mods on login, hidden (config from dotfiles repo)"
+        $sc.Save()
+        Write-Host "Created startup shortcut -> $kanataLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "kanata not found (scoop install kanata vcredist2022) - skipping autostart." -ForegroundColor Yellow
 }
@@ -266,15 +290,17 @@ $syncthing = "$env:USERPROFILE\scoop\shims\syncthing.exe"
 if (Test-Path $syncthing) {
     $ws = New-Object -ComObject WScript.Shell
     $syncthingLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Syncthing.lnk"
-    $sc = $ws.CreateShortcut($syncthingLnk)
-    $sc.TargetPath       = $wscript
-    # --no-console detaches syncthing's own console too (belt and suspenders)
-    $sc.Arguments        = "`"$runHidden`" `"$syncthing`" serve --no-browser --no-console"
-    $sc.WorkingDirectory = $env:USERPROFILE
-    $sc.IconLocation     = "$syncthing,0"
-    $sc.Description       = "Start Syncthing (background sync for ~/shared) on login, hidden"
-    $sc.Save()
-    Write-Host "Created startup shortcut -> $syncthingLnk" -ForegroundColor Green
+    if (-not (Test-StartupDisabled $syncthingLnk)) {
+        $sc = $ws.CreateShortcut($syncthingLnk)
+        $sc.TargetPath       = $wscript
+        # --no-console detaches syncthing's own console too (belt and suspenders)
+        $sc.Arguments        = "`"$runHidden`" `"$syncthing`" serve --no-browser --no-console"
+        $sc.WorkingDirectory = $env:USERPROFILE
+        $sc.IconLocation     = "$syncthing,0"
+        $sc.Description       = "Start Syncthing (background sync for ~/shared) on login, hidden"
+        $sc.Save()
+        Write-Host "Created startup shortcut -> $syncthingLnk" -ForegroundColor Green
+    }
 } else {
     Write-Host "Syncthing not found (scoop install syncthing) - skipping autostart." -ForegroundColor Yellow
 }

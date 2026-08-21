@@ -131,7 +131,7 @@
   "Per-project named commands: function defined, dir-locals var safe,
 and bound on RET in `projectile-command-map'."
   (should (fboundp 'mr-x/project-command))
-  (should (funcall (get 'mr-x/project-commands 'safe-local-variable) '()))
+  (should (funcall (get 'mr-x/project-cmd-alist 'safe-local-variable) '()))
   (should (require 'projectile nil t))
   (should (eq (lookup-key projectile-command-map (kbd "RET"))
               'mr-x/project-command)))
