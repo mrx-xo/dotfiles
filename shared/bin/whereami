@@ -7,9 +7,9 @@
 #   <contents of the facts file>
 #
 # Identity source of truth: ~/.config/machine-id (one word, written by
-# bootstrap). Facts come from the dotfiles repo (machines/<id>.md) when the
-# repo is cloned here, else from a locally deployed ~/.config/machine-facts.md
-# (used on boxes like home-lab that don't clone the repo).
+# bootstrap). Facts live OUTSIDE this public repo: ~/roaming/notes/machines/
+# (Syncthing-synced, MrX/MrX2) or a locally deployed ~/.config/machine-facts.md
+# (boxes without roaming: home-lab, vengeance, etc.).
 
 ID_FILE="$HOME/.config/machine-id"
 ID=$(cat "$ID_FILE" 2>/dev/null)
@@ -24,7 +24,7 @@ fi
 
 echo "machine-id: $ID"
 
-for f in "$HOME/.dotfiles/machines/$ID.md" "$HOME/.config/machine-facts.md"; do
+for f in "$HOME/roaming/notes/machines/$ID.md" "$HOME/.config/machine-facts.md"; do
     if [ -f "$f" ]; then
         echo
         cat "$f"
@@ -32,5 +32,5 @@ for f in "$HOME/.dotfiles/machines/$ID.md" "$HOME/.config/machine-facts.md"; do
     fi
 done
 
-echo "(no facts file found — expected ~/.dotfiles/machines/$ID.md or ~/.config/machine-facts.md)"
+echo "(no facts file found — expected ~/roaming/notes/machines/$ID.md or ~/.config/machine-facts.md)"
 exit 1
