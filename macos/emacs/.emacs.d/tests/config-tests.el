@@ -131,7 +131,7 @@
   "Per-project named commands: function defined, dir-locals var safe,
 and bound on RET in `projectile-command-map'."
   (should (fboundp 'mr-x/project-command))
-  (should (funcall (get 'mr-x/project-cmd-alist 'safe-local-variable) '()))
+  (should (funcall (get 'mr-x/project-commands 'safe-local-variable) '()))
   (should (require 'projectile nil t))
   (should (eq (lookup-key projectile-command-map (kbd "RET"))
               'mr-x/project-command)))
@@ -635,9 +635,19 @@ Popper must NOT control display, the popup rule must be present, and a
     (should (stringp result))))
 
 (ert-deftest config-test-agenda-color-helper ()
-  "mr-x/color function and mr-x/colors alist should be defined."
+  "Palette system: mr-x/color + mr-x/frame-profile defined, palettes bound.
+`mr-x/color' resolves a semantic name against a profile's palette; an
+explicit profile arg must win over the frame default."
   (should (fboundp 'mr-x/color))
-  (should (boundp 'mr-x/colors)))
+  (should (fboundp 'mr-x/frame-profile))
+  (should (boundp 'mr-x/palettes))
+  (should (assq 'dark mr-x/palettes))
+  (should (assq 'eink mr-x/palettes))
+  ;; explicit profile resolves from the right palette
+  (should (equal (mr-x/color 'gold 'dark) "#fabd2f"))
+  (should (equal (mr-x/color 'gold 'eink) "#000000"))
+  ;; frame-profile falls back to display type for untagged frames
+  (should (memq (mr-x/frame-profile) '(dark eink))))
 
 (ert-deftest config-test-point-stack-push-pop ()
   "point-stack should push and pop positions in a temp buffer."
@@ -782,6 +792,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
 (ert-deftest config-test-leader-pane-keys ()
   "SPC & pane keys must resolve correctly."
   (should (eq (config-test--leader-key "& n") 'major-pane-new-chat))
+  (should (eq (config-test--leader-key "& N") 'major-pane-new-ejected-chat))
   (should (eq (config-test--leader-key "& l") 'major-pane-set-label))
   (should (eq (config-test--leader-key "& b") 'major-pane-capture-buffer))
   (should (eq (config-test--leader-key "& h") 'major-pane-set-home-frame))
@@ -799,7 +810,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   "Variables that other code depends on must be bound after init."
   (should (boundp 'mr-x/pending-permissions-queue))
   (should (boundp 'mr-x/escape-hook))
-  (should (boundp 'mr-x/colors))
+  (should (boundp 'mr-x/palettes))
   (should (boundp 'mr-x/agenda-separator)))
 
 (ert-deftest config-test-agent-shell-markdown-customizations ()

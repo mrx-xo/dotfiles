@@ -201,23 +201,61 @@
   	(org-habit-flex-activate)
 
   	;; ── Color palette ──────────────────────────────────
-  	(defvar mr-x/colors
-  	  '((gold      . "#fabd2f")
-  	    (orange    . "#fe8019")
-  	    (green     . "#8ec07c")
-  	    (lime      . "#b8bb26")
-  	    (cream     . "#ebdbb2")
-  	    (gray      . "#665c54")
-  	    (gray-warm . "#897d6c")
-  	    (red       . "#FF1800")
-  	    (muted     . "#62656A")
-  	    (mint      . "#B7CBA8")
-  	    (bg        . "#1d2021"))
-  	  "Central color palette for org-agenda and related UI.")
+  	(defvar mr-x/palettes
+  	  '((dark
+  	     . ((gold      . "#fabd2f")
+  	        (orange    . "#fe8019")
+  	        (green     . "#8ec07c")
+  	        (lime      . "#b8bb26")
+  	        (cream     . "#ebdbb2")
+  	        (gray      . "#665c54")
+  	        (gray-warm . "#897d6c")
+  	        (red       . "#FF1800")
+  	        (muted     . "#62656A")
+  	        (mint      . "#B7CBA8")
+  	        (bg        . "#1d2021")))
+  	    (eink
+  	     . ((gold      . "#000000")
+  	        (orange    . "#5f0000")
+  	        (green     . "#005f00")
+  	        (lime      . "#005f00")
+  	        (cream     . "#1c1c1c")
+  	        (gray      . "#8a8a8a")
+  	        (gray-warm . "#3a3a3a")
+  	        (red       . "#5f0000")
+  	        (muted     . "#767676")
+  	        (mint      . "#00005f")
+  	        (bg        . "#ffffff"))))
+  	  "Per-profile color palettes for org-agenda and related UI.
+Each profile maps the same semantic color names to display-tuned values;
+`mr-x/color' resolves NAME against the current frame's profile.")
 
-  	(defun mr-x/color (name)
-  	  "Look up color NAME from `mr-x/colors'."
-  	  (alist-get name mr-x/colors))
+  	(defun mr-x/frame-profile (&optional frame)
+  	  "Return the styling profile symbol for FRAME (default: selected).
+Resolved from the frame's self-declared `device' parameter — set by that
+device's emacsclient launcher (CALLIOPE's ~/.shortcuts/emx passes its
+machine-id).  Falls back to the display type.
+
+NOTE: the fallback keys purely on graphic-vs-tty, so ANY untagged tty
+frame gets `eink'.  Fine while CALLIOPE is the only tty device — but if
+another tty device joins that wants different styling, it MUST tag its
+frame with a `device' param mapped in the pcase below, or it inherits
+eink by default."
+  	  (let ((frame (or frame (selected-frame))))
+  	    (pcase (frame-parameter frame 'device)
+  	      ('calliope 'eink)
+  	      ;; new tty devices go here, e.g.  ('some-device 'dark)
+  	      (_ (if (display-graphic-p frame) 'dark 'eink)))))
+
+  	(defun mr-x/color (name &optional profile)
+  	  "Look up semantic color NAME in PROFILE's palette.
+PROFILE is a symbol (`dark' / `eink'); defaults to the current frame's
+profile via `mr-x/frame-profile'.  Pass an explicit PROFILE for values
+baked at load/config time, where the selected frame is unreliable (e.g.
+during daemon init the selected frame is non-graphic)."
+  	  (let* ((profile (or profile (mr-x/frame-profile)))
+  	         (palette (alist-get profile mr-x/palettes)))
+  	    (alist-get name palette)))
 
   	;; ── Agenda section header builder ──────────────────
   	(defvar mr-x/agenda-separator "────────────────────"
@@ -240,11 +278,15 @@
   		 "CANC(k@)")))
 
   	(defvar mr-x/todo-faces
-  	  `(("TODO" . (:foreground ,(mr-x/color 'bg) :background ,(mr-x/color 'red) :weight bold))
-  	    ("NEXT" . (:foreground ,(mr-x/color 'bg) :background ,(mr-x/color 'orange) :weight bold))
-  	    ("WAIT" . (:foreground ,(mr-x/color 'bg) :background ,(mr-x/color 'mint) :weight bold))
-  	    ("DONE" . (:foreground ,(mr-x/color 'bg) :background ,(mr-x/color 'muted) :weight bold))
-  	    ("CANC" . (:foreground ,(mr-x/color 'bg) :background ,(mr-x/color 'muted) :weight bold)))
+  	  ;; Static global alist baked once at load — can't be per-frame, so
+  	  ;; pin to 'dark.  KNOWN GAP: these keyword badges keep dark colors on
+  	  ;; CALLIOPE's e-ink (org applies this alist directly, not via a named
+  	  ;; face the per-frame eink override could reach).
+  	  `(("TODO" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'red 'dark) :weight bold))
+  	    ("NEXT" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'orange 'dark) :weight bold))
+  	    ("WAIT" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'mint 'dark) :weight bold))
+  	    ("DONE" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'muted 'dark) :weight bold))
+  	    ("CANC" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'muted 'dark) :weight bold)))
   	  "TODO keyword faces used by both org and org-modern.")
 
   	(setq org-todo-keyword-faces mr-x/todo-faces)
@@ -598,18 +640,23 @@ org-agenda overrides text properties on header strings."
                 90)
 
       (defun mr-x/style-org-agenda ()
-  	"Set face attributes for agenda mode."
+  	"Set face attributes for agenda mode.
+Colored faces are set on `(selected-frame)', not all frames — the hook
+runs with the agenda's display frame selected, so each frame gets its
+own profile's colors via `mr-x/color'.  (Setting them globally would
+leak whichever frame last built the agenda — e.g. CALLIOPE's e-ink
+colors onto the Mac.)  Size/slant stay global; they're display-neutral."
   	(set-face-attribute 'org-agenda-date nil :height 1.1)
   	(set-face-attribute 'org-agenda-date-today nil :height 1.1 :slant 'italic)
-  	(set-face-attribute 'org-agenda-date-today nil
+  	(set-face-attribute 'org-agenda-date-today (selected-frame)
   			    :foreground (mr-x/color 'gray-warm)
   			    :background nil
   			    :weight 'bold
   			    :underline nil)
   	(set-face-attribute 'org-agenda-date-weekend nil :height 1.1)
-  	(set-face-attribute 'org-agenda-current-time nil
+  	(set-face-attribute 'org-agenda-current-time (selected-frame)
   			    :foreground (mr-x/color 'gold) :weight 'bold)
-  	(set-face-attribute 'org-super-agenda-header nil
+  	(set-face-attribute 'org-super-agenda-header (selected-frame)
   			    :foreground (mr-x/color 'green) :weight 'bold))
 
       (add-hook 'org-agenda-mode-hook 'mr-x/style-org-agenda)
@@ -964,6 +1011,81 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
                              '(org-agenda-skip-entry-if 'scheduled))
                             (org-agenda-prefix-format "  ▲ ")
                             (org-super-agenda-groups '((:auto-map mr-x/org-get-category))))))
+               ((org-agenda-remove-tags t)
+                (org-agenda-scheduled-leaders '("" ""))
+                (org-agenda-deadline-leaders '("" "In %3d d. " "%2d d. ago "))
+                (org-agenda-skip-deadline-if-done t)
+                (org-agenda-skip-scheduled-if-done t)
+                (org-agenda-show-log nil)
+                (org-agenda-current-time-string "")
+                (org-agenda-compact-blocks nil)
+                (org-agenda-format-date "\n  %A, %B %e")))
+
+              ;; ── CALLIOPE-only compact views ──────────────────────────
+              ;; The e-ink tablet in landscape is wide but short and can't
+              ;; scroll (dumb-glass tty, no keyboard).  So instead of the
+              ;; full Focus view, split it into two that each FIT: "T" tasks
+              ;; and "D" day.  Sent via SPC . a / SPC . d.
+              ("T" "CALLIOPE Tasks"
+               ((agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀋀" "Do Today"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-include-diary nil)
+                         (org-agenda-skip-function
+                          '(or (mr-x/agenda-skip-habits)
+                               (mr-x/agenda-skip-timed)
+                               (mr-x/agenda-skip-if-deadline)))
+                         (org-super-agenda-groups '((:auto-map mr-x/org-get-category)))
+                         (org-agenda-cmp-user-defined #'mr-x/agenda-cmp-next-first)
+                         (org-agenda-sorting-strategy '(user-defined-up))
+                         (org-agenda-prefix-format '((agenda . "  ▲ ")))
+                         (org-agenda-time-grid nil)
+                         (org-agenda-format-date "")))
+                (tags-todo "+Active/NEXT"
+                           ((org-agenda-overriding-header
+                             (mr-x/agenda-header "􀀤" "Do Next"))
+                            (org-agenda-skip-function
+                             '(org-agenda-skip-entry-if 'scheduled))
+                            (org-agenda-prefix-format "  ▲ ")
+                            (org-super-agenda-groups '((:auto-map mr-x/org-get-category))))))
+               ((org-agenda-remove-tags t)
+                (org-agenda-scheduled-leaders '("" ""))
+                (org-agenda-deadline-leaders '("" "In %3d d. " "%2d d. ago "))
+                (org-agenda-skip-deadline-if-done t)
+                (org-agenda-skip-scheduled-if-done t)
+                (org-agenda-show-log nil)
+                (org-agenda-current-time-string "")
+                (org-agenda-compact-blocks nil)
+                (org-agenda-format-date "\n  %A, %B %e")))
+
+              ("D" "CALLIOPE Day"
+               ((agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀎆" "Schedule"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-skip-function
+                          '(or (mr-x/agenda-skip-habits)
+                               (mr-x/agenda-skip-untimed)))
+                         (org-agenda-prefix-format '((agenda . "  %-12t")))
+                         (org-agenda-time-grid '((daily today)
+                                                 (800 1000 1200 1400 1600 1800 2000)
+                                                 "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈" "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"))))
+                (agenda ""
+                        ((org-agenda-overriding-header
+                          (mr-x/agenda-header "􀞟" "Deadlines"))
+                         (org-agenda-span 'day)
+                         (org-habit-show-habits nil)
+                         (org-agenda-include-diary nil)
+                         (org-agenda-entry-types '(:deadline))
+                         (org-deadline-warning-days 14)
+                         (org-super-agenda-groups '((:auto-map mr-x/org-get-category)))
+                         (org-agenda-prefix-format '((agenda . "  ▲ ")))
+                         (org-agenda-deadline-leaders '("Due!  " "In %3d d. " "%2d d. ago "))
+                         (org-agenda-time-grid nil)
+                         (org-agenda-format-date ""))))
                ((org-agenda-remove-tags t)
                 (org-agenda-scheduled-leaders '("" ""))
                 (org-agenda-deadline-leaders '("" "In %3d d. " "%2d d. ago "))
@@ -1830,12 +1952,17 @@ navigation.  Candidates are file targets, so embark actions
     (mr-x/set-font-faces))
 
   (defun mr-x/eink-tty-faces (frame)
-    "Black-on-white face overrides for tty frames (CALLIOPE via emx).
+    "Black-on-white face overrides for FRAME when its profile is `eink'.
 Per-frame only — the dark theme's light accent colors are unreadable on
 the tablet's white e-ink, but themes are global, so instead of switching
-theme we override the high-traffic faces just on the tty frame. GUI
-frames never match the `unless' and keep the theme untouched."
-    (unless (display-graphic-p frame)
+theme we override the high-traffic named faces just on the eink frame.
+GUI (dark-profile) frames never match and keep the theme untouched.
+
+Gated on `mr-x/frame-profile' (not raw `display-graphic-p') so it tracks
+the same device→profile mapping as `mr-x/color': a tty device that maps
+to `dark' won't get these, and this is the named-face half of e-ink
+styling (the palette/`mr-x/color' half covers colors baked at build)."
+    (when (eq (mr-x/frame-profile frame) 'eink)
       ;; tty renders the menu bar as a text row eating the top line —
       ;; menu-bar-lines is per-frame, so only tablet frames lose it
       (set-frame-parameter frame 'menu-bar-lines 0)
@@ -1860,6 +1987,17 @@ frames never match the `unless' and keep the theme untouched."
                        (org-date (:foreground "#00005f"))
                        (org-agenda-date (:foreground "#000000" :weight bold))
                        (org-agenda-date-today (:foreground "#000000" :weight bold :underline t))
+                       ;; section headers (mr-x/agenda-header text + icon) —
+                       ;; default is gruvbox cream, unreadable silver on e-ink
+                       (org-agenda-structure (:foreground "#000000" :weight bold))
+                       ;; agenda item text by schedule state — several default
+                       ;; to near-white (e.g. org-scheduled-previously #fbfbfb),
+                       ;; i.e. invisible task text on white e-ink
+                       (org-scheduled (:foreground "#000000"))
+                       (org-scheduled-today (:foreground "#000000"))
+                       (org-scheduled-previously (:foreground "#5f0000"))
+                       (org-upcoming-deadline (:foreground "#5f0000"))
+                       (org-agenda-done (:foreground "#767676"))
                        ;; org "hides" leading stars by painting them background-color;
                        ;; must track the e-ink white or they reappear as dark stars
                        (org-hide (:foreground "#ffffff"))
@@ -3350,9 +3488,11 @@ Falls back to a one-liner if fastfetch isn't installed."
         "a F" '(mr-x/org-agenda-focus-no-habits :wk "focus (no habits)")
         "a v" '(mr-x/org-agenda-full :wk "full view")
         "." '(:ignore t :wk "calliope")
-        ". a" '(mr-x/calliope-send-agenda :wk "agenda")
+        ". a" '(mr-x/calliope-send-tasks :wk "tasks")
+        ". d" '(mr-x/calliope-send-day :wk "day (schedule)")
         ". s" '(mr-x/calliope-send-scratch :wk "global scratch")
         ". b" '(mr-x/calliope-send-buffer :wk "this buffer")
+        ". m" '(mr-x/calliope-mirror :wk "mirror (scrcpy)")
         ;; "m" 'mu4e
         "f" 'link-hint-open-link
         "p" 'projectile-command-map
@@ -3790,6 +3930,7 @@ projectile projects appended below."
         "&" '(:ignore t :wk "Pane")
         "& w" '(major-pane-focus :wk "Focus pane")
         "& n" '(major-pane-new-chat :wk "New chat")
+        "& N" '(major-pane-new-ejected-chat :wk "New ejected chat (C-u: new frame)")
         "& l" '(major-pane-set-label :wk "Label conversation")
         "& p" '(major-pane-anchor-toggle :wk "Anchor tab left (blue rail)")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
@@ -3937,32 +4078,72 @@ TASK-ID is the ID shown when Claude runs a background command."
 
 
 
+  (defvar mr-x/calliope-launch-script
+    (expand-file-name "~/.dotfiles/macos/scripts/calliope-wake.sh")
+    "Path to the launcher that (re)starts emx on CALLIOPE (`... emx').")
+
+  (defvar mr-x/calliope-emx-timeout 30
+    "Seconds to wait for CALLIOPE's emx frame to connect after a launch.")
+
   (defun mr-x/calliope-frame ()
     "Return the CALLIOPE tty frame (the sole non-graphic frame), or nil.
 CALLIOPE connects via `emx' as an `emacsclient -t' tty; the main
-Emacs frames are all graphic, so the lone non-graphic frame is it."
+Emacs frames are all graphic, so the lone non-graphic frame is it.
+Its existence means emx is running on the tablet."
     (seq-find (lambda (f) (not (display-graphic-p f))) (frame-list)))
 
-  (defun mr-x/calliope-display-buffer (buffer)
-    "Display BUFFER (a buffer or name) full-frame on CALLIOPE's e-ink.
-Signals a `user-error' if no CALLIOPE frame is connected."
+  (defun mr-x/calliope--await-frame (callback deadline)
+    "Poll for the CALLIOPE frame until DEADLINE, then call CALLBACK with it.
+Re-schedules itself once a second; gives up (with a message) past DEADLINE."
     (let ((frame (mr-x/calliope-frame)))
-      (unless frame
-        (user-error "No CALLIOPE frame connected (run emx on the tablet)"))
-      (with-selected-frame frame
-        (switch-to-buffer buffer)
-        (delete-other-windows))
-      frame))
+      (cond
+       (frame (funcall callback frame))
+       ((time-less-p deadline (current-time))
+        (message "emx didn't connect within %ss — check the tablet"
+                 mr-x/calliope-emx-timeout))
+       (t (run-with-timer 1 nil #'mr-x/calliope--await-frame callback deadline)))))
+
+  (defun mr-x/calliope-ensure-frame (callback)
+    "Ensure emx is running on CALLIOPE, then call CALLBACK with its frame.
+If emx is already up, CALLBACK runs immediately. Otherwise launch emx
+and, once the launcher exits cleanly, poll until the tty frame appears
+(up to `mr-x/calliope-emx-timeout' seconds) before calling CALLBACK.
+A failed launch (tablet unreachable) aborts with a message."
+    (let ((frame (mr-x/calliope-frame)))
+      (if frame
+          (funcall callback frame)
+        (message "emx not running on CALLIOPE — launching...")
+        (let ((proc (start-process "calliope-emx" "*calliope-emx*"
+                                   mr-x/calliope-launch-script "emx")))
+          (set-process-sentinel
+           proc
+           (lambda (p _event)
+             (when (memq (process-status p) '(exit signal))
+               (if (zerop (process-exit-status p))
+                   (mr-x/calliope--await-frame
+                    callback
+                    (time-add (current-time)
+                              (seconds-to-time mr-x/calliope-emx-timeout)))
+                 (message "Couldn't launch emx on CALLIOPE — tablet unreachable? (see *calliope-emx*)")))))))))
+
+  (defun mr-x/calliope-display-buffer (buffer)
+    "Wake CALLIOPE if needed, then display BUFFER full-frame on her e-ink.
+BUFFER is a buffer or name. Async: the send happens once she's connected."
+    (let ((buf (get-buffer buffer)))
+      (mr-x/calliope-ensure-frame
+       (lambda (frame)
+         (with-selected-frame frame
+           (switch-to-buffer buf)
+           (delete-other-windows))
+         (message "Sent %s to CALLIOPE" (buffer-name buf))))))
 
   (defun mr-x/calliope-send-buffer (&optional buffer)
-    "Send BUFFER (default: current buffer) to CALLIOPE's e-ink display."
+    "Send BUFFER (default: current buffer) to CALLIOPE, waking her if asleep."
     (interactive)
-    (let ((buf (get-buffer (or buffer (current-buffer)))))
-      (mr-x/calliope-display-buffer buf)
-      (message "Sent %s to CALLIOPE" (buffer-name buf))))
+    (mr-x/calliope-display-buffer (get-buffer (or buffer (current-buffer)))))
 
   (defun mr-x/calliope-send-scratch ()
-    "Send the shared *global-scratch* buffer to CALLIOPE's e-ink display."
+    "Send the shared *global-scratch* buffer to CALLIOPE, waking her if asleep."
     (interactive)
     (let ((buf (get-buffer-create "*global-scratch*")))
       (with-current-buffer buf
@@ -3970,19 +4151,39 @@ Signals a `user-error' if no CALLIOPE frame is connected."
           (org-mode)
           (insert mr-x/global-scratch-header)
           (goto-char (point-max))))
-      (mr-x/calliope-send-buffer buf)))
+      (mr-x/calliope-display-buffer buf)))
 
-  (defun mr-x/calliope-send-agenda ()
-    "Build the Focus (no habits) agenda directly on CALLIOPE's e-ink.
-The agenda is rendered inside CALLIOPE's frame so its window layout
-and dimensions match the e-ink, not the Mac."
+  (defun mr-x/calliope--send-agenda-view (key label)
+    "Build agenda custom-command KEY inside CALLIOPE's frame (waking if needed).
+Rendered inside CALLIOPE's frame so window layout and dimensions match
+the e-ink, not the Mac.  LABEL is only for the echo-area confirmation."
+    (mr-x/calliope-ensure-frame
+     (lambda (frame)
+       (with-selected-frame frame
+         (org-agenda nil key))
+       (message "Sent %s to CALLIOPE" label))))
+
+  ;; Landscape e-ink is short and can't scroll, so the full Focus view is
+  ;; split into two that each fit — see the "T"/"D" custom commands above.
+  (defun mr-x/calliope-send-tasks ()
+    "Show the compact CALLIOPE tasks view (Do Today + Do Next) on the e-ink."
     (interactive)
-    (let ((frame (mr-x/calliope-frame)))
-      (unless frame
-        (user-error "No CALLIOPE frame connected (run emx on the tablet)"))
-      (with-selected-frame frame
-        (org-agenda nil "F"))
-      (message "Sent agenda to CALLIOPE")))
+    (mr-x/calliope--send-agenda-view "T" "tasks"))
+
+  (defun mr-x/calliope-send-day ()
+    "Show the CALLIOPE day view (Schedule timeline + Deadlines) on the e-ink."
+    (interactive)
+    (mr-x/calliope--send-agenda-view "D" "day"))
+
+  (defun mr-x/calliope-mirror ()
+    "Live-mirror CALLIOPE's screen onto the Mac via scrcpy (boox-mirror.sh).
+Same action as Cmd+Shift+B (skhd) and the `boox' shell alias.  Launched
+async so the scrcpy window outlives this command; USB preferred, Wi-Fi
+adb fallback — see the script."
+    (interactive)
+    (start-process "boox-mirror" "*boox-mirror*"
+                   (expand-file-name "~/.dotfiles/macos/scripts/boox-mirror.sh"))
+    (message "Launching CALLIOPE mirror (scrcpy)..."))
 
 
 
@@ -5565,7 +5766,12 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :init
     (setq forge-add-default-bindings t)
     :config
-    (setq forge-pull-notifications t))
+    (setq forge-pull-notifications t)
+    ;; omphalos.io — the self-hosted Forgejo forge on the homelab.
+    ;; Token lives in ~/.authinfo (machine omphalos.io/api/v1, login marcos^forge).
+    (add-to-list 'forge-alist
+                 '("omphalos.io" "omphalos.io/api/v1" "omphalos.io"
+                   forge-forgejo-repository)))
 
 
 
@@ -5630,21 +5836,18 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   ;; runs it in a compilation buffer at the project root.
   ;; Render ANSI colors in compilation buffers (lightsctl swatches, npm, pytest…)
   (add-hook 'compilation-filter-hook #'ansi-color-compilation-filter)
-  (defvar mr-x/project-cmd-alist nil
+  (defvar mr-x/project-commands nil
     "Alist of (NAME . SHELL-COMMAND) for this project, set via .dir-locals.el.")
-  ;; Name deliberately avoids a `*-commands' suffix: Emacs auto-flags such
-  ;; names as risky, which overrides the safe predicate below and re-prompts
-  ;; on every visit. A `-alist' suffix is not risky, so this actually sticks.
-  (put 'mr-x/project-cmd-alist 'safe-local-variable #'listp)
+  (put 'mr-x/project-commands 'safe-local-variable #'listp)
 
   (defun mr-x/project-command ()
     "Pick one of this project's named commands and run it at the project root."
     (interactive)
-    (if-let* ((cmds mr-x/project-cmd-alist)
+    (if-let* ((cmds mr-x/project-commands)
               (name (completing-read "Command: " (mapcar #'car cmds) nil t)))
         (let ((default-directory (projectile-project-root)))
           (compile (cdr (assoc name cmds))))
-      (user-error "No project commands here (set mr-x/project-cmd-alist in .dir-locals.el)")))
+      (user-error "No project commands here (set mr-x/project-commands in .dir-locals.el)")))
 
   (with-eval-after-load 'projectile
     (define-key projectile-command-map (kbd "RET") #'mr-x/project-command))
