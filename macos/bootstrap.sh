@@ -93,9 +93,9 @@ ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 # ── Machine identity ─────────────────────────────────────
 # ~/.config/machine-id is the fleet-wide source of truth for "which machine
 # am I on" — read by ~/.zshenv (exports MACHINE_ID), `whereami`, and any
-# agent that lands here over SSH. Facts files live OUTSIDE this repo (private):
-# ~/roaming/notes/machines/<id>.md, or ~/.config/machine-facts.md on boxes
-# without roaming.
+# agent that lands here over SSH. Facts files live OUTSIDE this repo, in the
+# private fleet repo on the home forge (clone at ~/fleet — machines/<id>.md),
+# or ~/.config/machine-facts.md on boxes without a clone.
 if [ ! -f "$HOME/.config/machine-id" ]; then
     DEFAULT_ID="$(scutil --get ComputerName 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
     read -r -p "Machine id for this box [${DEFAULT_ID}]: " MACHINE_ID_INPUT
