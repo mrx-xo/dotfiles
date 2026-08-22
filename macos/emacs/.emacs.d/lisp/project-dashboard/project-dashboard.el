@@ -16,6 +16,14 @@
 (require 'projectile)
 (require 'project-dashboard-art)
 
+;; Soft dependency: the Recent Conversations section reads agent-recall's
+;; transcript index when the package is available, and hides otherwise.
+(declare-function agent-recall--index-ensure "agent-recall")
+(declare-function agent-recall--display-timestamp "agent-recall")
+(declare-function agent-recall--open-transcript "agent-recall")
+(declare-function agent-recall-session-label "agent-recall")
+(defvar agent-recall--index)
+
 ;;; Customization
 
 (defgroup project-dashboard nil
@@ -31,6 +39,18 @@
 (defcustom project-dashboard-show-todo-files t
   "Whether to show TODO items from project files."
   :type 'boolean
+  :group 'project-dashboard)
+
+(defcustom project-dashboard-show-recent-conversations t
+  "Whether to show recent agent-shell conversations from agent-recall.
+The section only appears when agent-recall is installed and has
+indexed transcripts for the project."
+  :type 'boolean
+  :group 'project-dashboard)
+
+(defcustom project-dashboard-recent-conversations-count 5
+  "Maximum number of recent conversations to display."
+  :type 'integer
   :group 'project-dashboard)
 
 (defcustom project-dashboard-max-tasks 10
@@ -218,20 +238,20 @@ Returns a list of task plists with :id, :title, :status, :priority, :dependencie
   "Find the next task to work on from ALL-TASKS (raw alist format).
 Returns a plist for the first in-progress task, or first pending task
 whose dependencies are all done, or nil."
-  (let* ((done-ids (mapcar (lambda (t)
-                             (format "%s" (alist-get 'id t)))
-                           (seq-filter (lambda (t)
-                                         (string= (alist-get 'status t) "done"))
+  (let* ((done-ids (mapcar (lambda (task)
+                             (format "%s" (alist-get 'id task)))
+                           (seq-filter (lambda (task)
+                                         (string= (alist-get 'status task) "done"))
                                        all-tasks)))
          ;; First check for in-progress tasks
-         (in-progress (seq-find (lambda (t)
-                                  (string= (alist-get 'status t) "in-progress"))
+         (in-progress (seq-find (lambda (task)
+                                  (string= (alist-get 'status task) "in-progress"))
                                 all-tasks))
          ;; Then find first pending task with all deps satisfied
          (next-pending (seq-find
-                        (lambda (t)
-                          (and (string= (alist-get 'status t) "pending")
-                               (let ((deps (alist-get 'dependencies t)))
+                        (lambda (task)
+                          (and (string= (alist-get 'status task) "pending")
+                               (let ((deps (alist-get 'dependencies task)))
                                  (or (null deps)
                                      (seq-every-p
                                       (lambda (dep)
@@ -277,13 +297,13 @@ Returns list of plists with :name, :pending, :in-progress, :done counts."
                       (tag-data (cdr tag-entry))
                       (tasks (alist-get 'tasks tag-data))
                       (pending (length (seq-filter
-                                        (lambda (t) (string= (alist-get 'status t) "pending"))
+                                        (lambda (task) (string= (alist-get 'status task) "pending"))
                                         tasks)))
                       (in-progress (length (seq-filter
-                                            (lambda (t) (string= (alist-get 'status t) "in-progress"))
+                                            (lambda (task) (string= (alist-get 'status task) "in-progress"))
                                             tasks)))
                       (done (length (seq-filter
-                                     (lambda (t) (string= (alist-get 'status t) "done"))
+                                     (lambda (task) (string= (alist-get 'status task) "done"))
                                      tasks))))
                  (list :name tag-name
                        :pending pending
@@ -501,10 +521,10 @@ Returns a plist with :id, :title, :is-in-progress, or nil.
 Algorithm matches Task Master: priority, then dependency count, then ID."
   (when tasks
     (let* (;; Build set of completed task IDs
-           (done-ids (mapcar (lambda (t)
-                               (format "%s" (alist-get 'id t)))
-                             (seq-filter (lambda (t)
-                                           (member (alist-get 'status t) '("done" "completed")))
+           (done-ids (mapcar (lambda (task)
+                               (format "%s" (alist-get 'id task)))
+                             (seq-filter (lambda (task)
+                                           (member (alist-get 'status task) '("done" "completed")))
                                          tasks)))
            ;; Check if deps are satisfied
            (deps-satisfied-p (lambda (task)
@@ -516,10 +536,10 @@ Algorithm matches Task Master: priority, then dependency count, then ID."
                                       deps)))))
            ;; Get eligible tasks (in-progress or pending with deps satisfied)
            (eligible (seq-filter
-                      (lambda (t)
-                        (let ((status (alist-get 'status t)))
+                      (lambda (task)
+                        (let ((status (alist-get 'status task)))
                           (and (member status '("in-progress" "pending"))
-                               (funcall deps-satisfied-p t))))
+                               (funcall deps-satisfied-p task))))
                       tasks))
            ;; Sort by: status (in-progress first), priority (high->low), 
            ;; dep count (fewer first), ID (lower first)
@@ -589,6 +609,68 @@ TASKS is a list of task alists with 'id and 'title keys."
                             'face '(:foreground "#928374" :strike-through t)))
         (insert (propertize (truncate-string-to-width (or title "") 70 nil nil "...")
                             'face '(:foreground "#928374" :strike-through t)))
+        (insert "\n")))
+    (insert "\n")))
+
+(defun project-dashboard--recent-conversations (project-root)
+  "Return the newest agent-recall index entries under PROJECT-ROOT.
+Each element is (FILE . ENTRY) where ENTRY is an index plist,
+newest first, at most `project-dashboard-recent-conversations-count'.
+Returns nil when agent-recall (or its index) is unavailable."
+  (when (and project-dashboard-show-recent-conversations
+             (require 'agent-recall nil t))
+    (agent-recall--index-ensure)
+    (let ((root (file-name-as-directory (file-truename project-root)))
+          ;; Cache the prefix test per :dir -- many entries share a
+          ;; directory and file-truename isn't free on auto-refresh.
+          (dir-match (make-hash-table :test 'equal))
+          (matches '()))
+      (maphash
+       (lambda (file entry)
+         (when-let ((dir (plist-get entry :dir)))
+           (let ((hit (gethash dir dir-match 'unset)))
+             (when (eq hit 'unset)
+               (setq hit (and (file-directory-p dir)
+                              (string-prefix-p root (file-name-as-directory
+                                                     (file-truename dir)))))
+               (puthash dir hit dir-match))
+             (when hit
+               (push (cons file entry) matches)))))
+       agent-recall--index)
+      (seq-take (sort matches
+                      (lambda (a b)
+                        (string> (or (plist-get (cdr a) :timestamp) "")
+                                 (or (plist-get (cdr b) :timestamp) ""))))
+                project-dashboard-recent-conversations-count))))
+
+(defun project-dashboard--render-recent-conversations (convos)
+  "Render the Recent Conversations section for CONVOS.
+CONVOS is a list of (FILE . ENTRY) from
+`project-dashboard--recent-conversations'.  Each line carries the
+transcript path in a `project-dashboard-transcript' text property
+so RET can open it."
+  (when convos
+    (insert (propertize "  Recent Conversations" 'face 'project-dashboard-section-face))
+    (insert "\n\n")
+    (dolist (convo convos)
+      (let* ((file (car convo))
+             (entry (cdr convo))
+             (date (agent-recall--display-timestamp
+                    (or (plist-get entry :timestamp) "")))
+             (label (agent-recall-session-label (plist-get entry :session-id)))
+             (preview (or (plist-get entry :preview) ""))
+             (line (concat
+                    "    "
+                    (propertize (format "%-8s" date) 'face 'shadow)
+                    (when label
+                      (concat (propertize label 'face 'agent-recall-label) "  "))
+                    (propertize (truncate-string-to-width preview 60 nil nil "...")
+                                'face (if label 'shadow
+                                        'project-dashboard-task-title-face)))))
+        (insert (propertize line
+                            'project-dashboard-transcript file
+                            'mouse-face 'highlight
+                            'help-echo "RET/click: open transcript"))
         (insert "\n")))
     (insert "\n")))
 
@@ -762,7 +844,11 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
               (project-dashboard--render-recently-completed recently-completed)))
           ;; 3. Tags overview at bottom (always show)
           (project-dashboard--render-tags-section all-tags-stats active-tag))))
-    
+
+    ;; Recent agent-shell conversations (agent-recall index)
+    (project-dashboard--render-recent-conversations
+     (project-dashboard--recent-conversations project-root))
+
     ;; TODO file section
     (when project-dashboard-show-todo-files
       (let ((todo-info (project-dashboard--find-todo-file project-root)))
@@ -859,6 +945,33 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
     (if (fboundp 'vterm)
         (vterm t)  ; t means create a new buffer
       (message "vterm not available"))))
+
+(defun project-dashboard-open-transcript-at-point (&optional pos)
+  "Open the conversation transcript on the line at POS (default point).
+Returns non-nil when a transcript was found and opened."
+  (interactive)
+  (when-let ((file (get-text-property (or pos (point))
+                                      'project-dashboard-transcript)))
+    (if (file-exists-p file)
+        (progn
+          (if (fboundp 'agent-recall--open-transcript)
+              (agent-recall--open-transcript file)
+            (find-file file))
+          t)
+      (user-error "Transcript no longer exists: %s" file))))
+
+(defun project-dashboard-open-at-point ()
+  "Open the thing at point: a transcript on conversation lines,
+otherwise fall back to `project-dashboard-find-file'."
+  (interactive)
+  (unless (project-dashboard-open-transcript-at-point)
+    (project-dashboard-find-file)))
+
+(defun project-dashboard-open-transcript-mouse (event)
+  "Open the conversation transcript clicked in EVENT."
+  (interactive "e")
+  (project-dashboard-open-transcript-at-point
+   (posn-point (event-start event))))
 
 (defun project-dashboard-refresh ()
   "Refresh the dashboard."
@@ -972,7 +1085,8 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
     (define-key map (kbd "r") #'project-dashboard-refresh)
     (define-key map (kbd "g") #'project-dashboard-refresh)
     (define-key map (kbd "q") #'project-dashboard-quit)
-    (define-key map (kbd "RET") #'project-dashboard-find-file)
+    (define-key map (kbd "RET") #'project-dashboard-open-at-point)
+    (define-key map [mouse-1] #'project-dashboard-open-transcript-mouse)
     ;; Tag switching (1-9)
     (define-key map (kbd "1") #'project-dashboard-switch-tag-1)
     (define-key map (kbd "2") #'project-dashboard-switch-tag-2)
@@ -1022,7 +1136,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
     (kbd "R") #'project-dashboard-new-art
     (kbd "gr") #'project-dashboard-refresh
     (kbd "q") #'project-dashboard-quit
-    (kbd "RET") #'project-dashboard-find-file
+    (kbd "RET") #'project-dashboard-open-at-point
     ;; Tag switching (1-9)
     (kbd "1") #'project-dashboard-switch-tag-1
     (kbd "2") #'project-dashboard-switch-tag-2
@@ -1152,7 +1266,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
   "Render the tag-tasks buffer for TAG-NAME in PROJECT-ROOT."
   (let* ((inhibit-read-only t)
          (all-tags-tasks (project-dashboard--get-all-tasks-by-tag project-root))
-         (tag-data (seq-find (lambda (t) (string= (plist-get t :tag) tag-name)) all-tags-tasks))
+         (tag-data (seq-find (lambda (task) (string= (plist-get task :tag) tag-name)) all-tags-tasks))
          (tasks (plist-get tag-data :tasks))
          (project-name (file-name-nondirectory (directory-file-name project-root))))
     (erase-buffer)
