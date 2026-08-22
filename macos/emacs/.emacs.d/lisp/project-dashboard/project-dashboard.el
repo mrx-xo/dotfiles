@@ -1394,6 +1394,36 @@ dashboard to the org source immediately."
     map)
   "Keymap for task-related commands under 't' prefix.")
 
+(defun project-dashboard-open-org-tasks ()
+  "Open the active org task file, jumping to its Tasks heading if any."
+  (interactive)
+  (let ((file (or project-dashboard--active-org-file
+                  (car (project-dashboard--org-files
+                        project-dashboard--project-root)))))
+    (unless file
+      (user-error "No org task files declared for this project"))
+    (find-file file)
+    (goto-char (point-min))
+    (when (re-search-forward "^\\*+ Tasks\\b" nil t)
+      (goto-char (line-beginning-position))
+      (when (derived-mode-p 'org-mode)
+        (if (fboundp 'org-fold-show-context)
+            (org-fold-show-context 'agenda)
+          (with-no-warnings (org-show-context 'agenda)))
+        (if (fboundp 'org-fold-show-children)
+            (org-fold-show-children)
+          (with-no-warnings (org-show-children)))))))
+
+(defvar project-dashboard--tasks-key-def
+  `(menu-item "" ,project-dashboard-tasks-map
+              :filter ,(lambda (map)
+                         (if (eq project-dashboard--task-source 'org)
+                             #'project-dashboard-open-org-tasks
+                           map)))
+  "Source-aware definition for the `t' key.
+Taskmaster dashboards get the usual `t' prefix map; org dashboards
+jump straight to the active org file's Tasks heading.")
+
 (defvar project-dashboard-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "a") #'project-dashboard-open-agent-shell)
@@ -1402,7 +1432,7 @@ dashboard to the org source immediately."
     (define-key map (kbd "D") #'project-dashboard-open-link)
     (define-key map (kbd "f") #'project-dashboard-find-file)
     (define-key map (kbd "v") #'project-dashboard-open-vterm)
-    (define-key map (kbd "t") project-dashboard-tasks-map)
+    (define-key map (kbd "t") project-dashboard--tasks-key-def)
     (define-key map (kbd "r") #'project-dashboard-refresh)
     (define-key map (kbd "g") #'project-dashboard-refresh)
     (define-key map (kbd "q") #'project-dashboard-quit)
@@ -1452,9 +1482,7 @@ dashboard to the org source immediately."
     (kbd "D") #'project-dashboard-open-link
     (kbd "f") #'project-dashboard-find-file
     (kbd "v") #'project-dashboard-open-vterm
-    (kbd "t t") #'project-dashboard-open-tag-tasks
-    (kbd "t T") #'project-dashboard-open-all-tasks
-    (kbd "t f") #'project-dashboard-open-tasks-file
+    (kbd "t") project-dashboard--tasks-key-def
     (kbd "r") #'project-dashboard-refresh
     (kbd "R") #'project-dashboard-new-art
     (kbd "gr") #'project-dashboard-refresh
