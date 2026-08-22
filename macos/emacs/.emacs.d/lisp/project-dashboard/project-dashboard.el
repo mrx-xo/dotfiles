@@ -477,6 +477,10 @@ Each plist has :title :state :category :priority :closed :file :pos.
                                        (substring-no-properties
                                         (org-get-heading t t t t)))
                                :state state
+                               ;; Captured here while the buffer still has
+                               ;; org's keyword setup, so the dashboard can
+                               ;; render keywords exactly like org does.
+                               :face (org-get-todo-face state)
                                :category (cond
                                           ((member state org-done-keywords) 'done)
                                           ((member state project-dashboard-org-in-progress-states)
@@ -726,6 +730,7 @@ Algorithm matches Task Master: priority, then dependency count, then ID."
     (when project-dashboard--active-tag
       (insert (propertize (format " (%s)" project-dashboard--active-tag)
                           'face 'project-dashboard-separator-face)))
+    (insert (project-dashboard--source-badge))
     (insert "\n\n")
     (if next-task
         (let* ((id (plist-get next-task :id))
@@ -817,6 +822,11 @@ so RET can open it."
         (insert "\n")))
     (insert "\n")))
 
+(defun project-dashboard--source-badge ()
+  "Return a propertized badge naming the buffer's task source."
+  (propertize (if (eq project-dashboard--task-source 'org) " [org]" " [tm]")
+              'face 'project-dashboard-key-face))
+
 (defun project-dashboard--org-task-properties (task)
   "Return text properties linking a rendered line back to org TASK."
   (list 'project-dashboard-org-task (cons (plist-get task :file)
@@ -834,14 +844,20 @@ so RET can open it."
     (insert (propertize (format "  %s" header) 'face header-face))
     (insert (propertize (format " (%s)" active-name)
                         'face 'project-dashboard-separator-face))
+    (insert (project-dashboard--source-badge))
     (insert "\n\n")
     (if task
         (progn
           (insert "    ")
-          (insert (propertize (format "%-5s " (plist-get task :state))
-                              'face (if in-progress
-                                        'project-dashboard-status-in-progress-face
-                                      'project-dashboard-status-pending-face)))
+          (let ((state (plist-get task :state)))
+            ;; Keyword styled exactly as in org (background pills);
+            ;; pad outside the propertized text so the pill stays tight.
+            (insert (propertize state
+                                'face (or (plist-get task :face)
+                                          (if in-progress
+                                              'project-dashboard-status-in-progress-face
+                                            'project-dashboard-status-pending-face)))
+                    (make-string (max 1 (- 6 (length state))) ?\s)))
           (when (equal (plist-get task :priority) "A")
             (insert (propertize "[#A] " 'face 'project-dashboard-priority-high-face)))
           (insert (apply #'propertize
@@ -892,19 +908,22 @@ in `project-dashboard--render'."
         ;; The file list doubles as the Tags section: same stats shape,
         ;; same number-key switching.
         (project-dashboard--render-tags-section
-         (project-dashboard--org-file-stats files) active-name))
+         (project-dashboard--org-file-stats files) active-name "Files"))
       t)))
 
-(defun project-dashboard--render-tags-section (tags-stats active-tag)
+(defun project-dashboard--render-tags-section (tags-stats active-tag &optional title)
   "Render the Tags Overview section with TAGS-STATS.
 TAGS-STATS is a list of plists from `project-dashboard--get-all-tags-with-stats'.
-ACTIVE-TAG is the currently active tag name to highlight.
+ACTIVE-TAG is the currently active tag name to highlight.  TITLE
+overrides the section heading (the org source passes \"Files\").
 Also stores tag names in `project-dashboard--tags-list' for number-based switching."
   (when tags-stats
     ;; Store tags list for keybinding lookup
     (setq project-dashboard--tags-list
           (mapcar (lambda (tag) (plist-get tag :name)) tags-stats))
-    (insert (propertize "  Tags" 'face 'project-dashboard-section-face))
+    (insert (propertize (format "  %s" (or title "Tags"))
+                        'face 'project-dashboard-section-face))
+    (insert (project-dashboard--source-badge))
     (insert "\n\n")
     (let ((idx 1))
       (dolist (tag tags-stats)
@@ -1055,6 +1074,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
               (progn
                 (insert (propertize "  Next Task" 'face 'project-dashboard-section-face))
                 (insert (propertize (format " (%s)" active-tag) 'face 'project-dashboard-separator-face))
+                (insert (project-dashboard--source-badge))
                 (insert "\n\n")
                 (insert (propertize "    Tag is empty — time to add some tasks\n\n" 
                                     'face 'project-dashboard-status-pending-face)))
