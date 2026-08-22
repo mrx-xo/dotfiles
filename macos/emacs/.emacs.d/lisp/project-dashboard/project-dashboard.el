@@ -473,8 +473,9 @@ Each plist has :title :state :category :priority :closed :file :pos.
                (let ((state (org-get-todo-state)))
                  (when state
                    (setq state (substring-no-properties state))
-                   (push (list :title (substring-no-properties
-                                       (org-get-heading t t t t))
+                   (push (list :title (org-link-display-format
+                                       (substring-no-properties
+                                        (org-get-heading t t t t)))
                                :state state
                                :category (cond
                                           ((member state org-done-keywords) 'done)
@@ -1214,6 +1215,46 @@ org heading on org task lines, otherwise fall back to
     (or (project-dashboard-open-transcript-at-point pos)
         (project-dashboard-open-org-task-at-point pos))))
 
+(defun project-dashboard-add-org-file (file)
+  "Declare org task FILE for this dashboard's project and persist it.
+Adds FILE to `project-dashboard-org-task-files' under the current
+project root, saves the variable via Customize, and switches this
+dashboard to the org source immediately."
+  (interactive
+   (progn
+     (unless project-dashboard--project-root
+       (user-error "Not in a project dashboard buffer"))
+     (list (read-file-name
+            "Add org task file: "
+            (if (boundp 'org-directory)
+                (file-name-as-directory org-directory)
+              default-directory)
+            nil t nil
+            (lambda (f) (or (file-directory-p f)
+                            (string-suffix-p ".org" f)))))))
+  (let* ((file (abbreviate-file-name (expand-file-name file)))
+         (root (directory-file-name
+                (file-truename
+                 (expand-file-name project-dashboard--project-root))))
+         (cell (seq-find (lambda (c)
+                           (equal (directory-file-name
+                                   (file-truename (expand-file-name (car c))))
+                                  root))
+                         project-dashboard-org-task-files)))
+    (if cell
+        (unless (member file (cdr cell))
+          (setcdr cell (append (cdr cell) (list file))))
+      (push (cons (abbreviate-file-name
+                   (directory-file-name
+                    (expand-file-name project-dashboard--project-root)))
+                  (list file))
+            project-dashboard-org-task-files))
+    (customize-save-variable 'project-dashboard-org-task-files
+                             project-dashboard-org-task-files)
+    (setq project-dashboard--source-override 'org)
+    (project-dashboard-refresh)
+    (message "Org task file added: %s" file)))
+
 (defun project-dashboard-toggle-task-source ()
   "Toggle this dashboard between Task Master and org task sources."
   (interactive)
@@ -1348,6 +1389,7 @@ org heading on org task lines, otherwise fall back to
     (define-key map (kbd "RET") #'project-dashboard-open-at-point)
     (define-key map [mouse-1] #'project-dashboard-mouse-open)
     (define-key map (kbd "s") #'project-dashboard-toggle-task-source)
+    (define-key map (kbd "S") #'project-dashboard-add-org-file)
     ;; Tag switching (1-9)
     (define-key map (kbd "1") #'project-dashboard-switch-tag-1)
     (define-key map (kbd "2") #'project-dashboard-switch-tag-2)
@@ -1398,6 +1440,7 @@ org heading on org task lines, otherwise fall back to
     (kbd "gr") #'project-dashboard-refresh
     (kbd "q") #'project-dashboard-quit
     (kbd "s") #'project-dashboard-toggle-task-source
+    (kbd "S") #'project-dashboard-add-org-file
     (kbd "RET") #'project-dashboard-open-at-point
     ;; Tag switching (1-9)
     (kbd "1") #'project-dashboard-switch-tag-1
