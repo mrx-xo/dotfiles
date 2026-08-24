@@ -31,7 +31,10 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 1b954f9 (nav caret: SVG chevron, vertically centered)
 # + local 433ae84 (copy: HTTP-safe clipboard fallback, selectable bubbles)
 # + local e8120da (peek: markdown + chat-style bubbles in preview sheet)
-ACP_MOBILE_COMMIT="e8120da"
+# + local 1c1dbb7 (tool cards: ACP-neutral kind rendering, Claude + Codex)
+# + local d944f17 (history API: /api/transcripts + /api/transcript)
+# + local 3602b0b (history UI: browse agent-recall transcripts, agent badges)
+ACP_MOBILE_COMMIT="3602b0b"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
