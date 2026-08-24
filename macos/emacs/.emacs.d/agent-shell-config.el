@@ -1338,18 +1338,22 @@ permission mode, same as C-u SPC c P on the rig."
             (unless (file-directory-p dir)
               (error "No such directory: %s" dir))
             (let* ((default-directory dir)
-                   (config (if (and preset (not (string-empty-p preset)))
-                               (let ((tuple (or (assq (string-to-char preset)
-                                                      mr-x/agent-shell-presets)
-                                                (error "No preset for %s" preset))))
-                                 (mr-x/agent-shell--config-with
-                                  (nth 2 tuple) (nth 3 tuple)))
+                   (tuple (and preset (not (string-empty-p preset))
+                               (or (assq (string-to-char preset)
+                                         mr-x/agent-shell-presets)
+                                   (error "No preset for %s" preset))))
+                   (config (if tuple
+                               (mr-x/agent-shell--config-with
+                                (nth 2 tuple) (nth 3 tuple) (nth 4 tuple))
                              agent-shell-preferred-agent-config))
                    (buf (agent-shell--start
                          :config config
                          :new-session t :no-focus t)))
               (when (and name (not (string-empty-p name)))
                 (puthash buf name major-pane--labels))
+              (when (nth 5 tuple)
+                (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                             buf (nth 5 tuple) 60))
               (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
               (buffer-name buf))))
 

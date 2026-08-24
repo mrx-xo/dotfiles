@@ -3790,21 +3790,57 @@ agent-shell, otherwise pop to it. Honours viewport interaction."
       ;;           "sonnet" "haiku"
       ;;   modes:  "auto" "default" "acceptEdits" "plan" "dontAsk"
       ;;           "bypassPermissions"
+      ;; Codex IDs (from a live codex-acp session).  GOTCHA: the session's
+      ;; :models list shows suffixed ids ("gpt-5.6-sol[high]") but those are
+      ;; display-only — codex-acp's `model' config option takes BARE families
+      ;; and rejects suffixed ids with -32602 Invalid params.  Effort is its
+      ;; own `reasoning_effort' config option, set post-init (EFFORT field).
+      ;;   models: "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
+      ;;           "gpt-5.5" "gpt-5.4" "gpt-5.4-mini" "gpt-5.3-codex-spark"
+      ;;   modes:  "read-only" "agent" "agent-full-access"
+      ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
       ;; Add a preset = add one line here.
       (defvar mr-x/agent-shell-presets
         '((?f "Fable · Bypass"  "claude-fable-5[1m]" "bypassPermissions")
           (?o "Opus · Bypass"   "opus[1m]"           "bypassPermissions")
           (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
           (?p "Opus · Plan"     "default"            "plan")
-          (?h "Haiku · Auto"    "haiku"              "auto"))
-        "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID).
-Each launches a fresh shell with that model and permission mode.")
+          (?h "Haiku · Auto"    "haiku"              "auto")
+          (?c "Sol · Full"      "gpt-5.6-sol"        "agent-full-access"
+              agent-shell-openai-make-codex-config "high")
+          (?x "Sol Max · Full"  "gpt-5.6-sol"        "agent-full-access"
+              agent-shell-openai-make-codex-config "max"))
+        "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
+Each launches a fresh shell with that model and permission mode.
+CONFIG-FN, when present, names the agent-config constructor to base the
+shell on (e.g. Codex) instead of the preferred (Claude) config.
+EFFORT, when present, is sent as the `reasoning_effort' config option
+once the session is up (Codex-only concept).")
 
-      (defun mr-x/agent-shell--config-with (model-id mode-id)
+      (defun mr-x/agent-shell--set-effort-when-ready (buf effort tries)
+        "Set BUF's `reasoning_effort' config option to EFFORT once its
+session exists, retrying TRIES times (the session id lands seconds
+after spawn, same dance as `mr-x/agent-spawn--send-when-ready')."
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (if (map-nested-elt agent-shell--state '(:session :id))
+                (agent-shell--set-session-config-option
+                 :config-id "reasoning_effort" :value effort)
+              (if (> tries 0)
+                  (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                               buf effort (1- tries))
+                (message "agent preset: %s never became ready for effort set"
+                         (buffer-name buf)))))))
+
+      (defun mr-x/agent-shell--config-with (model-id mode-id &optional config-fn)
         "Copy the preferred agent config, overriding model + session mode.
-Returns a fresh config alist so the original is left untouched."
+When CONFIG-FN is non-nil, build the base config by calling it instead
+of resolving the preferred config — that's how a preset targets a
+different agent (Codex) entirely.  Returns a fresh config alist so the
+original is left untouched."
         (let ((config (copy-alist
-                       (or (and (fboundp 'agent-shell--resolve-preferred-config)
+                       (or (and config-fn (funcall config-fn))
+                           (and (fboundp 'agent-shell--resolve-preferred-config)
                                 (agent-shell--resolve-preferred-config))
                            (agent-shell-select-config :prompt "Start new agent: ")
                            (error "No agent config found")))))
@@ -3834,11 +3870,15 @@ supplied, then spawns a new shell locked to that model + permission mode."
         (interactive)
         (require 'agent-shell)
         (let* ((preset (mr-x/agent-shell--read-preset char))
-               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)))
+               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
+                                                      (nth 4 preset)))
                (shell-buffer (agent-shell--start :config config
                                                  :no-focus t
                                                  :new-session t)))
           (mr-x/agent-shell--display-new shell-buffer)
+          (when (nth 5 preset)
+            (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                         shell-buffer (nth 5 preset) 60))
           (message "Agent preset: %s" (nth 1 preset))))
 
       (defun mr-x/agent-shell-apply-preset (&optional char)
@@ -8420,18 +8460,22 @@ permission mode, same as C-u SPC c P on the rig."
             (unless (file-directory-p dir)
               (error "No such directory: %s" dir))
             (let* ((default-directory dir)
-                   (config (if (and preset (not (string-empty-p preset)))
-                               (let ((tuple (or (assq (string-to-char preset)
-                                                      mr-x/agent-shell-presets)
-                                                (error "No preset for %s" preset))))
-                                 (mr-x/agent-shell--config-with
-                                  (nth 2 tuple) (nth 3 tuple)))
+                   (tuple (and preset (not (string-empty-p preset))
+                               (or (assq (string-to-char preset)
+                                         mr-x/agent-shell-presets)
+                                   (error "No preset for %s" preset))))
+                   (config (if tuple
+                               (mr-x/agent-shell--config-with
+                                (nth 2 tuple) (nth 3 tuple) (nth 4 tuple))
                              agent-shell-preferred-agent-config))
                    (buf (agent-shell--start
                          :config config
                          :new-session t :no-focus t)))
               (when (and name (not (string-empty-p name)))
                 (puthash buf name major-pane--labels))
+              (when (nth 5 tuple)
+                (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                             buf (nth 5 tuple) 60))
               (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
               (buffer-name buf))))
 
