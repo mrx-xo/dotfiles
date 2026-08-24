@@ -15,6 +15,8 @@
 ;;                       instead of locking (SPC c Y)
 ;; - syzygy-handoff.el — resume a conversation from the other Mac
 ;;                       (SPC c H)
+;; - syzygy-recall.el  — transcript history JSON for acp-mobile's
+;;                       History screen (reads agent-recall's index)
 ;;
 ;; The non-elisp half lives in ~/.dotfiles/macos/syzygy/: the
 ;; acp-multiplex/acp-mobile build pin, the acp-mobile launchd agent,
@@ -30,6 +32,7 @@
 (require 'syzygy-resync)
 (require 'syzygy-live)
 (require 'syzygy-handoff)
+(require 'syzygy-recall)
 
 (provide 'syzygy)
 ;;; syzygy.el ends here
