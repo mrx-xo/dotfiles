@@ -34,7 +34,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 1c1dbb7 (tool cards: ACP-neutral kind rendering, Claude + Codex)
 # + local d944f17 (history API: /api/transcripts + /api/transcript)
 # + local 3602b0b (history UI: browse agent-recall transcripts, agent badges)
-ACP_MOBILE_COMMIT="3602b0b"
+# + local 69546b7 (spawn presets: Codex chips — Sol / Sol Max full-access)
+ACP_MOBILE_COMMIT="69546b7"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
