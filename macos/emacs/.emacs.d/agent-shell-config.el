@@ -885,6 +885,12 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                                                    (mr-x/agent-shell-deny)
                                                    (when (and shell-buf (buffer-live-p shell-buf))
                                                      (pop-to-buffer shell-buf))))))))
+        ;; Make codex-acp use the separately installed, up-to-date Codex CLI.
+        (setq agent-shell-openai-codex-environment
+              (agent-shell-make-environment-variables
+               "CODEX_PATH" "/opt/homebrew/bin/codex"
+               :inherit-env t))
+
         ;; Use existing Claude CLI login
         ;; Value must be the config-option *id* the agent advertises under
         ;; "Available models", NOT the underlying model string. Valid ids:
@@ -916,6 +922,13 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         (when (executable-find "acp-multiplex")
           (setq agent-shell-anthropic-claude-acp-command
                 '("acp-multiplex" "claude-agent-acp")))
+
+        ;; Codex through the same multiplex: the proxy is a provider-neutral
+        ;; JSON-RPC tee (only touches spec-level ACP methods), so Codex
+        ;; sessions get a socket and show up on the phone like Claude ones.
+        (when (executable-find "acp-multiplex")
+          (setq agent-shell-openai-codex-acp-command
+                '("acp-multiplex" "codex-acp")))
 
         ;; ── Goose (local Ollama agent) ──────────────────────────
         ;; Goose talks to a local model (qwen3.5:9b) on the M2 Air
@@ -1005,6 +1018,22 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                 ))
 
 
+
+        ;; Give Codex the same compact prompt as Claude instead of "Codex> ".
+        ;; Keep this as a filter on the upstream factory so authentication,
+        ;; models, session modes, and future config fields continue to come
+        ;; from agent-shell-openai.
+        (with-eval-after-load 'agent-shell-openai
+          (defun mr-x/agent-shell-codex-compact-prompt (config)
+            "Replace Codex's verbose input prompt in CONFIG with `𐆖 '."
+            (setf (alist-get :shell-prompt config) "𐆖 "
+                  (alist-get :shell-prompt-regexp config) "𐆖 ")
+            config)
+          (unless (advice-member-p #'mr-x/agent-shell-codex-compact-prompt
+                                   'agent-shell-openai-make-codex-config)
+            (advice-add 'agent-shell-openai-make-codex-config
+                        :filter-return
+                        #'mr-x/agent-shell-codex-compact-prompt)))
 
         ;; Custom prompt config
         (setq agent-shell-preferred-agent-config
