@@ -35,7 +35,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local d944f17 (history API: /api/transcripts + /api/transcript)
 # + local 3602b0b (history UI: browse agent-recall transcripts, agent badges)
 # + local 69546b7 (spawn presets: Codex chips — Sol / Sol Max full-access)
-ACP_MOBILE_COMMIT="69546b7"
+# + local a844c5e (provider icons on live chat + history cards)
+ACP_MOBILE_COMMIT="a844c5e"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
