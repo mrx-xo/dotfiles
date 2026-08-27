@@ -59,7 +59,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local cd7efe9 (push tap lands on the chat after iOS reload / cold launch)
 # + local f7f6fcf (home screen named Orrery: header + ids + comments)
 # + local a004620 (Clone in the chat menu: /api/spawn cloneOf -> fresh convo, same model/mode/cwd)
-ACP_MOBILE_COMMIT="a004620a35e801746f8b1572aff173d31feb7eb0"
+# + local 909a7be (resume exact agent-recall conversations from History)
+ACP_MOBILE_COMMIT="909a7be"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
