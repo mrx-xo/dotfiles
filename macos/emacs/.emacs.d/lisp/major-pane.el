@@ -745,21 +745,44 @@ Falls back to the raw value, or nil when the option is absent."
         val)))
 
 (defun major-pane--short-model-name (model-id)
-  "Shorten MODEL-ID to its bare family name to save banner room.
+  "Shorten MODEL-ID to its bare codename to save banner room.
+Strips a provider prefix (\"claude-\", \"gpt-\") and any \"[..]\"
+suffix, then keeps only the alphabetic name tokens — dropping version
+and date numbers.  Works across backends:
 \"claude-fable-5[1m]\" → \"fable\", \"sonnet[1m]\" → \"sonnet\",
-\"claude-haiku-4-5-20251001\" → \"haiku\", \"default\" → \"default\"."
-  (let* ((s (string-remove-prefix "claude-" model-id))
+\"claude-haiku-4-5-20251001\" → \"haiku\", \"gpt-5.6-sol\" → \"sol\",
+\"gpt-5.6-sol-max\" → \"sol-max\", \"default\" → \"default\"."
+  (let* ((s (replace-regexp-in-string "\\`\\(claude\\|gpt\\)-" "" model-id))
          (s (replace-regexp-in-string "\\[.*\\]\\'" "" s))
-         ;; Drop version/date segments: everything from the first
-         ;; all-digit dash-token onward ("fable-5" → "fable").
-         (s (replace-regexp-in-string "-[0-9].*\\'" "" s)))
-    (if (string-empty-p s) model-id s)))
+         ;; Keep only tokens carrying a letter — drops "5", "4-5",
+         ;; "5.6", "20251001", leaving the codename(s).
+         (tokens (seq-filter (lambda (tok) (string-match-p "[a-z]" tok))
+                             (split-string s "-" t)))
+         (short (string-join tokens "-")))
+    (if (string-empty-p short) model-id short)))
 
 (defvar major-pane-short-mode-names
-  '(("Bypass Permissions" . "Bypass")
+  '(;; Claude
+    ("Bypass Permissions" . "Bypass")
     ("Accept Edits" . "Edits")
-    ("Plan Mode" . "Plan"))
+    ("Plan Mode" . "Plan")
+    ;; Codex
+    ("Agent (full access)" . "Full")
+    ("Read-only" . "Read")
+    ("Agent" . "Agent"))
   "Alist shortening permission-mode display names for the banner.")
+
+(defvar major-pane-alert-mode-names '("Bypass" "Full")
+  "Shortened permission modes rendered with the alert face in the banner.
+These grant unguarded access (Claude bypass, Codex full access).")
+
+(defun major-pane--fast-badge ()
+  "Return a lightning glyph marking fast mode in the banner.
+Uses the nerd-icons Material bolt (matching the in-pane robot's icon
+font); falls back to plain text when nerd-icons is unavailable."
+  (if (fboundp 'nerd-icons-mdicon)
+      (nerd-icons-mdicon "nf-md-lightning_bolt")
+    "fast"))
 
 (defun major-pane--short-mode-name (mode-name)
   "Return the abbreviated form of MODE-NAME, or MODE-NAME itself."
@@ -772,9 +795,21 @@ Falls back to the raw value, or nil when the option is absent."
          (model-opt (seq-find (lambda (o) (equal (alist-get :id o) "model")) opts))
          (model-val (major-pane--short-model-name
                      (or (alist-get :current-value model-opt) "?")))
-         (effort-val (major-pane--config-option-label opts "effort"))
+         ;; Claude names it "effort"; Codex "reasoning_effort".
+         (effort-val (or (major-pane--config-option-label opts "effort")
+                         (major-pane--config-option-label opts "reasoning_effort")))
          (mode-val (when-let* ((m (major-pane--config-option-label opts "mode")))
                      (major-pane--short-mode-name m)))
+         ;; Codex carries Plan as a separate "collaboration_mode";
+         ;; surface it (Claude folds Plan into `mode', so this is nil).
+         (collab-val (let ((c (major-pane--config-option-label
+                               opts "collaboration_mode")))
+                       (unless (member c '(nil "Default")) c)))
+         ;; Claude names it "fast"; Codex "fast-mode".  Badge shows
+         ;; only while enabled, so the pane isn't cluttered with "Off".
+         (fast-on (equal "On" (or (major-pane--config-option-label opts "fast")
+                                  (major-pane--config-option-label
+                                   opts "fast-mode"))))
          (usage (alist-get :usage state))
          (ctx-used (or (alist-get :context-used usage) 0))
          (ctx-size (or (alist-get :context-size usage) 0))
@@ -788,15 +823,21 @@ Falls back to the raw value, or nil when the option is absent."
                             pct))))
     (let ((sep (propertize " ➤ " 'face 'major-pane-banner-separator)))
       (concat
+       ;; Icon carries its own nerd-icons face — keep it unwrapped so
+       ;; the glyph's font family survives (propertize would clobber it).
+       (when fast-on (concat " " (major-pane--fast-badge)))
        (propertize (format " %s" model-val) 'face 'major-pane-banner-model)
        (when effort-val
          (concat sep (propertize effort-val 'face 'major-pane-banner-info)))
        (when mode-val
          (concat sep
                  (propertize mode-val
-                             'face (if (equal mode-val "Bypass")
+                             'face (if (member mode-val
+                                               major-pane-alert-mode-names)
                                        'major-pane-banner-alert
                                      'major-pane-banner-info))))
+       (when collab-val
+         (concat sep (propertize collab-val 'face 'major-pane-banner-info)))
        (when ctx-str
          (concat sep (propertize ctx-str 'face 'major-pane-banner-info)))
        (when (> cost 0)
@@ -1038,6 +1079,32 @@ answer it) and `busy' is live status."
     (force-mode-line-update t)))
 
 (add-hook 'evil-insert-state-entry-hook #'major-pane--attention-clear-on-insert)
+
+(defun major-pane-mark-read ()
+  "Manually clear the `done' (green) flag on the current conversation.
+Mirrors `major-pane--attention-clear-on-insert' but callable on demand,
+for when you've read a response without entering insert state.  Operates
+on the current buffer when it's a conversation, otherwise on the pane's
+active conversation.  Only `done' clears — `perms' (pending prompt) and
+`busy' (live turn) are left alone."
+  (interactive)
+  (let ((buf (if (and major-pane--state
+                      (memq (current-buffer)
+                            (major-pane-state-conversations major-pane--state)))
+                 (current-buffer)
+               (and major-pane--state
+                    (major-pane-state-active major-pane--state)))))
+    (if (not (buffer-live-p buf))
+        (user-error "No conversation to mark read")
+      (with-current-buffer buf
+        (if (eq major-pane--tab-attention 'done)
+            (progn
+              (setq major-pane--tab-attention nil)
+              (major-pane--spinner-sync)
+              (force-mode-line-update t)
+              (message "Marked read: %s" (major-pane--display-name buf)))
+          (message "Nothing to clear (%s)"
+                   (or major-pane--tab-attention 'idle)))))))
 
 (defun major-pane--attention-severity (buffers)
   "Highest attention severity among BUFFERS: `perms', `done', `busy', or nil.

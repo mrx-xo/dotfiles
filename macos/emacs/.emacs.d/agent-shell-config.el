@@ -1415,21 +1415,14 @@ permission mode, same as C-u SPC c P on the rig."
                          (cond ((seq-find (lambda (p) (eq (plist-get p :buffer) buf))
                                           (bound-and-true-p mr-x/pending-permissions-queue))
                                 "permission")
-                               ;; shell-maker-busy only trips for turns THIS
-                               ;; buffer submitted.  Phone-driven turns bypass
-                               ;; shell-maker, but their chunks still stream in
-                               ;; as notifications, and agent-shell stamps
-                               ;; :last-activity-time on every one — so recent
-                               ;; activity means a turn is running no matter
-                               ;; who drives.  (Long silent tool runs can
-                               ;; outlast the window; dot rings again on the
-                               ;; next chunk.)
+                               ;; Local requests have shell-maker's exact busy
+                               ;; bit.  Phone requests bypass shell-maker, so
+                               ;; syzygy-live tracks their synthesized user and
+                               ;; turn_complete lifecycle separately.
                                ((with-current-buffer buf
                                   (or (shell-maker-busy)
-                                      (when-let ((last (map-elt agent-shell--state
-                                                                :last-activity-time)))
-                                        (< (float-time (time-subtract (current-time) last))
-                                           20))))
+                                      (bound-and-true-p
+                                       syzygy-live--remote-turn-active)))
                                 "busy")
                                (t "idle"))
                          statuses)))
@@ -1439,6 +1432,25 @@ permission mode, same as C-u SPC c P on the rig."
                 (make-directory (expand-file-name "~/.acp-mobile") t)
                 (with-temp-file (expand-file-name "~/.acp-mobile/status.json")
                   (insert json))))))
+
+        ;; Remote turn boundaries are explicit, so mirror those immediately;
+        ;; the 3s timer below remains the safety net for every other path.
+        (add-hook 'syzygy-live-turn-state-change-hook
+                  #'mr-x/agent-status-sync)
+
+        (defun mr-x/agent-status--sync-after-event (&rest args)
+          "Mirror status after an agent-shell lifecycle event in ARGS."
+          (when (memq (plist-get args :event)
+                      '(input-submitted permission-request permission-response
+                        turn-complete error clean-up))
+            ;; Defer one event-loop turn so permission queue cleanup and
+            ;; shell-maker's busy transition have both settled.
+            (run-at-time 0 nil #'mr-x/agent-status-sync)))
+
+        (advice-remove 'agent-shell--emit-event
+                       #'mr-x/agent-status--sync-after-event)
+        (advice-add 'agent-shell--emit-event :after
+                    #'mr-x/agent-status--sync-after-event)
 
         ;; Label self-heal on the same cadence: one-shot label syncs
         ;; (phone /api/label evals, the spawn timer chain) can be aborted
@@ -1522,16 +1534,31 @@ permission mode, same as C-u SPC c P on the rig."
          "m j" '(mr-x/bookmark-jump-no-sessions :wk "jump to bookmark")))
 
       (defun mr-x/agent-shell-refs-capture-and-go ()
-        "Capture region as a ref, then jump to the shell prompt in insert mode."
+        "Capture region as a ref, drop its [ref N] marker at the prompt,
+land in insert mode ready to write about it.  Use SPC c a R for a
+silent context-only capture with no marker."
         (interactive)
         (agent-shell-refs-capture)
         (when-let* ((buf (agent-shell-refs--find-shell-buffer)))
-          (if-let* ((win (get-buffer-window buf t)))
-              (progn
-                (select-frame-set-input-focus (window-frame win))
-                (select-window win))
-            (pop-to-buffer buf))
+          ;; Just-captured ref is newest in capture order → number = count.
+          ;; insert-marker handles the window-focus jump itself.
+          (let ((n (length (buffer-local-value 'agent-shell-refs--list buf))))
+            (agent-shell-refs-insert-marker n))
           (mr-x/agent-shell-smart-insert)))
+
+      (defun mr-x/agent-shell-refs-reply-and-go (n)
+        "Insert a [ref N] reply marker at the prompt, land in insert mode."
+        (interactive "NReply to ref: ")
+        (agent-shell-refs-insert-marker n)
+        (mr-x/agent-shell-smart-insert))
+
+      ;; One named command per digit so which-key shows real names,
+      ;; not anonymous lambdas.
+      (dotimes (i 9)
+        (let ((n (1+ i)))
+          (defalias (intern (format "mr-x/agent-shell-refs-reply-%d" n))
+            (lambda () (interactive) (mr-x/agent-shell-refs-reply-and-go n))
+            (format "Insert a [ref %d] reply marker and enter insert mode." n))))
 
       (with-eval-after-load 'agent-shell
         (agent-shell-refs-setup)
@@ -1549,11 +1576,24 @@ permission mode, same as C-u SPC c P on the rig."
         (general-define-key
          :states '(normal visual)
          :prefix "SPC"
-         "c x r" '(mr-x/agent-shell-refs-capture-and-go :wk "Capture ref + go")
-         "c x R" '(agent-shell-refs-capture :wk "Capture ref")
-         "c x c" '(agent-shell-refs-clear :wk "Clear refs")
-         "c x p" '(agent-shell-refs-preview :wk "Preview refs")
-         "c x d" '(agent-shell-refs-remove :wk "Remove ref")
+         "c a r" '(mr-x/agent-shell-refs-capture-and-go :wk "Capture ref + go")
+         "c a R" '(agent-shell-refs-capture :wk "Capture ref")
+         "c a c" '(agent-shell-refs-clear :wk "Clear refs")
+         "c a p" '(agent-shell-refs-preview :wk "Preview refs")
+         "c a d" '(agent-shell-refs-remove :wk "Remove ref")
+         ;; SPC c a 1..9 — pair the next words you type with queued ref N
+         "c a n" '(mr-x/agent-shell-refs-reply-and-go :wk "Reply to ref…"))
+        (dotimes (i 9)
+          (let ((n (1+ i)))
+            (general-define-key
+             :states '(normal visual)
+             :prefix "SPC"
+             (format "c a %d" n)
+             (list (intern (format "mr-x/agent-shell-refs-reply-%d" n))
+                   :wk (format "Reply to ref %d" n)))))
+        (general-define-key
+         :states '(normal visual)
+         :prefix "SPC"
          ;; Lowercase g starts a local Goose convo; capital G watches it.
          "c g" '(mr-x/goose-local-start :wk "Goose convo (local)")
          "c G" '(goose-scope :wk "Goose scope panel")))
@@ -1679,6 +1719,8 @@ permission mode, same as C-u SPC c P on the rig."
         (agent-recall-consult-sort-order 'date-descending)
         (agent-recall-browse-sort 'modified-desc)
         (agent-recall-browse-preview t)
+        ;; Show provider logos (Anthropic/OpenAI/Gemini) in the pickers.
+        (agent-recall-show-provider-icons t)
         :hook (agent-shell-mode . agent-recall-track-sessions)
         :config
         ;; Persist major-pane conversation labels across resumes via the

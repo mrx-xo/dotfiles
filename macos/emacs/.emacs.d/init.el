@@ -277,17 +277,38 @@ during daemon init the selected frame is non-graphic)."
   		 "DONE(d!)"
   		 "CANC(k@)")))
 
-  	(defvar mr-x/todo-faces
-  	  ;; Static global alist baked once at load — can't be per-frame, so
-  	  ;; pin to 'dark.  KNOWN GAP: these keyword badges keep dark colors on
-  	  ;; CALLIOPE's e-ink (org applies this alist directly, not via a named
-  	  ;; face the per-frame eink override could reach).
-  	  `(("TODO" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'red 'dark) :weight bold))
-  	    ("NEXT" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'orange 'dark) :weight bold))
-  	    ("WAIT" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'mint 'dark) :weight bold))
-  	    ("DONE" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'muted 'dark) :weight bold))
-  	    ("CANC" . (:foreground ,(mr-x/color 'bg 'dark) :background ,(mr-x/color 'muted 'dark) :weight bold)))
-  	  "TODO keyword faces used by both org and org-modern.")
+        (defface mr-x/org-todo-todo-face
+          `((t (:foreground ,(mr-x/color 'bg 'dark)
+                :background ,(mr-x/color 'red 'dark) :weight bold)))
+          "Face for TODO keywords; Calliope overrides it per frame.")
+
+        (defface mr-x/org-todo-next-face
+          `((t (:foreground ,(mr-x/color 'bg 'dark)
+                :background ,(mr-x/color 'orange 'dark) :weight bold)))
+          "Face for NEXT keywords; Calliope overrides it per frame.")
+
+        (defface mr-x/org-todo-wait-face
+          `((t (:foreground ,(mr-x/color 'bg 'dark)
+                :background ,(mr-x/color 'mint 'dark) :weight bold)))
+          "Face for WAIT keywords; Calliope overrides it per frame.")
+
+        (defface mr-x/org-todo-done-face
+          `((t (:foreground ,(mr-x/color 'bg 'dark)
+                :background ,(mr-x/color 'muted 'dark) :weight bold)))
+          "Face for DONE keywords; Calliope overrides it per frame.")
+
+        (defface mr-x/org-todo-cancelled-face
+          `((t (:foreground ,(mr-x/color 'bg 'dark)
+                :background ,(mr-x/color 'muted 'dark) :weight bold)))
+          "Face for CANC keywords; Calliope overrides it per frame.")
+
+        (defconst mr-x/todo-faces
+          '(("TODO" . mr-x/org-todo-todo-face)
+            ("NEXT" . mr-x/org-todo-next-face)
+            ("WAIT" . mr-x/org-todo-wait-face)
+            ("DONE" . mr-x/org-todo-done-face)
+            ("CANC" . mr-x/org-todo-cancelled-face))
+          "TODO keyword faces used by both org and org-modern.")
 
   	(setq org-todo-keyword-faces mr-x/todo-faces)
 
@@ -1874,6 +1895,67 @@ navigation.  Candidates are file targets, so embark actions
       (message "Created Mdox: %s" (file-name-nondirectory filename))))
 
 
+(use-package osx-dictionary
+  :ensure t
+  :commands (osx-dictionary-search-word-at-point
+             osx-dictionary-search-input)
+  :config
+  ;; USAGE / PHRASAL VERBS exist in the data but the package only
+  ;; font-locks DERIVATIVES/ORIGIN/PHRASES
+  (add-to-list 'osx-dictionary-mode-font-lock-keywords
+               '("^\\(USAGE\\|PHRASAL VERBS\\)" . font-lock-comment-face))
+  (add-hook 'osx-dictionary-mode-hook
+            (lambda () (setq-local line-spacing 0.2)))
+
+  (defun mr-x/osx-dictionary--prettify ()
+    "Re-typeset the raw dictionary dump in the current buffer."
+    (let ((inhibit-read-only t))
+      (remove-overlays (point-min) (point-max) 'mr-x-dict t)
+      ;; Headword: "word syl·la·ble | prōn | body…" → bold header line,
+      ;; dimmed pronunciation, blank line before the body.  Homographs
+      ;; ("bank") dump a bare headword line instead — just bold it; the
+      ;; sense-spacing pass below already separates what follows.
+      (goto-char (point-min))
+      (cond
+       ((looking-at "\\(.*?\\) | \\([^|]+\\) | ")
+        (let ((head (match-string 1))
+              (pron (match-string 2)))
+          (delete-region (match-beginning 0) (match-end 0))
+          (insert head "  " pron "\n\n")
+          (let ((ov (make-overlay 1 (1+ (length head)))))
+            (overlay-put ov 'mr-x-dict t)
+            (overlay-put ov 'face '(:weight bold :height 1.2)))
+          (let ((ov (make-overlay (+ 1 (length head))
+                                  (+ 3 (length head) (length pron)))))
+            (overlay-put ov 'mr-x-dict t)
+            (overlay-put ov 'face 'shadow))))
+       ((not (eobp))
+        (let ((ov (make-overlay (point-min) (line-end-position))))
+          (overlay-put ov 'mr-x-dict t)
+          (overlay-put ov 'face '(:weight bold :height 1.2)))))
+      ;; Blank line before each numbered sense and each • sub-sense
+      (goto-char (point-min))
+      (while (re-search-forward "^\\(?:[0-9]+ \\|\\s-*•\\)" nil t)
+        (goto-char (match-beginning 0))
+        (unless (or (= (point) (point-min))
+                    (looking-back "\n\n" (- (point) 2)))
+          (insert "\n"))
+        (forward-line 1))
+      ;; Sections: blank line before, header on its own line
+      (goto-char (point-min))
+      (while (re-search-forward
+              "^\\(DERIVATIVES\\|ORIGIN\\|PHRASES\\|USAGE\\|PHRASAL VERBS\\) "
+              nil t)
+        (replace-match "\n\\1\n"))
+      (goto-char (point-min))))
+
+  (define-advice osx-dictionary--view-result
+      (:after (word) mr-x/prettify)
+    (when word
+      (with-current-buffer
+          (funcall osx-dictionary-generate-buffer-name-function word)
+        (mr-x/osx-dictionary--prettify)))))
+
 
 
 (with-eval-after-load 'transient
@@ -1984,6 +2066,24 @@ styling (the palette/`mr-x/color' half covers colors baked at build)."
                        (org-level-4 (:foreground "#262626"))
                        (org-todo (:foreground "#5f0000" :weight bold))
                        (org-done (:foreground "#005f00" :weight bold))
+                       ;; TODO keyword badges use named faces so their styling
+                       ;; can diverge per frame: hierarchy by contrast on e-ink,
+                       ;; while GUI frames retain the dark palette defaults.
+                       (mr-x/org-todo-todo-face
+                        (:foreground "#000000" :background "#ffffff"
+                         :weight bold :strike-through nil))
+                       (mr-x/org-todo-next-face
+                        (:foreground "#ffffff" :background "#000000"
+                         :weight bold :strike-through nil))
+                       (mr-x/org-todo-wait-face
+                        (:foreground "#000000" :background "#d0d0d0"
+                         :weight bold :strike-through nil))
+                       (mr-x/org-todo-done-face
+                        (:foreground "#767676" :background "#ffffff"
+                         :weight normal :strike-through t))
+                       (mr-x/org-todo-cancelled-face
+                        (:foreground "#767676" :background "#ffffff"
+                         :weight normal :strike-through t))
                        (org-date (:foreground "#00005f"))
                        (org-agenda-date (:foreground "#000000" :weight bold))
                        (org-agenda-date-today (:foreground "#000000" :weight bold :underline t))
@@ -2006,7 +2106,19 @@ styling (the palette/`mr-x/color' half covers colors baked at build)."
         (when (facep face)
           (apply #'set-face-attribute face frame (car attrs))))))
 
+  (defun mr-x/apply-eink-faces-to-existing-frames ()
+    "Apply E Ink styling to relevant frames that already exist.
+On daemon reloads, only explicitly tagged Calliope frames qualify so the
+untagged daemon pseudo-frame stays untouched.  In standalone Emacs every
+existing frame passes through `mr-x/eink-tty-faces', whose profile check
+still limits the actual styling to E Ink frames."
+    (dolist (frame (frame-list))
+      (when (or (not (daemonp))
+                (eq (frame-parameter frame 'device) 'calliope))
+        (mr-x/eink-tty-faces frame))))
+
   (add-hook 'after-make-frame-functions #'mr-x/eink-tty-faces)
+  (mr-x/apply-eink-faces-to-existing-frames)
 
   ;; org re-runs org-hide's face spec (face-spec-recalc), wiping per-frame
   ;; attributes — the only face in the e-ink set that gets clobbered. An
@@ -3661,6 +3773,46 @@ agent-shell, otherwise pop to it. Honours viewport interaction."
       ;;   modes:  "read-only" "agent" "agent-full-access"
       ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
       ;; Add a preset = add one line here.
+      ;;
+      ;; DeepSeek preset: DeepSeek's API speaks the Anthropic wire format
+      ;; (https://api.deepseek.com/anthropic), so the stock claude-agent-acp
+      ;; binary — still routed through acp-multiplex — works unchanged; only
+      ;; the base URL + key env vars differ.  ANTHROPIC_MODEL pins the model,
+      ;; so the preset's MODEL-ID stays "default".  Key lives in the login
+      ;; Keychain under service `deepseek-api-key'.
+      (defun mr-x/agent-shell--deepseek-key ()
+        "DeepSeek API key from the login Keychain (service `deepseek-api-key')."
+        (let ((key (string-trim
+                    (shell-command-to-string
+                     "security find-generic-password -s deepseek-api-key -w 2>/dev/null"))))
+          (if (string-empty-p key)
+              (user-error "No DeepSeek key; run: security add-generic-password -s deepseek-api-key -a deepseek -w '<key>'")
+            key)))
+
+      (defun mr-x/agent-shell-make-deepseek-config ()
+        "Claude Code agent config pointed at DeepSeek's Anthropic-compatible API.
+Copies the stock Claude config and swaps the client-maker for one that
+injects the DeepSeek base URL, key, and model env vars.  Env vars are
+prepended, so they shadow any inherited ANTHROPIC_* values."
+        (let ((config (copy-alist (agent-shell-anthropic-make-claude-code-config))))
+          (setf (alist-get :mode-line-name config) "DeepSeek")
+          (setf (alist-get :buffer-name config) "DeepSeek")
+          (setf (alist-get :client-maker config)
+                (lambda (buffer)
+                  (let ((key (mr-x/agent-shell--deepseek-key)))
+                    (agent-shell--make-acp-client
+                     :command (car agent-shell-anthropic-claude-acp-command)
+                     :command-params (cdr agent-shell-anthropic-claude-acp-command)
+                     :environment-variables
+                     (append (list "ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic"
+                                   (concat "ANTHROPIC_AUTH_TOKEN=" key)
+                                   (concat "ANTHROPIC_API_KEY=" key)
+                                   "ANTHROPIC_MODEL=deepseek-chat"
+                                   "ANTHROPIC_SMALL_FAST_MODEL=deepseek-chat")
+                             agent-shell-anthropic-claude-environment)
+                     :context-buffer buffer))))
+          config))
+
       (defvar mr-x/agent-shell-presets
         '((?f "Fable · Bypass"  "claude-fable-5[1m]" "bypassPermissions")
           (?o "Opus · Bypass"   "opus[1m]"           "bypassPermissions")
@@ -3670,7 +3822,9 @@ agent-shell, otherwise pop to it. Honours viewport interaction."
           (?c "Sol · Full"      "gpt-5.6-sol"        "agent-full-access"
               agent-shell-openai-make-codex-config "high")
           (?x "Sol Max · Full"  "gpt-5.6-sol"        "agent-full-access"
-              agent-shell-openai-make-codex-config "max"))
+              agent-shell-openai-make-codex-config "max")
+          (?d "DeepSeek · Accept" "default"          "acceptEdits"
+              mr-x/agent-shell-make-deepseek-config))
         "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
 Each launches a fresh shell with that model and permission mode.
 CONFIG-FN, when present, names the agent-config constructor to base the
@@ -3724,14 +3878,12 @@ if it matches no preset."
           (or (assq char mr-x/agent-shell-presets)
               (user-error "No preset for %c" char))))
 
-      (defun mr-x/agent-shell-start-preset (&optional char)
-        "Start a fresh agent shell from a launch preset.
-Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
-supplied, then spawns a new shell locked to that model + permission mode."
-        (interactive)
+      (defun mr-x/agent-shell--spawn-preset (preset)
+        "Spawn a fresh agent shell locked to PRESET (a `mr-x/agent-shell-presets'
+tuple).  Honours the current `default-directory' as the shell's cwd, so
+callers can `let'-bind it to launch the preset in another project."
         (require 'agent-shell)
-        (let* ((preset (mr-x/agent-shell--read-preset char))
-               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
+        (let* ((config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
                                                       (nth 4 preset)))
                (shell-buffer (agent-shell--start :config config
                                                  :no-focus t
@@ -3741,6 +3893,13 @@ supplied, then spawns a new shell locked to that model + permission mode."
             (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                          shell-buffer (nth 5 preset) 60))
           (message "Agent preset: %s" (nth 1 preset))))
+
+      (defun mr-x/agent-shell-start-preset (&optional char)
+        "Start a fresh agent shell from a launch preset.
+Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
+supplied, then spawns a new shell locked to that model + permission mode."
+        (interactive)
+        (mr-x/agent-shell--spawn-preset (mr-x/agent-shell--read-preset char)))
 
       (defun mr-x/agent-shell-apply-preset (&optional char)
         "Apply a preset's model + permission mode to the CURRENT agent shell.
@@ -3769,21 +3928,26 @@ set the model first, then the mode, then report the applied preset."
                 :on-success
                 (lambda () (message "Agent preset applied: %s" label))))))))
 
-      (defun mr-x/agent-shell-preset-dwim (&optional arg)
-        "Apply a preset to the current chat, or launch a fresh preset shell.
-Bare call applies the preset's model + permission mode to the current
-agent-shell session in place. With prefix ARG (`C-u'), instead spawn a
-fresh shell locked to that preset."
-        (interactive "P")
-        (if arg
-            (call-interactively #'mr-x/agent-shell-start-preset)
-          (call-interactively #'mr-x/agent-shell-apply-preset)))
+      (defun mr-x/agent-shell--read-preset-or-default ()
+        "Read a preset char, or RET/SPC for the default (preferred/Claude) config.
+Returns a preset tuple from `mr-x/agent-shell-presets', or nil for the
+default config."
+        (let* ((chars (mapcar #'car mr-x/agent-shell-presets))
+               (char (read-char-choice
+                      (concat "Preset (RET = Claude default)  "
+                              (mapconcat (lambda (p)
+                                           (format "[%c] %s" (nth 0 p) (nth 1 p)))
+                                         mr-x/agent-shell-presets "   ")
+                              ": ")
+                      (append chars (list ?\r ?\n ?\s)))))
+          (unless (memq char '(?\r ?\n ?\s))
+            (or (assq char mr-x/agent-shell-presets)
+                (user-error "No preset for %c" char)))))
 
-      (defun mr-x/agent-shell-in-project ()
-        "Pick a project, then start a new agent shell there.
-Dashboard projects shown by name with path annotation; remaining
-projectile projects appended below."
-        (interactive)
+      (defun mr-x/agent-shell--pick-project-dir ()
+        "Prompt for a launch directory.  Dashboard projects are offered first
+\(by name, path annotated), remaining projectile projects below, and any
+path typed by hand is accepted.  Returns an expanded directory."
         (let* ((dashboard (when (boundp 'project-dashboard-projects)
                             project-dashboard-projects))
                ;; dashboard paths (expanded) so we can de-dup projectile
@@ -3807,9 +3971,34 @@ projectile projects appended below."
                                         (lambda (str pred action)
                                           (if (eq action 'metadata)
                                               `(metadata (annotation-function . ,annotate))
-                                            (complete-with-action action candidates str pred)))))
-               (default-directory (or (cdr (assoc choice candidates))
-                                      (expand-file-name choice))))
+                                            (complete-with-action action candidates str pred))))))
+          (or (cdr (assoc choice candidates))
+              (expand-file-name choice))))
+
+      (defun mr-x/agent-shell-preset-in-project ()
+        "Spawn a fresh agent shell: pick a preset (RET = Claude default), then
+pick a project/path, then start the shell there.  One-shot answer to
+\"new <preset> chat in <project>\"."
+        (interactive)
+        (require 'agent-shell)
+        (let* ((preset (mr-x/agent-shell--read-preset-or-default))
+               (default-directory (mr-x/agent-shell--pick-project-dir)))
+          (if preset
+              (mr-x/agent-shell--spawn-preset preset)
+            (mr-x/agent-shell-new-smart))))
+
+      (defun mr-x/agent-shell-sol ()
+        "Spawn a fresh Sol (Codex, high effort) agent shell in one keystroke —
+the `?c' preset from `mr-x/agent-shell-presets'."
+        (interactive)
+        (mr-x/agent-shell--spawn-preset
+         (or (assq ?c mr-x/agent-shell-presets)
+             (user-error "No Sol preset (?c) defined"))))
+
+      (defun mr-x/agent-shell-in-project ()
+        "Pick a project (or any path), then start a new agent shell there."
+        (interactive)
+        (let ((default-directory (mr-x/agent-shell--pick-project-dir)))
           (mr-x/agent-shell-new-smart)))
 
       (defun mr-x/agent-shell-roaming ()
@@ -3820,11 +4009,10 @@ projectile projects appended below."
 
       (mr-x/leader-def
         "c" '(:ignore t :wk "Agent Shell")
-        "c c" '(agent-shell :wk "Start Agent Shell")
-        "c C" '(mr-x/agent-shell-roaming :wk "Claude (roaming)")
-        "c n" '(mr-x/agent-shell-new-smart :wk "New shell")
-        "c N" '(mr-x/agent-shell-in-project :wk "New shell (pick project)")
-        "c P" '(mr-x/agent-shell-preset-dwim :wk "Preset in-place (C-u: new shell)")
+        "c c" '(mr-x/agent-shell-new-smart :wk "New chat (Claude, here)")
+        "c C" '(mr-x/agent-shell-preset-in-project :wk "New chat (preset + where)")
+        "c x" '(mr-x/agent-shell-sol :wk "Sol one-shot")
+        "c P" '(mr-x/agent-shell-start-preset :wk "Preset → new shell")
         "c t" '(mr-x/agent-shell-toggle :wk "Toggle Agent Shell")
         "c w" '(mr-x/focus-ai-window :wk "Focus AI window")
         "c b" '(major-pane-swap-buffer :wk "Swap panel buffer")
@@ -3839,7 +4027,7 @@ projectile projects appended below."
         "c , t n" '(mr-x/taskmaster-next-task :wk "Next task")
         "c , t s" '(mr-x/taskmaster-summary :wk "Summary")
         "c , t a" '(mr-x/taskmaster-add-task :wk "Add task")
-        "c p" '(agent-shell-yank-dwim :wk "Paste (smart)")
+        "c p" '(mr-x/agent-shell-apply-preset :wk "Preset → current shell")
         "c r" '(mr-x/agent-send-region-no-switch :wk "Send region (stay)")
         "c R" '(mr-x/agent-send-region :wk "Send region (go)")
         "c f" '(mr-x/agent-send-file :wk "Send file")
@@ -3854,6 +4042,7 @@ projectile projects appended below."
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
+        "c m o" '(agent-shell-set-session-config-option :wk "Set option...")
         "c m c" '(agent-shell-cycle-session-mode :wk "Cycle")
         "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "Default")
         "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "acceptEdits")) :wk "Accept Edits")
@@ -3876,16 +4065,16 @@ projectile projects appended below."
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")
         "c 0" '(mr-x/agent-shell-view-diff :wk "View diff")
-        "c a" '(:ignore t :wk "Recall")
-        "c a s" '(:ignore t :wk "Search")
-        "c a s c" '(agent-recall-consult-search :wk "Consult")
-        "c a s d" '(agent-recall-search :wk "Deadgrep")
-        "c a b" '(:ignore t :wk "Browse")
-        "c a b a" '(agent-recall-browse :wk "All")
-        "c a b d" '(agent-recall-browse-project :wk "Directory")
-        "c a r" '(agent-recall-resume :wk "Resume")
-        "c a B" '(agent-recall-backfill :wk "Backfill")
-        "c a t" '(agent-recall-stats :wk "Stats"))
+        "c /" '(:ignore t :wk "Recall")
+        "c / s" '(:ignore t :wk "Search")
+        "c / s c" '(agent-recall-consult-search :wk "Consult")
+        "c / s d" '(agent-recall-search :wk "Deadgrep")
+        "c / b" '(:ignore t :wk "Browse")
+        "c / b a" '(agent-recall-browse :wk "All")
+        "c / b d" '(agent-recall-browse-project :wk "Directory")
+        "c / r" '(agent-recall-resume :wk "Resume")
+        "c / B" '(agent-recall-backfill :wk "Backfill")
+        "c / t" '(agent-recall-stats :wk "Stats"))
 
 
       (mr-x/leader-def
@@ -3972,6 +4161,7 @@ projectile projects appended below."
         "& n" '(major-pane-new-chat :wk "New chat")
         "& N" '(major-pane-new-ejected-chat :wk "New ejected chat (C-u: new frame)")
         "& l" '(major-pane-set-label :wk "Label conversation")
+        "& r" '(major-pane-mark-read :wk "Mark read (clear green)")
         "& p" '(major-pane-anchor-toggle :wk "Anchor tab left (blue rail)")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
@@ -4055,6 +4245,8 @@ TASK-ID is the ID shown when Claude runs a background command."
         "?" '(:ignore t :wk "lookup")
         "? ?" '(mr-x/rig-lookup :wk "Rig (C-u: browse)")
         "? e" '(mr-x/elisp-lookup :wk "Elisp")
+        "? d" '(osx-dictionary-search-word-at-point :wk "Dictionary (at point)")
+        "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
         "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
@@ -6288,11 +6480,71 @@ _q_: quit
              :files (:defaults "resources"))
     :after markdown-mode
     :bind (:map markdown-mode-map
-           ("C-c C-c x" . markdown-xwidget-preview-mode))
+           ("C-c C-c x" . markdown-xwidget-preview-mode)
+           ("C-c C-c m" . mr-x/markdown-mermaid-toggle-look))
     :custom
     (markdown-xwidget-code-block-theme "gruvbox-dark-medium")
     (markdown-xwidget-github-theme "dark")
+    (markdown-xwidget-mermaid-theme "base")
     :config
+    (require 'json)
+
+    ;; Global Mermaid defaults.  These are deliberately separate defcustoms:
+    ;; `M-x customize-option' can change them without editing package code, and
+    ;; diagram-local YAML frontmatter still wins when one diagram needs a
+    ;; different look, theme, or layout.
+    (defcustom mr-x/markdown-mermaid-look "classic"
+      "Default Mermaid drawing style used by Markdown xwidget previews.
+The `mr-x/markdown-mermaid-toggle-look' command switches this between
+`classic' and `handDrawn'.  Diagram-local frontmatter can override it."
+      :type '(choice (const "classic") (const "handDrawn"))
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-font-family
+      "Iosevka, ui-monospace, SFMono-Regular, Menlo, monospace"
+      "Font stack used inside Mermaid diagrams."
+      :type 'string
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-hand-drawn-seed 17
+      "Stable Mermaid roughness seed used by the hand-drawn look."
+      :type 'integer
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-theme-variables
+      '((background . "#282828")
+        (primaryColor . "#3c3836")
+        (primaryTextColor . "#ebdbb2")
+        (primaryBorderColor . "#d79921")
+        (secondaryColor . "#504945")
+        (secondaryTextColor . "#fbf1c7")
+        (secondaryBorderColor . "#b8bb26")
+        (tertiaryColor . "#665c54")
+        (tertiaryTextColor . "#fbf1c7")
+        (tertiaryBorderColor . "#83a598")
+        (lineColor . "#83a598")
+        (textColor . "#ebdbb2")
+        (mainBkg . "#3c3836")
+        (nodeBorder . "#d79921")
+        (clusterBkg . "#32302f")
+        (clusterBorder . "#665c54")
+        (titleColor . "#fe8019")
+        (edgeLabelBackground . "#282828"))
+      "Gruvbox Mermaid theme variables passed to the `base' theme.
+Add or replace entries here to restyle every preview; use `classDef' in
+a diagram when only particular nodes should change."
+      :type '(alist :key-type symbol :value-type string)
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-theme-css
+      (concat
+       ".titleText { fill: #fe8019 !important; font-size: 1.35rem !important; font-weight: 800 !important; }\n"
+       ".cluster-label text, .cluster-label span { color: #fabd2f !important; fill: #fabd2f !important; font-size: 1.08rem !important; font-weight: 750 !important; }\n"
+       ".nodeLabel { font-weight: 600; }")
+      "Extra Mermaid CSS for diagram titles, group headings, and labels."
+      :type 'string
+      :group 'markdown-xwidget)
+
     ;; Custom CSS files for markdown preview
     (defvar mr-x/markdown-gruvbox-css-file
       (expand-file-name "etc/markdown-gruvbox-claude.css" user-emacs-directory))
@@ -6300,6 +6552,136 @@ _q_: quit
       (expand-file-name "etc/agent-recall-transcript.css" user-emacs-directory))
     (defvar mr-x/agent-recall-js-file
       (expand-file-name "etc/agent-recall-transcript.js" user-emacs-directory))
+
+    (defun mr-x/markdown-mermaid-config ()
+      "Return the editable site-wide Mermaid configuration as an alist."
+      (let ((theme-variables (copy-tree mr-x/markdown-mermaid-theme-variables)))
+        (setf (alist-get 'fontFamily theme-variables)
+              mr-x/markdown-mermaid-font-family)
+        `((theme . ,markdown-xwidget-mermaid-theme)
+          (look . ,mr-x/markdown-mermaid-look)
+          (handDrawnSeed . ,mr-x/markdown-mermaid-hand-drawn-seed)
+          (startOnLoad . t)
+          (themeVariables . ,theme-variables)
+          (themeCSS . ,mr-x/markdown-mermaid-theme-css))))
+
+    (defun mr-x/markdown-mermaid-header-html ()
+      "Return markdown-xwidget's header with the editable Mermaid config.
+Replace the package's initializer so Mermaid is initialized exactly once."
+      (let* ((header-html
+              (markdown-xwidget-header-html markdown-xwidget-mermaid-theme))
+             (initializer-regexp
+              "mermaid\\.initialize({\\(?:.\\|\n\\)*?});")
+             (initializer
+              (concat "mermaid.initialize("
+                      (json-encode (mr-x/markdown-mermaid-config))
+                      ");")))
+        (unless (string-match initializer-regexp header-html)
+          (error "markdown-xwidget's Mermaid initializer was not found"))
+        (replace-match initializer t t header-html)))
+
+    (defun mr-x/markdown--remove-html-class (attributes class-name)
+      "Remove CLASS-NAME from HTML ATTRIBUTES.
+Return (NEW-ATTRIBUTES . REMOVED-P), preserving every other attribute."
+      (let ((case-fold-search t)
+            (class-regexp
+             "\\([[:space:]]+class=\\)\\([\"']\\)\\([^\"']*\\)\\2"))
+        (if (not (string-match class-regexp attributes))
+            (cons attributes nil)
+          (let* ((attribute-begin (match-beginning 0))
+                 (attribute-end (match-end 0))
+                 (attribute-prefix (match-string 1 attributes))
+                 (quote-mark (match-string 2 attributes))
+                 (class-value (match-string 3 attributes))
+                 (classes (split-string class-value "[[:space:]]+" t))
+                 (removed (member class-name classes))
+                 (remaining (delete class-name (copy-sequence classes))))
+            (if (not removed)
+                (cons attributes nil)
+              (cons
+               (concat
+                (substring attributes 0 attribute-begin)
+                (when remaining
+                  (concat attribute-prefix
+                          quote-mark
+                          (string-join remaining " ")
+                          quote-mark))
+                (substring attributes attribute-end))
+               t))))))
+
+    (defun mr-x/markdown--add-html-class (attributes class-name)
+      "Add CLASS-NAME to HTML ATTRIBUTES unless it is already present."
+      (let ((case-fold-search t)
+            (class-regexp
+             "\\([[:space:]]+class=\\)\\([\"']\\)\\([^\"']*\\)\\2"))
+        (if (not (string-match class-regexp attributes))
+            (concat attributes " class=\"" class-name "\"")
+          (let* ((value-begin (match-beginning 3))
+                 (value-end (match-end 3))
+                 (class-value (match-string 3 attributes))
+                 (classes (split-string class-value "[[:space:]]+" t)))
+            (if (member class-name classes)
+                attributes
+              (concat
+               (substring attributes 0 value-begin)
+               (string-join (append classes (list class-name)) " ")
+               (substring attributes value-end)))))))
+
+    (defun mr-x/markdown-normalize-pandoc-mermaid-html (html)
+      "Move Pandoc's Mermaid class to the code element in HTML.
+Pandoc emits `<pre class=\"mermaid\"><code>...', while Mermaid.js and
+markdown-xwidget discover `<code class=\"mermaid\">...'."
+      (let ((opening-regexp
+             "<pre\\([^>]*\\)>\\([[:space:]]*\\)<code\\([^>]*\\)>"))
+        (replace-regexp-in-string
+         opening-regexp
+         (lambda (opening)
+           (save-match-data
+             ;; Match again because callback match data otherwise indexes HTML,
+             ;; not this isolated opening-tag string.
+             (string-match opening-regexp opening)
+             (let* ((pre-attributes (match-string 1 opening))
+                    (between (match-string 2 opening))
+                    (code-attributes (match-string 3 opening))
+                    (pre-result
+                     (mr-x/markdown--remove-html-class
+                      pre-attributes "mermaid")))
+               (if (not (cdr pre-result))
+                   opening
+                 (format "<pre%s>%s<code%s>"
+                         (car pre-result)
+                         between
+                         (mr-x/markdown--add-html-class
+                          code-attributes "mermaid"))))))
+         html t t)))
+
+    (defun mr-x/markdown-normalize-pandoc-mermaid-file (file)
+      "Apply the Pandoc Mermaid compatibility transform to HTML FILE."
+      (with-temp-buffer
+        (insert-file-contents file)
+        (let* ((source-coding buffer-file-coding-system)
+               (original (buffer-string))
+               (normalized
+                (mr-x/markdown-normalize-pandoc-mermaid-html original)))
+          (unless (equal original normalized)
+            (erase-buffer)
+            (insert normalized)
+            (let ((coding-system-for-write source-coding))
+              (write-region (point-min) (point-max) file nil 'silent)))))
+      file)
+
+    (defun mr-x/markdown-preview-header-html (&optional transcript-p)
+      "Build preview header HTML, adding transcript behavior when TRANSCRIPT-P."
+      (let ((header-html (mr-x/markdown-mermaid-header-html)))
+        (if transcript-p
+            (concat header-html
+                    "\n<script>\n"
+                    "window.addEventListener('load', function() {\n"
+                    (with-temp-buffer
+                      (insert-file-contents mr-x/agent-recall-js-file)
+                      (buffer-string))
+                    "\n});\n</script>")
+          header-html)))
 
     (defun mr-x/agent-recall-transcript-p ()
       "Return non-nil if current buffer is an agent-shell transcript.
@@ -6314,6 +6696,28 @@ get the transcript preview styling."
             (goto-char (point-min))
             (looking-at-p "# Agent Shell Transcript"))))
 
+    (defun mr-x/markdown-mermaid-toggle-look (&optional persist)
+      "Toggle Mermaid previews between classic and hand-drawn rendering.
+With PERSIST non-nil (as when called interactively), save the new default
+through Customize.  An active xwidget preview refreshes immediately.
+Diagram-local frontmatter with its own `look' remains authoritative."
+      (interactive (list t))
+      (let ((next-look (if (equal mr-x/markdown-mermaid-look "classic")
+                           "handDrawn"
+                         "classic")))
+        (if persist
+            (customize-save-variable 'mr-x/markdown-mermaid-look next-look)
+          (setq mr-x/markdown-mermaid-look next-look))
+        (when (bound-and-true-p markdown-xwidget-preview-mode)
+          (setq markdown-xhtml-header-content
+                (mr-x/markdown-preview-header-html
+                 (mr-x/agent-recall-transcript-p)))
+          (markdown-live-preview-export))
+        (message "Mermaid look: %s%s"
+                 next-look
+                 (if persist " (saved)" ""))
+        next-look))
+
     ;; Override the enable function to include custom CSS
     ;; and inject transcript JS when viewing agent-shell transcripts.
     ;; The original function overwrites markdown-css-paths with only 2 files,
@@ -6324,10 +6728,9 @@ get the transcript preview styling."
                             markdown-xwidget-github-theme))
              (code-block-theme (markdown-xwidget-highlightjs-css-path
                                 markdown-xwidget-code-block-theme))
-             (header-html (markdown-xwidget-header-html
-                           markdown-xwidget-mermaid-theme))
-             (command (or markdown-xwidget-command markdown-command))
              (is-transcript (mr-x/agent-recall-transcript-p))
+             (header-html (mr-x/markdown-preview-header-html is-transcript))
+             (command (or markdown-xwidget-command markdown-command))
              (custom-css (if is-transcript
                              mr-x/agent-recall-css-file
                            mr-x/markdown-gruvbox-css-file)))
@@ -6349,24 +6752,15 @@ get the transcript preview styling."
               markdown-live-preview-window-function)
         (setq markdown-live-preview-window-function
               (lambda (file)
+                (mr-x/markdown-normalize-pandoc-mermaid-file file)
                 (let ((buf (markdown-xwidget-preview file)))
                   (display-buffer buf '(display-buffer-same-window))
                   buf)))
 
         ;; Temporarily set markdown-xhtml-header-content
-        ;; For transcripts, append the DOM-restructuring script
         (setq markdown-xwidget--markdown-xhtml-header-content-original
               markdown-xhtml-header-content)
-        (setq markdown-xhtml-header-content
-              (if is-transcript
-                  (concat header-html
-                          "\n<script>\n"
-                          "window.addEventListener('load', function() {\n"
-                          (with-temp-buffer
-                            (insert-file-contents mr-x/agent-recall-js-file)
-                            (buffer-string))
-                          "\n});\n</script>")
-                header-html)))
+        (setq markdown-xhtml-header-content header-html))
 
       (markdown-live-preview-mode 1))
     
