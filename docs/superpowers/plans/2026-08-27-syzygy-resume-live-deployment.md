@@ -55,7 +55,7 @@ Reconfirm the deployment-critical facts used by the commands below at execution 
 |---|---|
 | Dotfiles feature worktree | `/Users/marcosandrade/.dotfiles/.worktrees/syzygy-resume-history`, branch `codex/syzygy-resume-history`, implementation commit `44b31d3` |
 | Mobile feature worktree | `/Users/marcosandrade/src/acp-mobile/.worktrees/syzygy-resume-history`, branch `codex/syzygy-resume-history`, clean at `d9a88b2` |
-| Primary dotfiles checkout | `main` at `3d58093`, dirty with unrelated user work |
+| Primary dotfiles checkout | Dirty with unrelated user work and may advance independently; never use it as the deployment source or modify it |
 | Primary mobile checkout | clean `syzygy` at `ffe4bde` |
 | Installed production binary | VCS base `b34c6f0dab56e91e4781dffe451ade987f733884`, `vcs.modified=true` |
 | Installed binary SHA-256 | `fd1d2d0a79403f70ac27c8695e4352ead25e1c5ea2a90427645f8d93ee75a2d0` |
