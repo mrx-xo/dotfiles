@@ -130,8 +130,9 @@ Gruvbox neutral blue with cream ink."
        :box (:line-width (6 . -4) :color "#fabd2f")))
   "Face for the active conversation tab.
 Dimmed body wrapped in a 4px gruvbox-yellow box (no underline).  The
-two dividers touching it also go yellow (see `major-pane--render-tabs')
-so the selected tab reads as one solid yellow-outlined unit."
+adjacent dividers also go yellow, except where an orange anchor rail
+owns the left edge (see `major-pane--render-tabs'), so the selected tab
+reads as one solid outlined unit."
   :group 'major-pane)
 
 (defface major-pane-tab-inactive
@@ -226,6 +227,11 @@ generating (dim orange) — outranked by done and perms."
 registered buffer; `done'/`perms' only for a non-active buffer, and
 are cleared when the buffer becomes the active tab (`busy' is not).")
 
+(defvar-local major-pane--done-at nil
+  "Time this conversation entered the `done' state, or nil.
+Drives the done-state decay: fresh finishers animate the ping, older
+ones fade to plain green, then to nothing (see `major-pane--done-tier').")
+
 (defface major-pane-tab-separator
   '((t :foreground "#000000" :background "#000000"))
   "Face for the divider between conversation tabs.
@@ -236,10 +242,11 @@ The default divider is a pixel-width space, which draws the
 
 (defface major-pane-tab-separator-active
   '((t :foreground "#fabd2f" :background "#fabd2f"))
-  "Face for the two dividers flanking the active tab.
+  "Face for dividers flanking the active tab.
 Gruvbox yellow, matching the active tab's box, so the selected tab
-reads as one continuous yellow-outlined unit (see
-`major-pane--render-tabs')."
+reads as one continuous yellow-outlined unit.  An anchored active tab
+keeps its left divider dark because its orange rail owns that boundary
+(see `major-pane--render-tabs')."
   :group 'major-pane)
 
 (defface major-pane-tab-anchor-rail
@@ -934,10 +941,12 @@ tab row."
   "Advance the spinner and redraw, or self-cancel if nothing is busy.
 The self-cancel catches busy tabs that vanish without an agent-shell
 event — killed buffers, demo resets — so the timer can't leak."
-  (if (major-pane--any-busy-p)
+  (if (or (major-pane--any-busy-p) (major-pane--any-fresh-p))
       (progn (cl-incf major-pane--spinner-index)
              (force-mode-line-update t))
-    (major-pane--spinner-stop)))
+    (progn (major-pane--spinner-stop)
+           ;; one last redraw so the final ping frame is cleared
+           (force-mode-line-update t))))
 
 (defun major-pane--spinner-stop ()
   "Cancel the spinner timer if it is running."
@@ -946,13 +955,155 @@ event — killed buffers, demo resets — so the timer can't leak."
     (setq major-pane--spinner-timer nil)))
 
 (defun major-pane--spinner-sync ()
-  "Start the spinner timer if any tab is busy, stop it if none are."
-  (if (major-pane--any-busy-p)
+  "Start the animation timer if any tab is busy or a fresh finisher, else stop.
+The timer also drives the finished-tab ping, so it must stay alive
+while a fresh finisher exists — not only while something is busy."
+  (if (or (major-pane--any-busy-p) (major-pane--any-fresh-p))
       (unless major-pane--spinner-timer
         (setq major-pane--spinner-timer
               (run-with-timer 0 major-pane-spinner-interval
                               #'major-pane--spinner-tick)))
     (major-pane--spinner-stop)))
+
+;;;; Done-state decay: ping the freshest finishers, fade with age -------------
+;; A finished tab has an AGE (`major-pane--done-at').  Fresh finishers (< ping
+;; window) animate a ping; the newest N ping at once, older fresh ones sit on
+;; plain green.  Past the green window a tab expires back to a normal tab.
+;; Engaging a tab (insert state) still clears it instantly, at any tier.
+
+(defcustom major-pane-done-ping-seconds 120
+  "Seconds a finished tab animates the ping (tier 1)."
+  :type 'number :group 'major-pane)
+
+(defcustom major-pane-done-green-seconds 1200
+  "Seconds a finished tab keeps green `done' styling before going plain (tier 2)."
+  :type 'number :group 'major-pane)
+
+(defcustom major-pane-done-ping-count 3
+  "How many of the freshest finishers animate the ping at once."
+  :type 'integer :group 'major-pane)
+
+(defcustom major-pane-done-ping-color "#d3869b"
+  "Color of the finished-tab ping (gruvbox purple — a free channel:
+red=perms, orange=pinned, yellow=active, green=done)."
+  :type 'color :group 'major-pane)
+
+(defconst major-pane--ping-frames 20
+  "Frames in one ping breathe cycle.")
+
+(defconst major-pane--ping-cache-version 2
+  "Ping render-cache version.
+Bump when the SVG geometry or image descriptor changes so a hot reload
+cannot reuse frames built by older rendering code.")
+
+(defvar major-pane--ping-cache (make-hash-table :test 'equal)
+  "Cached ping images, keyed by render version and visual parameters.")
+
+(defvar major-pane--ping-set nil
+  "The freshest finishers animating the ping this render pass (newest first).")
+
+(defun major-pane--done-tier (buf)
+  "Return `fresh' or `recent' for a `done' BUF, or nil otherwise.
+A tab past `major-pane-done-green-seconds' is EXPIRED here — its
+attention is cleared so it renders as a plain tab again."
+  (when (and (buffer-live-p buf)
+             (eq (buffer-local-value 'major-pane--tab-attention buf) 'done))
+    (let* ((at (buffer-local-value 'major-pane--done-at buf))
+           (age (and at (float-time (time-subtract (current-time) at)))))
+      (cond ((or (null age) (< age major-pane-done-ping-seconds)) 'fresh)
+            ((< age major-pane-done-green-seconds) 'recent)
+            (t (with-current-buffer buf
+                 (setq major-pane--tab-attention nil
+                       major-pane--done-at nil))
+               nil)))))
+
+(defun major-pane--any-fresh-p ()
+  "Non-nil when any tab is a fresh finisher (within the ping window)."
+  (cl-some #'major-pane--done-tier-fresh-p
+           (major-pane-state-conversations major-pane--state)))
+
+(defun major-pane--done-tier-fresh-p (buf)
+  "Non-nil when BUF is a fresh finisher."
+  (eq (major-pane--done-tier buf) 'fresh))
+
+(defun major-pane--compute-ping-set ()
+  "Refresh `major-pane--ping-set' with the newest fresh finishers."
+  (let ((fresh (cl-remove-if-not
+                #'major-pane--done-tier-fresh-p
+                (major-pane-state-conversations major-pane--state))))
+    (setq major-pane--ping-set
+          (seq-take (sort fresh
+                          (lambda (a b)
+                            (time-less-p
+                             (or (buffer-local-value 'major-pane--done-at b) 0)
+                             (or (buffer-local-value 'major-pane--done-at a) 0))))
+                    major-pane-done-ping-count))))
+
+(defun major-pane--ping-underline-color (decoration)
+  "Resolve DECORATION to the underline color baked into a ping image.
+Nil uses the inactive-done face, `none' suppresses the bridge, and a
+color string is used verbatim."
+  (cond ((eq decoration 'none) nil)
+        ((stringp decoration) decoration)
+        (t (let ((underline (face-attribute 'major-pane-tab-attention-done
+                                            :underline nil t)))
+             (plist-get underline :color)))))
+
+(defun major-pane--ping-image (frame &optional decoration)
+  "Return the cached ping image for FRAME, or nil when SVG is unavailable.
+Key includes the render parameters so changing a `defcustom' (size,
+margin, color) transparently produces fresh frames.  DECORATION controls
+the bottom-edge bridge; see `major-pane--ping-underline-color'."
+  (when (image-type-available-p 'svg)
+    (let* ((idx (% frame major-pane--ping-frames))
+           (underline-color (major-pane--ping-underline-color decoration))
+           (key (list major-pane--ping-cache-version
+                      idx (frame-char-height) major-pane-ping-size
+                      major-pane-ping-margin major-pane-done-ping-color
+                      underline-color)))
+      (or (gethash key major-pane--ping-cache)
+          (puthash key (major-pane--ping-build idx decoration)
+                   major-pane--ping-cache)))))
+
+(defcustom major-pane-ping-margin 0.15
+  "Fraction of the ping canvas kept clear at the edges."
+  :type 'number :group 'major-pane)
+
+(defcustom major-pane-ping-size 0.6
+  "Ping drawing width as a fraction of the line height.
+The SVG canvas itself spans the full line height so it can restore face
+decorations that Emacs suppresses beneath a displayed image."
+  :type 'number :group 'major-pane)
+
+(defun major-pane--ping-build (idx &optional decoration)
+  "Build the ping SVG for frame IDX: a dot with two expanding, fading rings.
+The drawing is `major-pane-ping-size' of the line height, centered in a
+full-height canvas; rings are inset by `major-pane-ping-margin'.
+DECORATION controls the bottom-edge bridge; see
+`major-pane--ping-underline-color'."
+  (require 'svg)
+  (let* ((h (max 8 (frame-char-height)))
+         (w (max 8 (round (* h major-pane-ping-size))))
+         (cx (/ w 2.0))
+         (cy (/ h 2.0))
+         (r (* cx (- 1.0 major-pane-ping-margin))) ; max ring radius, with margin
+         (col major-pane-done-ping-color)
+         (underline-color (major-pane--ping-underline-color decoration))
+         (svg (svg-create w h)))
+    (dolist (off '(0.0 0.5))            ; two staggered ripples read as continuous
+      (let ((p (mod (+ (/ (float idx) major-pane--ping-frames) off) 1.0)))
+        (svg-circle svg cx cy (max 0.1 (* r p)) :fill "none" :stroke-color col
+                    :stroke-width 1.5 :stroke-opacity (- 1.0 p))))
+    (svg-circle svg cx cy (/ r 3.0) :fill col)
+    ;; A `display' image replaces the character glyph, and Emacs omits
+    ;; that character's face underline even below a smaller image.  Its
+    ;; decoration pass also covers the SVG's final logical row, so bridge
+    ;; the hole on the penultimate row; the matching faces use :position 1.
+    (when underline-color
+      (svg-rectangle svg 0 (- h 2) w 1 :fill underline-color))
+    ;; W is already in frame pixels; Emacs' default image scaling would
+    ;; otherwise enlarge the SVG a second time on this high-DPI font.
+    (svg-image svg :scale 1 :ascent 'center)))
 
 (defun major-pane--render-tab (buf is-active)
   "Return the propertized tab string for BUF.
@@ -970,34 +1121,75 @@ IS-ACTIVE selects the active/inactive face."
     ;; buffer isn't engaging with it.  `done' clears on insert-state
     ;; entry (`major-pane--attention-clear-on-insert'), `perms' when the
     ;; prompt is answered, `busy' when the turn resolves.
-    (let* ((spin (if (eq (buffer-local-value 'major-pane--tab-attention buf)
-                         'busy)
-                     (concat (major-pane--spinner-frame) " ")
-                   ""))
+    (let* ((attention (buffer-local-value 'major-pane--tab-attention buf))
+           (ping-p (memq buf major-pane--ping-set))
+           (anchored-p (memq buf major-pane--anchored))
+           (spin (cond
+                  ((eq attention 'busy)
+                   (concat (major-pane--spinner-frame) " "))
+                  ;; Fresh finisher (one of the newest N): animated ping.
+                  (ping-p
+                   (let ((img (major-pane--ping-image
+                               major-pane--spinner-index
+                               (cond
+                                ;; Anchoring adds an orange underline after
+                                ;; the tab is built, active or not.
+                                (anchored-p
+                                 (face-background
+                                  'major-pane-tab-anchor-rail nil t))
+                                (is-active 'none)))))
+                     (if img
+                         (concat (propertize " " 'display img) " ")
+                       ;; SVG unavailable (batch/tests): static glyph fallback.
+                       (concat (propertize "◉" 'face
+                                           `(:foreground ,major-pane-done-ping-color))
+                               " "))))
+                  (t "")))
            (str (propertize
                  (format " %s%s "
                          spin
                          (major-pane--tab-label buf))
                  'face (cond (is-active
-                              (pcase (buffer-local-value 'major-pane--tab-attention buf)
+                              (pcase attention
                                 ('busy 'major-pane-tab-active-busy)
                                 ('done 'major-pane-tab-active-done)
                                 ('perms 'major-pane-tab-active-perms)
                                 (_ 'major-pane-tab-active)))
-                             ((pcase (buffer-local-value 'major-pane--tab-attention buf)
+                             ((pcase attention
                                 ('perms 'major-pane-tab-attention-perms)
                                 ('done 'major-pane-tab-attention-done)
                                 ('busy 'major-pane-tab-attention-busy)))
                              (t 'major-pane-tab-inactive))
                  ;; No hover on the active tab; stateful tabs dim into a
-                 ;; darker shade of their own color instead of gray.
+                 ;; darker shade of their own color instead of gray.  Emacs
+                 ;; uses `mouse-face' *instead of* `face' while hovering, so
+                 ;; a pinging tab must carry its raised underline here too.
                  'mouse-face (unless is-active
-                               (pcase (buffer-local-value 'major-pane--tab-attention buf)
-                                 ('busy 'major-pane-tab-hover-busy)
-                                 ('done 'major-pane-tab-hover-done)
-                                 ('perms 'major-pane-tab-hover-perms)
-                                 (_ 'major-pane-tab-hover)))
+                               (let ((hover-face
+                                      (pcase attention
+                                        ('busy 'major-pane-tab-hover-busy)
+                                        ('done 'major-pane-tab-hover-done)
+                                        ('perms 'major-pane-tab-hover-perms)
+                                        (_ 'major-pane-tab-hover))))
+                                 (if ping-p
+                                     `(:inherit ,hover-face
+                                       :underline
+                                       (:color
+                                        ,(if anchored-p
+                                             (face-background
+                                              'major-pane-tab-anchor-rail nil t)
+                                           (major-pane--ping-underline-color nil))
+                                        :position 1))
+                                   hover-face)))
                  'local-map map)))
+      ;; Only a displayed ping needs the underline lifted one pixel to meet
+      ;; the SVG's bridge.  Recent done tabs keep the base face at position 0.
+      (when (and ping-p (not is-active) (not anchored-p))
+        (add-face-text-property
+         0 (length str)
+         `(:underline (:color ,(major-pane--ping-underline-color nil)
+                       :position 1))
+         nil str))
       ;; syzygy-live dot RETIRED 2026-08-20: live mode became the default
       ;; (`syzygy-live-default'), so every tab wore the dot and it marked
       ;; nothing.  Kept for a possible polarity flip (dot = NOT live).
@@ -1011,15 +1203,14 @@ IS-ACTIVE selects the active/inactive face."
       ;; backgrounds start right after it, plus a matching underline
       ;; across the tab.  Underline color reads from the rail face so
       ;; the two can't drift apart.
-      (if (memq buf major-pane--anchored)
+      (if anchored-p
           (progn
-            ;; :position 0 drops the underline from the baseline to the
-            ;; descent line so it meets the full-height rail instead of
-            ;; floating a few pixels above the tab's bottom edge.
+            ;; A ping uses :position 1 to meet its bridge; otherwise retain
+            ;; the anchored tab's original bottom-edge position 0.
             (add-face-text-property
              0 (length str)
              `(:underline (:color ,(face-background 'major-pane-tab-anchor-rail nil t)
-                           :position 0))
+                           :position ,(if ping-p 1 0)))
              nil str)
             (concat (propertize " " 'display '(space :width (6))
                                 'face 'major-pane-tab-anchor-rail
@@ -1058,7 +1249,9 @@ is skipped."
                        (engaged nil) ; typing in it right now — seen
                        (t (cdr entry)))))
         (unless (eq major-pane--tab-attention new)
-          (setq major-pane--tab-attention new)
+          (setq major-pane--tab-attention new
+                ;; stamp the finish time so the ping/decay can age it
+                major-pane--done-at (and (eq new 'done) (current-time)))
           (major-pane--spinner-sync)
           (force-mode-line-update t))))))
 
@@ -1075,7 +1268,9 @@ answer it) and `busy' is live status."
              major-pane--state
              (memq (current-buffer)
                    (major-pane-state-conversations major-pane--state)))
-    (setq major-pane--tab-attention nil)
+    (setq major-pane--tab-attention nil
+          major-pane--done-at nil)
+    (major-pane--spinner-sync)           ; may have been the last fresh finisher
     (force-mode-line-update t)))
 
 (add-hook 'evil-insert-state-entry-hook #'major-pane--attention-clear-on-insert)
@@ -1099,7 +1294,8 @@ active conversation.  Only `done' clears — `perms' (pending prompt) and
       (with-current-buffer buf
         (if (eq major-pane--tab-attention 'done)
             (progn
-              (setq major-pane--tab-attention nil)
+              (setq major-pane--tab-attention nil
+                    major-pane--done-at nil)
               (major-pane--spinner-sync)
               (force-mode-line-update t)
               (message "Marked read: %s" (major-pane--display-name buf)))
@@ -1219,17 +1415,19 @@ keeps the active tab visible (expanded alternately left/right so it
 stays roughly centered), with dim ‹N / N› overflow counters at the
 edges.  The header-line cannot scroll, so slicing is the only way to
 guarantee the active tab is on screen."
+  (major-pane--compute-ping-set)        ; which fresh finishers animate this pass
   (let* ((convos (major-pane--ordered-convos))
          (active (major-pane-state-active major-pane--state))
          (ai (cl-position active convos :test #'eq))
+         (active-anchored-p (memq active major-pane--anchored))
          (win (major-pane--pane-window))
          ;; all layout math in PIXELS — column math drifts as soon as
          ;; dividers or fillers aren't exact multiples of a char cell
          (avail (if win (window-body-width win t) most-positive-fixnum))
          (sep (major-pane--tab-divider))
-         ;; the two dividers touching the active tab go yellow (same
-         ;; width as `sep', so layout math is unaffected) — the active
-         ;; tab reads as one continuous yellow-outlined unit
+         ;; Dividers touching the active tab go yellow (same width as
+         ;; `sep', so layout math is unaffected).  An anchored active tab's
+         ;; orange rail owns its left boundary instead; handled while joining.
          (ysep (propertize " " 'display '(space :width (2))
                            'face 'major-pane-tab-separator-active))
          (sep-w (string-pixel-width sep))
@@ -1238,12 +1436,23 @@ guarantee the active tab is on screen."
          (total (+ (apply #'+ (mapcar #'string-pixel-width tabs))
                    (* sep-w (max 0 (1- (length tabs)))))))
     (if (<= total avail)
-        ;; join tabs, painting the dividers adjacent to the active tab yellow
+        ;; Join tabs, painting active-adjacent dividers yellow except where
+        ;; an anchor rail owns the active tab's left boundary.
         (let ((parts nil) (n (length tabs)))
           (dotimes (i n)
             (push (nth i tabs) parts)
             (when (< i (1- n))
-              (push (if (and ai (or (= i (1- ai)) (= i ai))) ysep sep) parts)))
+              (push (if (and ai
+                             (or (= i ai)
+                                 ;; The orange rail prepended to an anchored
+                                 ;; active tab is already its outer left edge.
+                                 ;; A yellow separator before that rail peeks
+                                 ;; two pixels past the pin marker.
+                                 (and (= i (1- ai))
+                                      (not active-anchored-p))))
+                        ysep
+                      sep)
+                    parts)))
           (apply #'concat (nreverse parts)))
       (major-pane--render-tab-slice tabs convos active avail sep sep-w))))
 
