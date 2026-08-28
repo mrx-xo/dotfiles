@@ -1160,6 +1160,42 @@ Covers all display paths and ALL agent types (Claude, Goose, ...)."
               (rename-buffer name t)
               (mr-x/agent-pane-buffer-p (buffer-name) nil)))))
 
+(ert-deftest config-test-major-pane-active-anchor-rail-is-outer-left-edge ()
+  "An active anchored tab must not paint yellow outside its orange rail.
+The normal active-tab separator remains yellow on the right; only the
+separator immediately before the active tab's six-pixel anchor rail stays
+dark, making that rail the outer left boundary."
+  (require 'major-pane)
+  (let* ((left (generate-new-buffer " *major-pane-left-anchor-test*"))
+         (active (generate-new-buffer " *major-pane-active-anchor-test*"))
+         (right (generate-new-buffer " *major-pane-right-tab-test*"))
+         (major-pane--state
+          (major-pane--make-state
+           :mode 'hidden
+           :conversations (list left active right)
+           :active active))
+         (major-pane--anchored (list left active))
+         (major-pane--ping-set nil)
+         (major-pane-tab-divider nil))
+    (unwind-protect
+        (let* ((tabs (major-pane--render-tabs))
+               (rails (cl-loop for i below (length tabs)
+                               when (equal (get-text-property i 'display tabs)
+                                           '(space :width (6)))
+                               collect i))
+               (active-rail (cadr rails))
+               (right-separator
+                (cl-loop for i from (1+ active-rail) below (length tabs)
+                         when (equal (get-text-property i 'display tabs)
+                                     '(space :width (2)))
+                         return i)))
+          (should (= (length rails) 2))
+          (should (eq (get-text-property (1- active-rail) 'face tabs)
+                      'major-pane-tab-separator))
+          (should (eq (get-text-property right-separator 'face tabs)
+                      'major-pane-tab-separator-active)))
+      (mapc #'kill-buffer (list left active right)))))
+
 (ert-deftest config-test-major-pane-spinner ()
   "Busy-tab spinner: machinery defined, styles well-formed, no arith-error.
 Every style must be a non-empty list of strings — an empty frame list
@@ -1181,6 +1217,245 @@ drop the entire tab row."
   ;; no busy tabs at test time → timer must not be running
   (major-pane--spinner-sync)
   (should (null major-pane--spinner-timer)))
+
+(ert-deftest config-test-major-pane-ping-keeps-computed-pixel-size ()
+  "Done ping must opt out of Emacs' implicit high-DPI image scaling.
+`major-pane--ping-build' already computes its canvas in frame pixels;
+letting `svg-image' scale it again makes the ping oversized and breaks
+its vertical clearance inside boxed tabs."
+  (require 'major-pane)
+  (let ((image (major-pane--ping-build 0)))
+    (should (equal (image-property image :scale) 1))))
+
+(ert-deftest config-test-major-pane-ping-bridges-inactive-done-underline ()
+  "The ping SVG must replace the underline hidden by its display cell.
+Emacs does not paint a face underline beneath a character replaced by
+an image, and its decoration pass covers the SVG's last logical row.
+The image therefore paints the penultimate row while the face moves its
+underline up one pixel to meet it."
+  (require 'major-pane)
+  (require 'dom)
+  (require 'xml)
+  (cl-letf (((symbol-function 'frame-char-height)
+             (lambda (&optional _frame) 30)))
+    (let* ((image (major-pane--ping-build 0))
+           (svg (with-temp-buffer
+                  (insert (image-property image :data))
+                  (car (xml-parse-region (point-min) (point-max)))))
+           (bridge (car (dom-by-tag svg 'rect))))
+      (should (equal (dom-attr svg 'width) "18"))
+      (should (equal (dom-attr svg 'height) "30"))
+      (should bridge)
+      (should (equal (dom-attr bridge 'x) "0"))
+      (should (equal (dom-attr bridge 'y) "28"))
+      (should (equal (dom-attr bridge 'width) "18"))
+      (should (equal (dom-attr bridge 'height) "1"))
+      (should (equal (dom-attr bridge 'fill) "#b8bb26")))))
+
+(ert-deftest config-test-major-pane-ping-keeps-valid-canvas-with-tiny-frame-metrics ()
+  "Batch-mode frame metrics must not produce a negative bridge position."
+  (require 'major-pane)
+  (require 'dom)
+  (require 'xml)
+  (cl-letf (((symbol-function 'frame-char-height)
+             (lambda (&optional _frame) 1)))
+    (let* ((image (major-pane--ping-build 0))
+           (svg (with-temp-buffer
+                  (insert (image-property image :data))
+                  (car (xml-parse-region (point-min) (point-max)))))
+           (bridge (car (dom-by-tag svg 'rect))))
+      (should (equal (dom-attr svg 'height) "8"))
+      (should (equal (dom-attr bridge 'y) "6")))))
+
+(ert-deftest config-test-major-pane-ping-raises-only-its-own-underline ()
+  "Only a displayed ping moves the done underline to its bridge row."
+  (require 'major-pane)
+  (let ((buf (generate-new-buffer " *major-pane-ping-underline-test*"))
+        (major-pane--ping-cache (make-hash-table :test 'equal))
+        (major-pane--spinner-index 0)
+        (major-pane--anchored nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq major-pane--tab-attention 'done))
+          ;; The base/recent done style retains its original bottom position.
+          (should (equal (plist-get
+                          (face-attribute 'major-pane-tab-attention-done
+                                          :underline nil t)
+                          :position)
+                         0))
+          (cl-letf (((symbol-function 'frame-char-height)
+                     (lambda (&optional _frame) 30)))
+            (let* ((major-pane--ping-set (list buf))
+                   (fresh (major-pane--render-tab buf nil))
+                   (image-pos (cl-loop for i below (length fresh)
+                                       for display = (get-text-property
+                                                      i 'display fresh)
+                                       when (and (listp display)
+                                                 (eq (car display) 'image))
+                                       return i))
+                   (fresh-face-prop (get-text-property image-pos 'face fresh))
+                   (fresh-face (and (consp fresh-face-prop)
+                                    (car fresh-face-prop)))
+                   (recent (let ((major-pane--ping-set nil))
+                             (major-pane--render-tab buf nil))))
+              (should fresh-face)
+              (should (equal (plist-get (plist-get fresh-face :underline)
+                                        :position)
+                             1))
+              (should (eq (get-text-property 0 'face recent)
+                          'major-pane-tab-attention-done)))))
+      (kill-buffer buf))))
+
+(ert-deftest config-test-major-pane-ping-hover-bridges-done-underline ()
+  "Hovering a pinging done tab must preserve its green underline bridge."
+  (require 'major-pane)
+  (let ((buf (generate-new-buffer " *major-pane-ping-hover-test*"))
+        (major-pane--ping-cache (make-hash-table :test 'equal))
+        (major-pane--spinner-index 0)
+        (major-pane--anchored nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq major-pane--tab-attention 'done))
+          (let ((major-pane--ping-set (list buf)))
+            (cl-letf (((symbol-function 'frame-char-height)
+                       (lambda (&optional _frame) 30)))
+              (let* ((tab (major-pane--render-tab buf nil))
+                     (image-pos (cl-loop for i below (length tab)
+                                         for display = (get-text-property
+                                                        i 'display tab)
+                                         when (and (listp display)
+                                                   (eq (car display) 'image))
+                                         return i))
+                     (hover (get-text-property image-pos 'mouse-face tab))
+                     (underline (and (listp hover)
+                                     (plist-get hover :underline))))
+                (should (listp hover))
+                (should (eq (plist-get hover :inherit)
+                            'major-pane-tab-hover-done))
+                (should (equal (plist-get underline :color) "#b8bb26"))
+                (should (equal (plist-get underline :position) 1))))))
+      (kill-buffer buf))))
+
+(ert-deftest config-test-major-pane-anchored-ping-hover-bridges-anchor-underline ()
+  "Hovering an anchored ping must preserve its orange underline bridge."
+  (require 'major-pane)
+  (let* ((buf (generate-new-buffer " *major-pane-anchor-hover-test*"))
+         (major-pane--ping-cache (make-hash-table :test 'equal))
+         (major-pane--spinner-index 0)
+         (major-pane--anchored (list buf)))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq major-pane--tab-attention 'done))
+          (let ((major-pane--ping-set (list buf)))
+            (cl-letf (((symbol-function 'frame-char-height)
+                       (lambda (&optional _frame) 30)))
+              (let* ((tab (major-pane--render-tab buf nil))
+                     (image-pos (cl-loop for i below (length tab)
+                                         for display = (get-text-property
+                                                        i 'display tab)
+                                         when (and (listp display)
+                                                   (eq (car display) 'image))
+                                         return i))
+                     (hover (get-text-property image-pos 'mouse-face tab))
+                     (underline (and (listp hover)
+                                     (plist-get hover :underline))))
+                (should (listp hover))
+                (should (eq (plist-get hover :inherit)
+                            'major-pane-tab-hover-done))
+                (should (equal (plist-get underline :color) "#fe8019"))
+                (should (equal (plist-get underline :position) 1))))))
+      (kill-buffer buf))))
+
+(ert-deftest config-test-major-pane-active-ping-does-not-paint-done-underline ()
+  "An active done tab keeps its yellow box and must not gain a green edge."
+  (require 'major-pane)
+  (require 'dom)
+  (require 'xml)
+  (let ((buf (generate-new-buffer " *major-pane-active-ping-test*"))
+        (major-pane--ping-cache (make-hash-table :test 'equal))
+        (major-pane--spinner-index 0)
+        (major-pane--anchored nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq major-pane--tab-attention 'done))
+          (let ((major-pane--ping-set (list buf)))
+            (cl-letf (((symbol-function 'frame-char-height)
+                       (lambda (&optional _frame) 30)))
+              (let* ((tab (major-pane--render-tab buf t))
+                     (image (cl-loop for i below (length tab)
+                                     for display = (get-text-property i 'display tab)
+                                     when (and (listp display)
+                                               (eq (car display) 'image))
+                                     return display))
+                     (svg (with-temp-buffer
+                            (insert (image-property image :data))
+                            (car (xml-parse-region (point-min) (point-max))))))
+                (should image)
+                (should (equal (dom-attr svg 'height) "30"))
+                (should-not (dom-by-tag svg 'rect))))))
+      (kill-buffer buf))))
+
+(ert-deftest config-test-major-pane-anchored-ping-bridges-anchor-underline ()
+  "An anchored ping must bridge its orange underline, not the done green."
+  (require 'major-pane)
+  (require 'dom)
+  (require 'xml)
+  (let* ((buf (generate-new-buffer " *major-pane-anchor-ping-test*"))
+         (major-pane--ping-cache (make-hash-table :test 'equal))
+         (major-pane--spinner-index 0)
+         (major-pane--anchored (list buf)))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq major-pane--tab-attention 'done))
+          (let ((major-pane--ping-set (list buf)))
+            (cl-letf (((symbol-function 'frame-char-height)
+                       (lambda (&optional _frame) 30)))
+              (let* ((tab (major-pane--render-tab buf nil))
+                     (image (cl-loop for i below (length tab)
+                                     for display = (get-text-property i 'display tab)
+                                     when (and (listp display)
+                                               (eq (car display) 'image))
+                                     return display))
+                     (svg (with-temp-buffer
+                            (insert (image-property image :data))
+                            (car (xml-parse-region (point-min) (point-max)))))
+                     (bridge (car (dom-by-tag svg 'rect)))
+                     (image-pos (cl-loop for i below (length tab)
+                                         for display = (get-text-property
+                                                        i 'display tab)
+                                         when (and (listp display)
+                                                   (eq (car display) 'image))
+                                         return i))
+                     (anchor-face (car (get-text-property image-pos 'face tab))))
+                (should image)
+                (should bridge)
+                (should (equal (dom-attr bridge 'y) "28"))
+                (should (equal (dom-attr bridge 'fill) "#fe8019"))
+                (should (equal (plist-get (plist-get anchor-face :underline)
+                                          :position)
+                               1))))))
+      (kill-buffer buf))))
+
+(ert-deftest config-test-major-pane-ping-busts-legacy-image-cache ()
+  "A hot reload must not reuse images built by cache version 1."
+  (require 'major-pane)
+  (let ((major-pane--ping-cache (make-hash-table :test 'equal))
+        (major-pane-ping-size 0.6)
+        (major-pane-ping-margin 0.15)
+        (major-pane-done-ping-color "#d3869b"))
+    ;; Version 1 was the immediately preceding complete cache key: it had
+    ;; explicit image scaling, but not the full-height underline bridge.
+    (puthash (list 1 0 (frame-char-height) 0.6 0.15 "#d3869b")
+             'version-1-short-canvas-image
+             major-pane--ping-cache)
+    (let ((image (major-pane--ping-image 0)))
+      (should-not (eq image 'version-1-short-canvas-image))
+      (should (equal (image-property image :scale) 1)))))
 
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tangle freshness — init.el must match a fresh tangle of emacs.org
