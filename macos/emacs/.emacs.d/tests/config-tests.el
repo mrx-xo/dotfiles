@@ -649,6 +649,313 @@ explicit profile arg must win over the frame default."
   ;; frame-profile falls back to display type for untagged frames
   (should (memq (mr-x/frame-profile) '(dark eink))))
 
+(ert-deftest config-test-markdown-mermaid-normalizes-pandoc-html ()
+  "Pandoc Mermaid fences must become elements Mermaid.js can discover."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-normalize-pandoc-mermaid-html))
+  (let* ((input
+          (concat
+           "<h1>Diagram</h1>\n"
+           "<pre class=\"mermaid\"><code>flowchart LR</code></pre>\n"
+           "<pre id=\"diagram\" class=\"mermaid\" data-kind=\"flow\">\n"
+           "  <code class='sourceCode' data-extra=\"yes\">A --&gt; B</code></pre>\n"
+           "<pre class='sourceCode mermaid extra'><code data-n=\"1\">C</code></pre>\n"
+           "<pre><code class=\"elisp\">(+ 1 2)</code></pre>"))
+         (expected
+          (concat
+           "<h1>Diagram</h1>\n"
+           "<pre><code class=\"mermaid\">flowchart LR</code></pre>\n"
+           "<pre id=\"diagram\" data-kind=\"flow\">\n"
+           "  <code class='sourceCode mermaid' data-extra=\"yes\">A --&gt; B</code></pre>\n"
+           "<pre class='sourceCode extra'><code data-n=\"1\" class=\"mermaid\">C</code></pre>\n"
+           "<pre><code class=\"elisp\">(+ 1 2)</code></pre>")))
+    (should (equal (mr-x/markdown-normalize-pandoc-mermaid-html input)
+                   expected))
+    ;; A live-preview refresh can pass an already-normalized file through
+    ;; again, so the compatibility transform must be idempotent.
+    (should (equal (mr-x/markdown-normalize-pandoc-mermaid-html expected)
+                   expected))))
+
+(ert-deftest config-test-markdown-mermaid-file-preserves-encoding ()
+  "Normalizing generated HTML must retain its UTF-8 bytes and CRLF endings."
+  (require 'markdown-xwidget)
+  (let* ((file (make-temp-file "markdown-mermaid-" nil ".html"))
+         (input (concat "<p>café</p>\n"
+                        "<pre class=\"mermaid\"><code>A</code></pre>\n"))
+         (expected (concat "<p>café</p>\n"
+                           "<pre><code class=\"mermaid\">A</code></pre>\n")))
+    (unwind-protect
+        (progn
+          (let ((coding-system-for-write 'utf-8-dos))
+            (with-temp-file file
+              (insert input)))
+          (mr-x/markdown-normalize-pandoc-mermaid-file file)
+          (with-temp-buffer
+            (set-buffer-multibyte nil)
+            (insert-file-contents-literally file)
+            (should (equal (buffer-string)
+                           (encode-coding-string expected 'utf-8-dos)))))
+      (delete-file file))))
+
+(ert-deftest config-test-markdown-mermaid-header-is-customizable ()
+  "Generated Mermaid config must expose the approved editable defaults."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-mermaid-header-html))
+  (let ((mr-x/markdown-mermaid-look "classic")
+        (mr-x/markdown-mermaid-font-family "Iosevka, monospace"))
+    (let ((header (mr-x/markdown-mermaid-header-html)))
+      (should (string-match-p "\\\"theme\\\":\\\"base\\\"" header))
+      (should (string-match-p "\\\"look\\\":\\\"classic\\\"" header))
+      (should (string-match-p "Iosevka, monospace" header))
+      (should (string-match-p "#282828" header))
+      (should (string-match-p "cluster-label" header))
+      ;; Mermaid documents `initialize' as a once-per-page operation.  Replace
+      ;; markdown-xwidget's small initializer instead of appending a second one.
+      (with-temp-buffer
+        (insert header)
+        (should (= (how-many "mermaid\\.initialize(" (point-min) (point-max))
+                   1)))))
+  ;; Preserve markdown-xwidget's existing theme knob; `base' remains the
+  ;; configured default, but a deliberate package-level override still works.
+  (let ((markdown-xwidget-mermaid-theme "forest"))
+    (should (string-match-p
+             "\\\"theme\\\":\\\"forest\\\""
+             (mr-x/markdown-mermaid-header-html))))
+  ;; Rebuilding Mermaid config must not drop transcript DOM behavior.
+  (should (string-match-p "transcript-meta"
+                          (mr-x/markdown-preview-header-html t))))
+
+(ert-deftest config-test-markdown-mermaid-toggle-refreshes-preview ()
+  "The Mermaid look key must toggle and immediately refresh a live preview."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-mermaid-toggle-look))
+  (require 'markdown-mode)
+  (should (eq (keymap-lookup markdown-mode-map "C-c C-c m")
+              'mr-x/markdown-mermaid-toggle-look))
+  (let ((mr-x/markdown-mermaid-look "classic")
+        (markdown-xwidget-preview-mode t)
+        (markdown-xhtml-header-content "stale")
+        (refreshes 0))
+    (cl-letf (((symbol-function 'markdown-live-preview-export)
+               (lambda () (cl-incf refreshes))))
+      (mr-x/markdown-mermaid-toggle-look)
+      (should (equal mr-x/markdown-mermaid-look "handDrawn"))
+      (should (= refreshes 1))
+      (should (string-match-p "\\\"look\\\":\\\"handDrawn\\\""
+                              markdown-xhtml-header-content))
+      (mr-x/markdown-mermaid-toggle-look)
+      (should (equal mr-x/markdown-mermaid-look "classic"))
+      (should (= refreshes 2))))
+  ;; Interactive invocation requests persistence without touching Custom in
+  ;; this test process.
+  (let ((mr-x/markdown-mermaid-look "classic")
+        (markdown-xwidget-preview-mode nil)
+        persisted)
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value)
+                 (setq persisted (cons variable value))
+                 (set variable value))))
+      (mr-x/markdown-mermaid-toggle-look t))
+    (should (equal persisted
+                   '(mr-x/markdown-mermaid-look . "handDrawn")))
+    (should (equal mr-x/markdown-mermaid-look "handDrawn"))))
+
+(ert-deftest config-test-markdown-mermaid-layout-caps-inline-preview ()
+  "Inline Mermaid stays moderate while full-viewport mode remains optional."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-mermaid-layout-style))
+  (let ((mr-x/markdown-mermaid-full-width nil)
+        (mr-x/markdown-mermaid-gutter 24)
+        (mr-x/markdown-mermaid-inline-max-width 1100))
+    (let ((header (mr-x/markdown-preview-header-html)))
+      (should (string-match-p "id=\"mr-x-mermaid-layout\"" header))
+      ;; markdown-xwidget's header says `margin: 0 auto', but GitHub's more
+      ;; specific `.markdown-body { margin: 0; }' wins after that class is
+      ;; attached.  The layout style must restore the intended centering.
+      (should (string-match-p
+               (regexp-quote "body.markdown-body {")
+               header))
+      (should (string-match-p
+               (regexp-quote "margin-left: auto !important;")
+               header))
+      (should (string-match-p
+               (regexp-quote "margin-right: auto !important;")
+               header))
+      (should (string-match-p
+               (regexp-quote
+                "width: min(1100px, calc(100vw - 48px)) !important;")
+               header))
+      (should (string-match-p
+               (regexp-quote
+                (concat "margin-left: calc(50% - min(550px, "
+                        "calc(50vw - 24px))) !important;"))
+               header))
+      (should (string-match-p
+               (regexp-quote "pre > code.mermaid > svg")
+               header))))
+  ;; Full-bleed remains available as a deliberate Customize override.
+  (let ((mr-x/markdown-mermaid-full-width t)
+        (mr-x/markdown-mermaid-gutter 24))
+    (let ((header (mr-x/markdown-preview-header-html)))
+      (should (string-match-p
+               (regexp-quote "width: calc(100vw - 48px) !important;")
+               header))
+      (should (string-match-p
+               (regexp-quote
+                "margin-left: calc(50% - 50vw + 24px) !important;")
+               header)))))
+
+(ert-deftest config-test-markdown-mermaid-viewer-is-in-generated-page ()
+  "Generated previews must carry the diagram viewer and Chrome protocol."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-mermaid-viewer-script))
+  (let ((header (mr-x/markdown-preview-header-html)))
+    (with-temp-buffer
+      (insert header)
+      (should (= (how-many "id=\"mr-x-mermaid-viewer-script\""
+                           (point-min) (point-max))
+                 1)))
+    (should (string-match-p "mr-x-mermaid-chrome=app:" header))
+    (should (string-match-p "mr-x-mermaid-chrome=tab:" header))
+    (should (string-match-p "mr-x-mermaid-view=" header))))
+
+(ert-deftest config-test-markdown-mermaid-launches-both-chrome-modes ()
+  "Chrome tab and app-window actions must launch distinct macOS commands."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-mermaid-launch-chrome))
+  (let ((mr-x/markdown-mermaid-chrome-application "Google Chrome")
+        (mr-x/markdown-mermaid-chrome-profile-directory
+         "/tmp/markdown-mermaid-chrome-profile")
+        directories
+        calls)
+    (cl-letf (((symbol-function 'xwidget-webkit-uri)
+               (lambda (_xwidget)
+                 (concat "file:///tmp/network-diagrams.html"
+                         "?mr-x-mermaid-chrome=tab:3")))
+              ((symbol-function 'start-process)
+               (lambda (&rest arguments)
+                 (push arguments calls)
+                 'chrome-process))
+              ((symbol-function 'make-directory)
+               (lambda (directory parents)
+                 (push (list directory parents) directories))))
+      (should (eq (mr-x/markdown-mermaid-launch-chrome
+                   'preview-xwidget 'tab 3)
+                  'chrome-process))
+      (should (eq (mr-x/markdown-mermaid-launch-chrome
+                   'preview-xwidget 'app 3)
+                  'chrome-process)))
+    (should
+     (equal
+      (nreverse calls)
+      '(("markdown-mermaid-chrome-tab" nil "/usr/bin/open"
+         "-a" "Google Chrome"
+         "file:///tmp/network-diagrams.html#mr-x-mermaid-view=3")
+        ("markdown-mermaid-chrome-app" nil "/usr/bin/open"
+         "-na" "Google Chrome" "--args"
+         "--user-data-dir=/tmp/markdown-mermaid-chrome-profile"
+         "--no-first-run" "--no-default-browser-check"
+         "--app=file:///tmp/network-diagrams.html#mr-x-mermaid-view=3"))))
+    ;; Native compilation can create its own cache directory while the
+    ;; `start-process' call is stubbed, so assert specifically on our profile.
+    (should (member '("/tmp/markdown-mermaid-chrome-profile" t)
+                    directories))))
+
+(ert-deftest config-test-markdown-xwidget-callback-routes-chrome-actions ()
+  "Viewer action navigations route to Chrome; ordinary events delegate."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-xwidget-callback))
+  (let (launches delegated current-uri)
+    (cl-letf (((symbol-function 'mr-x/markdown-mermaid-launch-chrome)
+               (lambda (xwidget mode index)
+                 (push (list xwidget mode index) launches)))
+              ((symbol-function 'xwidget-webkit-uri)
+               (lambda (_xwidget) current-uri))
+              ((symbol-function 'xwidget-webkit-execute-script)
+               (lambda (&rest _arguments)))
+              ((symbol-function 'xwidget-webkit-callback)
+               (lambda (xwidget event)
+                 (push (list xwidget event) delegated))))
+      ;; WebKit does not emit an xwidget event for same-document hash changes.
+      ;; A temporary query navigation reliably emits `load-started', which is
+      ;; early enough to launch once before the remaining load events delegate.
+      (setq current-uri
+            "file:///tmp/diagram.html?mr-x-mermaid-chrome=app:2")
+      (let ((last-input-event
+             '(xwidget-event load-changed preview-xwidget "load-started")))
+        (mr-x/markdown-xwidget-callback 'preview-xwidget 'load-changed))
+      (setq current-uri
+            "file:///tmp/diagram.html?mr-x-mermaid-chrome=tab:4")
+      (let ((last-input-event
+             '(xwidget-event load-changed preview-xwidget "load-started")))
+        (mr-x/markdown-xwidget-callback 'preview-xwidget 'load-changed))
+      (setq current-uri "file:///tmp/diagram.html")
+      (let ((last-input-event
+             '(xwidget-event load-changed preview-xwidget "load-finished")))
+        (mr-x/markdown-xwidget-callback 'preview-xwidget 'load-changed)))
+    (should (equal (nreverse launches)
+                   '((preview-xwidget app 2)
+                     (preview-xwidget tab 4))))
+    (should (equal delegated
+                   '((preview-xwidget load-changed))))))
+
+(ert-deftest config-test-markdown-xwidget-preview-fits-display-window ()
+  "A preview's native xwidget must fit the window that displays its buffer."
+  (require 'markdown-xwidget)
+  (should (fboundp 'mr-x/markdown-xwidget-preview-file))
+  (let ((preview-buffer (generate-new-buffer " *markdown-xwidget-test*"))
+        (display-window (selected-window))
+        normalized-file
+        displayed
+        resized
+        callback-installed
+        hscroll-reset)
+    (unwind-protect
+        (cl-letf (((symbol-function
+                    'mr-x/markdown-normalize-pandoc-mermaid-file)
+                   (lambda (file)
+                     (setq normalized-file file)
+                     file))
+                  ((symbol-function 'markdown-xwidget-preview)
+                   (lambda (_file) preview-buffer))
+                  ((symbol-function 'display-buffer)
+                   (lambda (buffer action)
+                     (setq displayed (list buffer action))
+                     display-window))
+                  ((symbol-function 'xwidget-webkit-current-session)
+                   (lambda () 'preview-session))
+                  ((symbol-function 'xwidget-webkit-adjust-size-to-window)
+                   (lambda (session window)
+                     (setq resized (list session window))))
+                  ((symbol-function 'xwidget-put)
+                   (lambda (xwidget property value)
+                     (setq callback-installed
+                           (list xwidget property value))))
+                  ((symbol-function 'set-window-hscroll)
+                   (lambda (window columns)
+                     (setq hscroll-reset (list window columns)))))
+          (should (eq (mr-x/markdown-xwidget-preview-file "/tmp/diagram.html")
+                      preview-buffer))
+          (should (equal normalized-file "/tmp/diagram.html"))
+          (should (equal displayed
+                         (list preview-buffer '(display-buffer-same-window))))
+          (should (equal resized (list 'preview-session display-window)))
+          (should (equal callback-installed
+                         (list 'preview-session 'callback
+                               #'mr-x/markdown-xwidget-callback)))
+          (should (equal hscroll-reset (list display-window 0))))
+      (kill-buffer preview-buffer)))
+  ;; Exercise the preview-mode boundary too: defining the helper without
+  ;; installing it would leave users on the old stale-size lambda.
+  (let ((markdown-live-preview-window-function nil)
+        (markdown-css-paths nil)
+        (markdown-command "pandoc")
+        (markdown-xhtml-header-content nil))
+    (cl-letf (((symbol-function 'markdown-live-preview-mode) #'ignore))
+      (markdown-xwidget-preview-mode--enable))
+    (should (eq markdown-live-preview-window-function
+                #'mr-x/markdown-xwidget-preview-file))))
+
 (ert-deftest config-test-point-stack-push-pop ()
   "point-stack should push and pop positions in a temp buffer."
   ;; Force-load point-stack since it's deferred via :bind

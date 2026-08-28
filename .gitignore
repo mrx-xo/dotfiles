@@ -12,7 +12,9 @@ macos/emacs/.emacs.d/eln-cache/
 macos/emacs/.emacs.d/elpa/
 macos/emacs/.emacs.d/tree-sitter/
 macos/emacs/.emacs.d/var/
-macos/emacs/.emacs.d/etc/
+macos/emacs/.emacs.d/etc/*
+!macos/emacs/.emacs.d/etc/markdown-mermaid-viewer.css
+!macos/emacs/.emacs.d/etc/markdown-mermaid-viewer.js
 macos/emacs/.emacs.d/docs/
 macos/emacs/.emacs.d/bm-repository
 macos/emacs/.emacs.d/agent/history

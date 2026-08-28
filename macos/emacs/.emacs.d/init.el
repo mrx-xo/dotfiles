@@ -6545,6 +6545,37 @@ a diagram when only particular nodes should change."
       :type 'string
       :group 'markdown-xwidget)
 
+    (defcustom mr-x/markdown-mermaid-full-width nil
+      "When non-nil, let Mermaid diagrams use the full preview viewport.
+Regular Markdown prose keeps markdown-xwidget's readable 980-pixel column."
+      :type 'boolean
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-gutter 24
+      "Horizontal viewport gutter in pixels around Mermaid blocks."
+      :type 'natnum
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-inline-max-width 1100
+      "Maximum width in pixels for an inline Mermaid diagram.
+Set `mr-x/markdown-mermaid-full-width' non-nil to ignore this cap."
+      :type 'natnum
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-chrome-application "Google Chrome"
+      "macOS application name used by the Mermaid Chrome viewer buttons."
+      :type 'string
+      :group 'markdown-xwidget)
+
+    (defcustom mr-x/markdown-mermaid-chrome-profile-directory
+      (expand-file-name "var/markdown-mermaid-chrome-profile"
+                        user-emacs-directory)
+      "Dedicated Chrome profile directory used by app-window previews.
+A separate profile makes Chrome honor `--app' even when the normal browser
+is already running.  The regular Chrome-tab action does not use this profile."
+      :type 'directory
+      :group 'markdown-xwidget)
+
     ;; Custom CSS files for markdown preview
     (defvar mr-x/markdown-gruvbox-css-file
       (expand-file-name "etc/markdown-gruvbox-claude.css" user-emacs-directory))
@@ -6552,6 +6583,12 @@ a diagram when only particular nodes should change."
       (expand-file-name "etc/agent-recall-transcript.css" user-emacs-directory))
     (defvar mr-x/agent-recall-js-file
       (expand-file-name "etc/agent-recall-transcript.js" user-emacs-directory))
+    (defvar mr-x/markdown-mermaid-viewer-css-file
+      (expand-file-name "etc/markdown-mermaid-viewer.css"
+                        user-emacs-directory))
+    (defvar mr-x/markdown-mermaid-viewer-js-file
+      (expand-file-name "etc/markdown-mermaid-viewer.js"
+                        user-emacs-directory))
 
     (defun mr-x/markdown-mermaid-config ()
       "Return the editable site-wide Mermaid configuration as an alist."
@@ -6564,6 +6601,71 @@ a diagram when only particular nodes should change."
           (startOnLoad . t)
           (themeVariables . ,theme-variables)
           (themeCSS . ,mr-x/markdown-mermaid-theme-css))))
+
+    (defun mr-x/markdown-mermaid-layout-style ()
+      "Return inline sizing and viewer CSS for Mermaid preview blocks."
+      (let* ((gutter mr-x/markdown-mermaid-gutter)
+             (double-gutter (* 2 gutter))
+             (max-width mr-x/markdown-mermaid-inline-max-width)
+             (half-max-width (format "%g" (/ max-width 2.0)))
+             (viewer-css
+              (with-temp-buffer
+                (insert-file-contents mr-x/markdown-mermaid-viewer-css-file)
+                (buffer-string))))
+        (concat
+         "\n<style id=\"mr-x-mermaid-layout\">\n"
+         ;; GitHub's `.markdown-body { margin: 0; }' has greater specificity
+         ;; than markdown-xwidget's `body { margin: 0 auto; }'.  Restore the
+         ;; centering the package intended before sizing the diagram block.
+         "body.markdown-body {\n"
+         "  margin-left: auto !important;\n"
+         "  margin-right: auto !important;\n"
+         "}\n"
+         "pre:has(> code.mermaid) {\n"
+         "  box-sizing: border-box !important;\n"
+         (if mr-x/markdown-mermaid-full-width
+             (concat
+              (format "  width: calc(100vw - %dpx) !important;\n"
+                      double-gutter)
+              (format
+               "  margin-left: calc(50%% - 50vw + %dpx) !important;\n"
+               gutter))
+           (concat
+            (format
+             "  width: min(%dpx, calc(100vw - %dpx)) !important;\n"
+             max-width double-gutter)
+            (format
+             (concat "  margin-left: calc(50%% - min(%spx, "
+                     "calc(50vw - %dpx))) !important;\n")
+             half-max-width gutter)))
+         "  max-width: none !important;\n"
+         "  margin-top: 16px !important;\n"
+         "  margin-right: 0 !important;\n"
+         "  margin-bottom: 16px !important;\n"
+         "  overflow-x: auto !important;\n"
+         "}\n"
+         "pre > code.mermaid {\n"
+         "  display: block !important;\n"
+         "  width: 100% !important;\n"
+         "}\n"
+         "pre > code.mermaid > svg {\n"
+         "  display: block !important;\n"
+         "  width: 100% !important;\n"
+         "  max-width: none !important;\n"
+         "  height: auto !important;\n"
+         "  margin: 0 auto !important;\n"
+         "}\n"
+         viewer-css
+         "\n</style>\n")))
+
+    (defun mr-x/markdown-mermaid-viewer-script ()
+      "Return the Mermaid inspection UI as an inline script element."
+      (concat
+       "\n<script id=\"mr-x-mermaid-viewer-script\">\n"
+       (with-temp-buffer
+         (insert-file-contents mr-x/markdown-mermaid-viewer-js-file)
+         (buffer-string))
+       "\n</script>\n"))
 
     (defun mr-x/markdown-mermaid-header-html ()
       "Return markdown-xwidget's header with the editable Mermaid config.
@@ -6672,7 +6774,10 @@ markdown-xwidget discover `<code class=\"mermaid\">...'."
 
     (defun mr-x/markdown-preview-header-html (&optional transcript-p)
       "Build preview header HTML, adding transcript behavior when TRANSCRIPT-P."
-      (let ((header-html (mr-x/markdown-mermaid-header-html)))
+      (let ((header-html
+             (concat (mr-x/markdown-mermaid-header-html)
+                     (mr-x/markdown-mermaid-layout-style)
+                     (mr-x/markdown-mermaid-viewer-script))))
         (if transcript-p
             (concat header-html
                     "\n<script>\n"
@@ -6718,6 +6823,67 @@ Diagram-local frontmatter with its own `look' remains authoritative."
                  (if persist " (saved)" ""))
         next-look))
 
+    (defun mr-x/markdown-mermaid-launch-chrome (xwidget mode index)
+      "Open diagram INDEX from XWIDGET in Chrome according to MODE.
+MODE is `tab' for a normal browser tab or `app' for a dedicated window."
+      (let* ((uri (xwidget-webkit-uri xwidget))
+             (base-uri (replace-regexp-in-string "[?#].*\\'" "" uri))
+             (target (format "%s#mr-x-mermaid-view=%d" base-uri index)))
+        (pcase mode
+          ('tab
+           (start-process "markdown-mermaid-chrome-tab" nil "/usr/bin/open"
+                          "-a" mr-x/markdown-mermaid-chrome-application
+                          target))
+          ('app
+           (let ((profile-directory
+                  (directory-file-name
+                   (expand-file-name
+                    mr-x/markdown-mermaid-chrome-profile-directory))))
+             (make-directory profile-directory t)
+             (start-process
+              "markdown-mermaid-chrome-app" nil "/usr/bin/open"
+              "-na" mr-x/markdown-mermaid-chrome-application "--args"
+              (concat "--user-data-dir=" profile-directory)
+              "--no-first-run" "--no-default-browser-check"
+              (concat "--app=" target))))
+          (_ (user-error "Unsupported Mermaid Chrome mode: %S" mode)))))
+
+    (defun mr-x/markdown-xwidget-callback (xwidget event)
+      "Handle Mermaid viewer actions from XWIDGET, delegating other EVENTs."
+      (let ((uri
+             (cond
+              ((and (eq event 'load-changed)
+                    (equal (nth 3 last-input-event) "load-started"))
+               (xwidget-webkit-uri xwidget))
+              ((eq event 'decide-policy)
+               (nth 3 last-input-event)))))
+        (if (and (stringp uri)
+                 (string-match
+                  (concat "[?&]mr-x-mermaid-chrome="
+                          "\\(app\\|tab\\):\\([0-9]+\\)"
+                          "\\(?:[&#]\\|\\'\\)")
+                  uri))
+            (let ((mode (intern (match-string 1 uri)))
+                  (index (string-to-number (match-string 2 uri))))
+              (mr-x/markdown-mermaid-launch-chrome xwidget mode index))
+          (xwidget-webkit-callback xwidget event))))
+
+    (defun mr-x/markdown-xwidget-preview-file (file)
+      "Render FILE and fit its xwidget to the window displaying the preview."
+      (mr-x/markdown-normalize-pandoc-mermaid-file file)
+      (let* ((buffer (markdown-xwidget-preview file))
+             (window (display-buffer buffer '(display-buffer-same-window))))
+        (when (window-live-p window)
+          (with-current-buffer buffer
+            (let ((session (xwidget-webkit-current-session)))
+              (xwidget-put session 'callback
+                           #'mr-x/markdown-xwidget-callback)
+              (xwidget-webkit-adjust-size-to-window session window)))
+          ;; A larger previous xwidget can leave the Emacs window itself
+          ;; horizontally scrolled even after the native surface is resized.
+          (set-window-hscroll window 0))
+        buffer))
+
     ;; Override the enable function to include custom CSS
     ;; and inject transcript JS when viewing agent-shell transcripts.
     ;; The original function overwrites markdown-css-paths with only 2 files,
@@ -6751,11 +6917,7 @@ Diagram-local frontmatter with its own `look' remains authoritative."
         (setq markdown-xwidget--markdown-live-preview-window-function-original
               markdown-live-preview-window-function)
         (setq markdown-live-preview-window-function
-              (lambda (file)
-                (mr-x/markdown-normalize-pandoc-mermaid-file file)
-                (let ((buf (markdown-xwidget-preview file)))
-                  (display-buffer buf '(display-buffer-same-window))
-                  buf)))
+              #'mr-x/markdown-xwidget-preview-file)
 
         ;; Temporarily set markdown-xhtml-header-content
         (setq markdown-xwidget--markdown-xhtml-header-content-original
