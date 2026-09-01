@@ -28,6 +28,10 @@ done
 step "Installing packages from Brewfile..."
 brew bundle --file="$DOTDIR/Brewfile"
 
+# ── 2b. rbw ─────────────────────────────────────────────
+step "Configuring rbw..."
+"$DOTDIR/scripts/configure-rbw.sh"
+
 # ── 3. Node (via nvm) ────────────────────────────────────
 # The Brewfile installs the nvm formula, but nvm is only a version
 # manager — it ships no node. Lay down a default LTS so node/npm work
@@ -218,6 +222,7 @@ step "Done!"
 echo ""
 echo "Next steps:"
 echo "  - Launch Emacs once to let Elpaca bootstrap all packages"
+echo "  - Authenticate and download the Vaultwarden database: rbw sync"
 echo "  - Grant Accessibility to yabai AND skhd (System Settings > Privacy &"
 echo "    Security > Accessibility), then: yabai --restart-service; skhd --restart-service"
 echo "    They abort on launch until this is granted."
