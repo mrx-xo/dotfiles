@@ -902,14 +902,17 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         (setq agent-shell-anthropic-default-model-id "default")
         (setq agent-shell-anthropic-authentication
               (agent-shell-anthropic-make-authentication :login t))
-        ;; Inherit environment (gets PATH, ANTHROPIC_API_KEY, etc.)
+        ;; Use the globally updated Claude Code executable instead of the older
+        ;; binary bundled with claude-agent-acp, while inheriting PATH and auth.
         (setq agent-shell-anthropic-claude-environment
-              (agent-shell-make-environment-variables :inherit-env t))
+              (agent-shell-make-environment-variables
+               "CLAUDE_CODE_EXECUTABLE" "/opt/homebrew/bin/claude"
+               :inherit-env t))
         ;; Launch the agent through acp-multiplex so this agent-shell session
         ;; becomes the multiplex PRIMARY: the proxy exposes a Unix socket that
         ;; acp-mobile discovers, letting the phone/Air attach to the same live
         ;; session over Tailscale (see ~/.dotfiles/docs/prd-remote-agent-access.md).
-        ;; NOTE: use @agentclientprotocol/claude-agent-acp (0.54.x) — the official
+        ;; NOTE: use @agentclientprotocol/claude-agent-acp — the official
         ;; ACP package (continuation of the ACP spin-out from Zed).
         ;; Do NOT use @zed-industries/claude-agent-acp (0.23.x): it streams
         ;; agent_message_chunk out-of-turn after a cancel, desyncing C-c C-c

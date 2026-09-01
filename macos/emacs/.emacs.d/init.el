@@ -3814,8 +3814,9 @@ prepended, so they shadow any inherited ANTHROPIC_* values."
           config))
 
       (defvar mr-x/agent-shell-presets
-        '((?f "Fable · Bypass"  "claude-fable-5[1m]" "bypassPermissions")
-          (?o "Opus · Bypass"   "opus[1m]"           "bypassPermissions")
+        '((?f "Fable 5.1 · Bypass" "fable[1m]"           "bypassPermissions")
+          (?F "Fable 5 · Bypass"   "claude-fable-5[1m]" "bypassPermissions")
+          (?o "Opus · Bypass"      "opus[1m]"            "bypassPermissions")
           (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
           (?p "Opus · Plan"     "default"            "plan")
           (?h "Haiku · Auto"    "haiku"              "auto")
