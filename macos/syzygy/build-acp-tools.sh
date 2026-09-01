@@ -2,7 +2,7 @@
 # Build acp-multiplex + acp-mobile at the reviewed/pinned commits (R2.4/R2.5,
 # docs/prd-remote-agent-access.md). Installs into ~/.local/bin.
 #
-# acp-mobile builds from the Marx-A00 fork: local UI work lands as commits
+# acp-mobile builds from the mrx-xo fork: local UI work lands as commits
 # on its `syzygy` branch (history log below), and the pinned hashes don't
 # exist on ElleNajt's upstream. acp-multiplex has no local commits and
 # builds from upstream. Fork workflow: commit in ~/src/acp-mobile, push to
@@ -37,7 +37,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 69546b7 (spawn presets: Codex chips — Sol / Sol Max full-access)
 # + local a844c5e (provider icons on live chat + history cards)
 # + local ffe4bde (mobile context refs, live status sync, integrated code-copy header)
-ACP_MOBILE_COMMIT="ffe4bde"
+# + local ea08d3e (probe: session id from notifications, fixes labels/status on resumed convos)
+ACP_MOBILE_COMMIT="ea08d3e"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
@@ -54,4 +55,4 @@ build() {
 }
 
 build ElleNajt acp-multiplex "$ACP_MULTIPLEX_COMMIT"
-build Marx-A00 acp-mobile "$ACP_MOBILE_COMMIT"
+build mrx-xo acp-mobile "$ACP_MOBILE_COMMIT"
