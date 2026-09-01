@@ -50,6 +50,13 @@
   (should (fboundp 'consult-line))
   (should (fboundp 'embark-act)))
 
+(ert-deftest config-test-agent-recall-embark-resume-keeps-picker ()
+  "Agent Recall resume should keep its picker while other actions still quit."
+  (require 'embark)
+  (let ((embark--toggle-quit nil))
+    (should-not (embark--quit-p #'agent-recall-embark-resume))
+    (should (embark--quit-p #'find-file))))
+
 (ert-deftest config-test-bookmark-annotator-installed ()
   "Custom bookmark annotator (URL fallback for bookmark+) should be registered."
   (should (fboundp 'mr-x/marginalia-annotate-bookmark))

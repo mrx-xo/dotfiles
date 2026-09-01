@@ -5342,7 +5342,12 @@ TRAMP can't match under a PTY — both need pipe mode."
     :bind (("s-r" . embark-act)
            ("s-;" . embark-dwim))
     :config
-    (setq prefix-help-command #'embark-prefix-help-command)
+    (setq prefix-help-command #'embark-prefix-help-command
+          ;; Keep Agent Recall's picker active while resuming the selected
+          ;; session behind it; all other Embark actions still quit normally.
+          embark-quit-after-action
+          '((agent-recall-embark-resume . nil)
+            (t . t)))
 
     ;; Use which-key popup instead of a buffer split for embark actions
     (defun embark-which-key-indicator ()
