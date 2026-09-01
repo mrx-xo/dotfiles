@@ -73,7 +73,7 @@ You should see `immich_machine_learning` running on port 3003.
 1. Open Immich on homelab: http://192.168.1.143:2283
 2. Go to **Administration** (top right) -> **Settings** -> **Machine Learning Settings**
 3. Click **Add URL**
-4. Enter: `http://192.168.1.156:3003`
+4. Enter: `http://192.168.1.159:3003`
 5. Keep the existing local URL as a fallback
 6. Save
 
@@ -102,5 +102,5 @@ The homelab will handle new photos on its own going forward (only a few at a tim
 
 - **Docker pull fails with credential error**: Run `docker logout` first
 - **GPU not visible in Docker**: Make sure Docker Desktop has WSL 2 backend enabled, and restart Docker Desktop after installing/updating NVIDIA drivers
-- **Container starts but Immich doesn't use it**: Double-check the URL in Immich ML settings — must be `http://192.168.1.156:3003` (gaming PC's LAN IP, not localhost)
+- **Container starts but Immich doesn't use it**: Double-check the URL in Immich ML settings — must be `http://192.168.1.159:3003` (gaming PC's LAN IP, not localhost)
 - **Firewall blocking port 3003**: Open port 3003 in Windows Firewall (Settings -> Windows Security -> Firewall -> Advanced -> Inbound Rules -> New Rule -> Port -> 3003 -> Allow)

@@ -6,7 +6,7 @@
 #                               # preset that puts VENGEANCE on glass (game,
 #                               # rsplit, split, ...) is a full summon
 #
-# PC: Realtek 5GbE onboard, MAC 34:5A:60:C0:95:87, 192.168.1.156.
+# PC: Realtek 5GbE onboard, MAC 34:5A:60:C0:95:87, 192.168.1.159.
 # Windows side verified 2026-07-17: WakeOnMagicPacket enabled, Fast
 # Startup disabled. Wake from full shutdown (S5) additionally needs
 # the BIOS "Wake on LAN / Resume by PCI-E" toggle.
