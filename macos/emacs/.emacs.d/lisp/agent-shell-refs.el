@@ -276,7 +276,9 @@ so a queued ref reads the same before and after it's sent."
            (max-shown 3)
            (shown (seq-take refs max-shown))
            (remaining (- total max-shown))
-           (chips (mapcar #'agent-shell-refs--preview-chip shown))
+           (chips (cl-loop for ref in shown
+                           for i from 1
+                           collect (agent-shell-refs--preview-chip ref i)))
            (bar (string-join chips " ")))
       (if (> remaining 0)
           (concat bar "  "
@@ -317,25 +319,67 @@ the prompt)."
   "TEXT as a markdown-quoted block."
   (format "> %s" (replace-regexp-in-string "\n" "\n> " text)))
 
-(defun agent-shell-refs--format-one (ref)
-  "Format a single REF for the send block, dispatching on its type."
+(defun agent-shell-refs--format-one (ref index)
+  "Format a single REF, numbered INDEX, for the send block.
+The \"Ref N\" header is what `[ref N]' markers in the typed message
+refer back to, so the numbering here must match the queue order shown
+in the preview chips."
   (let ((text (agent-shell-refs--ref-text ref))
         (source (agent-shell-refs--ref-source ref)))
     (pcase (agent-shell-refs--ref-type ref)
-      ('image (format "Attached image: %s" (expand-file-name text)))
-      ('file (concat (format "From %s%s:\n" source
+      ('image (format "Ref %d — attached image: %s"
+                      index (expand-file-name text)))
+      ('file (concat (format "Ref %d — from %s%s:\n" index source
                              (if-let* ((line (plist-get ref :line)))
                                  (format ":%d" line)
                                ""))
                      (agent-shell-refs--quote-block text)))
       ;; quote / text / unknown: plain quoted block, as before
-      (_ (agent-shell-refs--quote-block text)))))
+      (_ (concat (format "Ref %d:\n" index)
+                 (agent-shell-refs--quote-block text))))))
 
 (defun agent-shell-refs--format-for-send (refs)
   "Format REFS list into a context block string."
   (concat "<referenced-context>\n"
-          (mapconcat #'agent-shell-refs--format-one (reverse refs) "\n\n")
+          (string-join
+           (cl-loop for ref in (reverse refs)
+                    for i from 1
+                    collect (agent-shell-refs--format-one ref i))
+           "\n\n")
           "\n</referenced-context>\n\n"))
+
+;;; --- Reply markers ---
+;; `[ref N]' typed (or inserted via `agent-shell-refs-insert-marker') in
+;; the prompt pairs a piece of the message with queued Ref N.  The marker
+;; is literal buffer text — the model must see it — styled by font-lock
+;; below so it reads as a chip, not markup.
+
+(defun agent-shell-refs-insert-marker (n)
+  "Jump to the shell prompt and insert a reply marker for ref N."
+  (interactive "NReply to ref: ")
+  (let ((buf (agent-shell-refs--find-shell-buffer)))
+    (unless buf (user-error "No agent-shell buffer"))
+    (let ((count (length (buffer-local-value 'agent-shell-refs--list buf))))
+      (when (zerop count)
+        (user-error "No refs queued — capture one first"))
+      (when (or (< n 1) (> n count))
+        (user-error "No ref %d (only %d queued)" n count)))
+    (if-let* ((win (get-buffer-window buf t)))
+        (progn
+          (select-frame-set-input-focus (window-frame win))
+          (select-window win))
+      (pop-to-buffer buf))
+    (goto-char (point-max))
+    ;; breathing room if appending after already-typed text
+    (unless (or (bolp) (eq (char-before) ?\s))
+      (insert " "))
+    (insert (format "[ref %d] " n))))
+
+(defvar agent-shell-refs--marker-keywords
+  '(("\\[ref [0-9]+\\]" 0 'agent-shell-refs-pill-face t))
+  "Font-lock spec styling `[ref N]' markers as pills.
+Override flag is t so the pill face beats the bold green
+`comint-highlight-input' once the marker is part of sent text.")
 
 ;;; --- Sent-block pills ---
 ;; After a send, the echoed <referenced-context> block is folded into one
@@ -413,12 +457,14 @@ Lives in an overlay `before-string', so only mouse-1 can reach it."
                   'help-echo "click: toggle referenced context"
                   'agent-shell-refs-pill t))))
 
-(defun agent-shell-refs--preview-chip (ref)
-  "A sent-style pill chip for the queued REF plist (display only).
+(defun agent-shell-refs--preview-chip (ref index)
+  "A sent-style pill chip for the queued REF plist, numbered INDEX.
 Mirrors `agent-shell-refs--pill' visually so a ref looks identical
 before and after send; carries no keymap since there's nothing to
-toggle until it's been sent."
-  (let ((s (concat " " (agent-shell-refs--pill-icon) " "
+toggle until it's been sent.  INDEX is the number `[ref N]' markers
+and `agent-shell-refs-insert-marker' address."
+  (let ((s (concat " " (agent-shell-refs--pill-icon)
+                   (format " %d · " index)
                    (agent-shell-refs--truncate
                     (agent-shell-refs--ref-text ref)
                     agent-shell-refs-pill-snippet-length)
@@ -477,9 +523,14 @@ the `face' property on input regions."
                        ;; ref ends its own line
                        (rend (min (1+ chunk-end) block-end))
                        (ov (hide pos rend))
+                       ;; "Ref 1:" / "Ref 1 — " send headers become a
+                       ;; "1 · " prefix in the pill, matching the queued
+                       ;; chips; legacy unnumbered blocks pass through
                        (ref (replace-regexp-in-string
-                             "^> ?" ""
-                             (buffer-substring-no-properties pos chunk-end))))
+                             "\\`Ref \\([0-9]+\\)\\(?: — \\|:[ \n]*\\)" "\\1 · "
+                             (replace-regexp-in-string
+                              "^> ?" ""
+                              (buffer-substring-no-properties pos chunk-end)))))
                   (overlay-put ov 'face 'agent-shell-refs-sent-block-face)
                   (push (agent-shell-refs--pill ref ov) pills)
                   ;; keep the separator blank line hidden
@@ -580,7 +631,7 @@ project's shell buffer."
 ;;; --- Setup / teardown ---
 
 (defun agent-shell-refs-setup ()
-  "Enable refs system: install modeline segment and submit advice."
+  "Enable refs system: modeline segment, submit advice, marker styling."
   (interactive)
   ;; Modeline
   (unless (member 'agent-shell-refs--modeline-construct mode-line-misc-info)
@@ -588,14 +639,23 @@ project's shell buffer."
           (append mode-line-misc-info
                   (list 'agent-shell-refs--modeline-construct))))
   ;; Submit advice
-  (advice-add 'shell-maker-submit :around #'agent-shell-refs--around-submit))
+  (advice-add 'shell-maker-submit :around #'agent-shell-refs--around-submit)
+  ;; [ref N] marker pills — remove first so re-running setup can't stack
+  ;; duplicate keywords; refresh live buffers so it applies immediately
+  (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords)
+  (font-lock-add-keywords 'agent-shell-mode agent-shell-refs--marker-keywords)
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'agent-shell-mode)
+        (font-lock-flush)))))
 
 (defun agent-shell-refs-teardown ()
   "Disable refs system."
   (interactive)
   (setq mode-line-misc-info
         (delq 'agent-shell-refs--modeline-construct mode-line-misc-info))
-  (advice-remove 'shell-maker-submit #'agent-shell-refs--around-submit))
+  (advice-remove 'shell-maker-submit #'agent-shell-refs--around-submit)
+  (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords))
 
 (provide 'agent-shell-refs)
 

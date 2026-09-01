@@ -605,6 +605,21 @@ Popper must NOT control display, the popup rule must be present, and a
   (should (fboundp 'agent-shell-refs-remove))
   (should (fboundp 'agent-shell-refs-preview)))
 
+(ert-deftest config-test-agent-shell-refs-numbered ()
+  "Refs are numbered in the send block and reply commands exist."
+  (should (fboundp 'agent-shell-refs-insert-marker))
+  (should (fboundp 'mr-x/agent-shell-refs-reply-and-go))
+  (should (fboundp 'mr-x/agent-shell-refs-reply-1))
+  (should (fboundp 'mr-x/agent-shell-refs-reply-9))
+  ;; Capture order = ref number: last-pushed list entry is Ref 1
+  (should (equal (agent-shell-refs--format-for-send
+                  (list '(:type quote :text "second")
+                        '(:type quote :text "first")))
+                 (concat "<referenced-context>\n"
+                         "Ref 1:\n> first\n\n"
+                         "Ref 2:\n> second\n"
+                         "</referenced-context>\n\n"))))
+
 (ert-deftest config-test-project-dashboard-loaded ()
   "project-dashboard should be loaded."
   (should (featurep 'project-dashboard))
