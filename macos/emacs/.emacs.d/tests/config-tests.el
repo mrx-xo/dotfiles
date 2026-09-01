@@ -978,6 +978,85 @@ explicit profile arg must win over the frame default."
     (should (eq markdown-live-preview-window-function
                 #'mr-x/markdown-xwidget-preview-file))))
 
+(ert-deftest config-test-org-todo-keywords-use-named-faces ()
+  "Org TODO keywords must resolve to faces that frames can override."
+  (should (equal org-modern-todo-faces mr-x/todo-faces))
+  (dolist (entry '(("TODO" . mr-x/org-todo-todo-face)
+                   ("NEXT" . mr-x/org-todo-next-face)
+                   ("WAIT" . mr-x/org-todo-wait-face)
+                   ("DONE" . mr-x/org-todo-done-face)
+                   ("CANC" . mr-x/org-todo-cancelled-face)))
+    (should (facep (cdr entry)))
+    (should (eq (org-get-todo-face (car entry)) (cdr entry)))))
+
+(ert-deftest config-test-calliope-org-todo-faces-are-monochrome ()
+  "Calliope TODO states must use the approved E Ink hierarchy."
+  ;; Creating a disposable tty frame is unsupported in batch mode, so spy at
+  ;; the mutation boundary and verify the real styling function's full output.
+  (let ((frame (selected-frame))
+        face-calls
+        frame-parameter-calls)
+    (cl-letf (((symbol-function 'mr-x/frame-profile)
+               (lambda (&optional _frame) 'eink))
+              ((symbol-function 'set-frame-parameter)
+               (lambda (target parameter value)
+                 (push (list target parameter value) frame-parameter-calls)))
+              ((symbol-function 'set-face-attribute)
+               (lambda (face target &rest attributes)
+                 (push (list face target attributes) face-calls))))
+      (mr-x/eink-tty-faces frame))
+    (should (member (list frame 'menu-bar-lines 0) frame-parameter-calls))
+    (dolist (entry
+             '((mr-x/org-todo-todo-face
+                (:foreground "#000000" :background "#ffffff"
+                 :weight bold :strike-through nil))
+               (mr-x/org-todo-next-face
+                (:foreground "#ffffff" :background "#000000"
+                 :weight bold :strike-through nil))
+               (mr-x/org-todo-wait-face
+                (:foreground "#000000" :background "#d0d0d0"
+                 :weight bold :strike-through nil))
+               (mr-x/org-todo-done-face
+                (:foreground "#767676" :background "#ffffff"
+                 :weight normal :strike-through t))
+               (mr-x/org-todo-cancelled-face
+                (:foreground "#767676" :background "#ffffff"
+                 :weight normal :strike-through t))))
+      (let ((call (assq (car entry) face-calls)))
+        (should call)
+        (should (eq (cadr call) frame))
+        (should (equal (caddr call) (cadr entry)))))))
+
+(ert-deftest config-test-eink-faces-cover-existing-frames ()
+  "E Ink styling must cover reloads and standalone initial frames."
+  (let ((calliope-frame 'calliope-frame)
+        (daemon-frame 'daemon-frame)
+        applied)
+    ;; A daemon reload must restyle an existing tagged Calliope frame without
+    ;; touching Emacs's untagged daemon pseudo-frame.
+    (cl-letf (((symbol-function 'daemonp) (lambda () t))
+              ((symbol-function 'frame-list)
+               (lambda () (list calliope-frame daemon-frame)))
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter)
+                 (and (eq parameter 'device)
+                      (eq frame calliope-frame)
+                      'calliope)))
+              ((symbol-function 'mr-x/eink-tty-faces)
+               (lambda (frame) (push frame applied))))
+      (mr-x/apply-eink-faces-to-existing-frames))
+    (should (equal applied (list calliope-frame)))
+    ;; A non-daemon startup has no after-make-frame event for its initial
+    ;; frame, so pass every existing frame through the profile-gated styler.
+    (setq applied nil)
+    (cl-letf (((symbol-function 'daemonp) (lambda () nil))
+              ((symbol-function 'frame-list)
+               (lambda () (list daemon-frame calliope-frame)))
+              ((symbol-function 'mr-x/eink-tty-faces)
+               (lambda (frame) (push frame applied))))
+      (mr-x/apply-eink-faces-to-existing-frames))
+    (should (equal applied (list calliope-frame daemon-frame)))))
+
 (ert-deftest config-test-point-stack-push-pop ()
   "point-stack should push and pop positions in a temp buffer."
   ;; Force-load point-stack since it's deferred via :bind
