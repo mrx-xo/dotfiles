@@ -1160,17 +1160,20 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
 
 (ert-deftest config-test-leader-agent-shell-subtree ()
   "SPC c subtree: core agent-shell commands must resolve correctly."
-  (should (eq (config-test--leader-key "c c") 'agent-shell))
-  (should (eq (config-test--leader-key "c C") 'mr-x/agent-shell-roaming))
-  (should (eq (config-test--leader-key "c n") 'mr-x/agent-shell-new-smart))
-  (should (eq (config-test--leader-key "c N") 'mr-x/agent-shell-in-project))
+  (should (eq (config-test--leader-key "c c") 'mr-x/agent-shell-new-smart))
+  (should (eq (config-test--leader-key "c C") 'mr-x/agent-shell-preset-in-project))
+  (should (eq (config-test--leader-key "c x") 'mr-x/agent-shell-sol))
+  (should (eq (config-test--leader-key "c P") 'mr-x/agent-shell-start-preset))
   (should (eq (config-test--leader-key "c t") 'mr-x/agent-shell-toggle))
   (should (eq (config-test--leader-key "c w") 'mr-x/focus-ai-window))
-  (should (eq (config-test--leader-key "c i") 'agent-shell-interrupt)))
+  (should (eq (config-test--leader-key "c i") 'agent-shell-interrupt))
+  ;; Recall moved c a -> c / (refs/context c x -> c a lives in the global
+  ;; normal-state map, not this override leader map, so it isn't checked here).
+  (should (eq (config-test--leader-key "c / s c") 'agent-recall-consult-search)))
 
 (ert-deftest config-test-leader-agent-shell-send ()
   "SPC c send commands must resolve correctly."
-  (should (eq (config-test--leader-key "c p") 'agent-shell-yank-dwim))
+  (should (eq (config-test--leader-key "c p") 'mr-x/agent-shell-apply-preset))
   (should (eq (config-test--leader-key "c r") 'mr-x/agent-send-region-no-switch))
   (should (eq (config-test--leader-key "c R") 'mr-x/agent-send-region))
   (should (eq (config-test--leader-key "c f") 'mr-x/agent-send-file))
