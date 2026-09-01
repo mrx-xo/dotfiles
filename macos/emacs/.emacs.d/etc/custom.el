@@ -110,6 +110,14 @@
 		    highlight-indent-guides kind-icon magit
 		    org-superstar package-lint popper projectile
 		    toc-org visual-fill-column))
+ '(project-dashboard-org-task-files
+   '(("~/roaming/projects/agent-recall"
+      "~/roaming/notes/agent-recall.org")
+     ("~/roaming/projects/home-lab" "~/roaming/notes/homelab.org")
+     ("~/roaming/projects/rec" "~/roaming/notes/rec.org")
+     ("~/roaming/futura-renaissance"
+      "~/roaming/notes/futura-renaissance.org")
+     ("~/work/york" "~/roaming/notes/york.org")))
  '(project-dashboard-projects
    '(("dotfiles" . "~/.dotfiles") ("sandbox" . "~/.emacs-sandbox")
      ("roaming/claude" . "~/roaming/claude")
