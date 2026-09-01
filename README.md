@@ -56,6 +56,14 @@ for Elpaca to bootstrap packages, cron install).
   by bootstrap (launchd can't expand `~`, so `__HOME__` gets baked in at
   install time).
 
+### Agent skills (`~/skills`, private repo)
+
+Personal agent skills live OUTSIDE this repo, in a private `skills` repo on
+the home forge ([agentskills.io](https://agentskills.io) `SKILL.md` format —
+one canonical copy, readable by any harness). Bootstrap clones it and
+symlinks each skill into `~/.claude/skills/` and `~/.codex/skills/`; this
+repo only does the wiring.
+
 ### agent-inbox (phone screenshots → Emacs)
 
 Telegram bot → local daemon → `~/agent-inbox/` → armed agent-shell buffer.
