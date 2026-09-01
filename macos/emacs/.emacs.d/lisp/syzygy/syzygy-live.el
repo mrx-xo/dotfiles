@@ -66,6 +66,12 @@ live state instead."
 (defvar-local syzygy-live--last-rx nil
   "`float-time' of the last out-of-turn update seen in this buffer.")
 
+(defvar-local syzygy-live--remote-turn-active nil
+  "Non-nil while another multiplex frontend owns an active prompt turn.")
+
+(defvar syzygy-live-turn-state-change-hook nil
+  "Hook run when a phone/secondary-client turn starts or finishes.")
+
 (defvar-local syzygy-live--turn-count 0
   "Counter feeding phone-turn fragment block ids.")
 
@@ -122,12 +128,33 @@ un-commenting the body is all a revival takes."
               "user_message_chunk")
        (not (agent-shell--active-requests-p state))))
 
+(defun syzygy-live--track-remote-turn (state notification)
+  "Track exact remote turn lifecycle from STATE and NOTIFICATION.
+acp-multiplex broadcasts a synthetic `turn_complete' to every frontend
+except the prompt sender, giving the Emacs side an authoritative end marker."
+  (when-let* ((buf (map-elt state :buffer))
+              ((buffer-live-p buf)))
+    (let ((kind (map-nested-elt notification
+                                '(params update sessionUpdate))))
+      (with-current-buffer buf
+        (let ((next (cond
+                     ((syzygy-live--out-of-turn-user-chunk-p state notification)
+                      t)
+                     ((and syzygy-live--remote-turn-active
+                           (equal kind "turn_complete"))
+                      nil)
+                     (t syzygy-live--remote-turn-active))))
+          (unless (eq next syzygy-live--remote-turn-active)
+            (setq syzygy-live--remote-turn-active next)
+            (run-hooks 'syzygy-live-turn-state-change-hook)))))))
+
 (defun syzygy-live--on-notification (orig &rest args)
   "Around `agent-shell--on-notification': claim phone prompts in live buffers.
 ORIG and ARGS as in the advised function."
   (let* ((state (plist-get args :state))
          (notification (plist-get args :acp-notification))
          (buf (map-elt state :buffer)))
+    (syzygy-live--track-remote-turn state notification)
     (if (not (and buf
                   (buffer-live-p buf)
                   (buffer-local-value 'syzygy-live-mode buf)))
