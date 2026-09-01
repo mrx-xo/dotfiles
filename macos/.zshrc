@@ -218,6 +218,9 @@ alias pn="pnpm"
 alias tm='task-master'
 alias taskmaster='task-master'
 
+# Andromeda voice satellite health check
+alias andromeda='~/scripts/andromeda-status'
+
 # What VENGEANCE's RGB is doing right now (icue-lights.py status)
 icue() {
   ssh -o ConnectTimeout=5 vengeance "cat icue-scheduler/status.json" 2>/dev/null \
@@ -248,6 +251,7 @@ alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd
 alias mon='~/.dotfiles/macos/scripts/monitor-mode.sh'    # mon game|mac|split|rsplit|work|status, mon toggle center|right|3|4
 alias mtc='mon toggle center'                            # flip center Mac <-> PC
 alias mtr='mon toggle right'                             # flip right  Mac <-> PC
+alias wmfix='yabai --restart-service && skhd --restart-service && echo "yabai + skhd restarted"'  # keybinds dead? skhd tap dies after long uptime
 
 # VENGEANCE RGB lights — one headless engine (lightsctl), swappable skins
 alias lights='~/.dotfiles/macos/scripts/lights/lights'          # Textual dashboard
@@ -258,6 +262,10 @@ alias lightsctl='~/.dotfiles/macos/scripts/lights/lightsctl'    # CLI: status/ra
 alias hx-up='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all up -d"'
 alias hx-down='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all down"'
 alias hx-status='ssh homelab "docker ps --filter name=headlessx --format \"{{.Names}}: {{.Status}}\" | grep . || echo \"(down)\""'
+
+# Morning-briefing visual show POC (multi-window demo on the focused display)
+alias nabu-poc='~/home-lab/services/briefing-show-poc/launch-mrx-poc.sh sergio'      # dad's briefing, Nabu voice
+alias pandora-poc='~/home-lab/services/briefing-show-poc/launch-mrx-poc.sh yvette'   # mom's briefing (Vikings!), Pandora voice
 
 
 # Fix for Emacs native compilation with libgccjit
