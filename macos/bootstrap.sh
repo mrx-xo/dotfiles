@@ -107,6 +107,24 @@ if [ ! -f "$HOME/.config/machine-id" ]; then
     echo "Wrote ~/.config/machine-id: $(cat "$HOME/.config/machine-id")"
 fi
 
+# ── Agent skills ─────────────────────────────────────────
+# ~/skills is the agent-agnostic skill canon (agentskills.io SKILL.md format),
+# a PRIVATE repo on the home forge — content lives there, this repo only wires
+# it up. Each skill dir is symlinked into every agent harness that reads
+# skills (Claude Code, Codex; point future harnesses here too).
+if [ ! -d "$HOME/skills" ]; then
+    git clone ssh://git@omphalos.io:2222/mr-x/skills.git "$HOME/skills" \
+        || echo "⚠ Could not clone mr-x/skills (forge unreachable?) — skipping skill symlinks"
+fi
+if [ -d "$HOME/skills" ]; then
+    mkdir -p "$HOME/.claude/skills" "$HOME/.codex/skills"
+    for skill in "$HOME"/skills/*/; do
+        name="$(basename "$skill")"
+        ln -sfn "$HOME/skills/$name" "$HOME/.claude/skills/$name"
+        ln -sfn "$HOME/skills/$name" "$HOME/.codex/skills/$name"
+    done
+fi
+
 # Emacs LaunchAgents — generated from templates, not symlinked: launchd can't
 # expand ~ or env vars in ProgramArguments, so bake this machine's $HOME into
 # the __HOME__ placeholder at install time.
