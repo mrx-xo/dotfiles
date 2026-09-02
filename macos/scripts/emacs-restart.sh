@@ -4,6 +4,26 @@
 EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
 PLIST=~/Library/LaunchAgents/com.marcosandrade.emacsdaemon.plist
 
+# Confirm before tearing the daemon down. skhd binds this to Cmd+Shift+R
+# system-wide, and that chord is also "hard reload" in Chrome, so one stray
+# press used to kill every agent-shell session. Default button is Cancel:
+# Enter, Escape, and a 20s timeout all bail. Set EMACS_RESTART_NOCONFIRM=1
+# to skip the dialog from scripts.
+if [ -z "$EMACS_RESTART_NOCONFIRM" ]; then
+    answer=$(osascript \
+        -e 'try' \
+        -e '  set r to display dialog "Restart the Emacs daemon?" with title "Emacs" buttons {"Cancel", "Restart"} default button "Cancel" cancel button "Cancel" with icon caution giving up after 20' \
+        -e '  if gave up of r then return "timeout"' \
+        -e '  return button returned of r' \
+        -e 'on error' \
+        -e '  return "cancel"' \
+        -e 'end try' 2>/dev/null)
+    if [ "$answer" != "Restart" ]; then
+        echo "Restart cancelled ($answer)."
+        exit 0
+    fi
+fi
+
 echo "Checking for non-empty scratch buffers..."
 
 # Check if there are non-empty scratch buffers and auto-save them
