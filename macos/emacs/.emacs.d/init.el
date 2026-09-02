@@ -6911,6 +6911,42 @@ Diagram-local frontmatter with its own `look' remains authoritative."
                  (if persist " (saved)" ""))
         next-look))
 
+    (defun mr-x/markdown-mermaid--clear-parked-chrome (profile-directory)
+      "Terminate a windowless Chrome parked on PROFILE-DIRECTORY.
+Chrome can leave behind a `--no-startup-window' process that still owns the
+profile's singleton lock.  A later `open -na ... --app=' hands its command
+line to that process over the singleton socket and exits, and the parked
+process never materialises a window, so the viewer's Chrome buttons appear
+to do nothing.  Only processes matching both this dedicated scratch profile
+and that flag are killed, so the main browser is never touched."
+      (let ((killed nil))
+        (dolist (pid (split-string
+                      (with-output-to-string
+                        (with-current-buffer standard-output
+                          ;; No leading dashes: pgrep parses a pattern that
+                          ;; starts with `-' as an option and exits 2.
+                          (call-process "/usr/bin/pgrep" nil t nil "-f"
+                                        (concat "user-data-dir="
+                                                profile-directory))))
+                      nil t))
+          (when (string-match-p
+                 "--no-startup-window"
+                 (with-output-to-string
+                   (with-current-buffer standard-output
+                     (call-process "/bin/ps" nil t nil
+                                   "-o" "command=" "-p" pid))))
+            (call-process "/bin/kill" nil nil nil pid)
+            (setq killed t)))
+        ;; Wait for the singleton lock to actually drop rather than guessing
+        ;; at a delay; Chrome removes it as the process exits.
+        (when killed
+          (let ((deadline (+ (float-time) 3.0)))
+            (while (and (< (float-time) deadline)
+                        (file-exists-p
+                         (expand-file-name "SingletonLock" profile-directory)))
+              (sleep-for 0.1))))
+        killed))
+
     (defun mr-x/markdown-mermaid-launch-chrome (xwidget mode index)
       "Open diagram INDEX from XWIDGET in Chrome according to MODE.
 MODE is `tab' for a normal browser tab or `app' for a dedicated window."
@@ -6928,6 +6964,7 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
                    (expand-file-name
                     mr-x/markdown-mermaid-chrome-profile-directory))))
              (make-directory profile-directory t)
+             (mr-x/markdown-mermaid--clear-parked-chrome profile-directory)
              (start-process
               "markdown-mermaid-chrome-app" nil "/usr/bin/open"
               "-na" mr-x/markdown-mermaid-chrome-application "--args"
