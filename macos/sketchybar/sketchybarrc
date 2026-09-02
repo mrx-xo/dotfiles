@@ -169,6 +169,35 @@ sketchybar --subscribe title title_change
 sketchybar --add event layout_change
 bash ./plugins/yabai-layout-setup.sh
 
+# claude + codex subscription quota
+# Added after the yabai-layout setup so these land to the right of the
+# layout pill: both are left-side items, and sketchybar orders by add order.
+sketchybar --add item claude_usage left                                      \
+           --set      claude_usage                                           \
+                      background.padding_left=8                              \
+                      icon=":claude:"                                        \
+                      icon.font="sketchybar-app-font:Regular:16.0"           \
+                      icon.color=0xFFFFFFFF                                  \
+                      label="--%"                                            \
+                      script='./plugins/claude-usage.sh'                     \
+                      update_freq=60                                         \
+                      click_script='open https://claude.ai/settings/usage'
+
+sketchybar --add item codex_usage left                                       \
+           --set      codex_usage                                            \
+                      icon=":openai:"                                        \
+                      icon.font="sketchybar-app-font:Regular:16.0"           \
+                      icon.color=0xFFFFFFFF                                  \
+                      label="--%"                                            \
+                      script='./plugins/codex-usage.sh'                      \
+                      update_freq=60                                         \
+                      click_script='open https://chatgpt.com/codex/settings/usage'
+
+sketchybar --add bracket ai_usage claude_usage codex_usage                   \
+           --set         ai_usage background.color=0xbf000000                \
+                                  background.corner_radius=10                \
+                                  background.height=25
+
 # # time
 # sketchybar --add item time right                                    \
 #            --set      time icon=󱑎                                   \
