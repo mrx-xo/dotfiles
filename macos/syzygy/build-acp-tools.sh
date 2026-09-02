@@ -41,7 +41,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local dc290bd (iOS: keep search dock at safe-area bottom on launch)
 # + local 999f3b3 (iOS: keep body viewport stable on launch)
 # + local fc3c55d (Markdown-aware live/replayed thought progress)
-ACP_MOBILE_COMMIT="fc3c55d92f3ec39ef7abe5d9ec2765eb7edd0ffb"
+# + local 5497ac1 (thought progress: tool-style activity cards)
+ACP_MOBILE_COMMIT="5497ac195db11dd28ce2b77d696127d83bb7e640"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
