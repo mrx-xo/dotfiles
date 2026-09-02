@@ -14,9 +14,11 @@ and git tracks everything.
 
 ```
 .dotfiles/
+├── AGENTS.md     # canonical project instructions for coding agents
+├── CLAUDE.md     # imports AGENTS.md for Claude Code
 ├── macos/        # everything Mac: emacs, yabai, skhd, sketchybar, scripts, launchd, …
 ├── windows/      # everything Windows: glazewm, kanata, autohotkey, terminal, …
-├── shared/       # cross-platform bits (CLAUDE.md)
+├── shared/       # cross-platform scripts and configuration
 ├── docs/         # local scratch: PRDs, research, setup guides (untracked)
 └── ebak/         # old pre-Elpaca Emacs config (archive)
 ```
@@ -63,6 +65,12 @@ the home forge ([agentskills.io](https://agentskills.io) `SKILL.md` format —
 one canonical copy, readable by any harness). Bootstrap clones it and
 symlinks each skill into `~/.claude/skills/` and `~/.codex/skills/`; this
 repo only does the wiring.
+
+### Agent instructions
+
+Project guidance has one canonical copy in `AGENTS.md`. Claude Code imports it
+through the root `CLAUDE.md`; Codex reads `AGENTS.md` directly. Update
+`AGENTS.md` rather than duplicating rules between harness-specific files.
 
 ### agent-inbox (phone screenshots → Emacs)
 
