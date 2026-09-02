@@ -18,6 +18,7 @@ CACHE="$CACHE_DIR/claude-usage"
 ORANGE=0xFFCC7B6E
 RED=0xFFCE3A5B
 WHITE=0xFFFFFFFF
+DIM=0xFF888888
 
 mkdir -p "$CACHE_DIR"
 
@@ -27,6 +28,7 @@ render() { # percent severity
     warning)  color=$ORANGE ;;
     *)        color=$WHITE ;;
   esac
+  [ "$1" = "--" ] && color=$DIM
   sketchybar --set "$NAME" \
     drawing=on \
     icon=":claude:" \
@@ -35,12 +37,13 @@ render() { # percent severity
 }
 
 # Fall back to the last good reading rather than blanking the bar on a wifi
-# blip. Only a machine that has never had a successful read shows nothing.
+# blip. This item never hides: a machine that has never had a successful read
+# shows a placeholder, so the pill keeps a stable width instead of jumping.
 fallback() {
   if [ -s "$CACHE" ]; then
     render $(cat "$CACHE")
   else
-    sketchybar --set "$NAME" drawing=off
+    render "--" normal
   fi
   exit 0
 }
