@@ -6806,12 +6806,93 @@ a diagram when only particular nodes should change."
       :type '(alist :key-type symbol :value-type string)
       :group 'markdown-xwidget)
 
+    (defcustom mr-x/markdown-mermaid-flowchart-options
+      '((htmlLabels . t)
+        (wrappingWidth . 340)
+        (padding . 14)
+        (nodeSpacing . 45)
+        (rankSpacing . 62)
+        (curve . "basis")
+        (useMaxWidth . t))
+      "Mermaid `flowchart' layout options.
+Mermaid's stock `wrappingWidth' of 200 pixels wraps every label into a
+ragged column roughly twenty monospace characters wide, so it is raised
+here.  Diagram-local `%%{init: {\"flowchart\": {...}}}%%' still wins."
+      :type '(alist :key-type symbol :value-type sexp)
+      :group 'markdown-xwidget)
+
     (defcustom mr-x/markdown-mermaid-theme-css
       (concat
+       ;; Mermaid measures HTML labels in a probe element that inherits the
+       ;; preview's GitHub font stack, then renders them in `fontFamily'.
+       ;; When the two disagree the computed node boxes are too tall or too
+       ;; short (labels visibly clip).  Pin one font everywhere labels live.
+       ".nodeLabel, .nodeLabel p, .edgeLabel, .edgeLabel p,"
+       " .cluster-label, .cluster-label p, .label, .labelText,"
+       " foreignObject div, foreignObject span {\n"
+       "  font-family: " mr-x/markdown-mermaid-font-family " !important;\n"
+       "  font-size: 15px !important;\n"
+       "  line-height: 1.45 !important;\n"
+       "}\n"
        ".titleText { fill: #fe8019 !important; font-size: 1.35rem !important; font-weight: 800 !important; }\n"
        ".cluster-label text, .cluster-label span { color: #fabd2f !important; fill: #fabd2f !important; font-size: 1.08rem !important; font-weight: 750 !important; }\n"
-       ".nodeLabel { font-weight: 600; }")
-      "Extra Mermaid CSS for diagram titles, group headings, and labels."
+       ;; Mermaid sizes a cluster's title band for one line, so a wrapped
+       ;; subgraph title is drawn clipped through the cluster border.  Keep
+       ;; those titles on a single line; nodes still wrap normally.
+       ".cluster-label, .cluster-label p, .cluster-label div,"
+       " .cluster-label .nodeLabel {\n"
+       "  white-space: nowrap !important;\n"
+       "  text-align: center !important;\n"
+       "}\n"
+       ".nodeLabel { font-weight: 600; }\n"
+       ;; Multi-line labels read as prose when centred.  Left-align node
+       ;; bodies; edge labels are short and stay centred.
+       ".nodeLabel, .nodeLabel p { text-align: left !important; }\n"
+       ".nodeLabel p { margin: 0 !important; }\n"
+       ".nodeLabel p + p { margin-top: 3px !important; }\n"
+       ".edgeLabel, .edgeLabel p { text-align: center !important; }\n"
+       ;; A Markdown-string label writes one <p> per line, so the first line
+       ;; of a multi-line node becomes its heading for free.
+       ".nodeLabel p:first-child:not(:only-child) {\n"
+       "  color: #fabd2f !important;\n"
+       "  font-weight: 800 !important;\n"
+       "  letter-spacing: 0.01em !important;\n"
+       "}\n"
+       ;; Card classes.  Declared once here so any diagram can just write
+       ;; `:::card-accent' without repeating a classDef palette.
+       ".node.card-accent > rect, .node.card-accent > polygon,"
+       " .node.card-accent > path {\n"
+       "  fill: #3c3836 !important;\n"
+       "  stroke: #fe8019 !important;\n"
+       "  stroke-width: 2px !important;\n"
+       "}\n"
+       ".node.card-accent .nodeLabel p:first-child { color: #fe8019 !important; }\n"
+       ".node.card-muted > rect, .node.card-muted > polygon,"
+       " .node.card-muted > path {\n"
+       "  fill: #32302f !important;\n"
+       "  stroke: #665c54 !important;\n"
+       "  stroke-width: 1.5px !important;\n"
+       "}\n"
+       ".node.card-muted .nodeLabel, .node.card-muted .nodeLabel p { color: #a89984 !important; }\n"
+       ".node.card-muted .nodeLabel p:first-child { color: #bdae93 !important; }\n"
+       ".node.card-warn > rect, .node.card-warn > polygon,"
+       " .node.card-warn > path {\n"
+       "  fill: #422b21 !important;\n"
+       "  stroke: #fb4934 !important;\n"
+       "  stroke-width: 2px !important;\n"
+       "}\n"
+       ".node.card-warn .nodeLabel p:first-child { color: #fb4934 !important; }\n"
+       ".node.card-ghost > rect, .node.card-ghost > polygon,"
+       " .node.card-ghost > path {\n"
+       "  fill: transparent !important;\n"
+       "  stroke: #665c54 !important;\n"
+       "  stroke-width: 1.5px !important;\n"
+       "  stroke-dasharray: 5 4 !important;\n"
+       "}\n"
+       ".node.card-ghost .nodeLabel, .node.card-ghost .nodeLabel p { color: #928374 !important; }")
+      "Extra Mermaid CSS for diagram titles, group headings, and labels.
+Also defines the site-wide `card-accent', `card-muted', `card-warn', and
+`card-ghost' node classes, applied in a diagram with `:::card-accent'."
       :type 'string
       :group 'markdown-xwidget)
 
@@ -6869,6 +6950,7 @@ is already running.  The regular Chrome-tab action does not use this profile."
           (look . ,mr-x/markdown-mermaid-look)
           (handDrawnSeed . ,mr-x/markdown-mermaid-hand-drawn-seed)
           (startOnLoad . t)
+          (flowchart . ,mr-x/markdown-mermaid-flowchart-options)
           (themeVariables . ,theme-variables)
           (themeCSS . ,mr-x/markdown-mermaid-theme-css))))
 
