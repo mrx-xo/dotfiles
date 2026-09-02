@@ -8042,6 +8042,42 @@ with a bare \"1. \" and would otherwise match the list-item regex."
 
         (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-colorize-headings)
 
+        ;; ADHD-skill response vocabulary — the i-have-adhd skill (plus the
+        ;; contract in ~/.claude/CLAUDE.md) makes the model open certain
+        ;; lines with fixed prefixes.  Style just the prefix, gruvbox orange,
+        ;; so the eye can jump straight to the action line.
+        ;; Gruvbox bright red on a 15% red tint of the #101112 chat bg —
+        ;; picked from a sandbox swatch pass (2026-09-02).  Deliberately
+        ;; not the inline-code gray (#3c3836) so cues never read as code
+        ;; spans, and not orange so they never read as headings/markers.
+        (defface mr-x/agent-shell-cue-face
+          '((t :foreground "#fb4934" :background "#331917" :weight bold))
+          "Face for ADHD-skill line prefixes (Next:, Cause:, Fix:, ...) in agent-shell.")
+
+        (defvar mr-x/agent-shell-cue-keywords
+          '(;; line-start cues, optionally after a list bullet or number
+            ("^\\s-*\\(?:[-*] \\|[0-9]+\\. \\)?\\(Next:\\|Separately:\\|Step [0-9]+ of [0-9]+ done:\\)"
+             1 'mr-x/agent-shell-cue-face t)
+            ;; Cause:/Fix: — the skill puts them on one line, so also match
+            ;; after a sentence end
+            ("\\(?:^\\s-*\\|\\. \\)\\(Cause:\\|Fix:\\)"
+             1 'mr-x/agent-shell-cue-face t))
+          "Font-lock keywords styling ADHD-skill cue prefixes in agent-shell buffers.")
+
+        (defun mr-x/agent-shell-cue-setup ()
+          "Install (or refresh) cue-prefix font-lock in agent-shell buffers.
+Idempotent: removes before adding so re-running never stacks keywords.
+Patches live buffers too, since mode-level keywords only reach new ones."
+          (font-lock-remove-keywords 'agent-shell-mode mr-x/agent-shell-cue-keywords)
+          (font-lock-add-keywords 'agent-shell-mode mr-x/agent-shell-cue-keywords)
+          (dolist (buf (buffer-list))
+            (with-current-buffer buf
+              (when (derived-mode-p 'agent-shell-mode)
+                (font-lock-remove-keywords nil mr-x/agent-shell-cue-keywords)
+                (font-lock-add-keywords nil mr-x/agent-shell-cue-keywords)
+                (font-lock-flush)))))
+        (mr-x/agent-shell-cue-setup)
+
         ;; Custom icons
         (setq agent-shell-permission-icon "\uf259")
         (setq agent-shell-thought-process-icon "\uf29d")
