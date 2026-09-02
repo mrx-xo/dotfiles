@@ -2114,8 +2114,8 @@ in its main-area window, creating one when the buffer is buried."
 
 (with-eval-after-load 'evil
   (evil-define-key 'normal major-pane-launcher-mode-map
-    (kbd "n") #'major-pane-launcher--new
-    (kbd "N") #'major-pane-launcher--new-from-dir
+    (kbd "c") #'major-pane-launcher--new
+    (kbd "p") #'major-pane-launcher--new-preset
     (kbd "b") #'major-pane-launcher--browse
     (kbd "q") #'major-pane-launcher--quit
     (kbd "<escape>") #'major-pane-launcher--quit))
@@ -2130,8 +2130,8 @@ in its main-area window, creating one when the buffer is buried."
         (erase-buffer)
         (insert "\n")
         (insert (propertize "  Agent Shell" 'face 'major-pane-launcher-title) "\n\n")
-        (insert "  " (propertize "[n]" 'face 'major-pane-launcher-key) " new chat\n")
-        (insert "  " (propertize "[N]" 'face 'major-pane-launcher-key) " new chat from dir\n")
+        (insert "  " (propertize "[c]" 'face 'major-pane-launcher-key) " new chat in dir\n")
+        (insert "  " (propertize "[p]" 'face 'major-pane-launcher-key) " new chat in dir, with preset\n")
         (insert "  " (propertize "[b]" 'face 'major-pane-launcher-key) " browse chats\n\n")
         (insert (propertize "  [q] quit" 'face 'major-pane-dim) "\n"))
       (major-pane-launcher-mode)
@@ -2152,16 +2152,10 @@ in its main-area window, creating one when the buffer is buried."
   (setf (major-pane-state-mode major-pane--state) 'side)
   (funcall start-fn))
 
-(defun major-pane-launcher--new ()
-  "Start a new agent-shell chat from the launcher."
-  (interactive)
-  (major-pane--launch-in-pane #'agent-shell))
-
-(defun major-pane-launcher--new-from-dir ()
-  "Start a new agent-shell chat in a chosen directory.
-Uses `project-dashboard-projects' when available, falls back to
-`read-directory-name'."
-  (interactive)
+(defun major-pane-launcher--read-dir ()
+  "Read a project/directory for a new agent-shell.
+Uses `project-dashboard-projects' when available, merged with plain
+file-name completion so any path is still reachable."
   (let* ((projects (when (bound-and-true-p project-dashboard-projects)
                      project-dashboard-projects))
          (table (if projects
@@ -2170,13 +2164,30 @@ Uses `project-dashboard-projects' when available, falls back to
                      #'completion-file-name-table)
                   #'completion-file-name-table))
          (choice (completing-read "Project/dir: " table nil nil))
-         (entry (and projects (assoc choice projects)))
-         (dir (if entry
-                  (expand-file-name (cdr entry))
-                (expand-file-name choice))))
+         (entry (and projects (assoc choice projects))))
+    (expand-file-name (if entry (cdr entry) choice))))
+
+(defun major-pane-launcher--new ()
+  "Start a new agent-shell chat with the default agent in a chosen dir."
+  (interactive)
+  (let ((dir (major-pane-launcher--read-dir)))
     (major-pane--launch-in-pane
      (lambda () (let ((default-directory dir))
                   (agent-shell))))))
+
+(defun major-pane-launcher--new-preset ()
+  "Start a new agent-shell chat in a chosen dir, from a chosen preset.
+Presets come from `mr-x/agent-shell-presets' (model + permission mode
++ optional agent config), same set as `SPC c P'."
+  (interactive)
+  (unless (and (fboundp 'mr-x/agent-shell--read-preset)
+               (fboundp 'mr-x/agent-shell--spawn-preset))
+    (user-error "Agent-shell presets are not loaded"))
+  (let* ((dir (major-pane-launcher--read-dir))
+         (preset (funcall 'mr-x/agent-shell--read-preset)))
+    (major-pane--launch-in-pane
+     (lambda () (let ((default-directory dir))
+                  (funcall 'mr-x/agent-shell--spawn-preset preset))))))
 
 (defun major-pane-launcher--browse ()
   "Browse agent-shell chat history."
