@@ -1452,6 +1452,12 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should (eq (config-test--leader-key "a f") 'mr-x/org-agenda-focus))
   (should (eq (config-test--leader-key "a v") 'mr-x/org-agenda-full)))
 
+(ert-deftest config-test-leader-music-assistant-key ()
+  "SPC s m should open the embedded Music Assistant frontend."
+  (should
+   (eq (config-test--leader-key "s m")
+       'music-assistant)))
+
 (ert-deftest config-test-leader-git-keys ()
   "SPC g git keys must resolve correctly."
   (should (eq (config-test--leader-key "g g") 'magit-status))
