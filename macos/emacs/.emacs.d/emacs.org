@@ -21,6 +21,7 @@
   - [[#terminal][Terminal]]
   - [[#quick-commands][Quick Commands]]
   - [[#ui][UI]]
+  - [[#music-assistant][Music Assistant]]
   - [[#gain-some-perspective][Gain Some Perspective]]
   - [[#pane-membership-marker-in-buffer-switching][Pane Membership Marker In Buffer Switching]]
   - [[#ux][UX]]
@@ -2976,6 +2977,108 @@ Secondary frames: title bar + frame number."
         (setq major-pane-home-frame (selected-frame)))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
+#+end_src
+
+** Music Assistant
+
+#+begin_src emacs-lisp :results silent
+  (defgroup music-assistant nil
+    "Open Music Assistant inside Emacs."
+    :group 'multimedia)
+
+  (defcustom music-assistant-server-url
+    "http://192.168.1.143:8095"
+    "URL of the server-hosted Music Assistant frontend."
+    :type 'string
+    :group 'music-assistant)
+
+  (defvar music-assistant--buffer nil
+    "Tracked xwidget buffer displaying Music Assistant.")
+
+  (defun music-assistant--ensure-xwidget ()
+    "Load xwidget support or explain how to reach Music Assistant."
+    (unless (and (display-graphic-p)
+                 (featurep 'xwidget-internal)
+                 (fboundp 'xwidget-webkit-browse-url))
+      (user-error
+       "Music Assistant requires graphical xwidget-enabled Emacs; open %s externally"
+       music-assistant-server-url))
+    (require 'xwidget))
+
+  (defun music-assistant--origin (url)
+    "Return URL's normalized (SCHEME HOST PORT), or nil."
+    (when (stringp url)
+      (condition-case nil
+          (progn
+            (require 'url-parse)
+            (let* ((parsed (url-generic-parse-url url))
+                   (scheme (url-type parsed))
+                   (host (url-host parsed))
+                   (port (url-port parsed)))
+              (when (and (stringp scheme)
+                         (not (equal scheme ""))
+                         (stringp host)
+                         (not (equal host ""))
+                         (numberp port))
+                (list (downcase scheme)
+                      (downcase host)
+                      port))))
+        (error nil))))
+
+  (defun music-assistant--same-origin-p (left right)
+    "Return non-nil when LEFT and RIGHT have the same URL origin."
+    (let ((left-origin (music-assistant--origin left))
+          (right-origin (music-assistant--origin right)))
+      (and left-origin
+           (equal left-origin right-origin))))
+
+  (defun music-assistant--tracked-session ()
+    "Return the tracked Music Assistant xwidget session, or nil."
+    (when (buffer-live-p music-assistant--buffer)
+      (with-current-buffer music-assistant--buffer
+        (when (derived-mode-p 'xwidget-webkit-mode)
+          (xwidget-at (point-min))))))
+
+  (defun music-assistant--forget-buffer ()
+    "Forget the tracked session when its own buffer is killed."
+    (when (eq (current-buffer) music-assistant--buffer)
+      (setq music-assistant--buffer nil)))
+
+  (defun music-assistant--create-session ()
+    "Create, track, and return a fresh Music Assistant xwidget buffer."
+    (setq music-assistant--buffer nil)
+    (condition-case failure
+        (progn
+          (xwidget-webkit-browse-url
+           music-assistant-server-url t)
+          (unless (derived-mode-p 'xwidget-webkit-mode)
+            (error
+             "Music Assistant did not create an xwidget session"))
+          (setq music-assistant--buffer (current-buffer))
+          (add-hook 'kill-buffer-hook
+                    #'music-assistant--forget-buffer nil t)
+          music-assistant--buffer)
+      (error
+       (setq music-assistant--buffer nil)
+       (signal (car failure) (cdr failure)))))
+
+  (defun music-assistant ()
+    "Open or return to Music Assistant's official frontend."
+    (interactive)
+    (music-assistant--ensure-xwidget)
+    (let ((session (music-assistant--tracked-session)))
+      (if (not session)
+          (music-assistant--create-session)
+        (let ((current-url (xwidget-webkit-uri session)))
+          (when (and (stringp current-url)
+                     (not
+                      (music-assistant--same-origin-p
+                       current-url
+                       music-assistant-server-url)))
+            (xwidget-webkit-goto-uri
+             session music-assistant-server-url)))
+        (switch-to-buffer music-assistant--buffer)
+        music-assistant--buffer)))
 #+end_src
 
 ** Gain Some Perspective
