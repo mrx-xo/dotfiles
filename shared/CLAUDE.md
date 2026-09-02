@@ -76,6 +76,17 @@ When editing `emacs.org`, ALWAYS run the changed elisp via emacsclient so it tak
 emacsclient --eval "(elisp-expression-here)"
 ```
 
+#### NEVER Restart Emacs Without Permission (IMPORTANT)
+NEVER restart, kill, or reload the main Emacs daemon unless the user has explicitly said to do it in the current message. Not to "apply a change", not to "test the fix", not as a retry. Live-eval the change instead (see Live Eval Rule) and, if a restart is truly required, ask and wait for a fresh yes every single time.
+
+Restarting kills every agent-shell conversation in the daemon, including the one you are running in. This covers all of:
+- `~/.dotfiles/macos/scripts/emacs-restart.sh` / `emacs-restart-restore.sh` / `emacs-daemon-start.sh`
+- `emacsclient --eval "(kill-emacs)"`, `(restart-emacs)`, `(save-buffers-kill-emacs)`
+- `launchctl unload|load|kickstart|bootout ... com.marcosandrade.emacsdaemon`
+- `pkill`/`kill` of any `Emacs` process
+
+The sandbox daemon (`--socket-name=sandbox`, `emacs-sandbox.sh --fresh|--restart`) is exempt: it exists to be restarted.
+
 #### Sandbox Emacs (IMPORTANT)
 A separate, isolated Emacs instance exists for testing changes safely without affecting the main Emacs daemon.
 
