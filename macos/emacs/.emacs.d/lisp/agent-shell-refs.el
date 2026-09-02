@@ -370,16 +370,64 @@ in the preview chips."
           (select-window win))
       (pop-to-buffer buf))
     (goto-char (point-max))
-    ;; breathing room if appending after already-typed text
-    (unless (or (bolp) (eq (char-before) ?\s))
-      (insert " "))
-    (insert (format "[ref %d] " n))))
+    ;; Layout, whether or not the prompt already has text:
+    ;;   <prompt or typed text>
+    ;;   [ref N]:
+    ;;   <blank>
+    ;;   <reply starts here>
+    (insert (format "\n[ref %d]:\n\n" n))))
+
+(defface agent-shell-refs-marker-face
+  '((t :inherit agent-shell-refs-pill-face :foreground "#fe8019"))
+  "Face for `[ref N]' reply markers typed at the prompt.
+Gruvbox orange so the marker reads distinctly from the yellow folded
+pills that replace the sent context block."
+  :group 'agent-shell)
+
+(defun agent-shell-refs--marker-display (n)
+  "Display string for marker N: the ref's type icon plus its number.
+Looks the type up in the pending queue; once the queue has been sent
+\(and cleared) it falls back to the generic quote icon."
+  (let* ((refs (and (boundp 'agent-shell-refs--list) agent-shell-refs--list))
+         (len (length refs))
+         ;; queue is newest-first; capture-order N lives at index len-N
+         (ref (and (<= 1 n len) (nth (- len n) refs)))
+         (type (if ref (agent-shell-refs--ref-type ref) 'quote)))
+    (concat (agent-shell-refs--type-icon type) " " (number-to-string n))))
+
+(defun agent-shell-refs--marker-facespec ()
+  "Font-lock facespec for the `[ref N]' match just made.
+Tags the text with `agent-shell-refs-marker' so our unfontifier can
+strip the `display' prop again -- `display' is deliberately NOT in
+`font-lock-extra-managed-props' because agent-shell stores inline
+screenshots as `display' text props and font-lock would wipe them."
+  (let ((n (string-to-number (match-string-no-properties 1))))
+    (list 'face 'agent-shell-refs-marker-face
+          'display (agent-shell-refs--marker-display n)
+          'agent-shell-refs-marker t)))
 
 (defvar agent-shell-refs--marker-keywords
-  '(("\\[ref [0-9]+\\]" 0 'agent-shell-refs-pill-face t))
-  "Font-lock spec styling `[ref N]' markers as pills.
-Override flag is t so the pill face beats the bold green
-`comint-highlight-input' once the marker is part of sent text.")
+  '(("\\[ref \\([0-9]+\\)\\]" 0 (agent-shell-refs--marker-facespec) t))
+  "Font-lock spec rendering `[ref N]' markers as `<type icon> N' chips.
+The literal `[ref N]' text stays in the buffer -- the model reads it --
+only its display changes.  Override flag is t so the marker face beats
+the bold green `comint-highlight-input' once the marker is sent text.")
+
+(defun agent-shell-refs--unfontify-region (beg end)
+  "Default unfontify plus removal of our marker `display' props only."
+  (font-lock-default-unfontify-region beg end)
+  (let ((pos beg))
+    (while (< pos end)
+      (let ((next (next-single-property-change pos 'agent-shell-refs-marker nil end)))
+        (when (get-text-property pos 'agent-shell-refs-marker)
+          (remove-list-of-text-properties
+           pos next '(display agent-shell-refs-marker)))
+        (setq pos next)))))
+
+(defun agent-shell-refs--setup-buffer ()
+  "Per-buffer wiring for marker chips; runs from `agent-shell-mode-hook'."
+  (setq-local font-lock-unfontify-region-function
+              #'agent-shell-refs--unfontify-region))
 
 ;;; --- Sent-block pills ---
 ;; After a send, the echoed <referenced-context> block is folded into one
@@ -644,9 +692,14 @@ project's shell buffer."
   ;; duplicate keywords; refresh live buffers so it applies immediately
   (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords)
   (font-lock-add-keywords 'agent-shell-mode agent-shell-refs--marker-keywords)
+  (add-hook 'agent-shell-mode-hook #'agent-shell-refs--setup-buffer)
   (dolist (buf (buffer-list))
     (with-current-buffer buf
       (when (derived-mode-p 'agent-shell-mode)
+        (agent-shell-refs--setup-buffer)
+        ;; mode-level keywords only reach NEW buffers; patch live ones too
+        (font-lock-remove-keywords nil agent-shell-refs--marker-keywords)
+        (font-lock-add-keywords nil agent-shell-refs--marker-keywords)
         (font-lock-flush)))))
 
 (defun agent-shell-refs-teardown ()
@@ -655,6 +708,7 @@ project's shell buffer."
   (setq mode-line-misc-info
         (delq 'agent-shell-refs--modeline-construct mode-line-misc-info))
   (advice-remove 'shell-maker-submit #'agent-shell-refs--around-submit)
+  (remove-hook 'agent-shell-mode-hook #'agent-shell-refs--setup-buffer)
   (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords))
 
 (provide 'agent-shell-refs)
