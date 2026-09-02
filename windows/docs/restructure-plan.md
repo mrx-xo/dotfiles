@@ -4,7 +4,10 @@
 GitHub repo [`Marx-A00/dotfiles`](https://github.com/Marx-A00/dotfiles) as an OS-partitioned
 monorepo: single source of truth, one backup, easy cross-referencing.
 
-**Status:** DRAFT — nothing executed yet. Work happens on a branch; `main` stays safe until merge.
+**Status:** Completed historical plan. Do not execute these commands as current
+instructions; use the root `README.md` for the live layout. Project agent
+guidance was later consolidated into root `AGENTS.md`, with root `CLAUDE.md`
+importing it for Claude Code.
 
 ---
 
