@@ -19,7 +19,6 @@
 ;; Soft dependency: the Recent Conversations section reads agent-recall's
 ;; transcript index when the package is available, and hides otherwise.
 (declare-function agent-recall--index-ensure "agent-recall")
-(declare-function agent-recall--display-timestamp "agent-recall")
 (declare-function agent-recall--open-transcript "agent-recall")
 (declare-function agent-recall-session-label "agent-recall")
 (defvar agent-recall--index)
@@ -791,6 +790,68 @@ Returns nil when agent-recall (or its index) is unavailable."
                                  (or (plist-get (cdr b) :timestamp) ""))))
                 project-dashboard-recent-conversations-count))))
 
+(defun project-dashboard--conversation-timestamp-time (timestamp)
+  "Decode an agent-recall TIMESTAMP into an Emacs time value.
+Return nil when TIMESTAMP is not in `YYYY-MM-DD-HH-MM-SS' form."
+  (when (and timestamp
+             (string-match
+              (concat "\\`\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-"
+                      "\\([0-9]\\{2\\}\\)[-T]\\([0-9]\\{2\\}\\)-"
+                      "\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)\\'")
+              timestamp))
+    (let* ((year (string-to-number (match-string 1 timestamp)))
+           (month (string-to-number (match-string 2 timestamp)))
+           (day (string-to-number (match-string 3 timestamp)))
+           (hour (string-to-number (match-string 4 timestamp)))
+           (minute (string-to-number (match-string 5 timestamp)))
+           (second (string-to-number (match-string 6 timestamp)))
+           (encoded (condition-case nil
+                        (encode-time second minute hour day month year)
+                      (error nil)))
+           (decoded (and encoded (decode-time encoded))))
+      (when (and decoded
+                 (= second (nth 0 decoded))
+                 (= minute (nth 1 decoded))
+                 (= hour (nth 2 decoded))
+                 (= day (nth 3 decoded))
+                 (= month (nth 4 decoded))
+                 (= year (nth 5 decoded)))
+        encoded))))
+
+(defun project-dashboard--conversation-age-label (timestamp &optional now)
+  "Format agent-recall TIMESTAMP relative to NOW for the dashboard.
+Use minute, hour, and day ages for the first fourteen days, then an
+ordinal calendar date.  NOW defaults to `current-time'.  Return an
+unparseable TIMESTAMP unchanged."
+  (let ((then (project-dashboard--conversation-timestamp-time timestamp))
+        (now (or now (current-time))))
+    (if (not then)
+        (or timestamp "")
+      (let ((seconds (max 0 (float-time (time-subtract now then)))))
+        (cond
+         ((< seconds 60) "just now")
+         ((< seconds 3600)
+          (format "%d min ago" (floor (/ seconds 60))))
+         ((< seconds 86400)
+          (format "%d hr ago" (floor (/ seconds 3600))))
+         ((< seconds (* 14 86400))
+          (let ((days (floor (/ seconds 86400))))
+            (format "%d day%s ago" days (if (= days 1) "" "s"))))
+         (t
+          (let* ((decoded (decode-time then))
+                 (day (nth 3 decoded))
+                 (year (nth 5 decoded))
+                 (current-year (nth 5 (decode-time now)))
+                 (suffix (if (<= 11 (% day 100) 13)
+                             "th"
+                           (pcase (% day 10)
+                             (1 "st") (2 "nd") (3 "rd") (_ "th")))))
+            (concat (let ((system-time-locale "C"))
+                      (format-time-string "%b " then))
+                    (number-to-string day) suffix
+                    (unless (= year current-year)
+                      (format ", %d" year))))))))))
+
 (defun project-dashboard--render-recent-conversations (convos)
   "Render the Recent Conversations section for CONVOS.
 CONVOS is a list of (FILE . ENTRY) from
@@ -803,13 +864,14 @@ so RET can open it."
     (dolist (convo convos)
       (let* ((file (car convo))
              (entry (cdr convo))
-             (date (agent-recall--display-timestamp
-                    (or (plist-get entry :timestamp) "")))
+             (age (project-dashboard--conversation-age-label
+                   (plist-get entry :timestamp)))
              (label (agent-recall-session-label (plist-get entry :session-id)))
              (preview (or (plist-get entry :preview) ""))
              (line (concat
                     "    "
-                    (propertize (format "%-8s" date) 'face 'shadow)
+                    (propertize age 'face 'shadow)
+                    "  "
                     (when label
                       (concat (propertize label 'face 'agent-recall-label) "  "))
                     (propertize (truncate-string-to-width preview 60 nil nil "...")
