@@ -40,7 +40,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local ea08d3e (probe: session id from notifications, fixes labels/status on resumed convos)
 # + local 8309031 (agent-recall search, labeled History, persistent mobile dock)
 # + local dc290bd (iOS: keep search dock at safe-area bottom on launch)
-ACP_MOBILE_COMMIT="dc290bd"
+# + local 999f3b3 (iOS: keep body viewport stable on launch)
+ACP_MOBILE_COMMIT="999f3b3"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
