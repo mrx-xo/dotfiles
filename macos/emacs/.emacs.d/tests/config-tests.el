@@ -583,6 +583,215 @@ Popper must NOT control display, the popup rule must be present, and a
   (should (fboundp 'mr-x/surf-link-at-point))
   (should (fboundp 'mr-x/surf-url-other-window)))
 
+(ert-deftest config-test-music-assistant-configuration ()
+  "Music Assistant should expose its URL and interactive entry point."
+  (should (equal music-assistant-server-url
+                 "http://192.168.1.143:8095"))
+  (should (commandp 'music-assistant)))
+
+(ert-deftest config-test-music-assistant-same-origin ()
+  "Origin checks should ignore paths, host case, and default ports."
+  (should
+   (music-assistant--same-origin-p
+    "http://MUSIC.test/library/album/42"
+    "http://music.test:80/"))
+  (should
+   (music-assistant--same-origin-p
+    "https://music.test/queue#current"
+    "https://music.test"))
+  (should-not
+   (music-assistant--same-origin-p
+    "http://music.test:8095"
+    "http://music.test:8096"))
+  (should-not
+   (music-assistant--same-origin-p
+    "http://music.test"
+    "https://music.test")))
+
+(ert-deftest config-test-music-assistant-opens-new-session ()
+  "First invocation should create and track a dedicated xwidget session."
+  (let ((music-assistant--buffer nil)
+        (music-assistant-server-url "http://music.test:8095")
+        (starting-buffer (current-buffer))
+        created
+        browse-call)
+    (unwind-protect
+        (cl-letf (((symbol-function 'music-assistant--ensure-xwidget)
+                   #'ignore)
+                  ((symbol-function 'xwidget-webkit-browse-url)
+                   (lambda (url new-session)
+                     (setq browse-call (list url new-session)
+                           created
+                           (generate-new-buffer
+                            " *music-assistant-create-test*"))
+                     (switch-to-buffer created)
+                     (setq major-mode 'xwidget-webkit-mode))))
+          (should (eq (music-assistant) created))
+          (should
+           (equal browse-call
+                  '("http://music.test:8095" t)))
+          (should (eq music-assistant--buffer created))
+          (with-current-buffer created
+            (should
+             (memq #'music-assistant--forget-buffer
+                   kill-buffer-hook))))
+      (when (buffer-live-p created)
+        (kill-buffer created))
+      (when (buffer-live-p starting-buffer)
+        (switch-to-buffer starting-buffer)))))
+
+(ert-deftest config-test-music-assistant-reuses-same-origin-session ()
+  "Repeated invocation should preserve an in-app route and reuse its buffer."
+  (let ((tracked
+         (generate-new-buffer " *music-assistant-reuse-test*"))
+        (music-assistant-server-url "http://music.test:8095")
+        displayed
+        navigated)
+    (unwind-protect
+        (let ((music-assistant--buffer tracked))
+          (cl-letf
+              (((symbol-function 'music-assistant--ensure-xwidget)
+                #'ignore)
+               ((symbol-function 'music-assistant--tracked-session)
+                (lambda () 'music-session))
+               ((symbol-function 'xwidget-webkit-uri)
+                (lambda (_session)
+                  "http://music.test:8095/#/album/42"))
+               ((symbol-function 'xwidget-webkit-goto-uri)
+                (lambda (&rest args)
+                  (setq navigated args)))
+               ((symbol-function 'xwidget-webkit-browse-url)
+                (lambda (&rest _)
+                  (ert-fail "unexpected new xwidget session")))
+               ((symbol-function 'switch-to-buffer)
+                (lambda (buffer &rest _)
+                  (setq displayed buffer)
+                  buffer)))
+            (should (eq (music-assistant) tracked))
+            (should (eq displayed tracked))
+            (should-not navigated)))
+      (when (buffer-live-p tracked)
+        (kill-buffer tracked)))))
+
+(ert-deftest config-test-music-assistant-restores-off-origin-session ()
+  "A tracked webview navigated elsewhere should return to Music Assistant."
+  (let ((tracked
+         (generate-new-buffer " *music-assistant-restore-test*"))
+        (music-assistant-server-url "http://music.test:8095")
+        displayed
+        navigated)
+    (unwind-protect
+        (let ((music-assistant--buffer tracked))
+          (cl-letf
+              (((symbol-function 'music-assistant--ensure-xwidget)
+                #'ignore)
+               ((symbol-function 'music-assistant--tracked-session)
+                (lambda () 'music-session))
+               ((symbol-function 'xwidget-webkit-uri)
+                (lambda (_session)
+                  "https://duckduckgo.com"))
+               ((symbol-function 'xwidget-webkit-goto-uri)
+                (lambda (session url)
+                  (setq navigated (list session url))))
+               ((symbol-function 'switch-to-buffer)
+                (lambda (buffer &rest _)
+                  (setq displayed buffer)
+                  buffer)))
+            (should (eq (music-assistant) tracked))
+            (should
+             (equal navigated
+                    '(music-session
+                      "http://music.test:8095")))
+            (should (eq displayed tracked))))
+      (when (buffer-live-p tracked)
+        (kill-buffer tracked)))))
+
+(ert-deftest config-test-music-assistant-rejects-dead-or-invalid-buffer ()
+  "Dead buffers and xwidget buffers without a session should not be reused."
+  (let ((invalid
+         (generate-new-buffer " *music-assistant-invalid-test*"))
+        (music-assistant--buffer nil))
+    (unwind-protect
+        (progn
+          (setq music-assistant--buffer invalid)
+          (with-current-buffer invalid
+            (setq major-mode 'xwidget-webkit-mode))
+          (cl-letf (((symbol-function 'xwidget-at)
+                     (lambda (&rest _) nil)))
+            (should-not
+             (music-assistant--tracked-session)))
+          (kill-buffer invalid)
+          (should-not
+           (music-assistant--tracked-session)))
+      (when (buffer-live-p invalid)
+        (kill-buffer invalid)))))
+
+(ert-deftest config-test-music-assistant-old-kill-keeps-new-session ()
+  "Killing an old tracked buffer must not clear a replacement session."
+  (let ((old (generate-new-buffer " *music-assistant-old-test*"))
+        (new (generate-new-buffer " *music-assistant-new-test*"))
+        (music-assistant--buffer nil))
+    (unwind-protect
+        (progn
+          (setq music-assistant--buffer old)
+          (with-current-buffer old
+            (add-hook 'kill-buffer-hook
+                      #'music-assistant--forget-buffer nil t))
+          (setq music-assistant--buffer new)
+          (kill-buffer old)
+          (should (eq music-assistant--buffer new)))
+      (when (buffer-live-p old)
+        (kill-buffer old))
+      (when (buffer-live-p new)
+        (kill-buffer new)))))
+
+(ert-deftest config-test-music-assistant-create-failure-clears-state ()
+  "A failed xwidget creation should leave no tracked buffer."
+  (let ((stale
+         (generate-new-buffer " *music-assistant-stale-test*"))
+        (music-assistant--buffer nil))
+    (unwind-protect
+        (progn
+          (setq music-assistant--buffer stale)
+          (cl-letf
+              (((symbol-function 'music-assistant--ensure-xwidget)
+                #'ignore)
+               ((symbol-function 'music-assistant--tracked-session)
+                (lambda () nil))
+               ((symbol-function 'xwidget-webkit-browse-url)
+                (lambda (&rest _)
+                  (error "xwidget creation failed"))))
+            (let ((failure
+                   (should-error
+                    (music-assistant)
+                    :type 'error)))
+              (should
+               (string-match-p
+                "xwidget creation failed"
+                (error-message-string failure))))
+            (should-not music-assistant--buffer)))
+      (when (buffer-live-p stale)
+        (kill-buffer stale)))))
+
+(ert-deftest config-test-music-assistant-requires-graphical-xwidget ()
+  "Invocation without graphical xwidget support should explain recovery."
+  (let ((music-assistant--buffer nil)
+        (music-assistant-server-url "http://music.test:8095"))
+    (cl-letf (((symbol-function 'display-graphic-p)
+               (lambda (&optional _display) nil)))
+      (let ((failure
+             (should-error
+              (music-assistant)
+              :type 'user-error)))
+        (should
+         (string-match-p
+          "graphical xwidget-enabled Emacs"
+          (error-message-string failure)))
+        (should
+         (string-match-p
+          (regexp-quote music-assistant-server-url)
+          (error-message-string failure)))))))
+
 ;; ── TRAMP / Remote ─────────────────────────────────────────────────────────
 
 (ert-deftest config-test-mr-x-tramp-functions ()
