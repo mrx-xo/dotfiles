@@ -9,6 +9,16 @@ Cross-platform dotfiles monorepo for macOS and Windows. Each OS has its own conf
 - **macOS**: Full daily-driver Emacs IDE (elpaca, literate org), yabai, skhd, sketchybar, hammerspoon
 - **Windows**: Lean Emacs rig (package.el, Lua + LSP for RE4R modding, agent-shell), glazewm, kanata, autohotkey
 
+## No Emojis — Ever (IMPORTANT)
+
+**NEVER use emojis** in this repo or anything produced for it: no emojis in UI text,
+sketchybar/modeline labels, elisp/shell/lua string literals, comments, log output,
+commit messages, PRs, READMEs, docs, or chat responses. No ✅ ❌ ⚠️ 🎉 🚀 status or
+celebration glyphs either, including as list markers.
+
+Use plain text, or a real icon font (Nerd Font / SF Symbols) where an icon is genuinely
+part of the design. Status in words: `done`, `failed`, `pending`.
+
 ## Repository Structure
 
 ```
