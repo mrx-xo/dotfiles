@@ -4357,6 +4357,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "s u" '(xwidget-webkit-browse-url :wk "Surf URL")
         "s U" '(mr-x/surf-url-other-window :wk "Surf URL (other window)")
         "s l" '(mr-x/surf-link-at-point :wk "Surf link at point")
+        "s m" '(music-assistant :wk "Music Assistant")
         "s o" '(mr-x/org-preview-html :wk "Preview org as HTML"))
 
       (mr-x/leader-def
