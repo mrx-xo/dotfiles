@@ -1288,10 +1288,8 @@ major-pane isn't loaded."
                                  (and (derived-mode-p 'agent-shell-mode)
                                       (map-nested-elt agent-shell--state
                                                       '(:session :id))))))
-                (let ((label (gethash buf major-pane--labels)))
-                  (if (and label (not (string-empty-p label)))
-                      (puthash sid label labels)
-                    (remhash sid labels)))))
+                (syzygy-recall-sidecar-label-put
+                 labels sid (gethash buf major-pane--labels))))
             (make-directory (file-name-directory file) t)
             (with-temp-file file (insert (json-serialize labels)))))
         (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync)
