@@ -2,11 +2,10 @@
 # Build acp-multiplex + acp-mobile at the reviewed/pinned commits (R2.4/R2.5,
 # docs/prd-remote-agent-access.md). Installs into ~/.local/bin.
 #
-# acp-mobile builds from the mrx-xo fork: local UI work lands as commits
-# on its `syzygy` branch (history log below), and the pinned hashes don't
-# exist on ElleNajt's upstream. acp-multiplex has no local commits and
-# builds from upstream. Fork workflow: commit in ~/src/acp-mobile, push to
-# `fork syzygy`, bump the pin here.
+# Both tools build from the mrx-xo forks: reviewed SYZYGY changes land as
+# commits on their `syzygy` branches, and the pinned hashes may not exist on
+# ElleNajt's upstream. Fork workflow: commit in ~/src/<repo>, push to
+# `fork syzygy`, then bump the exact pin here.
 #
 # Usage: ./build-acp-tools.sh
 set -euo pipefail
@@ -15,7 +14,7 @@ SRC_DIR="$HOME/src"
 BIN_DIR="$HOME/.local/bin"
 
 # Pinned commits reviewed in PRD Phase 0
-ACP_MULTIPLEX_COMMIT="d987060"
+ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
@@ -41,7 +40,8 @@ ACP_MULTIPLEX_COMMIT="d987060"
 # + local 8309031 (agent-recall search, labeled History, persistent mobile dock)
 # + local dc290bd (iOS: keep search dock at safe-area bottom on launch)
 # + local 999f3b3 (iOS: keep body viewport stable on launch)
-ACP_MOBILE_COMMIT="999f3b3"
+# + local fc3c55d (Markdown-aware live/replayed thought progress)
+ACP_MOBILE_COMMIT="fc3c55d92f3ec39ef7abe5d9ec2765eb7edd0ffb"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
@@ -57,5 +57,5 @@ build() {
   echo "built $repo @ $commit -> $BIN_DIR/$repo"
 }
 
-build ElleNajt acp-multiplex "$ACP_MULTIPLEX_COMMIT"
+build mrx-xo acp-multiplex "$ACP_MULTIPLEX_COMMIT"
 build mrx-xo acp-mobile "$ACP_MOBILE_COMMIT"
