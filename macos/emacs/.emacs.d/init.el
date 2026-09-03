@@ -3589,6 +3589,7 @@ Falls back to a one-liner if fastfetch isn't installed."
         "S" '(mr-x/new-scratch :wk "new scratch")
         "M" '(:ignore t :wk "music")
         "M SPC" '(music-assistant-play-pause :wk "play/pause")
+        "M o" '(music-assistant :wk "open dashboard")
         "M p" '(music-assistant-previous :wk "previous")
         "M n" '(music-assistant-next :wk "next")
         "M h" '(music-assistant-seek-backward :wk "seek backward")
