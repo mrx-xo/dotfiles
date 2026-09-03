@@ -1313,6 +1313,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   "SPC M should expose direct Music Assistant dashboard controls."
   (dolist (binding
            '(("M SPC" . music-assistant-play-pause)
+             ("M o" . music-assistant)
              ("M p" . music-assistant-previous)
              ("M n" . music-assistant-next)
              ("M h" . music-assistant-seek-backward)
