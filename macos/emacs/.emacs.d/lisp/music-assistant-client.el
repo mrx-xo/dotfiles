@@ -8,6 +8,7 @@
 
 (require 'cl-lib)
 (require 'json)
+(require 'seq)
 (require 'subr-x)
 (require 'url-parse)
 
@@ -38,6 +39,7 @@
   players
   queues
   queue-items
+  queue-items-queue-id
   selected-player-id
   selected-queue-id
   queue-time-received-at
@@ -438,6 +440,271 @@ CALLBACK receives a successful result.  ERRBACK receives a plist with
      client 'receive "malformed-message" nil
       "Invalid JSON ignored"))))
 
+(defun music-assistant-client-player (client &optional player-id)
+  "Return CLIENT player PLAYER-ID, defaulting to the selected player."
+  (let ((wanted
+         (or player-id
+             (music-assistant-client-selected-player-id client))))
+    (seq-find
+     (lambda (player)
+       (equal (alist-get 'player_id player) wanted))
+     (music-assistant-client-players client))))
+
+(defun music-assistant-client-queue (client &optional queue-id)
+  "Return CLIENT queue QUEUE-ID, defaulting to the selected queue."
+  (let ((wanted
+         (or queue-id
+             (music-assistant-client-selected-queue-id client))))
+    (seq-find
+     (lambda (queue)
+       (equal (alist-get 'queue_id queue) wanted))
+     (music-assistant-client-queues client))))
+
+(defun music-assistant-client-selected-player (client)
+  "Return CLIENT's selected player object."
+  (music-assistant-client-player client))
+
+(defun music-assistant-client-selected-queue (client)
+  "Return CLIENT's selected queue object."
+  (music-assistant-client-queue client))
+
+(defun music-assistant-client-current-item (client)
+  "Return CLIENT's authoritative current queue item."
+  (alist-get
+   'current_item
+   (music-assistant-client-selected-queue client)))
+
+(defun music-assistant-client--available-player-p (player)
+  "Return non-nil when PLAYER is a visible, usable target."
+  (and (eq (alist-get 'available player) t)
+       (not (eq (alist-get 'enabled player) :false))
+       (not (eq (alist-get 'hide_in_ui player) t))))
+
+(defun music-assistant-client--select-fallback-player (client)
+  "Apply CLIENT's stable saved/default/alphabetical player fallback."
+  (let* ((players
+          (seq-filter
+           #'music-assistant-client--available-player-p
+           (music-assistant-client-players client)))
+         (saved
+          (seq-find
+           (lambda (player)
+             (equal
+              (alist-get 'player_id player)
+              (music-assistant-client-selected-player-id client)))
+           players))
+         (default
+          (seq-find
+           (lambda (player)
+             (equal
+              (alist-get 'name player)
+              (music-assistant-client-default-player-name client)))
+           players))
+         (alphabetical
+          (car
+           (sort
+            (copy-sequence players)
+            (lambda (left right)
+              (string-lessp
+               (downcase (or (alist-get 'name left) ""))
+               (downcase (or (alist-get 'name right) "")))))))
+         (selected (or saved default alphabetical)))
+    (setf (music-assistant-client-selected-player-id client)
+          (alist-get 'player_id selected))
+    (unless selected
+      (setf (music-assistant-client-selected-queue-id client) nil
+            (music-assistant-client-queue-items client) nil
+            (music-assistant-client-queue-items-queue-id client) nil))
+    selected))
+
+(defun music-assistant-client--set-queue-items
+    (client queue-id items)
+  "Install ITEMS for QUEUE-ID when it remains selected by CLIENT."
+  (when (equal queue-id
+               (music-assistant-client-selected-queue-id client))
+    (setf (music-assistant-client-queue-items client) items
+          (music-assistant-client-queue-items-queue-id client)
+          queue-id)
+    (music-assistant-client--notify client)))
+
+(defun music-assistant-client--queue-items-error
+    (client queue-id error)
+  "Record queue item ERROR for CLIENT and permit QUEUE-ID retry."
+  (when (equal queue-id
+               (music-assistant-client-selected-queue-id client))
+    (setf (music-assistant-client-queue-items-queue-id client) nil))
+  (music-assistant-client--bootstrap-error client error))
+
+(defun music-assistant-client--fetch-queue-items
+    (client &optional force)
+  "Fetch CLIENT's selected queue items.
+
+When FORCE is non-nil, refetch even if the selected queue is already
+the loaded queue."
+  (when-let ((queue-id
+              (music-assistant-client-selected-queue-id client)))
+    (when (or force
+              (not
+               (equal
+                queue-id
+                (music-assistant-client-queue-items-queue-id
+                 client))))
+      (setf (music-assistant-client-queue-items-queue-id client)
+            queue-id)
+      (music-assistant-client-request
+       client "player_queues/items"
+       `((queue_id . ,queue-id))
+       (apply-partially
+        #'music-assistant-client--set-queue-items client queue-id)
+       (apply-partially
+        #'music-assistant-client--queue-items-error
+        client queue-id)))))
+
+(defun music-assistant-client--resolve-selection (client)
+  "Resolve CLIENT's selected player and its authoritative active queue."
+  (let* ((player
+          (or (music-assistant-client-selected-player client)
+              (music-assistant-client--select-fallback-player client)))
+         (player-id (alist-get 'player_id player))
+         (active-source (alist-get 'active_source player))
+         (queue-id
+          (cond
+           ((and (stringp active-source)
+                 (music-assistant-client-queue
+                  client active-source))
+            active-source)
+           ((and player-id
+                 (music-assistant-client-queue client player-id))
+            player-id))))
+    (unless (equal queue-id
+                   (music-assistant-client-selected-queue-id client))
+      (setf (music-assistant-client-selected-queue-id client) queue-id
+            (music-assistant-client-queue-items client) nil
+            (music-assistant-client-queue-items-queue-id client) nil
+            (music-assistant-client-queue-time-received-at client)
+            (and queue-id (float-time))))
+    (music-assistant-client--fetch-queue-items client)
+    queue-id))
+
+(defun music-assistant-client-select-player (client player-id)
+  "Select available PLAYER-ID in CLIENT and resolve its queue."
+  (let ((player (music-assistant-client-player client player-id)))
+    (unless (and player
+                 (music-assistant-client--available-player-p player))
+      (user-error "Music Assistant player is unavailable: %s"
+                  player-id))
+    (setf (music-assistant-client-selected-player-id client)
+          player-id)
+    (music-assistant-client--resolve-selection client)
+    (music-assistant-client--notify client)
+    player))
+
+(defun music-assistant-client--upsert-object
+    (objects key object)
+  "Return OBJECTS with OBJECT inserted or replaced by KEY."
+  (let ((identifier (alist-get key object))
+        found)
+    (setq
+     objects
+     (mapcar
+      (lambda (existing)
+        (if (equal (alist-get key existing) identifier)
+            (progn
+              (setq found t)
+              object)
+          existing))
+      objects))
+    (if found objects (append objects (list object)))))
+
+(defun music-assistant-client--remove-object
+    (objects key identifier)
+  "Return OBJECTS without the object whose KEY equals IDENTIFIER."
+  (seq-remove
+   (lambda (object)
+     (equal (alist-get key object) identifier))
+   objects))
+
+(defun music-assistant-client--replace-queue-time
+    (client queue-id elapsed)
+  "Set QUEUE-ID's ELAPSED value without replacing other CLIENT metadata."
+  (when-let ((queue (music-assistant-client-queue client queue-id)))
+    (let ((updated (copy-tree queue)))
+      (setf (alist-get 'elapsed_time updated) elapsed)
+      (setf
+       (music-assistant-client-queues client)
+       (music-assistant-client--upsert-object
+        (music-assistant-client-queues client)
+        'queue_id updated))
+      (when (equal queue-id
+                   (music-assistant-client-selected-queue-id client))
+        (setf (music-assistant-client-queue-time-received-at client)
+              (float-time))))))
+
+(defun music-assistant-client--handle-event (client message)
+  "Apply one authoritative event MESSAGE to CLIENT."
+  (let ((event (alist-get 'event message))
+        (object-id (alist-get 'object_id message))
+        (data (alist-get 'data message))
+        handled)
+    (music-assistant-client--log
+     client 'event (or event "unknown") nil object-id)
+    (pcase event
+      ((or "player_added" "player_updated")
+       (when (listp data)
+         (setf
+          (music-assistant-client-players client)
+          (music-assistant-client--upsert-object
+           (music-assistant-client-players client)
+           'player_id data))
+         (music-assistant-client--resolve-selection client)
+         (setq handled t)))
+      ("player_removed"
+       (setf
+        (music-assistant-client-players client)
+        (music-assistant-client--remove-object
+         (music-assistant-client-players client)
+         'player_id object-id))
+       (when (equal object-id
+                    (music-assistant-client-selected-player-id client))
+         (setf (music-assistant-client-selected-player-id client) nil))
+       (music-assistant-client--resolve-selection client)
+       (setq handled t))
+      ((or "queue_added" "queue_updated")
+       (when (listp data)
+         (setf
+          (music-assistant-client-queues client)
+          (music-assistant-client--upsert-object
+           (music-assistant-client-queues client)
+           'queue_id data))
+         (when (equal object-id
+                      (music-assistant-client-selected-queue-id client))
+           (setf
+            (music-assistant-client-queue-time-received-at client)
+            (float-time)))
+         (when (music-assistant-client-selected-player client)
+           (music-assistant-client--resolve-selection client))
+         (setq handled t)))
+      ("queue_time_updated"
+       (when (numberp data)
+         (music-assistant-client--replace-queue-time
+          client object-id data)
+         (setq handled t)))
+      ("queue_items_updated"
+       (when (and (listp data)
+                  (alist-get 'queue_id data))
+         (setf
+          (music-assistant-client-queues client)
+          (music-assistant-client--upsert-object
+           (music-assistant-client-queues client)
+           'queue_id data)))
+       (when (equal object-id
+                    (music-assistant-client-selected-queue-id client))
+         (music-assistant-client--fetch-queue-items client t))
+       (setq handled t)))
+    (when handled
+      (music-assistant-client--notify client))
+    handled))
+
 (defun music-assistant-client--bootstrap-error (client error)
   "Record a non-terminal bootstrap ERROR for CLIENT."
   (setf (music-assistant-client-last-error client)
@@ -661,6 +928,147 @@ CALLBACK receives a successful result.  ERRBACK receives a plist with
     (setf (music-assistant-client-websocket client) nil))
   (music-assistant-client--set-state client 'disconnected)
   nil)
+
+(defun music-assistant-client--command-error (client error)
+  "Record non-terminal command ERROR on CLIENT."
+  (setf (music-assistant-client-last-error client)
+        (plist-get error :details))
+  (music-assistant-client--log
+   client 'receive "command-error" nil
+   (plist-get error :details))
+  (music-assistant-client--notify client))
+
+(defun music-assistant-client--require-queue-id (client)
+  "Return CLIENT's selected queue ID or signal a user error."
+  (or (music-assistant-client-selected-queue-id client)
+      (user-error "Music Assistant has no selected queue")))
+
+(defun music-assistant-client--require-player-id (client)
+  "Return CLIENT's selected player ID or signal a user error."
+  (or (music-assistant-client-selected-player-id client)
+      (user-error "Music Assistant has no selected player")))
+
+(defun music-assistant-client--send-command
+    (client command args)
+  "Send fire-and-observe COMMAND with ARGS through CLIENT."
+  (music-assistant-client-request
+   client command args #'ignore
+   (apply-partially
+    #'music-assistant-client--command-error client)))
+
+(defun music-assistant-client-refresh (client)
+  "Refresh CLIENT state or reconnect it immediately."
+  (if (eq (music-assistant-client-state client) 'ready)
+      (music-assistant-client--bootstrap client)
+    (music-assistant-client-retry client)))
+
+(defun music-assistant-client--deliver-search-tracks
+    (callback result)
+  "Pass only track results from RESULT to CALLBACK."
+  (funcall callback (or (alist-get 'tracks result) nil)))
+
+(defun music-assistant-client-search-tracks
+    (client query callback errback)
+  "Search CLIENT for track QUERY and call CALLBACK or ERRBACK."
+  (let ((search-query
+         (and (stringp query) (string-trim query))))
+    (when (string-empty-p (or search-query ""))
+      (user-error "Music Assistant search cannot be empty"))
+    (music-assistant-client-request
+     client "music/search"
+     `((search_query . ,search-query)
+       (media_types . ["track"])
+       (limit . 25)
+       (library_only . :false))
+     (apply-partially
+      #'music-assistant-client--deliver-search-tracks callback)
+     errback)))
+
+(defun music-assistant-client-play-media (client uri)
+  "Replace CLIENT's selected queue with media URI and start playback."
+  (unless (and (stringp uri) (not (string-empty-p uri)))
+    (user-error "Music Assistant media has no playable URI"))
+  (music-assistant-client--send-command
+   client "player_queues/play_media"
+   `((queue_id . ,(music-assistant-client--require-queue-id client))
+     (media . ,uri)
+     (option . "replace"))))
+
+(defun music-assistant-client-play-index (client queue-item-id)
+  "Play QUEUE-ITEM-ID on CLIENT's selected queue."
+  (music-assistant-client--send-command
+   client "player_queues/play_index"
+   `((queue_id . ,(music-assistant-client--require-queue-id client))
+     (index . ,queue-item-id))))
+
+(defun music-assistant-client-play-pause (client)
+  "Toggle playback on CLIENT's selected queue."
+  (music-assistant-client--send-command
+   client "player_queues/play_pause"
+   `((queue_id . ,(music-assistant-client--require-queue-id client)))))
+
+(defun music-assistant-client-previous (client)
+  "Play the previous item on CLIENT's selected queue."
+  (music-assistant-client--send-command
+   client "player_queues/previous"
+   `((queue_id . ,(music-assistant-client--require-queue-id client)))))
+
+(defun music-assistant-client-next (client)
+  "Play the next item on CLIENT's selected queue."
+  (music-assistant-client--send-command
+   client "player_queues/next"
+   `((queue_id . ,(music-assistant-client--require-queue-id client)))))
+
+(defun music-assistant-client-current-elapsed (client)
+  "Return CLIENT's derived current elapsed time in seconds."
+  (let* ((queue (music-assistant-client-selected-queue client))
+         (base (or (alist-get 'elapsed_time queue) 0))
+         (playing (equal (alist-get 'state queue) "playing"))
+         (received-at
+          (music-assistant-client-queue-time-received-at client))
+         (speed (or (alist-get 'playback_speed queue) 1.0))
+         (elapsed
+          (+ base
+             (if (and playing received-at)
+                 (* speed (max 0 (- (float-time) received-at)))
+               0)))
+         (duration
+          (alist-get 'duration
+                     (alist-get 'current_item queue))))
+    (max 0
+         (if (and (numberp duration) (> duration 0))
+             (min elapsed duration)
+           elapsed))))
+
+(defun music-assistant-client-seek-relative (client delta)
+  "Seek CLIENT's selected queue by DELTA seconds."
+  (let* ((queue-id
+          (music-assistant-client--require-queue-id client))
+         (duration
+          (alist-get
+           'duration
+           (music-assistant-client-current-item client)))
+         (position
+          (max 0
+               (+ (music-assistant-client-current-elapsed client)
+                  delta)))
+         (target
+          (round
+           (if (and (numberp duration) (> duration 0))
+               (min position duration)
+             position))))
+    (music-assistant-client--send-command
+     client "player_queues/seek"
+     `((queue_id . ,queue-id)
+       (position . ,target)))))
+
+(defun music-assistant-client-set-volume (client level)
+  "Set CLIENT's selected player volume to clamped LEVEL."
+  (music-assistant-client--send-command
+   client "players/cmd/volume_set"
+   `((player_id
+      . ,(music-assistant-client--require-player-id client))
+     (volume_level . ,(max 0 (min 100 (round level)))))))
 
 (provide 'music-assistant-client)
 
