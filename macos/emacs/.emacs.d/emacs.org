@@ -2222,11 +2222,24 @@ still limits the actual styling to E Ink frames."
   (add-hook 'after-make-frame-functions #'mr-x/eink-tty-faces)
   (mr-x/apply-eink-faces-to-existing-frames)
 
-  ;; org re-runs org-hide's face spec (face-spec-recalc), wiping per-frame
-  ;; attributes — the only face in the e-ink set that gets clobbered. An
-  ;; override spec keyed on (type tty) survives recalc: tty frames stay
-  ;; white, GUI frames fall through to the theme.
-  (face-spec-set 'org-hide '((((type tty)) :foreground "#ffffff")) 'face-override-spec)
+  ;; Every `org-mode' activation ends with (set-face-foreground 'org-hide BG),
+  ;; where BG is whatever the *selected* frame's background is — a global
+  ;; attribute write (frame nil), so it lands on every frame at once and
+  ;; outranks face specs, override specs included. Open any org buffer with a
+  ;; dark GUI frame selected and org-hide turns near-black everywhere; on
+  ;; CALLIOPE's white e-ink the "hidden" leading stars come back as dark
+  ;; asterisks. Re-derive the value per frame from that frame's own background
+  ;; after each activation.
+  (defun mr-x/org-hide-sync-to-frames (&rest _)
+    "Repaint `org-hide' per frame to match that frame's own background."
+    (dolist (frame (frame-list))
+      (let ((bg (face-attribute 'default :background frame)))
+        (when (and (stringp bg) (not (string-prefix-p "unspecified" bg)))
+          (set-face-attribute 'org-hide frame :foreground bg)))))
+
+  (advice-add 'org-mode :after #'mr-x/org-hide-sync-to-frames)
+  (add-hook 'after-make-frame-functions #'mr-x/org-hide-sync-to-frames)
+  (mr-x/org-hide-sync-to-frames)
 
   (defun mr-x/calliope-emx (&optional sleep)
     "Wake CALLIOPE and launch emx — live emacs on the e-ink.
