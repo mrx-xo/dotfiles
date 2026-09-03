@@ -146,15 +146,16 @@ M-x elpaca-log
 
 ## macOS Window Services
 
-Use each service's reload mechanism after configuration changes:
+Apply configuration changes with each service's supported command:
 
 ```bash
-yabai --reload-config
+yabai --restart-service
 skhd --reload
 sketchybar --reload
 ```
 
-Only restart a service when a reload cannot apply the change.
+Prefer a live reload when the service supports one; yabai requires a service
+restart to reread its configuration.
 
 ## Windows Configuration
 
@@ -171,6 +172,4 @@ tables in narrow agent-shell windows; prefer short lists.
 
 ## Task Master
 
-When Task Master applies, read and follow:
-
-@./.taskmaster/CLAUDE.md
+When Task Master applies, read and follow `.taskmaster/CLAUDE.md`.
