@@ -230,8 +230,15 @@
             (lambda (_token)
               (ert-fail "missing test token unexpectedly resolved"))
             (lambda (message) (setq failure message)))))
-      (while (and (processp process) (process-live-p process))
-        (accept-process-output process 0.1)))
+      (while (and (processp process)
+                  (not failure)
+                  (accept-process-output process 0.1))))
+    (unless failure
+      (let ((deadline (+ (float-time) 1)))
+        (while (and (not failure) (< (float-time) deadline))
+          ;; A process may reach `exit' just before Emacs runs its
+          ;; sentinel, so continue draining events until the callback.
+          (accept-process-output nil 0.01))))
     (should (equal failure "Music Assistant token missing"))
     (should-not
      (seq-find
@@ -862,6 +869,446 @@
          (equal (alist-get 'args (cadr wires))
                 '((player_id . "desk")
                   (volume_level . 100))))))))
+
+(defun music-assistant-test--media-item ()
+  "Return a realistic current-track media item."
+  '((uri . "library://track/bladee-1")
+    (name . "Be Nice 2 Me")
+    (provider . "spotify")
+    (artists . (((name . "Bladee"))
+                ((name . "Ecco2k"))))
+    (album . ((name . "Icedancer")
+              (year . 2018)))))
+
+(defun music-assistant-test--ready-client ()
+  "Return a ready client populated with dashboard fixtures."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client
+                :default-player-name "MrX.local")))
+    (let* ((media (music-assistant-test--media-item))
+           (current
+            (music-assistant-test--queue-item
+             "desk" "item-1" "Be Nice 2 Me"
+             'duration 198 'media_item media 'index 0))
+           (next
+            (music-assistant-test--queue-item
+             "desk" "item-2" "Side by Side"
+             'duration 215 'index 1)))
+      (setf
+       (music-assistant-client-state client) 'ready
+       (music-assistant-client-players client)
+       (list
+        (music-assistant-test--player
+         "desk" "MrX.local" 'volume_level 73))
+       (music-assistant-client-selected-player-id client) "desk"
+       (music-assistant-client-queues client)
+       (list
+        (music-assistant-test--queue
+         "desk" "MrX.local" 'state "playing"
+         'elapsed_time 102 'current_item current
+         'current_index 0))
+       (music-assistant-client-selected-queue-id client) "desk"
+       (music-assistant-client-queue-items client)
+       (list current next)
+       (music-assistant-client-queue-items-queue-id client) "desk"
+       (music-assistant-client-queue-time-received-at client)
+       (float-time)))
+    client))
+
+(defun music-assistant-test--ui-buffer (&optional client)
+  "Return a temporary dashboard buffer owning CLIENT."
+  (let ((buffer (generate-new-buffer " *music-assistant-ui-test*")))
+    (with-current-buffer buffer
+      (music-assistant-mode)
+      (setq-local music-assistant--client
+                  (or client (music-assistant-test--ready-client))))
+    buffer))
+
+(defun music-assistant-test--face-at-item-p
+    (buffer item-id face)
+  "Return non-nil when ITEM-ID in BUFFER includes FACE."
+  (with-current-buffer buffer
+    (when-let ((position (music-assistant-test--item-position
+                          buffer item-id)))
+      (memq face
+            (ensure-list
+             (get-text-property position 'face))))))
+
+(defun music-assistant-test--item-position (buffer item-id)
+  "Return the first BUFFER position whose queue ID equals ITEM-ID."
+  (with-current-buffer buffer
+    (let ((position (point-min))
+          found)
+      (while (and (< position (point-max)) (not found))
+        (when (equal
+               (get-text-property
+                position 'music-assistant-queue-item-id)
+               item-id)
+          (setq found position))
+        (setq position
+              (or (next-single-property-change
+                   position 'music-assistant-queue-item-id nil
+                   (point-max))
+                  (point-max))))
+      found)))
+
+(ert-deftest music-assistant-ui-renders-connection-states ()
+  "Catch connection failures disappearing behind a blank dashboard."
+  (dolist (scenario
+           '((connecting nil "Connecting")
+             (authenticating nil "Authenticating")
+             (auth-required "Token missing" "Keychain")
+             (reconnecting "Socket closed" "Reconnecting")
+             (error "Schema mismatch" "Schema mismatch")))
+    (pcase-let* ((`(,state ,details ,expected) scenario)
+                 (client (music-assistant-test--ready-client))
+                 (buffer (music-assistant-test--ui-buffer client)))
+      (unwind-protect
+          (progn
+            (setf (music-assistant-client-state client) state
+                  (music-assistant-client-last-error client) details)
+            (with-current-buffer buffer
+              (music-assistant--render)
+              (should (string-match-p expected (buffer-string)))
+              (should (null mode-line-format))
+              (should (string-match-p
+                       (downcase (symbol-name state))
+                       (downcase (format "%s" header-line-format))))))
+        (kill-buffer buffer)))))
+
+(ert-deftest music-assistant-ui-renders-ready-metadata-and-queue ()
+  "Catch loss of native dashboard metadata or stable row properties."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (setq-local music-assistant--selected-queue-item-id "item-2")
+          (music-assistant--render)
+          (let ((text (buffer-string)))
+            (dolist (expected
+                     '("Music Assistant" "MrX.local" "Be Nice 2 Me"
+                       "Bladee" "Ecco2k" "Icedancer" "2018"
+                       "01:42" "03:18" "73%" "playing" "Queue"))
+              (should (string-match-p expected text))))
+          (should (music-assistant-test--item-position
+                   buffer "item-1"))
+          (should (music-assistant-test--item-position
+                   buffer "item-2"))
+          (should
+           (music-assistant-test--face-at-item-p
+            buffer "item-1" 'music-assistant-current-item-face))
+          (should
+           (music-assistant-test--face-at-item-p
+            buffer "item-2" 'music-assistant-selection-face)))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-renders-ready-empty-states ()
+  "Catch ready clients with partial state rendering as usable."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (setf (music-assistant-client-players client) nil
+                (music-assistant-client-selected-player-id client) nil
+                (music-assistant-client-selected-queue-id client) nil)
+          (music-assistant--render)
+          (should (string-match-p "No available player"
+                                  (buffer-string)))
+          (setf (music-assistant-client-players client)
+                (list
+                 (music-assistant-test--player
+                  "desk" "MrX.local"))
+                (music-assistant-client-selected-player-id client)
+                "desk")
+          (music-assistant--render)
+          (should (string-match-p "No active queue"
+                                  (buffer-string))))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-preserves-stable-queue-selection ()
+  "Catch event rerenders making keyboard selection jump unpredictably."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         (first (car (music-assistant-client-queue-items client)))
+         (second (cadr (music-assistant-client-queue-items client)))
+         (third
+          (music-assistant-test--queue-item
+           "desk" "item-3" "SmartWater" 'index 2)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (music-assistant--render)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-1"))
+          (setq music-assistant--selected-queue-item-id "item-2")
+          (music-assistant--render)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-2"))
+          (setf (music-assistant-client-queue-items client)
+                (list first third))
+          (music-assistant--render)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-1"))
+          (setf
+           (music-assistant-client-queue-items client)
+           (list second third)
+           (alist-get
+            'current_item
+            (music-assistant-client-selected-queue client))
+           nil)
+          (music-assistant--render)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-2")))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-keymap-exposes-native-controls ()
+  "Catch dashboard controls becoming unreachable from motion state."
+  (dolist (binding
+           '(("SPC" . music-assistant-play-pause)
+             ("p" . music-assistant-previous)
+             ("n" . music-assistant-next)
+             ("h" . music-assistant-seek-backward)
+             ("l" . music-assistant-seek-forward)
+             ("-" . music-assistant-volume-down)
+             ("+" . music-assistant-volume-up)
+             ("=" . music-assistant-volume-up)
+             ("j" . music-assistant-queue-next)
+             ("k" . music-assistant-queue-previous)
+             ("RET" . music-assistant-play-selected)
+             ("s" . music-assistant-search)
+             ("P" . music-assistant-choose-player)
+             ("g" . music-assistant-refresh)
+             ("?" . describe-mode)
+             ("q" . music-assistant-quit)))
+    (should (eq (lookup-key music-assistant-mode-map
+                            (kbd (car binding)))
+                (cdr binding)))))
+
+(ert-deftest music-assistant-ui-queue-movement-and-play-use-stable-id ()
+  "Catch queue commands relying on row position rather than stable IDs."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         played)
+    (unwind-protect
+        (with-current-buffer buffer
+          (music-assistant--render)
+          (music-assistant-queue-next)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-2"))
+          (music-assistant-queue-next)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-2"))
+          (music-assistant-queue-previous)
+          (should (equal music-assistant--selected-queue-item-id
+                         "item-1"))
+          (cl-letf (((symbol-function
+                      'music-assistant-client-play-index)
+                     (lambda (actual-client item-id)
+                       (setq played (list actual-client item-id)))))
+            (music-assistant-play-selected))
+          (should (equal played (list client "item-1"))))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-search-formats-and-plays-canonical-uri ()
+  "Catch search becoming blocking or handing display text to playback."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         search-callback
+         candidate-seen
+         played-uri)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (_seconds function &rest args)
+                   (apply function args))))
+            (cl-letf (((symbol-function 'read-string)
+                       (lambda (&rest _args) "   ")))
+              (should-error (music-assistant-search)
+                            :type 'user-error))
+            (cl-letf
+                (((symbol-function 'read-string)
+                  (lambda (&rest _args) "Bladee"))
+                 ((symbol-function
+                   'music-assistant-client-search-tracks)
+                  (lambda (actual-client query callback _errback)
+                    (should (eq actual-client client))
+                    (should (equal query "Bladee"))
+                    (setq search-callback callback)))
+                 ((symbol-function 'completing-read)
+                  (lambda (_prompt collection &rest _args)
+                    (setq candidate-seen (caar collection))
+                    candidate-seen))
+                 ((symbol-function 'music-assistant-client-play-media)
+                  (lambda (actual-client uri)
+                    (should (eq actual-client client))
+                    (setq played-uri uri))))
+              (music-assistant-search)
+              (should (string-match-p
+                       "searching..."
+                       (format "%s" header-line-format)))
+              (funcall
+               search-callback
+               (list
+                '((name . "Obedient")
+                  (uri . "library://track/obedient")
+                  (provider . "spotify")
+                  (artists . (((name . "Bladee"))))
+                  (album . ((name . "Red Light")))))))
+            (should (equal candidate-seen
+                           "Obedient — Bladee — Red Light [spotify]"))
+            (should (equal played-uri
+                           "library://track/obedient"))))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-search-empty-results-do-not-play ()
+  "Catch empty search results mutating the authoritative queue."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         search-callback
+         message-seen
+         played)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (_seconds function &rest args)
+                   (apply function args))))
+            (cl-letf
+                (((symbol-function 'read-string)
+                  (lambda (&rest _args) "nothing"))
+                 ((symbol-function
+                   'music-assistant-client-search-tracks)
+                  (lambda (_client _query callback _errback)
+                    (setq search-callback callback)))
+                 ((symbol-function 'message)
+                  (lambda (format-string &rest args)
+                    (setq message-seen
+                          (apply #'format format-string args))))
+                 ((symbol-function 'music-assistant-client-play-media)
+                  (lambda (&rest _args) (setq played t))))
+              (music-assistant-search)
+              (funcall search-callback nil)))
+          (should (equal message-seen "No tracks found"))
+          (should-not played)
+          (should-not music-assistant--searching-p))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-player-picker-persists-selection ()
+  "Catch the player picker failing to hand off or remember its target."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         (music-assistant-last-player-id nil)
+         selected
+         saved)
+    (setf
+     (music-assistant-client-players client)
+     (append
+      (music-assistant-client-players client)
+      (list
+       (music-assistant-test--player "kitchen" "Kitchen")
+       (music-assistant-test--player
+        "offline" "Offline" 'available :false))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (cl-letf
+              (((symbol-function 'completing-read)
+                (lambda (_prompt collection &rest _args)
+                  (should (assoc "Kitchen [snapcast]" collection))
+                  (should-not
+                   (assoc "Offline [snapcast]" collection))
+                  "Kitchen [snapcast]"))
+               ((symbol-function 'music-assistant-client-select-player)
+                (lambda (actual-client player-id)
+                  (should (eq actual-client client))
+                  (setq selected player-id)))
+               ((symbol-function 'savehist-save)
+                (lambda () (setq saved t))))
+            (music-assistant-choose-player))
+          (should (equal selected "kitchen"))
+          (should (equal music-assistant-last-player-id "kitchen"))
+          (should saved))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-controls-delegate-without-optimism ()
+  "Catch UI controls mutating display state before server events arrive."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         calls)
+    (unwind-protect
+        (with-current-buffer buffer
+          (music-assistant--render)
+          (let ((before (buffer-string)))
+            (cl-letf
+                (((symbol-function 'music-assistant-client-play-pause)
+                  (lambda (actual) (push (list 'toggle actual) calls)))
+                 ((symbol-function 'music-assistant-client-previous)
+                  (lambda (actual) (push (list 'previous actual) calls)))
+                 ((symbol-function 'music-assistant-client-next)
+                  (lambda (actual) (push (list 'next actual) calls)))
+                 ((symbol-function
+                   'music-assistant-client-seek-relative)
+                  (lambda (actual delta)
+                    (push (list 'seek actual delta) calls)))
+                 ((symbol-function 'music-assistant-client-set-volume)
+                  (lambda (actual level)
+                    (push (list 'volume actual level) calls)))
+                 ((symbol-function 'music-assistant-client-refresh)
+                  (lambda (actual) (push (list 'refresh actual) calls))))
+              (music-assistant-play-pause)
+              (music-assistant-previous)
+              (music-assistant-next)
+              (music-assistant-seek-backward)
+              (music-assistant-seek-forward)
+              (music-assistant-volume-down)
+              (music-assistant-volume-up)
+              (music-assistant-refresh))
+            (should (equal before (buffer-string))))
+          (should
+           (equal
+            (reverse calls)
+            (list
+             (list 'toggle client)
+             (list 'previous client)
+             (list 'next client)
+             (list 'seek client -10)
+             (list 'seek client 10)
+             (list 'volume client 68)
+             (list 'volume client 78)
+             (list 'refresh client)))))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-reuses-buffer-and-retries-client ()
+  "Catch reopening the dashboard leaking clients or duplicate buffers."
+  (when-let ((existing (get-buffer "*Music Assistant*")))
+    (kill-buffer existing))
+  (let ((client (music-assistant-test--ready-client))
+        (created 0)
+        (connected 0)
+        (retried 0)
+        first second)
+    (setf (music-assistant-client-state client) 'disconnected)
+    (unwind-protect
+        (save-window-excursion
+          (cl-letf
+              (((symbol-function 'music-assistant-client-create)
+                (lambda (&rest _args)
+                  (cl-incf created)
+                  client))
+               ((symbol-function 'music-assistant-client-connect)
+                (lambda (actual)
+                  (should (eq actual client))
+                  (cl-incf connected)))
+               ((symbol-function 'music-assistant-client-retry)
+                (lambda (actual)
+                  (should (eq actual client))
+                  (cl-incf retried))))
+            (setq first (music-assistant))
+            (setf (music-assistant-client-state client) 'error)
+            (setq second (music-assistant))))
+      (when (buffer-live-p first)
+        (kill-buffer first)))
+    (should (eq first second))
+    (should (= created 1))
+    (should (= connected 1))
+    (should (= retried 1))))
 
 (provide 'music-assistant-tests)
 
