@@ -3900,6 +3900,22 @@ agent-shell, otherwise pop to it. Honours viewport interaction."
                                                  :new-session t)))
           (mr-x/agent-shell--display-new shell-buffer)))
 
+      (defun mr-x/agent-shell-clone ()
+        "Start a fresh shell with the current shell's agent, model, and directory.
+This creates an independent session; it does not fork or copy history.
+Display uses agent-shell's normal path so major-pane controls placement."
+        (interactive)
+        (require 'agent-shell)
+        (unless (derived-mode-p 'agent-shell-mode)
+          (user-error "Not in an agent-shell buffer"))
+        (let* ((state (agent-shell--state))
+               (config (copy-alist (map-elt state :agent-config)))
+               (model-id (agent-shell--current-model-id state)))
+          (when model-id
+            (setf (alist-get :default-model-id config)
+                  (lambda () model-id)))
+          (agent-shell--start :config config :new-session t)))
+
       ;; ------------------------------------------------------------------
       ;; Launch presets: model + permission-mode in one keystroke.
       ;;
@@ -4162,6 +4178,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
       (mr-x/leader-def
         "c" '(:ignore t :wk "Agent Shell")
         "c c" '(mr-x/agent-shell-new-smart :wk "New chat (Claude, here)")
+        "c n" '(mr-x/agent-shell-clone :wk "Clone shell (model + here)")
         "c C" '(mr-x/agent-shell-preset-in-project :wk "New chat (preset + where)")
         "c x" '(mr-x/agent-shell-sol :wk "Sol one-shot")
         "c P" '(mr-x/agent-shell-start-preset :wk "Preset → new shell")
@@ -8928,6 +8945,7 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
       (defvar mr-x/agent-shell-local-commands
         '(("new" . mr-x/agent-shell-new-smart)
+          ("clone" . mr-x/agent-shell-clone)
           ("clear" . mr-x/agent-shell-clear-context))
         "Local slash commands. Keys are names (without /), values are functions.")
 
