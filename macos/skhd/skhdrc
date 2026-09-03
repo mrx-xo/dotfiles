@@ -110,7 +110,8 @@ shift - f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle right
 
 alt + shift - b : yabai -m space --balance
 alt + shift - r : yabai --restart-service
-alt + shift - s : brew services restart sketchybar
+alt + shift - s : sketchybar --reload
+cmd + shift + alt - s : brew services restart sketchybar
 
 ctrl - space : ~/.dotfiles/macos/yabai/scripts/toggle_layout.sh
 
