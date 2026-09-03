@@ -277,14 +277,14 @@ The visual hierarchy is:
 2. Centered artwork, with a text placeholder when unavailable.
 3. Title, artist, and album/year metadata.
 4. Elapsed/duration text and a fixed-width progress bar.
-5. Previous, play/pause, next, seek, and volume hints.
+5. Leader access hints for the control menu and direct command map.
 6. Queue rows, with the playing item and keyboard selection visually distinct.
 7. A compact key-hint footer.
 
 The original design uses the current Emacs theme through inherited faces; it
 does not copy Ready Player code or face definitions.
 
-Key bindings are:
+The bare mode map keeps the following canonical command keys:
 
 - `SPC`: play/pause the selected queue.
 - `p` / `n`: previous / next.
@@ -297,6 +297,14 @@ Key bindings are:
 - `g`: refresh or reconnect immediately.
 - `?`: show key help.
 - `q`: bury the dashboard and close its connection and timers.
+
+Evil can shadow bare major-mode keys in normal and motion states. The supported
+Evil access paths therefore expose the same command layout through the global
+leader: `SPC ,` opens a persistent, context-sensitive Music Assistant hydra,
+and `SPC M` opens a direct Music Assistant prefix map. For example, play/pause
+is `SPC , SPC` through the hydra or `SPC M SPC` directly. Search and player
+selection exit the hydra before opening the minibuffer; `q` exits the hydra by
+closing the dashboard. These bindings do not change Evil's normal-state keys.
 
 Rendering preserves queue selection by queue item ID. When that item
 disappears, selection moves to the current item, then the first queue item.

@@ -604,7 +604,7 @@
                   (copy-marker (point)))
             (insert
              (propertize
-              "p previous  SPC play/pause  n next  h/l seek  -/+ volume\n"
+              "SPC , control menu  SPC M direct controls\n"
               'face 'music-assistant-key-hint-face))
             (insert "\n"
                     (propertize "Queue\n"
@@ -627,7 +627,7 @@
   (insert
    "\n"
    (propertize
-    "j/k queue  RET play  s search  P player  g refresh  ? help  q quit\n"
+    "Open controls with SPC , or use the SPC M prefix.\n"
     'face 'music-assistant-key-hint-face)))
 
 (defun music-assistant--playing-p (client)

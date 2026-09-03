@@ -1119,16 +1119,22 @@ Verify all of the following against live server state:
 3. `s` searches for `Bladee` and returns track candidates.
 4. Choosing a track replaces the selected queue and starts playback.
 5. Queue/title/artwork/progress update from server events.
-6. Space pauses playback and the paused state returns through an event.
-7. `h`, `l`, `-`, `+`, `p`, `n`, `j`, `k`, and RET operate
-   without errors.
-8. `q` cleans up its client/timers without affecting the daemon or other
-   frames.
+6. In Evil normal state, `SPC ,` opens the Music Assistant hydra and its Space
+   head toggles playback through server-authoritative events.
+7. `SPC M` exposes the same direct command layout; `h`, `l`, `-`, `+`, `p`,
+   `n`, `j`, `k`, and RET operate without errors through that prefix.
+8. The hydra and direct prefix both expose search, player selection, refresh,
+   help, and quit; quit cleans up the client/timers without affecting the
+   daemon or other frames.
 
-Live result on 2026-09-02: every control and cleanup check passed. The
-`MrX.local` Snapcast player does not advertise pause support, so Space produced
-the server's authoritative `idle` event rather than `paused`; the dashboard
-rendered that event without optimistic local state.
+Live result on 2026-09-02: protocol commands and cleanup checks passed. A later
+interactive Evil normal-state test exposed that Evil and the global leader
+shadowed several bare mode-map keys. The `SPC ,` hydra and `SPC M` direct map
+were added on 2026-09-03 to make every control reachable without changing
+normal-state bindings. The `MrX.local` Snapcast player does not advertise pause
+support, so play/pause can produce the server's authoritative `idle` event
+rather than `paused`; the dashboard renders that event without optimistic
+local state.
 
 Also verify from another client command that the main daemon remains
 responsive:
