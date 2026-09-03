@@ -467,6 +467,402 @@
       (should (eq (music-assistant-client-state client)
                   'disconnected)))))
 
+(defun music-assistant-test--player (player-id name &rest overrides)
+  "Return a realistic player fixture with OVERRIDES."
+  (let ((player
+         (copy-tree
+          `((player_id . ,player-id)
+            (provider . "snapcast")
+            (type . "player")
+            (name . ,name)
+            (available . t)
+            (device_info
+             . ((model . "Snapclient")
+                (manufacturer . "Snapcast")))
+            (supported_features . ["pause" "volume_set"])
+            (playback_state . "idle")
+            (elapsed_time . 0)
+            (elapsed_time_last_updated . 0)
+            (powered . t)
+            (volume_level . 50)
+            (volume_muted . :false)
+            (active_source)
+            (enabled . t)
+            (hide_in_ui . :false)))))
+    (while overrides
+      (setf (alist-get (pop overrides) player)
+            (pop overrides)))
+    player))
+
+(defun music-assistant-test--queue
+    (queue-id name &rest overrides)
+  "Return a realistic queue fixture with OVERRIDES."
+  (let ((queue
+         (copy-tree
+          `((queue_id . ,queue-id)
+            (active . t)
+            (display_name . ,name)
+            (available . t)
+            (items . 0)
+            (shuffle_enabled . :false)
+            (repeat_mode . "off")
+            (current_index)
+            (elapsed_time . 0)
+            (elapsed_time_last_updated . 0)
+            (playback_speed . 1.0)
+            (state . "idle")
+            (current_item)
+            (next_item)
+            (flow_mode . :false)
+            (resume_pos . 0)))))
+    (while overrides
+      (setf (alist-get (pop overrides) queue)
+            (pop overrides)))
+    queue))
+
+(defun music-assistant-test--queue-item
+    (queue-id item-id name &rest overrides)
+  "Return a realistic queue item fixture with OVERRIDES."
+  (let ((item
+         (copy-tree
+          `((queue_id . ,queue-id)
+            (queue_item_id . ,item-id)
+            (name . ,name)
+            (duration . 180)
+            (sort_index . 0)
+            (media_item)
+            (image)
+            (index . 0)
+            (available . t)))))
+    (while overrides
+      (setf (alist-get (pop overrides) item)
+            (pop overrides)))
+    item))
+
+(ert-deftest music-assistant-client-player-fallback-order-is-stable ()
+  "Catch room hopping or fallback order changes."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client
+                :default-player-name "MrX.local")))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player "kitchen" "Kitchen")
+      (music-assistant-test--player "desk" "MrX.local")
+      (music-assistant-test--player "saved" "Saved"))
+     (music-assistant-client-selected-player-id client) "saved")
+    (music-assistant-client--select-fallback-player client)
+    (should
+     (equal (music-assistant-client-selected-player-id client)
+            "saved"))
+    (setf (music-assistant-client-selected-player-id client)
+          "missing")
+    (music-assistant-client--select-fallback-player client)
+    (should
+     (equal (music-assistant-client-selected-player-id client)
+            "desk"))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player "zeta" "zeta")
+      (music-assistant-test--player
+       "desk" "MrX.local" 'available :false)
+      (music-assistant-test--player "alpha" "Alpha"))
+     (music-assistant-client-selected-player-id client) nil)
+    (music-assistant-client--select-fallback-player client)
+    (should
+     (equal (music-assistant-client-selected-player-id client)
+            "alpha"))))
+
+(ert-deftest music-assistant-client-player-fallback-excludes-hidden-disabled ()
+  "Catch unavailable or hidden players becoming control targets."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client)))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player
+       "offline" "Offline" 'available :false)
+      (music-assistant-test--player
+       "disabled" "Disabled" 'enabled :false)
+      (music-assistant-test--player
+       "hidden" "Hidden" 'hide_in_ui t)))
+    (music-assistant-client--select-fallback-player client)
+    (should-not
+     (music-assistant-client-selected-player-id client))
+    (should-not
+     (music-assistant-client-selected-queue-id client))))
+
+(ert-deftest music-assistant-client-resolves-active-queue-and-fetches-items ()
+  "Catch controls targeting a player's stale or unrelated queue."
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player
+       "desk" "MrX.local" 'active_source "desk-queue"))
+     (music-assistant-client-queues client)
+     (list
+      (music-assistant-test--queue "desk" "Desk fallback")
+      (music-assistant-test--queue "desk-queue" "Desk active")))
+    (music-assistant-client--resolve-selection client)
+    (should
+     (equal (music-assistant-client-selected-player-id client)
+            "desk"))
+    (should
+     (equal (music-assistant-client-selected-queue-id client)
+            "desk-queue"))
+    (let ((wire
+           (music-assistant-test--decode
+            (car (funcall sent-function)))))
+      (should
+       (equal (alist-get 'command wire)
+              "player_queues/items"))
+      (should
+       (equal (alist-get 'args wire)
+              '((queue_id . "desk-queue")))))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player
+       "desk" "MrX.local" 'active_source "unknown"))
+     (music-assistant-client-selected-player-id client) "desk"
+     (music-assistant-client-selected-queue-id client) nil
+     (music-assistant-client-queue-items-queue-id client) nil)
+    (music-assistant-client--resolve-selection client)
+    (should
+     (equal (music-assistant-client-selected-queue-id client)
+            "desk"))))
+
+(ert-deftest music-assistant-client-player-events-reconcile-and-fallback ()
+  "Catch event updates duplicating players or retaining a removed target."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client)))
+    (setf
+     (music-assistant-client-players client)
+     (list
+      (music-assistant-test--player "desk" "MrX.local")
+      (music-assistant-test--player "kitchen" "Kitchen"))
+     (music-assistant-client-selected-player-id client) "desk")
+    (music-assistant-client--handle-text
+     client
+     (json-serialize
+      `((event . "player_updated")
+        (object_id . "desk")
+        (data
+         . ,(music-assistant-test--player
+             "desk" "Desk renamed" 'volume_level 73)))
+      :false-object :false))
+    (should (= (length (music-assistant-client-players client)) 2))
+    (should
+     (= (alist-get
+         'volume_level
+         (music-assistant-client-player client "desk"))
+        73))
+    (music-assistant-client--handle-text
+     client
+     "{\"event\":\"player_removed\",\"object_id\":\"desk\",
+       \"data\":null}")
+    (should-not (music-assistant-client-player client "desk"))
+    (should
+     (equal (music-assistant-client-selected-player-id client)
+            "kitchen"))))
+
+(ert-deftest music-assistant-client-queue-events-reconcile-authoritative-data ()
+  "Catch queue events being ignored or applied to the wrong object."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client)))
+    (setf
+     (music-assistant-client-queues client)
+     (list (music-assistant-test--queue "desk" "Desk"))
+     (music-assistant-client-selected-queue-id client) "desk")
+    (music-assistant-client--handle-text
+     client
+     (json-serialize
+      `((event . "queue_updated")
+        (object_id . "desk")
+        (data
+         . ,(music-assistant-test--queue
+             "desk" "Desk" 'state "playing"
+             'elapsed_time 42)))
+      :false-object :false))
+    (should (= (length (music-assistant-client-queues client)) 1))
+    (should
+     (equal
+      (alist-get 'state
+                 (music-assistant-client-selected-queue client))
+      "playing"))
+    (should
+     (= (alist-get 'elapsed_time
+                   (music-assistant-client-selected-queue client))
+        42))))
+
+(ert-deftest music-assistant-client-queue-time-event-updates-only-target ()
+  "Catch elapsed-time events replacing queue metadata or another queue."
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client)))
+    (setf
+     (music-assistant-client-queues client)
+     (list
+      (music-assistant-test--queue "desk" "Desk" 'elapsed_time 3)
+      (music-assistant-test--queue "kitchen" "Kitchen"
+                                   'elapsed_time 8))
+     (music-assistant-client-selected-queue-id client) "desk")
+    (music-assistant-client--handle-text
+     client
+     "{\"event\":\"queue_time_updated\",\"object_id\":\"desk\",
+       \"data\":51.5}")
+    (should
+     (= (alist-get 'elapsed_time
+                   (music-assistant-client-queue client "desk"))
+        51.5))
+    (should
+     (equal
+      (alist-get 'display_name
+                 (music-assistant-client-queue client "desk"))
+      "Desk"))
+    (should
+     (= (alist-get 'elapsed_time
+                   (music-assistant-client-queue client "kitchen"))
+        8))
+    (should
+     (numberp
+      (music-assistant-client-queue-time-received-at client)))))
+
+(ert-deftest music-assistant-client-queue-items-event-refetches-selected-only ()
+  "Catch event storms fetching queue items for every room."
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
+    (setf (music-assistant-client-selected-queue-id client) "desk")
+    (let ((before (length (funcall sent-function))))
+      (music-assistant-client--handle-text
+       client
+       "{\"event\":\"queue_items_updated\",
+         \"object_id\":\"kitchen\",\"data\":null}")
+      (should (= (length (funcall sent-function)) before))
+      (music-assistant-client--handle-text
+       client
+       "{\"event\":\"queue_items_updated\",
+         \"object_id\":\"desk\",\"data\":null}")
+      (should (= (length (funcall sent-function))
+                 (1+ before)))
+      (should
+       (equal
+        (alist-get
+         'command
+         (music-assistant-test--decode
+          (car (funcall sent-function))))
+        "player_queues/items")))))
+
+(ert-deftest music-assistant-client-search-normalizes-track-results ()
+  "Catch search using the wrong media scope or returning non-track groups."
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
+    (let (tracks)
+      (music-assistant-client-search-tracks
+       client "bladee"
+       (lambda (result) (setq tracks result))
+       #'ignore)
+      (let* ((wire
+              (music-assistant-test--decode
+               (car (funcall sent-function))))
+             (message-id (alist-get 'message_id wire)))
+        (should (equal (alist-get 'command wire) "music/search"))
+        (should
+         (equal
+          (alist-get 'args wire)
+          '((search_query . "bladee")
+            (media_types . ("track"))
+            (limit . 25)
+            (library_only . :false))))
+        (music-assistant-client--handle-text
+         client
+         (json-serialize
+          `((message_id . ,message-id)
+            (result
+             . ((artists . [])
+                (albums . [])
+                (tracks
+                 . [((item_id . "track-1")
+                     (provider . "spotify")
+                     (name . "Be Nice 2 Me")
+                     (uri . "spotify://track/track-1")
+                     (provider_mappings . []))]))))
+          :false-object :false)))
+      (should (= (length tracks) 1))
+      (should
+       (equal (alist-get 'uri (car tracks))
+              "spotify://track/track-1")))))
+
+(ert-deftest music-assistant-client-playback-commands-use-selected-queue ()
+  "Catch controls sending legacy commands or the player ID as queue ID."
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
+    (setf (music-assistant-client-selected-player-id client) "desk"
+          (music-assistant-client-selected-queue-id client) "desk-queue")
+    (music-assistant-client-play-media
+     client "spotify://track/track-1")
+    (music-assistant-client-play-index client "queue-item-4")
+    (music-assistant-client-play-pause client)
+    (music-assistant-client-previous client)
+    (music-assistant-client-next client)
+    (let ((wires
+           (mapcar #'music-assistant-test--decode
+                   (reverse (funcall sent-function)))))
+      (should
+       (equal
+        (mapcar (lambda (wire) (alist-get 'command wire)) wires)
+        '("player_queues/play_media"
+          "player_queues/play_index"
+          "player_queues/play_pause"
+          "player_queues/previous"
+          "player_queues/next")))
+      (should
+       (equal
+        (alist-get 'args (nth 0 wires))
+        '((queue_id . "desk-queue")
+          (media . "spotify://track/track-1")
+          (option . "replace"))))
+      (should
+       (equal
+        (alist-get 'args (nth 1 wires))
+        '((queue_id . "desk-queue")
+          (index . "queue-item-4")))))))
+
+(ert-deftest music-assistant-client-seek-and-volume-clamp-boundaries ()
+  "Catch relative seek and volume escaping authoritative bounds."
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
+    (let* ((item
+            (music-assistant-test--queue-item
+             "desk" "item-1" "Track" 'duration 100))
+           (queue
+            (music-assistant-test--queue
+             "desk" "Desk" 'state "paused"
+             'elapsed_time 95 'current_item item)))
+      (setf
+       (music-assistant-client-selected-player-id client) "desk"
+       (music-assistant-client-selected-queue-id client) "desk"
+       (music-assistant-client-players client)
+       (list
+        (music-assistant-test--player
+         "desk" "MrX.local" 'volume_level 98))
+       (music-assistant-client-queues client) (list queue))
+      (music-assistant-client-seek-relative client 10)
+      (music-assistant-client-set-volume client 108)
+      (let ((wires
+             (mapcar #'music-assistant-test--decode
+                     (reverse (funcall sent-function)))))
+        (should
+         (equal (alist-get 'args (car wires))
+                '((queue_id . "desk")
+                  (position . 100))))
+        (should
+         (equal (alist-get 'args (cadr wires))
+                '((player_id . "desk")
+                  (volume_level . 100))))))))
+
 (provide 'music-assistant-tests)
 
 ;;; music-assistant-tests.el ends here
