@@ -135,7 +135,7 @@ The UI exposes:
   features, `music-assistant-mode`, the interactive `music-assistant`
   entrypoint, configuration variables, and an unchanged `SPC s m` binding.
 
-- [ ] **Step 1: Replace xwidget tests with a failing native integration test**
+- [x] **Step 1: Replace xwidget tests with a failing native integration test**
 
 Delete the xwidget-specific tests from
 `config-test-music-assistant-same-origin` through
@@ -174,7 +174,7 @@ music_config=/Users/marcosandrade/.dotfiles/.worktrees/music-assistant-emacs/mac
 
 Expected: FAIL because `music-assistant.el` does not exist.
 
-- [ ] **Step 2: Add minimal loadable client and UI modules**
+- [x] **Step 2: Add minimal loadable client and UI modules**
 
 Create `music-assistant-client.el` with a lexical-binding header,
 `(require 'cl-lib)`, `(require 'json)`, `(require 'subr-x)`, the
@@ -231,7 +231,7 @@ Create `music-assistant.el` with:
 (provide 'music-assistant)
 ```
 
-- [ ] **Step 3: Replace the Org xwidget block with native configuration**
+- [x] **Step 3: Replace the Org xwidget block with native configuration**
 
 Keep the `** Music Assistant` heading and replace its source block with:
 
@@ -255,7 +255,7 @@ Keep the `** Music Assistant` heading and replace its source block with:
 Retain the existing `"s m" '(music-assistant :wk "Music Assistant")`
 leader entry.
 
-- [ ] **Step 4: Tangle and verify the green integration test**
+- [x] **Step 4: Tangle and verify the green integration test**
 
 Run:
 
@@ -277,7 +277,7 @@ cd "$music_config"
 Expected: the focused test passes and `init.el` contains no
 `music-assistant--ensure-xwidget`.
 
-- [ ] **Step 5: Commit the native seam**
+- [x] **Step 5: Commit the native seam**
 
 ```bash
 git add macos/emacs/.emacs.d/emacs.org \
@@ -314,7 +314,7 @@ git commit -m "refactor(emacs): restore native Music Assistant design"
   - `music-assistant-client--read-keychain-token`.
   - `music-assistant-client--log`.
 
-- [ ] **Step 1: Add focused request and redaction tests**
+- [x] **Step 1: Add focused request and redaction tests**
 
 Create `music-assistant-tests.el` with lexical binding, require ERT and both
 modules, and define a helper that captures serialized outbound frames:
@@ -429,7 +429,7 @@ music_config=/Users/marcosandrade/.dotfiles/.worktrees/music-assistant-emacs/mac
 Expected: failures for missing constructor, URL conversion, request handling,
 and logging.
 
-- [ ] **Step 2: Implement the request core**
+- [x] **Step 2: Implement the request core**
 
 Use `cl-defstruct` for client state and pending requests. The client slots
 must include URL, WebSocket, state, server info, pending table, sequence,
@@ -459,7 +459,7 @@ calls its errback with:
 (:code timeout :details "Request timed out" :command COMMAND)
 ```
 
-- [ ] **Step 3: Implement Keychain retrieval and safe logging**
+- [x] **Step 3: Implement Keychain retrieval and safe logging**
 
 `music-assistant-client--keychain-command` returns:
 
@@ -478,12 +478,12 @@ Log entries contain timestamp, direction/event, command/event name, message
 ID, and safe details. For command `auth`, replace the entire args value with
 the literal string `<redacted>`.
 
-- [ ] **Step 4: Verify the request core**
+- [x] **Step 4: Verify the request core**
 
 Run the focused command from Step 1. Expected: all tests named
 `music-assistant-client-*` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add macos/emacs/.emacs.d/lisp/music-assistant-client.el \
@@ -511,7 +511,7 @@ git commit -m "feat(emacs): add Music Assistant request client"
   - Schema validation and initial `players/all`,
     `player_queues/all`, and `player_queues/items` fetches.
 
-- [ ] **Step 1: Add failing lifecycle tests**
+- [x] **Step 1: Add failing lifecycle tests**
 
 Add tests for these concrete transitions:
 
@@ -623,7 +623,7 @@ Expand the final two test bodies with captured lists rather than mocks:
 Run the dedicated client tests. Expected: the new lifecycle tests fail because
 connection functions are missing.
 
-- [ ] **Step 2: Implement the default websocket adapter and handshake**
+- [x] **Step 2: Implement the default websocket adapter and handshake**
 
 Require `websocket` only when the default open function runs. Call
 `websocket-open` with `:nowait t` and callbacks created with
@@ -644,7 +644,7 @@ On a server-info object:
    players and queues concurrently.
 7. On auth error enter `auth-required` and do not reconnect automatically.
 
-- [ ] **Step 3: Implement reconnect and idempotent close**
+- [x] **Step 3: Implement reconnect and idempotent close**
 
 Unexpected close preserves cached state and schedules one retry using:
 
@@ -658,7 +658,7 @@ Unexpected close preserves cached state and schedules one retry using:
 cancels every request/reconnect timer, resolves pending requests as
 disconnected, clears callbacks, and remains safe on a second call.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run all `music-assistant-client-*` tests. Expected: all pass.
 
@@ -683,7 +683,7 @@ git commit -m "feat(emacs): connect and authenticate Music Assistant"
 - Produces selected-player/queue resolution, event updates, search result
   normalization input, and exact schema-31 command helpers.
 
-- [ ] **Step 1: Add failing selection and event tests**
+- [x] **Step 1: Add failing selection and event tests**
 
 Use small alists representing live schema-31 objects. Cover:
 
@@ -715,7 +715,7 @@ The fallback assertion is:
 (should (equal (music-assistant-client-selected-player-id client) "desk"))
 ```
 
-- [ ] **Step 2: Add failing command payload tests**
+- [x] **Step 2: Add failing command payload tests**
 
 Capture and decode the newest outbound frame for each public command. Assert
 these exact commands and args:
@@ -737,7 +737,7 @@ the current-item duration, then sends the absolute integer position.
 
 Run the focused client suite. Expected: the new state and command tests fail.
 
-- [ ] **Step 3: Implement collection reconciliation and selection**
+- [x] **Step 3: Implement collection reconciliation and selection**
 
 Write helpers that look up/update/remove alist objects by stable ID without
 reordering unrelated entries. Available means `available` is true,
@@ -749,7 +749,7 @@ the state hook, and returns the player. Persistence remains a UI boundary:
 only the interactive player picker writes
 `music-assistant-last-player-id`.
 
-- [ ] **Step 4: Implement events and public commands**
+- [x] **Step 4: Implement events and public commands**
 
 Route event objects before result/server-info objects in the parser. Store a
 local float-time baseline when queue time arrives. Every state mutation invokes
@@ -759,7 +759,7 @@ Public commands must signal `user-error` when no meaningful player/queue is
 selected; network callbacks must convert errors into client state and never
 signal from the WebSocket filter.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run all dedicated client tests. Expected: all pass.
 
@@ -784,7 +784,7 @@ git commit -m "feat(emacs): model Music Assistant players and queues"
 - Produces: complete text UI, keymap, queue selection, search picker, player
   picker, and user-facing connection/error states.
 
-- [ ] **Step 1: Add failing renderer tests**
+- [x] **Step 1: Add failing renderer tests**
 
 Create real temporary `music-assistant-mode` buffers and real client structs.
 Assert rendered text/properties for:
@@ -812,7 +812,7 @@ Queue
 
 Run `^music-assistant-ui-`. Expected: failures for missing faces/rendering.
 
-- [ ] **Step 2: Implement faces, keymap, state access, and rendering**
+- [x] **Step 2: Implement faces, keymap, state access, and rendering**
 
 Define inherited faces for title, metadata, progress fill/empty, current item,
 selection, dimmed stale state, error, and key hints. Define
@@ -841,7 +841,7 @@ Rendering uses `inhibit-read-only`, `erase-buffer`, and `save-window-excursion`
 only; it never calls `set-window-buffer`, selects another window, deletes a
 window, or replaces another buffer.
 
-- [ ] **Step 3: Add failing interaction tests**
+- [x] **Step 3: Add failing interaction tests**
 
 Test real commands with client functions temporarily rebound at the boundary:
 
@@ -856,7 +856,7 @@ Test real commands with client functions temporarily rebound at the boundary:
 
 Run UI tests. Expected: the new command tests fail.
 
-- [ ] **Step 4: Implement dashboard lifecycle and commands**
+- [x] **Step 4: Implement dashboard lifecycle and commands**
 
 `music-assistant` reuses one live `*Music Assistant*` buffer, creates one
 client per buffer, renders immediately, and connects asynchronously. Opening
@@ -868,7 +868,7 @@ still owns that client, and schedules rendering on the main Emacs event loop.
 Search and player completion callbacks perform the same stale-buffer/client
 checks before opening the minibuffer.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run all `music-assistant-ui-*` tests and then the entire dedicated file.
 Expected: all pass.
@@ -895,7 +895,7 @@ git commit -m "feat(emacs): add native Music Assistant dashboard"
 - Produces asynchronous artwork, one-second in-place progress updates, an
   optional log buffer, and idempotent teardown.
 
-- [ ] **Step 1: Add failing progress and artwork tests**
+- [x] **Step 1: Add failing progress and artwork tests**
 
 Cover:
 
@@ -917,7 +917,7 @@ Use injected variables
 `music-assistant--schedule-function`, and
 `music-assistant--cancel-function`; no unit test performs network I/O.
 
-- [ ] **Step 2: Implement progress and artwork**
+- [x] **Step 2: Implement progress and artwork**
 
 Track markers surrounding only the elapsed/progress region. The one-second
 timer calls `music-assistant--update-progress`, which replaces that region
@@ -929,7 +929,7 @@ with `url-retrieve`; parse after `url-http-end-of-headers`; call
 `create-image` with data mode; cache the image object; and verify buffer,
 client, and queue-item ID before rerendering.
 
-- [ ] **Step 3: Add failing cleanup and log tests**
+- [x] **Step 3: Add failing cleanup and log tests**
 
 Assert:
 
@@ -942,7 +942,7 @@ Assert:
   IDs, events, and errors;
 - neither fake token nor auth args occur in rendered/log buffers.
 
-- [ ] **Step 4: Implement cleanup and the log viewer**
+- [x] **Step 4: Implement cleanup and the log viewer**
 
 Use a buffer-local `music-assistant--cleaned-p` guard. Add the same cleanup
 function to `kill-buffer-hook`; `music-assistant-quit` calls it and then
@@ -951,7 +951,7 @@ function to `kill-buffer-hook`; `music-assistant-quit` calls it and then
 Render `*Music Assistant Log*` from the client's already-sanitized entries in
 `special-mode`. Never add a raw inbound frame or raw command args to the log.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run the dedicated test file. Expected: all client and UI tests pass.
 
@@ -977,7 +977,7 @@ git commit -m "feat(emacs): finish Music Assistant dashboard lifecycle"
 - Produces a tangled, tested config loaded into the current daemon and a live
   acceptance result against `MrX.local`.
 
-- [ ] **Step 1: Add and witness final failing integration assertions**
+- [x] **Step 1: Add and witness final failing integration assertions**
 
 Add or update config tests that require `music-assistant` and assert:
 
@@ -1007,7 +1007,7 @@ Then change the Org declaration to load websocket before the local package:
 (use-package websocket :ensure t)
 ```
 
-- [ ] **Step 2: Tangle and run all automated verification**
+- [x] **Step 2: Tangle and run all automated verification**
 
 Run:
 
@@ -1049,7 +1049,7 @@ Expected: both ERT suites report zero unexpected results; both files compile
 without warnings; `git diff --check` exits 0. Remove generated `.elc` files
 from the worktree after compilation because the installed config loads source.
 
-- [ ] **Step 3: Commit verified integration**
+- [x] **Step 3: Commit verified integration**
 
 ```bash
 git add macos/emacs/.emacs.d/emacs.org \
@@ -1058,7 +1058,7 @@ git add macos/emacs/.emacs.d/emacs.org \
 git commit -m "feat(emacs): wire native Music Assistant dashboard"
 ```
 
-- [ ] **Step 4: Securely provision the live token if absent**
+- [x] **Step 4: Securely provision the live token if absent**
 
 Check only presence:
 
@@ -1083,7 +1083,7 @@ and removed immediately after verification.
 Do not paste the token into chat, an Emacs eval form, a shell argument, the
 clipboard history, or any captured tool output.
 
-- [ ] **Step 5: Live-evaluate without restarting Emacs**
+- [x] **Step 5: Live-evaluate without restarting Emacs**
 
 Load the verified source files and apply the configuration in the current
 daemon:
@@ -1104,7 +1104,7 @@ emacsclient --eval "(progn
 Expected: `music-assistant-native-loaded`. Do not restart or reload the
 daemon.
 
-- [ ] **Step 6: Run the live acceptance test in a separate Emacs client frame**
+- [x] **Step 6: Run the live acceptance test in a separate Emacs client frame**
 
 Open a dedicated frame:
 
@@ -1125,6 +1125,11 @@ Verify all of the following against live server state:
 8. `q` cleans up its client/timers without affecting the daemon or other
    frames.
 
+Live result on 2026-09-02: every control and cleanup check passed. The
+`MrX.local` Snapcast player does not advertise pause support, so Space produced
+the server's authoritative `idle` event rather than `paused`; the dashboard
+rendered that event without optimistic local state.
+
 Also verify from another client command that the main daemon remains
 responsive:
 
@@ -1132,7 +1137,7 @@ responsive:
 emacsclient --eval '(list :responsive emacs-version)'
 ```
 
-- [ ] **Step 7: Run fresh final verification and record status**
+- [x] **Step 7: Run fresh final verification and record status**
 
 Repeat the dedicated ERT suite, complete configuration suite, byte compilation,
 `git diff --check`, and `git status --short --branch`. Review the plan
