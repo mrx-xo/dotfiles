@@ -583,14 +583,21 @@ Popper must NOT control display, the popup rule must be present, and a
   (should (fboundp 'mr-x/surf-link-at-point))
   (should (fboundp 'mr-x/surf-url-other-window)))
 
-(ert-deftest config-test-music-assistant-native-configuration ()
-  "Music Assistant should load as a native module with secure defaults."
+(ert-deftest config-test-music-assistant-native-integration ()
+  "The native Music Assistant dashboard should be fully integrated."
   (require 'music-assistant)
   (should (featurep 'music-assistant-client))
+  (should (featurep 'websocket))
   (with-temp-buffer
     (music-assistant-mode)
     (should (derived-mode-p 'special-mode)))
   (should (commandp 'music-assistant))
+  (should (eq (lookup-key music-assistant-mode-map (kbd "SPC"))
+              #'music-assistant-play-pause))
+  (should (eq (lookup-key music-assistant-mode-map (kbd "s"))
+              #'music-assistant-search))
+  (should (eq (lookup-key music-assistant-mode-map (kbd "P"))
+              #'music-assistant-choose-player))
   (should (equal music-assistant-server-url
                  "http://192.168.1.143:8095"))
   (should (equal music-assistant-default-player-name "MrX.local"))
@@ -1259,7 +1266,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should (eq (config-test--leader-key "a v") 'mr-x/org-agenda-full)))
 
 (ert-deftest config-test-leader-music-assistant-key ()
-  "SPC s m should open the embedded Music Assistant frontend."
+  "SPC s m should open the native Music Assistant dashboard."
   (should
    (eq (config-test--leader-key "s m")
        'music-assistant)))
@@ -1647,8 +1654,23 @@ lands in the temp dir), and hashing fresh vs live output."
     (unwind-protect
         (progn
           (copy-file src tmp-org)
-          (let ((org-confirm-babel-evaluate nil))
-            (org-babel-tangle-file tmp-org))
+          ;; Match the documented batch -Q tangle in a clean subprocess.
+          ;; The configured Org may be a newer version whose whitespace
+          ;; output differs from the built-in Org used to generate these
+          ;; checked-in files.
+          (let* ((emacs-binary
+                  (expand-file-name invocation-name
+                                    invocation-directory))
+                 (status
+                  (call-process
+                   emacs-binary nil nil nil
+                   "--batch" "-Q"
+                   "--eval" "(require 'org)"
+                   "--eval"
+                   (format
+                    "(let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file %S))"
+                    tmp-org))))
+            (should (zerop status)))
           (dolist (file '("init.el" "agent-shell-config.el"))
             (ert-info ((format "%s is stale — re-tangle emacs.org (C-c C-v t)" file))
               (let ((fresh (expand-file-name file tmpdir))
