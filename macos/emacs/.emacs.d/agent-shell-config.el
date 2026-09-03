@@ -969,10 +969,16 @@ Resolves agent config once, then spawns shells staggered 3s apart."
           (setq agent-shell-openai-codex-acp-command
                 '("acp-multiplex" "codex-acp")))
 
+        ;; OpenCode is an optional agent (Claude remains preferred).  Use the
+        ;; installer's absolute path because the long-running Emacs daemon may
+        ;; not inherit ~/.opencode/bin in PATH.
+        (setq agent-shell-opencode-acp-command
+              (list (expand-file-name "~/.opencode/bin/opencode") "acp"))
+
         ;; ── Goose (local Ollama agent) ──────────────────────────
-        ;; Goose talks to a local model (qwen3.5:9b) on the M2 Air
-        ;; (mrx2:11434) over Ollama — a fully private, no-cloud agent.
-        ;; Full write-up: ~/.dotfiles/docs/goose-ollama-setup.md
+        ;; Goose talks to qwen3.5:9b through the local goose-scope proxy,
+        ;; which routes to the primary fleet Ollama host.  The private host
+        ;; topology is documented in ~/home-lab/docs/goose-ollama-setup.md.
         ;; Launch with  M-x mr-x/goose-local-start
         (require 'agent-shell-goose)
         ;; Provider is Ollama (set in ~/.config/goose/config.yaml), so disable
@@ -988,14 +994,14 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         ;; qwen3.5 is a reasoning model; Ollama's thinking+tools path returns
         ;; empty responses (ollama#10976). GOOSE_TOOLSHIM makes the model emit
         ;; tool calls as TEXT, then a small parser model reformats them to JSON
-        ;; via constrained decoding. The parser MUST be tiny: llama3.1:8b
-        ;; (4.9GB) can't coexist with qwen (5.6GB) on the 16GB Air and hangs
-        ;; forever waiting to load; llama3.2:3b (2GB) fits alongside and is far
-        ;; faster. NOTE: GOOSE_TOOLSHIM_OLLAMA_MODEL is IGNORED in config.yaml —
+        ;; via constrained decoding. The parser stays on llama3.2:3b so both
+        ;; models fit on either fleet Ollama host. NOTE:
+        ;; GOOSE_TOOLSHIM_OLLAMA_MODEL is IGNORED in config.yaml —
         ;; it only takes effect as an env var, here.
         ;; OLLAMA_HOST points at the local goose-scope proxy (see goose-scope.el
-        ;; below), which forwards to Ollama on the Air and logs every call for
-        ;; the *goose-scope* observability panel. Proxy auto-starts with the panel.
+        ;; below), which forwards to the fleet's primary Ollama host and logs
+        ;; every call for the *goose-scope* observability panel. The proxy
+        ;; auto-starts with the panel.
         (setq agent-shell-goose-environment
               (agent-shell-make-environment-variables
                "OLLAMA_HOST" "http://127.0.0.1:11435"

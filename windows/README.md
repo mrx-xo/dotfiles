@@ -89,6 +89,23 @@ Wired like GlazeWM: not symlinked — `bootstrap.ps1` makes a login shortcut run
 Tune `tap-time` / `hold-time` in the config if you get misfires. (kanata only remaps
 non-elevated windows unless it runs elevated.)
 
+## Ollama background service
+
+`scripts/ollama-serve.ps1` waits for this machine's Tailscale IPv4 address, then
+starts Ollama tailnet-only with a 64,000-token default context and persistent model
+residency. `scripts/setup-ollama-serve.ps1` installs it as the `OllamaServe` task with
+startup and logon triggers, background login, and failure retries.
+
+Deploy the serve script to the user profile, then run the setup script from
+PowerShell. Re-running setup is safe.
+
+```powershell
+Copy-Item .\scripts\ollama-serve.ps1 "$HOME\ollama-serve.ps1" -Force
+.\scripts\setup-ollama-serve.ps1
+```
+
+Verify with `schtasks /query /tn OllamaServe /v /fo list` and `ollama ps`.
+
 ## Notes
 
 - On machines without Developer Mode / admin, `bootstrap.ps1`'s symlinks fail; the

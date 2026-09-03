@@ -241,6 +241,13 @@ and bound on RET in `projectile-command-map'."
   (should (fboundp 'mr-x/agent-shell-in-project))
   (should (fboundp 'mr-x/focus-ai-window)))
 
+(ert-deftest config-test-opencode-command ()
+  "OpenCode should use the installed ACP executable by absolute path."
+  (require 'agent-shell-opencode)
+  (should (equal agent-shell-opencode-acp-command
+                 (list (expand-file-name "~/.opencode/bin/opencode") "acp")))
+  (should (file-executable-p (car agent-shell-opencode-acp-command))))
+
 (ert-deftest config-test-agent-shell-clone-reuses-current-model-in-fresh-session ()
   "Clone starts a fresh shell with the source provider, model, and directory."
   (let* ((source-config
