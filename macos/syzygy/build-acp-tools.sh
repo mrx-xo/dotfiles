@@ -44,7 +44,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 5497ac1 (thought progress: tool-style activity cards)
 # + local b66dff2 (sent images: live/replay rendering and memory bounds)
 # + local d5ec75d (answer-only ADHD cue-prefix highlighting)
-ACP_MOBILE_COMMIT="d5ec75deb2d9e4b302ee684be4b1345287e1ee14"
+# + local 0ea33a6 (ordered lists; pins re-render on the current renderer)
+ACP_MOBILE_COMMIT="0ea33a66ecd0976e1a0c11b5b7e25eef9f49a2f9"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
