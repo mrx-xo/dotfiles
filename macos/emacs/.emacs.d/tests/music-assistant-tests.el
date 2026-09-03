@@ -1118,8 +1118,10 @@
     (unwind-protect
         (with-current-buffer buffer
           (let ((music-assistant--schedule-function
-                 (lambda (_seconds function &rest args)
-                   (apply function args))))
+                 (lambda (seconds function &rest args)
+                   (if (zerop seconds)
+                       (apply function args)
+                     'progress-timer))))
             (cl-letf (((symbol-function 'read-string)
                        (lambda (&rest _args) "   ")))
               (should-error (music-assistant-search)
@@ -1169,8 +1171,10 @@
     (unwind-protect
         (with-current-buffer buffer
           (let ((music-assistant--schedule-function
-                 (lambda (_seconds function &rest args)
-                   (apply function args))))
+                 (lambda (seconds function &rest args)
+                   (if (zerop seconds)
+                       (apply function args)
+                     'progress-timer))))
             (cl-letf
                 (((symbol-function 'read-string)
                   (lambda (&rest _args) "nothing"))
@@ -1309,6 +1313,403 @@
     (should (= created 1))
     (should (= connected 1))
     (should (= retried 1))))
+
+(defun music-assistant-test--set-current-image
+    (client proxy-id &optional item-id)
+  "Give CLIENT's current ITEM-ID an image with PROXY-ID."
+  (let* ((queue (music-assistant-client-selected-queue client))
+         (current (copy-tree
+                   (music-assistant-client-current-item client)))
+         (wanted-id (or item-id
+                        (music-assistant--item-id current))))
+    (setf (alist-get 'queue_item_id current) wanted-id
+          (alist-get 'image current) `((proxy_id . ,proxy-id))
+          (alist-get 'current_item queue) current)
+    current))
+
+(ert-deftest music-assistant-ui-progress-timer-tracks-playing-state ()
+  "Catch progress timers leaking while paused, disconnected, or killed."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         scheduled
+         cancelled)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (seconds function &rest args)
+                   (setq scheduled (list seconds function args))
+                   'progress-timer))
+                (music-assistant--cancel-function
+                 (lambda (timer) (push timer cancelled))))
+            (music-assistant--render)
+            (should (equal music-assistant--progress-timer
+                           'progress-timer))
+            (should (= (car scheduled) 1))
+            (setf
+             (alist-get
+              'state (music-assistant-client-selected-queue client))
+             "paused")
+            (music-assistant--render)
+            (should-not music-assistant--progress-timer)
+            (should (equal cancelled '(progress-timer)))
+            (setf
+             (alist-get
+              'state (music-assistant-client-selected-queue client))
+             "playing"
+             (music-assistant-client-state client) 'reconnecting)
+            (music-assistant--render)
+            (should-not music-assistant--progress-timer)))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-progress-update-is-in-place ()
+  "Catch one-second progress updates rebuilding queue state or moving point."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (&rest _args) 'progress-timer)))
+            (music-assistant--render)
+            (goto-char
+             (music-assistant-test--item-position buffer "item-2"))
+            (let ((point-marker (copy-marker (point)))
+                  (queue-before
+                   (buffer-substring-no-properties
+                    (line-beginning-position) (line-end-position))))
+              (setf
+               (alist-get
+                'elapsed_time
+                (music-assistant-client-selected-queue client))
+               103
+               (music-assistant-client-queue-time-received-at client)
+               (float-time))
+              (music-assistant--update-progress buffer client)
+              (should (string-match-p "01:43" (buffer-string)))
+              (should (equal queue-before
+                             (buffer-substring-no-properties
+                              (line-beginning-position)
+                              (line-end-position))))
+              (should (= (point) point-marker))
+              (set-marker point-marker nil))))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-derived-elapsed-advances-and-clamps ()
+  "Catch local progress ignoring speed, pause state, or track duration."
+  (let* ((client (music-assistant-test--ready-client))
+         (queue (music-assistant-client-selected-queue client))
+         (current (music-assistant-client-current-item client)))
+    (setf (alist-get 'elapsed_time queue) 190
+          (alist-get 'playback_speed queue) 2.0
+          (alist-get 'duration current) 198
+          (music-assistant-client-queue-time-received-at client) 100)
+    (cl-letf (((symbol-function 'float-time)
+               (lambda (&optional _time) 105)))
+      (should (= (music-assistant-client-current-elapsed client) 198))
+      (setf (alist-get 'duration current) 300)
+      (should (= (music-assistant-client-current-elapsed client) 200))
+      (setf (alist-get 'state queue) "paused")
+      (should (= (music-assistant-client-current-elapsed client) 190)))))
+
+(ert-deftest music-assistant-ui-artwork-proxy-url-is-schema-31 ()
+  "Catch image requests using an obsolete endpoint or unsupported size."
+  (let* ((client (music-assistant-test--ready-client))
+         (item (music-assistant-test--set-current-image client "abc")))
+    (should
+     (equal (music-assistant--artwork-url client item)
+            "http://music.test:8095/imageproxy/abc?size=256"))))
+
+(ert-deftest music-assistant-ui-artwork-success-caches-final-url ()
+  "Catch artwork redirects being refetched or response buffers leaking."
+  (let* ((client (music-assistant-test--ready-client))
+         (_item (music-assistant-test--set-current-image client "abc"))
+         (buffer (music-assistant-test--ui-buffer client))
+         (music-assistant--artwork-cache
+          (make-hash-table :test #'equal))
+         response-buffer
+         image-data)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (&rest _args) 'progress-timer))
+                (music-assistant--url-retrieve-function
+                 (lambda (_url callback callback-args &rest _ignored)
+                   (setq response-buffer
+                         (generate-new-buffer
+                          " *music-assistant-art-success*"))
+                   (with-current-buffer response-buffer
+                     (set-buffer-multibyte nil)
+                     (insert "HTTP/1.1 200 OK\r\n\r\nPNG-DATA")
+                     (setq-local url-http-end-of-headers 20
+                                 url-current-object
+                                 (url-generic-parse-url
+                                  "http://cdn.test/final.png"))
+                     (apply callback nil callback-args))
+                   response-buffer))
+                (music-assistant--create-image-function
+                 (lambda (data &rest _args)
+                   (setq image-data data)
+                   'fake-image)))
+            (music-assistant--render)
+            (should (equal image-data "PNG-DATA"))
+            (should
+             (equal
+              (plist-get
+               (gethash "http://cdn.test/final.png"
+                        music-assistant--artwork-cache)
+               :image)
+              'fake-image))
+            (should (equal music-assistant--artwork-image
+                           'fake-image))
+            (should-not (buffer-live-p response-buffer))))
+      (when (buffer-live-p response-buffer)
+        (kill-buffer response-buffer))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-artwork-failure-backs-off ()
+  "Catch broken artwork hammering the server or disabling controls."
+  (let* ((client (music-assistant-test--ready-client))
+         (item (music-assistant-test--set-current-image client "bad"))
+         (url (music-assistant--artwork-url client item))
+         (buffer (music-assistant-test--ui-buffer client))
+         (music-assistant--artwork-cache
+          (make-hash-table :test #'equal))
+         (requests 0)
+         responses)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (&rest _args) 'progress-timer))
+                (music-assistant--url-retrieve-function
+                 (lambda (_url callback callback-args &rest _ignored)
+                   (cl-incf requests)
+                   (let ((response
+                          (generate-new-buffer
+                           " *music-assistant-art-failure*")))
+                     (push response responses)
+                     (with-current-buffer response
+                       (apply callback
+                              '(:error (error . "broken"))
+                              callback-args))
+                     response))))
+            (music-assistant--render)
+            (music-assistant--render)
+            (should (= requests 1))
+            (should (string-match-p "\[no artwork\]"
+                                    (buffer-string)))
+            (should (eq (lookup-key music-assistant-mode-map
+                                    (kbd "SPC"))
+                        #'music-assistant-play-pause))
+            (puthash url
+                     (list :failed-at (- (float-time) 31))
+                     music-assistant--artwork-cache)
+            (music-assistant--render)
+            (should (= requests 2))
+            (should-not
+             (seq-some #'buffer-live-p responses))))
+      (mapc (lambda (response)
+              (when (buffer-live-p response)
+                (kill-buffer response)))
+            responses)
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-artwork-stale-callback-is-ignored ()
+  "Catch an old track's image replacing the current track artwork."
+  (let* ((client (music-assistant-test--ready-client))
+         (_item (music-assistant-test--set-current-image client "old"))
+         (buffer (music-assistant-test--ui-buffer client))
+         (music-assistant--artwork-cache
+          (make-hash-table :test #'equal))
+         callback callback-args response-buffer)
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (&rest _args) 'progress-timer))
+                (music-assistant--url-retrieve-function
+                 (lambda (_url actual-callback actual-args
+                          &rest _ignored)
+                   (setq callback actual-callback
+                         callback-args actual-args
+                         response-buffer
+                         (generate-new-buffer
+                          " *music-assistant-art-stale*"))
+                   response-buffer))
+                (music-assistant--create-image-function
+                 (lambda (&rest _args) 'old-image)))
+            (music-assistant--render)
+            (let ((new-current
+                   (music-assistant-test--queue-item
+                    "desk" "item-new" "New track")))
+              (setf
+               (alist-get
+                'current_item
+                (music-assistant-client-selected-queue client))
+               new-current))
+            (with-current-buffer response-buffer
+              (set-buffer-multibyte nil)
+              (insert "HTTP/1.1 200 OK\r\n\r\nOLD")
+              (setq-local url-http-end-of-headers 20)
+              (apply callback nil callback-args))
+            (should-not (equal music-assistant--artwork-image
+                               'old-image))
+            (should-not (buffer-live-p response-buffer))))
+      (when (buffer-live-p response-buffer)
+        (kill-buffer response-buffer))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-cleanup-is-idempotent ()
+  "Catch q and kill hooks leaking clients, timers, or HTTP buffers."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         (response (generate-new-buffer
+                    " *music-assistant-cleanup-response*"))
+         (closed 0)
+         cancelled
+         (quit-count 0))
+    (unwind-protect
+        (with-current-buffer buffer
+          (setq music-assistant--progress-timer 'progress-timer
+                music-assistant--artwork-response-buffers
+                (list response))
+          (puthash "request" response
+                   music-assistant--artwork-requests)
+          (let ((music-assistant--cancel-function
+                 (lambda (timer) (push timer cancelled))))
+            (cl-letf
+                (((symbol-function 'music-assistant-client-close)
+                  (lambda (actual)
+                    (should (eq actual client))
+                    (cl-incf closed)))
+                 ((symbol-function 'quit-window)
+                  (lambda (&rest _args) (cl-incf quit-count))))
+              (music-assistant-quit)
+              (music-assistant-quit)))
+          (should music-assistant--cleaned-p)
+          (should (= closed 1))
+          (should (= quit-count 2))
+          (should (equal cancelled '(progress-timer)))
+          (should-not music-assistant--progress-timer)
+          (should-not (buffer-live-p response))
+          (should (= (hash-table-count
+                      music-assistant--artwork-requests)
+                     0))
+          (should (eq (music-assistant-client-on-state-change client)
+                      #'ignore)))
+      (when (buffer-live-p response)
+        (kill-buffer response))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest music-assistant-ui-kill-hook-cleans-client-once ()
+  "Catch killing the dashboard bypassing or repeating client teardown."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         (closed 0))
+    (cl-letf (((symbol-function 'music-assistant-client-close)
+               (lambda (actual)
+                 (should (eq actual client))
+                 (cl-incf closed))))
+      (kill-buffer buffer))
+    (should (= closed 1))))
+
+(ert-deftest music-assistant-ui-cleanup-blocks-late-artwork-render ()
+  "Catch an already-cleaned dashboard accepting a late HTTP callback."
+  (let* ((client (music-assistant-test--ready-client))
+         (_item (music-assistant-test--set-current-image client "late"))
+         (buffer (music-assistant-test--ui-buffer client))
+         (music-assistant--artwork-cache
+          (make-hash-table :test #'equal))
+         callback callback-args response-buffer
+         (scheduled 0))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((music-assistant--schedule-function
+                 (lambda (&rest _args)
+                   (cl-incf scheduled)
+                   'timer))
+                (music-assistant--url-retrieve-function
+                 (lambda (_url actual-callback actual-args
+                          &rest _ignored)
+                   (setq callback actual-callback
+                         callback-args actual-args
+                         response-buffer
+                         (generate-new-buffer
+                          " *music-assistant-art-late*"))
+                   response-buffer))
+                (music-assistant--create-image-function
+                 (lambda (&rest _args) 'late-image)))
+            (music-assistant--render)
+            ;; Ignore the progress timer scheduled by the initial render.
+            (setq scheduled 0)
+            (music-assistant--cleanup)
+            (setq response-buffer
+                  (generate-new-buffer
+                   " *music-assistant-art-late-callback*"))
+            (with-current-buffer response-buffer
+              (set-buffer-multibyte nil)
+              (insert "HTTP/1.1 200 OK\r\n\r\nLATE")
+              (setq-local url-http-end-of-headers 20)
+              (apply callback nil callback-args))
+            (should-not music-assistant--artwork-image)
+            (should (= scheduled 0))))
+      (when (buffer-live-p response-buffer)
+        (kill-buffer response-buffer))
+      (kill-buffer buffer))))
+
+(ert-deftest music-assistant-ui-kill-and-reopen-creates-fresh-client ()
+  "Catch a killed dashboard resurrecting a cleaned protocol client."
+  (when-let ((existing (get-buffer "*Music Assistant*")))
+    (kill-buffer existing))
+  (let ((first-client (music-assistant-test--ready-client))
+        (second-client (music-assistant-test--ready-client))
+        (created 0)
+        first second)
+    (unwind-protect
+        (save-window-excursion
+          (cl-letf
+              (((symbol-function 'music-assistant-client-create)
+                (lambda (&rest _args)
+                  (prog1
+                      (if (= created 0) first-client second-client)
+                    (cl-incf created))))
+               ((symbol-function 'music-assistant-client-connect)
+                #'ignore))
+            (setq first (music-assistant))
+            (kill-buffer first)
+            (setq second (music-assistant))))
+      (when (buffer-live-p second)
+        (kill-buffer second)))
+    (should-not (eq first second))
+    (should (= created 2))))
+
+(ert-deftest music-assistant-ui-log-renders-only-sanitized-entries ()
+  "Catch tokens or raw authenticated arguments reaching visible buffers."
+  (let* ((client (music-assistant-test--ready-client))
+         (buffer (music-assistant-test--ui-buffer client))
+         log-buffer)
+    (music-assistant-client--log
+     client 'send "auth" "emacs-1"
+     '((token . "fake-token") (device_name . "secret-device")))
+    (music-assistant-client--log
+     client 'event "queue_updated" nil "desk")
+    (unwind-protect
+        (with-current-buffer buffer
+          (cl-letf (((symbol-function 'display-buffer)
+                     (lambda (actual &rest _args)
+                       (setq log-buffer actual))))
+            (music-assistant-show-log))
+          (should (buffer-live-p log-buffer))
+          (with-current-buffer log-buffer
+            (let ((text (buffer-string)))
+              (should (string-match-p "auth" text))
+              (should (string-match-p "<redacted>" text))
+              (should (string-match-p "queue_updated" text))
+              (should-not (string-match-p "fake-token" text))
+              (should-not (string-match-p "secret-device" text))))
+          (should-not (string-match-p "fake-token"
+                                      (buffer-string))))
+      (when (buffer-live-p log-buffer)
+        (kill-buffer log-buffer))
+      (kill-buffer buffer))))
 
 (provide 'music-assistant-tests)
 
