@@ -2,18 +2,20 @@
 # -*- mode: sh -*-
 # Claude subscription quota indicator.
 #
-# Reads the same endpoint Claude Code's /usage command uses. The response
-# carries a limits[] array in which exactly one entry is flagged is_active:
-# the bucket currently binding you (5h session, weekly, or a per-model weekly
-# cap). We show that one rather than inventing a "worst of" rule, and take its
-# severity from the API rather than guessing thresholds.
+# Reads the same endpoint Claude Code's /usage command uses. The label shows
+# the 5-hour session and all-model weekly windows, followed by the Fable weekly
+# limit when the server reports one. The trailing pipe separates Claude from
+# the adjacent Codex item.
 #
 # The OAuth token is short-lived, so it is re-read from the Keychain each run
 # rather than cached. Verified to read silently from sketchybar's process.
 
 NAME="${NAME:-claude_usage}"
+FABLE_NAME="${FABLE_NAME:-fable_usage}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACHE_DIR="$HOME/.cache/sketchybar"
 CACHE="$CACHE_DIR/claude-usage"
+DESKTOP_HISTORY="$HOME/Library/Application Support/Claude/plan-usage-history.json"
 
 ORANGE=0xFFCC7B6E
 RED=0xFFCE3A5B
@@ -22,18 +24,23 @@ DIM=0xFF888888
 
 mkdir -p "$CACHE_DIR"
 
-render() { # percent severity
-  case "$2" in
+render() { # primary_label fable_label severity
+  case "$3" in
     critical) color=$RED ;;
     warning)  color=$ORANGE ;;
     *)        color=$WHITE ;;
   esac
-  [ "$1" = "--" ] && color=$DIM
+  [ "$1" = "--% · --% |" ] && color=$DIM
   sketchybar --set "$NAME" \
     drawing=on \
     icon=":claude:" \
-    label="${1}%" \
+    label="$1" \
     label.color=$color
+  if [ -n "$2" ] && [ "$2" != "-" ]; then
+    sketchybar --set "$FABLE_NAME" drawing=on label="$2" label.color=$color
+  else
+    sketchybar --set "$FABLE_NAME" drawing=off
+  fi
 }
 
 # Fall back to the last good reading rather than blanking the bar on a wifi
@@ -41,10 +48,23 @@ render() { # percent severity
 # shows a placeholder, so the pill keeps a stable width instead of jumping.
 fallback() {
   if [ -s "$CACHE" ]; then
-    render $(cat "$CACHE")
-  else
-    render "--" normal
+    IFS=$'\t' read -r version primary_label fable_label severity < "$CACHE"
+    if [ "$version" = "v3" ] && [ -n "$primary_label" ] \
+       && [ -n "$fable_label" ] && [ -n "$severity" ]; then
+      render "$primary_label" "$fable_label" "$severity"
+      exit 0
+    fi
   fi
+  if [ -s "$DESKTOP_HISTORY" ]; then
+    parsed=$(python3 "$SCRIPT_DIR/claude_usage.py" --history \
+             < "$DESKTOP_HISTORY" 2>/dev/null)
+    if [ -n "$parsed" ]; then
+      IFS=$'\t' read -r primary_label fable_label severity <<< "$parsed"
+      render "$primary_label" "$fable_label" "$severity"
+      exit 0
+    fi
+  fi
+  render "--% · --% |" - normal
   exit 0
 }
 
@@ -57,23 +77,12 @@ RESP=$(curl -sS --max-time 5 https://api.anthropic.com/api/oauth/usage \
          -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
 [ -z "$RESP" ] && fallback
 
-read -r PERCENT SEVERITY <<<"$(printf '%s' "$RESP" | python3 -c '
-import sys, json
-try:
-    limits = json.load(sys.stdin).get("limits") or []
-except Exception:
-    sys.exit(1)
-active = next((l for l in limits if l.get("is_active")), None)
-# Nothing flagged active means nothing is binding yet; the highest bucket is
-# still the honest number to show.
-if active is None:
-    active = max(limits, key=lambda l: l.get("percent") or 0, default=None)
-if active is None:
-    sys.exit(1)
-print(int(round(active.get("percent") or 0)), active.get("severity") or "normal")
-' 2>/dev/null)"
+PARSED=$(printf '%s' "$RESP" | python3 "$SCRIPT_DIR/claude_usage.py" 2>/dev/null)
+[ -z "$PARSED" ] && fallback
 
-[ -z "$PERCENT" ] && fallback
+IFS=$'\t' read -r PRIMARY_LABEL FABLE_LABEL SEVERITY <<< "$PARSED"
+[ -z "$PRIMARY_LABEL" ] && fallback
 
-printf '%s %s\n' "$PERCENT" "$SEVERITY" > "$CACHE"
-render "$PERCENT" "$SEVERITY"
+printf 'v3\t%s\t%s\t%s\n' \
+  "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY" > "$CACHE"
+render "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY"
