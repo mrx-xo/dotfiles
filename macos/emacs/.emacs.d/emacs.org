@@ -2983,8 +2983,7 @@ Secondary frames: title bar + frame number."
 
 #+begin_src emacs-lisp :results silent
   (use-package websocket
-    :ensure t
-    :defer t)
+    :ensure t)
 
   (use-package music-assistant
     :ensure nil

@@ -2833,8 +2833,7 @@ Secondary frames: title bar + frame number."
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
 (use-package websocket
-  :ensure t
-  :defer t)
+  :ensure t)
 
 (use-package music-assistant
   :ensure nil

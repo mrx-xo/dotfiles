@@ -11,6 +11,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'url-parse)
+(require 'websocket)
 
 (defgroup music-assistant-client nil
   "Connect to Music Assistant over its WebSocket API."
