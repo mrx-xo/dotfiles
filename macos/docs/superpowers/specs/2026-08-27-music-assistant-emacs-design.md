@@ -126,19 +126,18 @@ in a temporary buffer and is erased after trimming. The token is inserted
 only into the `auth` WebSocket request. Debug logging redacts the complete
 `args` object for `auth` and never prints the token.
 
-The setup command run manually in a terminal is:
-
-```sh
-security add-generic-password -U -a emacs -s music-assistant-token -w
-```
-
-Placing `-w` last makes `security` prompt instead of putting the secret in
-shell history or the process argument list.
+Provision the item manually in Keychain Access with service
+`music-assistant-token` and account `emacs`. Do not use the interactive
+`security add-generic-password ... -w` prompt for current Music Assistant
+JWTs: the macOS prompt truncates values longer than 128 bytes. A protected
+temporary file may instead be imported through the native Security framework,
+provided the token never appears in a shell argument or captured output and
+the plaintext file is removed afterward.
 
 When the Keychain item is absent, the dashboard opens in an authentication
-required state, displays that command, and leaves `g` available to retry. It
-does not fall back to `.authinfo.gpg`, because that source currently fails to
-decrypt in the running Emacs daemon.
+required state, identifies the required Keychain service, and leaves `g`
+available to retry. It does not fall back to `.authinfo.gpg`, because that
+source currently fails to decrypt in the running Emacs daemon.
 
 ## WebSocket Protocol
 
