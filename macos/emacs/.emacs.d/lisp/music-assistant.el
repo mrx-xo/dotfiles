@@ -11,6 +11,9 @@
 (require 'savehist)
 (require 'seq)
 (require 'subr-x)
+(require 'url)
+(require 'url-http)
+(require 'url-util)
 
 (defgroup music-assistant nil
   "Control Music Assistant from Emacs."
@@ -92,6 +95,19 @@
 (defvar music-assistant--schedule-function #'run-at-time
   "Function used to schedule dashboard work on the Emacs event loop.")
 
+(defvar music-assistant--cancel-function #'cancel-timer
+  "Function used to cancel dashboard timers.")
+
+(defvar music-assistant--url-retrieve-function #'url-retrieve
+  "Function used to retrieve artwork asynchronously.")
+
+(defvar music-assistant--create-image-function #'create-image
+  "Function used to create an Emacs image from downloaded data.")
+
+(defvar music-assistant--artwork-cache
+  (make-hash-table :test #'equal)
+  "Artwork cache keyed by requested and final URL.")
+
 (defvar-local music-assistant--client nil
   "Protocol client owned by the current dashboard buffer.")
 
@@ -103,6 +119,33 @@
 
 (defvar-local music-assistant--notice nil
   "Transient user-facing notice for the current dashboard.")
+
+(defvar-local music-assistant--progress-start nil
+  "Marker at the beginning of the in-place progress region.")
+
+(defvar-local music-assistant--progress-end nil
+  "Marker at the end of the in-place progress region.")
+
+(defvar-local music-assistant--progress-timer nil
+  "One-shot timer responsible for the next progress update.")
+
+(defvar-local music-assistant--artwork-image nil
+  "Image object for the current queue item, when available.")
+
+(defvar-local music-assistant--artwork-item-id nil
+  "Queue item ID associated with `music-assistant--artwork-image'.")
+
+(defvar-local music-assistant--artwork-url nil
+  "Artwork URL associated with the current queue item.")
+
+(defvar-local music-assistant--artwork-requests nil
+  "Hash table of in-flight artwork requests in this dashboard.")
+
+(defvar-local music-assistant--artwork-response-buffers nil
+  "Live URL response buffers owned by this dashboard.")
+
+(defvar-local music-assistant--cleaned-p nil
+  "Non-nil after the current dashboard session has been torn down.")
 
 (defvar music-assistant-mode-map
   (let ((map (make-sparse-keymap)))
@@ -130,7 +173,18 @@
 
 \{music-assistant-mode-map}"
   (setq-local mode-line-format nil
-              truncate-lines t))
+              truncate-lines t
+              music-assistant--cleaned-p nil
+              music-assistant--progress-timer nil
+              music-assistant--progress-start nil
+              music-assistant--progress-end nil
+              music-assistant--artwork-image nil
+              music-assistant--artwork-item-id nil
+              music-assistant--artwork-url nil
+              music-assistant--artwork-requests
+              (make-hash-table :test #'equal)
+              music-assistant--artwork-response-buffers nil)
+  (add-hook 'kill-buffer-hook #'music-assistant--cleanup nil t))
 
 (defun music-assistant--require-client ()
   "Return the current dashboard client or signal a user error."
@@ -216,6 +270,191 @@
      (propertize (make-string (- width filled) ?─)
                  'face 'music-assistant-progress-empty-face))))
 
+(defun music-assistant--progress-text (client)
+  "Return the replaceable progress text for CLIENT."
+  (let* ((queue (music-assistant-client-selected-queue client))
+         (current (music-assistant-client-current-item client))
+         (player (music-assistant-client-selected-player client))
+         (duration
+          (or (alist-get 'duration current)
+              (alist-get 'duration
+                         (music-assistant--item-media current))
+              0))
+         (elapsed (music-assistant-client-current-elapsed client))
+         (state (or (alist-get 'state queue) "idle"))
+         (volume (or (alist-get 'volume_level player) 0)))
+    (format "\n%s / %s  %s  %s  Volume %d%%\n"
+            (music-assistant--format-time elapsed)
+            (music-assistant--format-time duration)
+            (music-assistant--progress-bar elapsed duration)
+            state volume)))
+
+(defun music-assistant--proxy-id-from-image (image)
+  "Return a non-empty proxy ID from IMAGE, if it has one."
+  (when (listp image)
+    (let ((proxy-id (alist-get 'proxy_id image)))
+      (and (stringp proxy-id)
+           (not (string-empty-p proxy-id))
+           proxy-id))))
+
+(defun music-assistant--artwork-proxy-id (item)
+  "Return the preferred artwork proxy ID for queue ITEM."
+  (or
+   (music-assistant--proxy-id-from-image
+    (alist-get 'image item))
+   (let* ((media (music-assistant--item-media item))
+          (metadata (alist-get 'metadata media))
+          (images (alist-get 'images metadata)))
+     (seq-some
+      #'music-assistant--proxy-id-from-image
+      (if (vectorp images) (append images nil) images)))))
+
+(defun music-assistant--artwork-url (client item)
+  "Return CLIENT's schema-31 artwork proxy URL for ITEM."
+  (when-let ((proxy-id
+              (music-assistant--artwork-proxy-id item)))
+    (format "%s/imageproxy/%s?size=%d"
+            (replace-regexp-in-string
+             "/+\\'" ""
+             (music-assistant-client-server-url client))
+            (url-hexify-string proxy-id)
+            music-assistant-artwork-size)))
+
+(defun music-assistant--artwork-cache-entry (url)
+  "Return a live cache entry for URL, expiring old failures."
+  (let ((entry (and url
+                    (gethash url music-assistant--artwork-cache))))
+    (if (and entry
+             (plist-member entry :failed-at)
+             (>= (- (float-time) (plist-get entry :failed-at)) 30))
+        (progn
+          (remhash url music-assistant--artwork-cache)
+          nil)
+      entry)))
+
+(defun music-assistant--response-final-url (fallback)
+  "Return the current URL response's final URL or FALLBACK."
+  (or (and (boundp 'url-current-object)
+           url-current-object
+           (ignore-errors (url-recreate-url url-current-object)))
+      fallback))
+
+(defun music-assistant--cache-artwork-failure (url)
+  "Store a short-lived failure marker for URL."
+  (puthash url (list :failed-at (float-time))
+           music-assistant--artwork-cache))
+
+(defun music-assistant--forget-artwork-response
+    (dashboard requested-url response)
+  "Forget RESPONSE for REQUESTED-URL in DASHBOARD."
+  (when (buffer-live-p dashboard)
+    (with-current-buffer dashboard
+      (setq music-assistant--artwork-response-buffers
+            (delq response
+                  music-assistant--artwork-response-buffers))
+      (when (hash-table-p music-assistant--artwork-requests)
+        (remhash requested-url music-assistant--artwork-requests)))))
+
+(defun music-assistant--artwork-response
+    (status dashboard client item-id requested-url)
+  "Handle an artwork response STATUS for DASHBOARD and CLIENT."
+  (let ((response (current-buffer))
+        image)
+    (music-assistant--forget-artwork-response
+     dashboard requested-url response)
+    (unwind-protect
+        (condition-case _failure
+            (if (plist-get status :error)
+                (music-assistant--cache-artwork-failure requested-url)
+              (let* ((header-end
+                      (and (boundp 'url-http-end-of-headers)
+                           url-http-end-of-headers))
+                     (data-start
+                      (cond
+                       ((markerp header-end)
+                        (marker-position header-end))
+                       ((integerp header-end) header-end)))
+                     (final-url
+                      (music-assistant--response-final-url
+                       requested-url)))
+                (unless (and data-start
+                             (<= data-start (point-max)))
+                  (error "Artwork response has no body"))
+                (let* ((data
+                        (buffer-substring-no-properties
+                         data-start (point-max)))
+                       (created
+                        (funcall music-assistant--create-image-function
+                                 data nil t
+                                 :max-width music-assistant-artwork-size
+                                 :max-height
+                                 music-assistant-artwork-size))
+                       (entry (list :image created)))
+                  (unless created
+                    (error "Artwork decoder returned no image"))
+                  (setq image created)
+                  (puthash final-url entry
+                           music-assistant--artwork-cache)
+                  (puthash requested-url entry
+                           music-assistant--artwork-cache))))
+          (error
+           (music-assistant--cache-artwork-failure requested-url)))
+      (when (buffer-live-p response)
+        (kill-buffer response)))
+    (when (and image
+               (music-assistant--owns-client-p dashboard client))
+      (with-current-buffer dashboard
+        (when (equal
+               item-id
+               (music-assistant--item-id
+                (music-assistant-client-current-item client)))
+          (setq music-assistant--artwork-image image
+                music-assistant--artwork-item-id item-id)
+          (apply music-assistant--schedule-function
+                 0 #'music-assistant--render-if-current
+                 (list dashboard client)))))))
+
+(defun music-assistant--request-artwork
+    (client item-id url)
+  "Start an asynchronous artwork request for CLIENT ITEM-ID at URL."
+  (unless (gethash url music-assistant--artwork-requests)
+    (puthash url 'starting music-assistant--artwork-requests)
+    (condition-case _failure
+        (let ((response
+               (funcall
+                music-assistant--url-retrieve-function
+                url #'music-assistant--artwork-response
+                (list (current-buffer) client item-id url)
+                t t)))
+          (if (buffer-live-p response)
+              (progn
+                (puthash url response
+                         music-assistant--artwork-requests)
+                (push response
+                      music-assistant--artwork-response-buffers))
+            (when (gethash url music-assistant--artwork-requests)
+              (remhash url music-assistant--artwork-requests)
+              (music-assistant--cache-artwork-failure url))))
+      (error
+       (remhash url music-assistant--artwork-requests)
+       (music-assistant--cache-artwork-failure url)))))
+
+(defun music-assistant--insert-artwork (client item)
+  "Insert cached artwork or a safe placeholder for CLIENT ITEM."
+  (let* ((item-id (music-assistant--item-id item))
+         (url (music-assistant--artwork-url client item))
+         (entry (music-assistant--artwork-cache-entry url))
+         (image (plist-get entry :image))
+         (failed (plist-member entry :failed-at)))
+    (setq music-assistant--artwork-item-id item-id
+          music-assistant--artwork-url url
+          music-assistant--artwork-image image)
+    (if image
+        (insert (propertize " " 'display image) "\n")
+      (insert "[no artwork]\n")
+      (when (and url (not failed))
+        (music-assistant--request-artwork client item-id url)))))
+
 (defun music-assistant--queue-item-by-id (client item-id)
   "Return ITEM-ID from CLIENT's loaded queue items."
   (seq-find
@@ -272,13 +511,15 @@
                     'face 'music-assistant-error-face)
         (format
          "Add a token to macOS Keychain service `%s`, then press g.\n"
-         music-assistant-keychain-service)
-        (when details (format "%s\n" details))))
+         music-assistant-keychain-service))
+       (when details
+         (insert (format "%s\n" details))))
       ('reconnecting
        (insert
         (propertize "Reconnecting to Music Assistant…\n"
-                    'face 'music-assistant-stale-face)
-        (when details (format "%s\n" details))))
+                    'face 'music-assistant-stale-face))
+       (when details
+         (insert (format "%s\n" details))))
       ('error
        (insert
         (propertize (format "%s\n" (or details "Music Assistant error"))
@@ -339,16 +580,10 @@
                  (artists (music-assistant--artist-names media))
                  (album (music-assistant--album-name media))
                  (year (music-assistant--album-year media))
-                 (duration
-                  (or (alist-get 'duration current)
-                      (alist-get 'duration media)
-                      0))
-                 (elapsed
-                  (music-assistant-client-current-elapsed client))
-                 (state (or (alist-get 'state queue) "idle"))
-                 (volume (or (alist-get 'volume_level player) 0))
                  (current-id (music-assistant--item-id current)))
-            (insert "\n[no artwork]\n\n")
+            (insert "\n")
+            (music-assistant--insert-artwork client current)
+            (insert "\n")
             (insert (propertize (concat title "\n")
                                 'face 'music-assistant-title-face))
             (unless (string-empty-p artists)
@@ -361,12 +596,11 @@
                 (format "%s%s\n" album
                         (if year (format " · %s" year) ""))
                 'face 'music-assistant-metadata-face)))
-            (insert
-             (format "\n%s / %s  %s  %s  Volume %d%%\n"
-                     (music-assistant--format-time elapsed)
-                     (music-assistant--format-time duration)
-                     (music-assistant--progress-bar elapsed duration)
-                     state volume))
+            (setq music-assistant--progress-start
+                  (copy-marker (point)))
+            (insert (music-assistant--progress-text client))
+            (setq music-assistant--progress-end
+                  (copy-marker (point)))
             (insert
              (propertize
               "p previous  SPC play/pause  n next  h/l seek  -/+ volume\n"
@@ -395,12 +629,76 @@
     "j/k queue  RET play  s search  P player  g refresh  ? help  q quit\n"
     'face 'music-assistant-key-hint-face)))
 
+(defun music-assistant--playing-p (client)
+  "Return non-nil when CLIENT has a ready, playing queue."
+  (and (eq (music-assistant-client-state client) 'ready)
+       (equal
+        (alist-get 'state
+                   (music-assistant-client-selected-queue client))
+        "playing")))
+
+(defun music-assistant--cancel-progress-timer ()
+  "Cancel the current dashboard's pending progress timer."
+  (when music-assistant--progress-timer
+    (let ((timer music-assistant--progress-timer))
+      (setq music-assistant--progress-timer nil)
+      (condition-case nil
+          (funcall music-assistant--cancel-function timer)
+        (error nil)))))
+
+(defun music-assistant--sync-progress-timer (client)
+  "Start or stop the current buffer's progress timer for CLIENT."
+  (if (and (not music-assistant--cleaned-p)
+           (music-assistant--playing-p client))
+      (unless music-assistant--progress-timer
+        (setq music-assistant--progress-timer
+              (apply music-assistant--schedule-function
+                     1 #'music-assistant--progress-tick
+                     (list (current-buffer) client))))
+    (music-assistant--cancel-progress-timer)))
+
+(defun music-assistant--progress-tick (buffer client)
+  "Update BUFFER's progress for CLIENT and schedule the next tick."
+  (when (music-assistant--owns-client-p buffer client)
+    (with-current-buffer buffer
+      (setq music-assistant--progress-timer nil)
+      (music-assistant--update-progress buffer client)
+      (music-assistant--sync-progress-timer client))))
+
+(defun music-assistant--update-progress (buffer client)
+  "Replace only BUFFER's elapsed/progress region for CLIENT."
+  (when (music-assistant--owns-client-p buffer client)
+    (with-current-buffer buffer
+      (when (and (markerp music-assistant--progress-start)
+                 (markerp music-assistant--progress-end)
+                 (eq (marker-buffer music-assistant--progress-start)
+                     buffer)
+                 (eq (marker-buffer music-assistant--progress-end)
+                     buffer))
+        (let ((inhibit-read-only t)
+              (start (marker-position
+                      music-assistant--progress-start))
+              (end (marker-position
+                    music-assistant--progress-end)))
+          (save-excursion
+            (delete-region start end)
+            (goto-char start)
+            (insert (music-assistant--progress-text client))
+            (set-marker music-assistant--progress-end
+                        (point))))))))
+
 (defun music-assistant--render ()
   "Render the current dashboard without disturbing other windows."
   (when music-assistant--client
     (let ((inhibit-read-only t)
           (old-point (point)))
       (save-window-excursion
+        (when (markerp music-assistant--progress-start)
+          (set-marker music-assistant--progress-start nil))
+        (when (markerp music-assistant--progress-end)
+          (set-marker music-assistant--progress-end nil))
+        (setq music-assistant--progress-start nil
+              music-assistant--progress-end nil)
         (erase-buffer)
         (music-assistant--set-header music-assistant--client)
         (insert (propertize "Music Assistant\n\n"
@@ -409,13 +707,16 @@
                 'ready)
             (music-assistant--insert-ready music-assistant--client)
           (music-assistant--insert-state music-assistant--client))
-        (goto-char (min old-point (point-max)))))))
+        (goto-char (min old-point (point-max))))
+      (music-assistant--sync-progress-timer
+       music-assistant--client))))
 
 (defun music-assistant--owns-client-p (buffer client)
   "Return non-nil when live BUFFER still owns CLIENT."
   (and (buffer-live-p buffer)
        (with-current-buffer buffer
-         (eq music-assistant--client client))))
+         (and (not music-assistant--cleaned-p)
+              (eq music-assistant--client client)))))
 
 (defun music-assistant--render-if-current (buffer client)
   "Render BUFFER if it still owns CLIENT."
@@ -652,9 +953,73 @@
   (music-assistant-client-refresh
    (music-assistant--require-client)))
 
-(defun music-assistant-quit ()
-  "Bury the Music Assistant dashboard window."
+(defun music-assistant--reset-session-state ()
+  "Reset buffer-local resources before creating a fresh client."
+  (setq music-assistant--cleaned-p nil
+        music-assistant--progress-timer nil
+        music-assistant--progress-start nil
+        music-assistant--progress-end nil
+        music-assistant--artwork-image nil
+        music-assistant--artwork-item-id nil
+        music-assistant--artwork-url nil
+        music-assistant--artwork-requests
+        (make-hash-table :test #'equal)
+        music-assistant--artwork-response-buffers nil
+        music-assistant--selected-queue-item-id nil
+        music-assistant--searching-p nil
+        music-assistant--notice nil))
+
+(defun music-assistant--cleanup ()
+  "Idempotently release resources owned by the current dashboard."
+  (unless music-assistant--cleaned-p
+    (setq music-assistant--cleaned-p t)
+    (music-assistant--cancel-progress-timer)
+    (when (markerp music-assistant--progress-start)
+      (set-marker music-assistant--progress-start nil))
+    (when (markerp music-assistant--progress-end)
+      (set-marker music-assistant--progress-end nil))
+    (setq music-assistant--progress-start nil
+          music-assistant--progress-end nil)
+    (dolist (response music-assistant--artwork-response-buffers)
+      (when (buffer-live-p response)
+        (kill-buffer response)))
+    (setq music-assistant--artwork-response-buffers nil)
+    (when (hash-table-p music-assistant--artwork-requests)
+      (maphash
+       (lambda (_url response)
+         (when (buffer-live-p response)
+           (kill-buffer response)))
+       music-assistant--artwork-requests)
+      (clrhash music-assistant--artwork-requests))
+    (when music-assistant--client
+      (setf (music-assistant-client-on-state-change
+             music-assistant--client)
+            #'ignore)
+      (music-assistant-client-close music-assistant--client))))
+
+(defun music-assistant-show-log ()
+  "Display sanitized log entries for the current dashboard client."
   (interactive)
+  (let* ((client (music-assistant--require-client))
+         (entries
+          (reverse
+           (copy-sequence
+            (music-assistant-client-log-entries client))))
+         (buffer (get-buffer-create "*Music Assistant Log*")))
+    (with-current-buffer buffer
+      (special-mode)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "Music Assistant Log\n\n")
+        (dolist (entry entries)
+          (insert entry "\n"))))
+    (display-buffer buffer)
+    buffer))
+
+(defun music-assistant-quit ()
+  "Close dashboard resources and bury its window."
+  (interactive)
+  (music-assistant--cleanup)
   (quit-window))
 
 ;;;###autoload
@@ -665,11 +1030,13 @@
     (with-current-buffer buffer
       (unless (derived-mode-p 'music-assistant-mode)
         (music-assistant-mode))
-      (if music-assistant--client
+      (if (and music-assistant--client
+               (not music-assistant--cleaned-p))
           (when (memq (music-assistant-client-state
                        music-assistant--client)
                       '(disconnected error))
             (music-assistant-client-retry music-assistant--client))
+        (music-assistant--reset-session-state)
         (setq music-assistant--client
               (music-assistant--make-client buffer))
         (setf
