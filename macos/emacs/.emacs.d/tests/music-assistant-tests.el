@@ -58,6 +58,23 @@
     (music-assistant-client-websocket-url "http://music.test:8095/ws")
     "ws://music.test:8095/ws")))
 
+(ert-deftest music-assistant-default-scheduler-adapts-run-at-time ()
+  "Catch timers treating the first callback argument as the function."
+  (let (call)
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (seconds repeat function &rest args)
+                 (setq call (list seconds repeat function args))
+                 'fake-timer)))
+      (should
+       (eq
+        (music-assistant-client--default-schedule
+         2 #'ignore 'payload)
+        'fake-timer))
+      (should (equal call '(2 nil ignore (payload)))))
+    (should
+     (eq music-assistant--schedule-function
+         #'music-assistant-client--default-schedule))))
+
 (ert-deftest music-assistant-client-request-serializes-unique-correlated-ids ()
   "Catch reused IDs, missing empty objects, and changed wire keys."
   (pcase-let* ((`(,client ,sent-function)
@@ -1439,7 +1456,9 @@
                    (with-current-buffer response-buffer
                      (set-buffer-multibyte nil)
                      (insert "HTTP/1.1 200 OK\r\n\r\nPNG-DATA")
-                     (setq-local url-http-end-of-headers 20
+                     ;; `url-retrieve' leaves this marker on the final
+                     ;; header newline, immediately before the body.
+                     (setq-local url-http-end-of-headers 19
                                  url-current-object
                                  (url-generic-parse-url
                                   "http://cdn.test/final.png"))
@@ -1547,7 +1566,7 @@
             (with-current-buffer response-buffer
               (set-buffer-multibyte nil)
               (insert "HTTP/1.1 200 OK\r\n\r\nOLD")
-              (setq-local url-http-end-of-headers 20)
+              (setq-local url-http-end-of-headers 19)
               (apply callback nil callback-args))
             (should-not (equal music-assistant--artwork-image
                                'old-image))
@@ -1647,7 +1666,7 @@
             (with-current-buffer response-buffer
               (set-buffer-multibyte nil)
               (insert "HTTP/1.1 200 OK\r\n\r\nLATE")
-              (setq-local url-http-end-of-headers 20)
+              (setq-local url-http-end-of-headers 19)
               (apply callback nil callback-args))
             (should-not music-assistant--artwork-image)
             (should (= scheduled 0))))
