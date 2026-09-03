@@ -42,7 +42,9 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 999f3b3 (iOS: keep body viewport stable on launch)
 # + local fc3c55d (Markdown-aware live/replayed thought progress)
 # + local 5497ac1 (thought progress: tool-style activity cards)
-ACP_MOBILE_COMMIT="5497ac195db11dd28ce2b77d696127d83bb7e640"
+# + local b66dff2 (sent images: live/replay rendering and memory bounds)
+# + local d5ec75d (answer-only ADHD cue-prefix highlighting)
+ACP_MOBILE_COMMIT="d5ec75deb2d9e4b302ee684be4b1345287e1ee14"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
