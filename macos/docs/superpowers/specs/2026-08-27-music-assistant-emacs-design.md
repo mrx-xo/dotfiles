@@ -390,17 +390,15 @@ Verification consists of:
 
 1. Run the dedicated Music Assistant ERT suite in batch mode.
 2. Tangle `emacs.org` and verify `init.el` is synchronized.
-3. Run the existing 105-test configuration suite. The clean feature baseline
-   has two unrelated stale agent-shell keybinding assertions; the feature may
-   add zero additional failures. The user's dirty main checkout already
-   contains the corrected assertions.
+3. Run the complete configuration suite and require zero unexpected results.
 4. Byte-compile the two new Lisp files with warnings treated as errors where
    practical.
 5. Load the verified files into the running Emacs daemon with `emacsclient`.
 6. Add the long-lived token to Keychain if it is not already present.
 7. Open the dashboard against the live schema-31 server, select `MrX.local`,
    search for Bladee, play a result, confirm the queue and progress update via
-   server events, and pause playback.
+   server events, and toggle playback. A player without pause capability may
+   authoritatively return to `idle` rather than `paused`.
 
 ## Rollout and Compatibility
 
