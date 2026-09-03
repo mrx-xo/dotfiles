@@ -2673,5 +2673,8 @@ silent context-only capture with no marker."
               (when (fboundp 'evil-insert-state)
                 (evil-insert-state))))))
 
+
+
 ;; Pinned @-file aliases (@rig, @emacs-org, …) — see lisp/agent-shell-pins.el
 (require 'agent-shell-pins)
+

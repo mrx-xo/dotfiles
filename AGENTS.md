@@ -67,9 +67,23 @@ Emacs, run:
 ~/.dotfiles/macos/scripts/tangle-emacs-org.sh
 ```
 
-Do not use `emacs --batch -l org -f org-babel-tangle`. It runs before a file
-is visited and uses the built-in Org version, whose output can differ from the
-Elpaca Org output expected by the test suite.
+Do not use `emacs --batch -l org -f org-babel-tangle`, or any other `-Q` /
+built-in-Org tangle. Two reasons: `-f` runs before a file is visited, and the
+built-in Org (9.7) is not the Org that generates this repo's checked-in files.
+
+**Elpaca's Org is the canon.** Since 2026-06-07 it has been 10.0-pre, which
+preserves leading indentation in indented src blocks where 9.7 strips it, plus
+differs on blank-line padding — about 140 lines of `init.el`. The daemon's
+auto-tangle-on-save hook, `tangle-emacs-org.sh`, and the in-process tangle in
+`config-test-tangled-output-in-sync` all use Elpaca's Org, so they agree with
+each other and with every `init.el` this repo has committed.
+
+If that test fails after you tangled, the fix is to re-tangle with the script,
+never to re-tangle with `-Q` and never to change the test to shell out to a
+`--batch -Q` subprocess. That swap was made in `d670e8b` (2026-09-02) and
+silently inverted the canon: `840f6c8` had already restyled `init.el` with
+built-in Org, burying ~140 lines of whitespace churn in an unrelated feature
+diff. Both were reverted on 2026-09-03.
 
 ### Live Evaluation
 

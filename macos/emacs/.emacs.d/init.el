@@ -1,5 +1,8 @@
 ;;; -*- lexical-binding: t; -*-
 
+
+
+
 (defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
@@ -82,6 +85,9 @@
       (with-current-buffer buffer
         (org-mode)))))
 
+
+
+
 (prefer-coding-system 'utf-8)
 (set-default-coding-systems 'utf-8)
 (set-terminal-coding-system 'utf-8)
@@ -138,7 +144,8 @@
     (add-to-list 'load-path org-mcp-dir)
     (require 'org-mcp nil t)))
 
-(use-package org
+
+      (use-package org
         :ensure nil
         :demand t
   	:hook (org-mode . mr-x/org-mode-setup)
@@ -1428,7 +1435,9 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
       (kbd "M-<return>") #'org-meta-return
       (kbd "M-S-<return>") #'org-insert-todo-subheading))
 
-(use-package ob-typescript
+
+
+  (use-package ob-typescript
     :ensure t
     (:wait t))
 
@@ -1471,6 +1480,8 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
 					   ("=>" . "⇨")))
 (setq prettify-symbols-unprettify-at-point 'right-edge)
 (add-hook 'org-mode-hook 'prettify-symbols-mode)
+
+
 
 ;; Resolve symlinks on visit so a project-repo symlink (e.g.
 ;; ~/.dotfiles/TODO.org -> ~/roaming/notes/dotfiles.org) opens as the
@@ -1645,7 +1656,7 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
   org-roam-ui-update-on-save t
   org-roam-ui-open-on-start t))
 
-;;; ============================================
+  ;;; ============================================
   ;;; Mdox Cheatsheet System
   ;;; ============================================
 
@@ -1883,6 +1894,7 @@ navigation.  Candidates are file targets, so embark actions
       (forward-line 1)
       (message "Created Mdox: %s" (file-name-nondirectory filename))))
 
+
 (use-package osx-dictionary
   :ensure t
   :commands (osx-dictionary-search-word-at-point
@@ -1944,6 +1956,8 @@ navigation.  Candidates are file targets, so embark actions
           (funcall osx-dictionary-generate-buffer-name-function word)
         (mr-x/osx-dictionary--prettify)))))
 
+
+
 (with-eval-after-load 'transient
   (transient-define-prefix mr-x/cheatsheet ()
     "Mr-X Cheatsheet — Mdox & shortcuts launcher."
@@ -1979,7 +1993,9 @@ navigation.  Candidates are file targets, so embark actions
       ("N" "New Mdox" mr-x/mdox-new)
       ("M" "Mdox index" (lambda () (interactive) (mr-x/mdox-view "A934531C-9903-4C97-A8D6-B47647B273B3")))]]))
 
-(pcase system-type
+
+
+  (pcase system-type
     ('gnu/linux "It's Linux!")
     ('windows-nt "It's Windows!")
     ('darwin "It's macOS!"))
@@ -2134,6 +2150,8 @@ Output lands in the *calliope* buffer."
                (message "CALLIOPE: %s" (if sleep "screen asleep" "emx live on the e-ink"))
              (message "CALLIOPE: failed (off charger / needs adb re-arm?) — see *calliope*")))))))
 
+
+
 (use-package exec-path-from-shell
   :ensure t
   :config
@@ -2156,6 +2174,8 @@ Output lands in the *calliope* buffer."
         (add-to-list 'exec-path dir)
         (setenv "PATH" (concat dir path-separator (getenv "PATH")))))))
 
+
+
 (use-package no-littering
   :ensure t
   :config
@@ -2163,7 +2183,10 @@ Output lands in the *calliope* buffer."
   (load custom-file 'noerror)
   (no-littering-theme-backups))
 
-(use-package vterm
+
+
+
+    (use-package vterm
       :ensure t
       :config
       ;; Prevent evil-collection from messing with vterm keys
@@ -2329,6 +2352,10 @@ buffer 'raised keeps popper from re-adopting it."
   		 :files ("lisp/*.el" "build.zig" "build.zig.zon" "symbols.map"
   			 "src" "vendor" "etc")))
 
+
+
+
+
 (defun mr-x/ports ()
   "Show listening TCP ports."
   (interactive)
@@ -2336,7 +2363,9 @@ buffer 'raised keeps popper from re-adopting it."
   (with-current-buffer "*Ports*"
     (setq-local truncate-lines t)))
 
-(use-package all-the-icons
+
+
+    (use-package all-the-icons
       :ensure t
       :if (display-graphic-p)
       :config
@@ -2832,6 +2861,7 @@ Secondary frames: title bar + frame number."
         (setq major-pane-home-frame (selected-frame)))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
+
 (use-package websocket
   :ensure t)
 
@@ -2846,7 +2876,8 @@ Secondary frames: title bar + frame number."
   (when (fboundp 'evil-set-initial-state)
     (evil-set-initial-state 'music-assistant-mode 'motion)))
 
-(use-package perspective
+
+  (use-package perspective
   :ensure t
   :bind
   ("C-x C-i" . persp-ibuffer)
@@ -2988,7 +3019,9 @@ Called by sketchybar plugin via emacsclient --eval as fallback."
       (persp-add-buffer-to-frame-global buf)
       (switch-to-buffer buf)))
 
-(defun mr-x/buffer-pane-prefix (name)
+
+
+  (defun mr-x/buffer-pane-prefix (name)
     "Candidate prefix marking pane membership for buffer NAME.
 =▰= in the pane rotation, =⏏= agent buffer ejected/excluded,
 padding otherwise."
@@ -3038,7 +3071,9 @@ Covers the plain =buffer= category and consult-buffer's
 
   (advice-add #'completion-metadata-get :around #'mr-x/buffer-pane--metadata-get)
 
-(defun mr-x/org-mode-visual-fill ()
+
+
+  (defun mr-x/org-mode-visual-fill ()
     (setq visual-fill-column-width 100
 	  visual-fill-column-center-text t)
     (visual-fill-column-mode 1))
@@ -3329,11 +3364,14 @@ returning a number is a silent no-op."
                    (window-height . mr-x/popup-window-height)
                    (body-function . select-window))))
 
+
 (setq initial-major-mode 'org-mode)
 (setq initial-scratch-message "\
 # Clear your mind young one.")
 
-(defvar-local mr-x/fetch--logo nil
+
+
+  (defvar-local mr-x/fetch--logo nil
     "Raw ANSI logo lines for the current *fetch* buffer.")
   (defvar-local mr-x/fetch--info nil
     "Raw ANSI info lines for the current *fetch* buffer.")
@@ -3543,7 +3581,9 @@ Falls back to a one-liner if fastfetch isn't installed."
               (get-buffer-create "*scratch*")
             (mr-x/fetch-buffer))))
 
-(use-package general
+
+
+    (use-package general
       :ensure t
       :demand t
       :config
@@ -4321,7 +4361,9 @@ TASK-ID is the ID shown when Claude runs a background command."
       (interactive)
       (org-agenda nil "v"))
 
-(defvar mr-x/calliope-launch-script
+
+
+  (defvar mr-x/calliope-launch-script
     (expand-file-name "~/.dotfiles/macos/scripts/calliope-wake.sh")
     "Path to the launcher that (re)starts emx on CALLIOPE (`... emx').")
 
@@ -4428,7 +4470,11 @@ adb fallback — see the script."
                    (expand-file-name "~/.dotfiles/macos/scripts/boox-mirror.sh"))
     (message "Launching CALLIOPE mirror (scrcpy)..."))
 
+
+
 (winner-mode 1)
+
+
 
 (use-package persistent-scratch
   :ensure t
@@ -4456,7 +4502,9 @@ adb fallback — see the script."
 
   :hook (elpaca-after-init . (lambda () (persistent-scratch-setup-default))))
 
-(defvar mr-x/session-file
+
+
+  (defvar mr-x/session-file
     (expand-file-name "session-state.el" user-emacs-directory)
     "File to store session state before daemon restart.")
 
@@ -4680,7 +4728,9 @@ where make-frame would otherwise error with \"Unknown terminal type\"."
                     (string-join errors "; "))
           (format "Session restored: %d frames" (length frame-data))))))
 
-(defvar mr-x/crash-state-dir
+
+
+  (defvar mr-x/crash-state-dir
     (expand-file-name "crash-state/" user-emacs-directory)
     "Directory holding state snapshotted after an unclean exit.")
 
@@ -4910,12 +4960,16 @@ only sees the freshly restored frames."
     (setq mr-x/session-autosave-timer
           (run-with-idle-timer 30 t #'mr-x/session-autosave)))
 
+
+
 (use-package helpful
   :ensure t)
 
 (global-set-key (kbd "C-h v") #'helpful-variable)
 (global-set-key (kbd "C-h k") #'helpful-key)
 (global-set-key (kbd "C-h x") #'helpful-command)
+
+
 
 (use-package devdocs
   :ensure t
@@ -4943,8 +4997,12 @@ only sees the freshly restored frames."
           (lambda () (setq-local devdocs-current-docs
                                  '("javascript" "dom" "html"))))
 
+
+
 (use-package link-hint
   :ensure t)
+
+
 
 (use-package which-key
   :ensure t
@@ -4958,6 +5016,8 @@ only sees the freshly restored frames."
 
   ;; Hide noisy digit-argument entries (0-9)
   (push '(("\\`[0-9]\\'" . "digit-argument") . t) which-key-replacement-alist))
+
+
 
 (use-package evil
   :ensure t
@@ -4975,7 +5035,10 @@ only sees the freshly restored frames."
   (define-key evil-insert-state-map (kbd "M-<backspace>")
     (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
 
-(use-package evil-collection
+
+
+
+    (use-package evil-collection
       :ensure t
       :after evil
       :init
@@ -5126,6 +5189,8 @@ from the old one. The change is persisted with `bookmark-save'."
       "m L" '(bookmark-bmenu-list :wk "list named bookmarks")
       "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
 
+
+
 (use-package lispyville
   :ensure t
   :after evil
@@ -5139,7 +5204,9 @@ from the old one. The change is persisted with `bookmark-save'."
      additional                       ; M-drag / wrap / splice helpers
      slurp/barf-lispy)))              ; > slurp, < barf
 
-(use-package dired
+
+
+  (use-package dired
   :ensure nil  
   :commands (dired dired-jump)
   :after evil
@@ -5209,7 +5276,7 @@ from the old one. The change is persisted with `bookmark-save'."
   (dolist (mode '(text-mode-hook prog-mode-hook conf-mode-hook Info-mode-hook))
     (add-hook mode (lambda () (display-line-numbers-mode 1))))
 
-(use-package tramp
+  (use-package tramp
     :ensure nil
     :defer t
     :config
@@ -5241,7 +5308,8 @@ TRAMP can't match under a PTY — both need pipe mode."
     (with-eval-after-load 'projectile
       (advice-add 'projectile-project-root :around #'mr-x/projectile-ignore-remote-a)))
 
-;; Vertico + Consult + Orderless + Marginalia + Embark
+
+  ;; Vertico + Consult + Orderless + Marginalia + Embark
   ;; (compat is declared early, near the elpaca bootstrap, so it's queued
   ;; before everything that depends on it.)
 
@@ -5442,7 +5510,9 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :after (embark consult)
     :hook (embark-collect-mode . consult-preview-at-point-mode))
 
-;; with-editor must be configured BEFORE magit loads
+
+
+  ;; with-editor must be configured BEFORE magit loads
   (use-package with-editor
     :ensure t
     :hook ((shell-mode . with-editor-export-editor)
@@ -6020,6 +6090,8 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
                  '("omphalos.io" "omphalos.io/api/v1" "omphalos.io"
                    forge-forgejo-repository)))
 
+
+
 (setq ediff-split-window-function 'split-window-horizontally)
 (setq ediff-window-setup-function 'ediff-setup-windows-plain)
 
@@ -6043,7 +6115,8 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   ;; Optional: extra delta args for side-by-side
   (setq diff-ansi-tool-delta-args '("--side-by-side" "--width" "180")))
 
-;; Load project-dashboard from lisp directory
+
+  ;; Load project-dashboard from lisp directory
   (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
   (add-to-list 'load-path (expand-file-name "lisp/project-dashboard" user-emacs-directory))
 
@@ -6210,12 +6283,15 @@ If the buffers already exist, kills them first."
             queue-buf)))
       (message "Clearing and restarting rec dev environment")))
 
+
 (use-package ox-hugo
   :ensure t
   :after (ox))
 
 (use-package simple-httpd
   :ensure t)
+
+
 
 ;; Remember last position in files (like a real bookmark)
 (save-place-mode 1)
@@ -6437,7 +6513,8 @@ _q_: quit
 (use-package sicp
   :ensure t)
 
-(use-package markdown-mode
+
+  (use-package markdown-mode
     :ensure t
     ;; Don't register .md here - poly-markdown-mode handles it (with code block highlighting)
     :custom
@@ -7080,6 +7157,9 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
         (shell-command (format "%s %s %s" script (shell-quote-argument input) (shell-quote-argument output)))
         (message "Exported: %s" output)))
 
+
+
+
 ;; Cache treesit-auto's remap alist — without this, the expensive
 ;; treesit-language-available-p gets called for all 53 languages on
 ;; EVERY file open (~0.7s each), destroying org-agenda perf (87 files).
@@ -7261,6 +7341,7 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :config
   (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
 
+
 (use-package rainbow-delimiters
   :ensure t
   :hook (prog-mode . rainbow-delimiters-mode))
@@ -7291,6 +7372,7 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :ensure t
   :config
   (advice-add 'describe-function-1 :after #'elisp-demos-advice-describe-function-1))
+
 
 ;; Modern TypeScript setup with tree-sitter and LSP
 
@@ -7394,9 +7476,16 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :ensure (:host github :repo "nverno/prisma-ts-mode")
   :mode "\\.prisma\\'")
 
+
+
+
+
+
+
 (use-package dotenv-mode
   :ensure t
   :mode ("\\.env\\..*\\'" . dotenv-mode))
+
 
 (use-package auctex
   :ensure (auctex :pre-build (("./autogen.sh")
@@ -7435,7 +7524,9 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
             (lambda ()
               (add-hook 'after-save-hook #'mr-x/latex-compile-on-save nil t))))
 
-(use-package monet
+
+
+  (use-package monet
     :ensure (:host github :repo "https://github.com/stevemolitor/monet")
     :config
     ;; Use ediff as the diff tool
@@ -7501,7 +7592,9 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   ;; Agent-shell ecosystem tangles to its own file
   (load (expand-file-name "agent-shell-config" user-emacs-directory))
 
-(use-package ledger-mode
+
+
+  (use-package ledger-mode
     :ensure t
     :mode ("\\.dat\\'"
 	   "\\.ledger\\'")
@@ -7639,6 +7732,7 @@ Appends to the current year's transaction file."
       "Show net worth (Assets + Liabilities)."
       (interactive)
       (my/ledger-report-run "Net Worth" "balance Assets Liabilities")))
+
 
 (with-eval-after-load 'transient
   (require 'trakt-sync))
