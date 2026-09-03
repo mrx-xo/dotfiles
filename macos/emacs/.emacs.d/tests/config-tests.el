@@ -236,9 +236,49 @@ and bound on RET in `projectile-command-map'."
   "Critical agent-shell custom functions should be defined."
   (should (fboundp 'mr-x/agent-shell-toggle))
   (should (fboundp 'mr-x/agent-shell-new-smart))
+  (should (fboundp 'mr-x/agent-shell-clone))
   (should (fboundp 'mr-x/agent-shell-roaming))
   (should (fboundp 'mr-x/agent-shell-in-project))
   (should (fboundp 'mr-x/focus-ai-window)))
+
+(ert-deftest config-test-agent-shell-clone-reuses-current-model-in-fresh-session ()
+  "Clone starts a fresh shell with the source provider, model, and directory."
+  (let* ((source-config
+          '((:identifier . codex)
+            (:default-model-id . (lambda () "old-default"))))
+         (source-state
+          `((:agent-config . ,source-config)
+            (:config-options
+             . (((:id . "model")
+                 (:category . "model")
+                 (:current-value . "gpt-current"))))))
+         captured-directory
+         captured-args)
+    (with-temp-buffer
+      (setq-local major-mode 'agent-shell-mode)
+      (setq-local default-directory "/tmp/clone-source/")
+      (setq-local agent-shell--state source-state)
+      (cl-letf (((symbol-function 'agent-shell--start)
+                 (lambda (&rest args)
+                   (setq captured-directory default-directory
+                         captured-args args)
+                   'spawned-shell)))
+        (should (eq (mr-x/agent-shell-clone) 'spawned-shell))))
+    (let ((clone-config (plist-get captured-args :config)))
+      (should (equal captured-directory "/tmp/clone-source/"))
+      (should (eq (plist-get captured-args :new-session) t))
+      (should-not (plist-member captured-args :fork-session-id))
+      (should (eq (map-elt clone-config :identifier) 'codex))
+      (should-not (eq clone-config source-config))
+      (should (equal (funcall (map-elt clone-config :default-model-id))
+                     "gpt-current"))
+      (should (equal (funcall (map-elt source-config :default-model-id))
+                     "old-default")))))
+
+(ert-deftest config-test-agent-shell-clone-is-a-local-slash-command ()
+  "The local /clone command resolves to the clone implementation."
+  (should (eq (cdr (assoc "clone" mr-x/agent-shell-local-commands))
+              'mr-x/agent-shell-clone)))
 
 (ert-deftest config-test-agent-shell-inbox ()
   "Phone-screenshot inbox package should be loaded with its entry points."
@@ -1161,6 +1201,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
 (ert-deftest config-test-leader-agent-shell-subtree ()
   "SPC c subtree: core agent-shell commands must resolve correctly."
   (should (eq (config-test--leader-key "c c") 'mr-x/agent-shell-new-smart))
+  (should (eq (config-test--leader-key "c n") 'mr-x/agent-shell-clone))
   (should (eq (config-test--leader-key "c C") 'mr-x/agent-shell-preset-in-project))
   (should (eq (config-test--leader-key "c x") 'mr-x/agent-shell-sol))
   (should (eq (config-test--leader-key "c P") 'mr-x/agent-shell-start-preset))

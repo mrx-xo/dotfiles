@@ -1113,6 +1113,7 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
       (defvar mr-x/agent-shell-local-commands
         '(("new" . mr-x/agent-shell-new-smart)
+          ("clone" . mr-x/agent-shell-clone)
           ("clear" . mr-x/agent-shell-clear-context))
         "Local slash commands. Keys are names (without /), values are functions.")
 
