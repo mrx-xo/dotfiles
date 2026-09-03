@@ -27,7 +27,8 @@
     ("emacs-org"    . "~/.dotfiles/macos/emacs/.emacs.d/emacs.org")
     ("claude-md"    . "~/.claude/CLAUDE.md")
     ("prd-template" . "~/.dotfiles/macos/emacs/.emacs.d/persistent-completion-docs/TEMPLATE.md")
-    ("inventory"    . "/Users/marcosandrade/roaming/notes/mr-x-inventory-mdox.org"))
+    ("inventory"    . "/Users/marcosandrade/roaming/notes/mr-x-inventory-mdox.org")
+    ("ATLAS"        . "~/ATLAS.md"))
   
   "Alist of (ALIAS . PATH) always offered in agent-shell @ completion.
 ALIAS must only use chars in [:alnum:]/_.- (the @ completion char
