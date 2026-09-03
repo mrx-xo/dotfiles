@@ -44,6 +44,7 @@
   reconnect-attempt
   reconnect-timer
   intentional-close-p
+  terminal-error-p
   last-error
   token-provider
   on-state-change
@@ -82,9 +83,12 @@ function arguments are injectable transport and timer boundaries."
    :on-state-change (or on-state-change #'ignore)
    :request-timeout request-timeout
    :default-player-name default-player-name
-   :open-function open-function
-   :send-function send-function
-   :close-function close-function
+   :open-function (or open-function
+                      #'music-assistant-client--default-open)
+   :send-function (or send-function
+                      #'music-assistant-client--default-send)
+   :close-function (or close-function
+                       #'music-assistant-client--default-close)
    :schedule-function schedule-function
    :cancel-function cancel-function))
 
@@ -105,6 +109,98 @@ function arguments are injectable transport and timer boundaries."
     (if (string-suffix-p "/ws" websocket-url)
         websocket-url
       (concat websocket-url "/ws"))))
+
+(defun music-assistant-client--notify (client)
+  "Notify CLIENT's state observer without leaking callback errors."
+  (condition-case failure
+      (funcall (music-assistant-client-on-state-change client) client)
+    (error
+     (music-assistant-client--log
+      client 'callback "state-change-error" nil
+      (error-message-string failure)))))
+
+(defun music-assistant-client--set-state
+    (client state &optional error-message)
+  "Set CLIENT to STATE, optionally recording ERROR-MESSAGE."
+  (setf (music-assistant-client-state client) state
+        (music-assistant-client-last-error client) error-message)
+  (music-assistant-client--log
+   client 'state (symbol-name state) nil error-message)
+  (music-assistant-client--notify client)
+  state)
+
+(defun music-assistant-client--default-open (client url)
+  "Open URL with websocket.el for CLIENT."
+  (require 'websocket)
+  (websocket-open
+   url
+   :nowait t
+   :on-open
+   (lambda (websocket)
+     (when (eq websocket
+               (music-assistant-client-websocket client))
+       (music-assistant-client--log
+        client 'connection "opened")))
+   :on-message
+   (lambda (websocket frame)
+     (when (eq websocket
+               (music-assistant-client-websocket client))
+       (music-assistant-client--handle-text
+        client (websocket-frame-payload frame))))
+   :on-close
+   (lambda (websocket)
+     (music-assistant-client--handle-close client websocket))
+   :on-error
+   (lambda (websocket callback _error)
+     (when (eq websocket
+               (music-assistant-client-websocket client))
+       (music-assistant-client--log
+        client 'connection "callback-error" nil
+        (format "%s callback failed" callback))
+       (music-assistant-client--handle-close client websocket)))))
+
+(defun music-assistant-client--default-send (client text)
+  "Send TEXT through CLIENT's websocket.el connection."
+  (require 'websocket)
+  (websocket-send-text
+   (music-assistant-client-websocket client) text))
+
+(defun music-assistant-client--default-close (client)
+  "Close CLIENT's websocket.el connection if it remains open."
+  (require 'websocket)
+  (when-let ((websocket
+              (music-assistant-client-websocket client)))
+    (when (websocket-openp websocket)
+      (websocket-close websocket))))
+
+(defun music-assistant-client--cancel-reconnect (client)
+  "Cancel CLIENT's pending reconnect timer."
+  (when-let ((timer (music-assistant-client-reconnect-timer client)))
+    (setf (music-assistant-client-reconnect-timer client) nil)
+    (funcall (music-assistant-client-cancel-function client) timer)))
+
+(defun music-assistant-client-connect (client)
+  "Begin an asynchronous connection for CLIENT."
+  (music-assistant-client--cancel-reconnect client)
+  (setf (music-assistant-client-intentional-close-p client) nil
+        (music-assistant-client-terminal-error-p client) nil)
+  (music-assistant-client--set-state client 'connecting)
+  (condition-case failure
+      (let ((websocket
+             (funcall
+              (music-assistant-client-open-function client)
+              client
+              (music-assistant-client-websocket-url
+               (music-assistant-client-server-url client)))))
+        (setf (music-assistant-client-websocket client) websocket)
+        websocket)
+    (error
+     (setf (music-assistant-client-websocket client) nil)
+     (music-assistant-client--log
+      client 'connection "open-failed" nil
+      (error-message-string failure))
+     (music-assistant-client--schedule-reconnect client)
+     nil)))
 
 (defun music-assistant-client--keychain-command (service)
   "Return the argument vector that reads SERVICE from macOS Keychain."
@@ -339,8 +435,232 @@ CALLBACK receives a successful result.  ERRBACK receives a plist with
            client 'receive "unknown-message"))))
     (error
      (music-assistant-client--log
-      client 'receive "malformed-message" nil
+     client 'receive "malformed-message" nil
       "Invalid JSON ignored"))))
+
+(defun music-assistant-client--bootstrap-error (client error)
+  "Record a non-terminal bootstrap ERROR for CLIENT."
+  (setf (music-assistant-client-last-error client)
+        (plist-get error :details))
+  (music-assistant-client--log
+   client 'receive "bootstrap-error" nil
+   (plist-get error :details))
+  (music-assistant-client--notify client))
+
+(defun music-assistant-client--set-players (client players)
+  "Install PLAYERS returned during CLIENT bootstrap."
+  (setf (music-assistant-client-players client) players)
+  (when (fboundp 'music-assistant-client--resolve-selection)
+    (music-assistant-client--resolve-selection client))
+  (music-assistant-client--notify client))
+
+(defun music-assistant-client--set-queues (client queues)
+  "Install QUEUES returned during CLIENT bootstrap."
+  (setf (music-assistant-client-queues client) queues)
+  (when (fboundp 'music-assistant-client--resolve-selection)
+    (music-assistant-client--resolve-selection client))
+  (music-assistant-client--notify client))
+
+(defun music-assistant-client--bootstrap (client)
+  "Request initial player and queue state for ready CLIENT."
+  (music-assistant-client-request
+   client "players/all" nil
+   (apply-partially #'music-assistant-client--set-players client)
+   (apply-partially #'music-assistant-client--bootstrap-error client))
+  (music-assistant-client-request
+   client "player_queues/all" nil
+   (apply-partially #'music-assistant-client--set-queues client)
+   (apply-partially #'music-assistant-client--bootstrap-error client)))
+
+(defun music-assistant-client--auth-succeeded (client result)
+  "Finish CLIENT authentication from RESULT."
+  (if (eq (alist-get 'authenticated result) t)
+      (progn
+        (setf (music-assistant-client-reconnect-attempt client) 0
+              (music-assistant-client-terminal-error-p client) nil)
+        (music-assistant-client--set-state client 'ready)
+        (music-assistant-client--bootstrap client))
+    (music-assistant-client--auth-failed
+     client
+     '(:code authentication-failed
+       :details "Music Assistant authentication failed"
+       :command "auth"))))
+
+(defun music-assistant-client--auth-failed (client error)
+  "Handle CLIENT authentication ERROR without confusing drops for rejection."
+  (let ((code (plist-get error :code))
+        (details
+         (or (plist-get error :details)
+             "Music Assistant authentication failed")))
+    (if (memq code '(disconnected send-failed timeout))
+        (progn
+          (setf (music-assistant-client-terminal-error-p client) nil
+                (music-assistant-client-last-error client) details)
+          (unless (eq code 'disconnected)
+            (when (music-assistant-client-websocket client)
+              (setf (music-assistant-client-intentional-close-p client)
+                    t)
+              (condition-case nil
+                  (funcall
+                   (music-assistant-client-close-function client)
+                   client)
+                (error nil))
+              (setf (music-assistant-client-websocket client) nil
+                    (music-assistant-client-intentional-close-p client)
+                    nil)))
+          (music-assistant-client--schedule-reconnect client))
+      (setf (music-assistant-client-terminal-error-p client) t)
+      (music-assistant-client--set-state
+       client 'auth-required details))))
+
+(defun music-assistant-client--token-ready (client token)
+  "Authenticate CLIENT with TOKEN when its handshake is still active."
+  (when (and (eq (music-assistant-client-state client)
+                 'authenticating)
+             (not
+              (music-assistant-client-intentional-close-p client)))
+    (if (and (stringp token) (not (string-empty-p token)))
+        (music-assistant-client-request
+         client "auth" `((token . ,token))
+         (apply-partially
+          #'music-assistant-client--auth-succeeded client)
+         (apply-partially
+          #'music-assistant-client--auth-failed client))
+      (music-assistant-client--auth-failed
+       client
+       '(:code authentication-required
+         :details "Music Assistant token missing"
+         :command "auth")))))
+
+(defun music-assistant-client--token-failed (client details)
+  "Enter auth-required for CLIENT with safe token failure DETAILS."
+  (when (eq (music-assistant-client-state client) 'authenticating)
+    (music-assistant-client--auth-failed
+     client
+     (list :code 'authentication-required
+           :details details
+           :command "auth"))))
+
+(defun music-assistant-client--handle-server-info (client message)
+  "Validate server-info MESSAGE and authenticate CLIENT."
+  (setf (music-assistant-client-server-info client) message)
+  (music-assistant-client--log
+   client 'receive "server-info" nil
+   (format "server=%s schema=%s minimum=%s"
+           (or (alist-get 'server_version message) "unknown")
+           (or (alist-get 'schema_version message) "unknown")
+           (or (alist-get 'min_supported_schema_version message)
+               "unknown")))
+  (if (> (or (alist-get 'min_supported_schema_version message)
+             most-positive-fixnum)
+         31)
+      (progn
+        (setf (music-assistant-client-terminal-error-p client) t)
+        (music-assistant-client--set-state
+         client 'error
+         (format
+          "Music Assistant requires schema %s; this client supports schema 31"
+          (alist-get 'min_supported_schema_version message))))
+    (music-assistant-client--set-state client 'authenticating)
+    (condition-case _failure
+        (funcall
+         (music-assistant-client-token-provider client)
+         (apply-partially
+          #'music-assistant-client--token-ready client)
+         (apply-partially
+          #'music-assistant-client--token-failed client))
+      (error
+       (music-assistant-client--token-failed
+        client "Music Assistant token unavailable")))))
+
+(defun music-assistant-client--fail-pending (client code details)
+  "Reject every pending CLIENT request with CODE and DETAILS."
+  (let (requests)
+    (maphash
+     (lambda (_message-id request)
+       (push request requests))
+     (music-assistant-client-pending client))
+    (clrhash (music-assistant-client-pending client))
+    (dolist (request requests)
+      (music-assistant-client--cancel-request-timer client request)
+      (funcall
+       (music-assistant-client--pending-request-errback request)
+       (list
+        :code code
+        :details details
+        :command
+        (music-assistant-client--pending-request-command request))))))
+
+(defun music-assistant-client--run-reconnect (client)
+  "Run CLIENT's scheduled reconnect."
+  (setf (music-assistant-client-reconnect-timer client) nil)
+  (unless (or (music-assistant-client-intentional-close-p client)
+              (music-assistant-client-terminal-error-p client))
+    (music-assistant-client-connect client)))
+
+(defun music-assistant-client--schedule-reconnect (client)
+  "Schedule CLIENT's next capped reconnect, if allowed."
+  (unless (or (music-assistant-client-reconnect-timer client)
+              (music-assistant-client-intentional-close-p client)
+              (music-assistant-client-terminal-error-p client))
+    (let* ((attempt
+            (music-assistant-client-reconnect-attempt client))
+           (delay
+            (aref [1 2 4 8 16 30] (min attempt 5))))
+      (setf (music-assistant-client-reconnect-attempt client)
+            (1+ attempt))
+      (music-assistant-client--set-state
+       client 'reconnecting
+       (format "Connection lost; retrying in %s seconds" delay))
+      (setf (music-assistant-client-reconnect-timer client)
+            (funcall
+             (music-assistant-client-schedule-function client)
+             delay
+             #'music-assistant-client--run-reconnect
+             client)))))
+
+(defun music-assistant-client--handle-close
+    (client &optional websocket)
+  "Handle an expected or unexpected close for CLIENT and WEBSOCKET."
+  (when (or (null websocket)
+            (eq websocket
+                (music-assistant-client-websocket client)))
+    (setf (music-assistant-client-websocket client) nil)
+    (music-assistant-client--fail-pending
+     client 'disconnected "Music Assistant disconnected")
+    (if (music-assistant-client-intentional-close-p client)
+        (music-assistant-client--set-state client 'disconnected)
+      (music-assistant-client--schedule-reconnect client))))
+
+(defun music-assistant-client-retry (client)
+  "Cancel any delay and reconnect CLIENT immediately."
+  (music-assistant-client--cancel-reconnect client)
+  (setf (music-assistant-client-reconnect-attempt client) 0
+        (music-assistant-client-terminal-error-p client) nil)
+  (when (music-assistant-client-websocket client)
+    (setf (music-assistant-client-intentional-close-p client) t)
+    (condition-case _failure
+        (funcall (music-assistant-client-close-function client) client)
+      (error nil))
+    (setf (music-assistant-client-websocket client) nil
+          (music-assistant-client-intentional-close-p client) nil))
+  (music-assistant-client-connect client))
+
+(defun music-assistant-client-close (client)
+  "Close CLIENT and cancel all resources idempotently."
+  (setf (music-assistant-client-intentional-close-p client) t)
+  (music-assistant-client--cancel-reconnect client)
+  (music-assistant-client--fail-pending
+   client 'disconnected "Music Assistant disconnected")
+  (when (music-assistant-client-websocket client)
+    (condition-case _failure
+        (funcall (music-assistant-client-close-function client) client)
+      (error
+       (music-assistant-client--log
+        client 'connection "close-failed")))
+    (setf (music-assistant-client-websocket client) nil))
+  (music-assistant-client--set-state client 'disconnected)
+  nil)
 
 (provide 'music-assistant-client)
 
