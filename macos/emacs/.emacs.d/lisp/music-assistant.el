@@ -92,7 +92,8 @@
   "Face for compact dashboard key hints."
   :group 'music-assistant)
 
-(defvar music-assistant--schedule-function #'run-at-time
+(defvar music-assistant--schedule-function
+  #'music-assistant-client--default-schedule
   "Function used to schedule dashboard work on the Emacs event loop.")
 
 (defvar music-assistant--cancel-function #'cancel-timer
@@ -372,8 +373,8 @@
                      (data-start
                       (cond
                        ((markerp header-end)
-                        (marker-position header-end))
-                       ((integerp header-end) header-end)))
+                        (1+ (marker-position header-end)))
+                       ((integerp header-end) (1+ header-end))))
                      (final-url
                       (music-assistant--response-final-url
                        requested-url)))

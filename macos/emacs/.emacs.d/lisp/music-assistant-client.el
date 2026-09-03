@@ -60,12 +60,18 @@
   cancel-function
   log-entries)
 
+(defun music-assistant-client--default-schedule
+    (seconds function &rest args)
+  "Run FUNCTION with ARGS after SECONDS on the Emacs event loop."
+  (apply #'run-at-time seconds nil function args))
+
 (cl-defun music-assistant-client-create
     (&key server-url token-provider on-state-change
           (request-timeout 10)
           (default-player-name "MrX.local")
           open-function send-function close-function
-          (schedule-function #'run-at-time)
+          (schedule-function
+           #'music-assistant-client--default-schedule)
           (cancel-function #'cancel-timer))
   "Create a Music Assistant client without opening its connection.
 
