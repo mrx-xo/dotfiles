@@ -2410,6 +2410,44 @@ Output lands in the *calliope* buffer."
         (let ((default-directory (read-directory-name "vterm dir: ")))
           (multi-vterm)))
 
+      ;; One-shot command runner: the middle ground between
+      ;; `async-shell-command' (dumb output, no TTY) and a hand-driven
+      ;; vterm popup (real terminal, but you type and clean up yourself).
+      ;; Prompts for a command, runs it in a vterm popup that popper
+      ;; already tracks (vterm-mode rule), and leaves focus where it was.
+      ;; The shell stays alive after the command so the output persists
+      ;; until dismissed; the next run kills the previous popup.
+      (defvar mr-x/vterm-run-history nil
+        "Minibuffer history for `mr-x/vterm-run'.")
+
+      (defun mr-x/vterm-run (command)
+        "Run COMMAND in a fresh vterm popup and keep focus in the current window.
+With a prefix argument, re-run the previous command without prompting.
+Any earlier run popup is killed first so they never pile up; dismiss the
+popup with `popper-toggle' or kill it like any vterm buffer."
+        (interactive
+         (list (if (and current-prefix-arg (car mr-x/vterm-run-history))
+                   (car mr-x/vterm-run-history)
+                 (read-shell-command "Run: " nil 'mr-x/vterm-run-history))))
+        (when (string-empty-p (string-trim command))
+          (user-error "No command"))
+        (dolist (buf (buffer-list))
+          (when (string-prefix-p "*run: " (buffer-name buf))
+            (when-let ((proc (get-buffer-process buf)))
+              (set-process-query-on-exit-flag proc nil))
+            (kill-buffer buf)))
+        (let ((origin (selected-window))
+              (buf (vterm-other-window
+                    (format "*run: %s*" (truncate-string-to-width command 40 nil nil "...")))))
+          (with-current-buffer buf
+            (when-let ((proc (get-buffer-process buf)))
+              (set-process-query-on-exit-flag proc nil))
+            (vterm-send-string command)
+            (vterm-send-return))
+          (when (window-live-p origin)
+            (select-window origin))
+          buf))
+
       (defun mr-x/vterm-buffer ()
         "Open multi-vterm as a normal buffer in the current window.
 `display-buffer-overriding-action' outranks the popup rule in
@@ -3913,6 +3951,7 @@ Falls back to a one-liner if fastfetch isn't installed."
         "v b" '(mr-x/vterm-buffer :wk "vterm buffer")
         "v f" '(mr-x/vterm-frame :wk "vterm frame")
         "v d" '(mr-x/vterm-in-dir :wk "vterm in dir")
+        "v !" '(mr-x/vterm-run :wk "run command in popup")
         "v n" '(multi-vterm-next :wk "multi-vterm-next")
         "v p" '(multi-vterm-prev :wk "multi-vterm-prev")
         "v `" '(multi-vterm-dedicated-toggle :wk "multi-vterm-dedicated-toggle")
