@@ -320,28 +320,29 @@ Create `music-assistant-tests.el` with lexical binding, require ERT and both
 modules, and define a helper that captures serialized outbound frames:
 
 ```emacs-lisp
-(defun music-assistant-test-client (&rest overrides)
-  "Create a deterministic client with OVERRIDES."
-  (let ((options
-         (list :server-url "http://music.test:8095"
-               :token-provider (lambda (ok _error) (funcall ok "fake-token"))
-               :on-state-change #'ignore
-               :request-timeout 10
-               :default-player-name "Desk"
-               :open-function (lambda (_client _url) 'fake-socket)
-               :send-function (lambda (client text)
-                                (push text
-                                      (music-assistant-client-test-output
-                                       client)))
-               :close-function #'ignore
-               :schedule-function
-               (lambda (_seconds function &rest args)
-                 (list function args))
-               :cancel-function #'ignore)))
-    (while overrides
-      (setq options
-            (plist-put options (pop overrides) (pop overrides))))
-    (apply #'music-assistant-client-create options)))
+(defun music-assistant-test--client (&rest overrides)
+  "Return (CLIENT SENT-FUNCTION) built with deterministic OVERRIDES."
+  (let (sent)
+    (let ((options
+           (list :server-url "http://music.test:8095"
+                 :token-provider
+                 (lambda (ok _error) (funcall ok "fake-token"))
+                 :on-state-change #'ignore
+                 :request-timeout 10
+                 :default-player-name "Desk"
+                 :open-function (lambda (_client _url) 'fake-socket)
+                 :send-function
+                 (lambda (_client text) (push text sent))
+                 :close-function #'ignore
+                 :schedule-function
+                 (lambda (_seconds function &rest args)
+                   (list function args))
+                 :cancel-function #'ignore)))
+      (while overrides
+        (setq options
+              (plist-put options (pop overrides) (pop overrides))))
+      (list (apply #'music-assistant-client-create options)
+            (lambda () sent)))))
 ```
 
 Add tests that assert:
@@ -358,33 +359,38 @@ Add tests that assert:
            "ws://music.test:8095/ws")))
 
 (ert-deftest music-assistant-client-request-correlates-partial-result ()
-  (let* ((client (music-assistant-test-client))
-         received)
-    (music-assistant-client-request
-     client "library/tracks" '((limit . 2))
-     (lambda (result) (setq received result)))
-    (let* ((wire (json-parse-string
-                  (car (music-assistant-client-test-output client))
-                  :object-type 'alist :object-key-type 'symbol))
-           (id (alist-get 'message_id wire)))
-      (should (equal (alist-get 'command wire) "library/tracks"))
-      (music-assistant-client--handle-text
-       client
-       (json-serialize
-        `((message_id . ,id) (result . [1]) (partial . t))))
-      (should-not received)
-      (music-assistant-client--handle-text
-       client
-       (json-serialize
-        `((message_id . ,id) (result . [2]) (partial . :false))))
-      (should (equal received '(1 2))))))
+  (pcase-let* ((`(,client ,sent-function)
+                (music-assistant-test--client))
+               (received nil)
+               (id
+                (music-assistant-client-request
+                 client "library/tracks" '((limit . 2))
+                 (lambda (result) (setq received result))))
+               (wire
+                (json-parse-string
+                 (car (funcall sent-function))
+                 :object-type 'alist :array-type 'list
+                 :null-object nil :false-object :false)))
+    (should (equal (alist-get 'command wire) "library/tracks"))
+    (music-assistant-client--handle-text
+     client
+     (json-serialize
+      `((message_id . ,id) (result . [1]) (partial . t))))
+    (should-not received)
+    (music-assistant-client--handle-text
+     client
+     (json-serialize
+      `((message_id . ,id) (result . [2]) (partial . :false))
+      :false-object :false))
+    (should (equal received '(1 2)))))
 
 (ert-deftest music-assistant-client-request-delivers-safe-error-once ()
-  (let* ((client (music-assistant-test-client))
-         (errors nil)
-         (id (music-assistant-client-request
-              client "players/all" nil #'ignore
-              (lambda (error) (push error errors)))))
+  (pcase-let* ((`(,client ,_sent-function)
+                (music-assistant-test--client))
+               (errors nil)
+               (id (music-assistant-client-request
+                    client "players/all" nil #'ignore
+                    (lambda (error) (push error errors)))))
     (music-assistant-client--handle-text
      client
      (json-serialize
@@ -399,7 +405,8 @@ Add tests that assert:
     (should (equal (plist-get (car errors) :code) 401))))
 
 (ert-deftest music-assistant-client-auth-log-redacts-entire-args ()
-  (let ((client (music-assistant-test-client)))
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client)))
     (music-assistant-client--log
      client 'send "auth" "emacs-1" '((token . "fake-token")))
     (let ((line (car (music-assistant-client-log-entries client))))
@@ -427,7 +434,8 @@ and logging.
 Use `cl-defstruct` for client state and pending requests. The client slots
 must include URL, WebSocket, state, server info, pending table, sequence,
 players, queues, queue items, selected IDs, reconnect state, transport/timer
-functions, hooks, log entries, and `test-output`.
+functions, hooks, and log entries. Test capture remains in lexical test
+closures rather than production state.
 
 Use this exact request shape:
 
@@ -509,7 +517,8 @@ Add tests for these concrete transitions:
 
 ```emacs-lisp
 (ert-deftest music-assistant-client-authenticates-after-server-info ()
-  (let ((client (music-assistant-test-client)))
+  (pcase-let ((`(,client ,sent-function)
+               (music-assistant-test--client)))
     (music-assistant-client-connect client)
     (should (eq (music-assistant-client-state client) 'connecting))
     (music-assistant-client--handle-text
@@ -519,8 +528,9 @@ Add tests for these concrete transitions:
        \"base_url\":\"http://music.test:8095\"}")
     (should (eq (music-assistant-client-state client) 'authenticating))
     (let* ((auth (json-parse-string
-                  (car (music-assistant-client-test-output client))
-                  :object-type 'alist :object-key-type 'symbol))
+                  (car (funcall sent-function))
+                  :object-type 'alist :array-type 'list
+                  :null-object nil :false-object :false))
            (id (alist-get 'message_id auth)))
       (should (equal (alist-get 'command auth) "auth"))
       (music-assistant-client--handle-text
@@ -536,17 +546,18 @@ Add tests for these concrete transitions:
         (lambda (text)
           (alist-get
            'command
-           (json-parse-string text :object-type 'alist
-                              :object-key-type 'symbol)))
-        (music-assistant-client-test-output client))
+           (json-parse-string
+            text :object-type 'alist :array-type 'list
+            :null-object nil :false-object :false)))
+        (funcall sent-function))
        #'string<)
       '("auth" "player_queues/all" "players/all")))))
 
 (ert-deftest music-assistant-client-missing-token-is-terminal ()
-  (let ((client
-         (music-assistant-test-client
-          :token-provider
-          (lambda (_ok error) (funcall error "missing")))))
+  (pcase-let ((`(,client ,_sent-function)
+               (music-assistant-test--client
+                :token-provider
+                (lambda (_ok error) (funcall error "missing")))))
     (music-assistant-client-connect client)
     (music-assistant-client--handle-text
      client
@@ -558,12 +569,13 @@ Add tests for these concrete transitions:
 
 (ert-deftest music-assistant-client-reconnect-backoff-is-single-and-capped ()
   (let (delays)
-    (let ((client
-           (music-assistant-test-client
-            :schedule-function
-            (lambda (seconds function &rest args)
-              (push seconds delays)
-              (list seconds function args)))))
+    (pcase-let ((`(,client ,_sent-function)
+                 (music-assistant-test--client
+                  :schedule-function
+                  (lambda (seconds function &rest args)
+                    (push seconds delays)
+                    (list seconds function args)))))
+      (setf (music-assistant-client-state client) 'ready)
       (dotimes (_ 7)
         (setf (music-assistant-client-reconnect-timer client) nil)
         (music-assistant-client--handle-close client))
@@ -578,15 +590,15 @@ Add tests for these concrete transitions:
         cancelled
         errors
         (close-count 0))
-    (let ((client
-           (music-assistant-test-client
-            :schedule-function
-            (lambda (_seconds _function &rest _args)
-              (cl-incf next-timer))
-            :cancel-function
-            (lambda (timer) (push timer cancelled))
-            :close-function
-            (lambda (_client) (cl-incf close-count)))))
+    (pcase-let ((`(,client ,_sent-function)
+                 (music-assistant-test--client
+                  :schedule-function
+                  (lambda (_seconds _function &rest _args)
+                    (cl-incf next-timer))
+                  :cancel-function
+                  (lambda (timer) (push timer cancelled))
+                  :close-function
+                  (lambda (_client) (cl-incf close-count)))))
       (setf (music-assistant-client-websocket client) 'fake-socket)
       (music-assistant-client-request
        client "players/all" nil #'ignore
