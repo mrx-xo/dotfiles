@@ -45,7 +45,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local b66dff2 (sent images: live/replay rendering and memory bounds)
 # + local d5ec75d (answer-only ADHD cue-prefix highlighting)
 # + local 0ea33a6 (ordered lists; pins re-render on the current renderer)
-ACP_MOBILE_COMMIT="0ea33a66ecd0976e1a0c11b5b7e25eef9f49a2f9"
+# + local dff199a (lists: agent-shell panel + yellow bold markers)
+ACP_MOBILE_COMMIT="dff199a47b2653007b1ed7a581bd08716ee326e4"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
