@@ -19,6 +19,8 @@ PINK=0xFFD7448A
 RED=0xFFCE3A5B
 GREEN=0xFF638989
 GRUVBOX_GREEN=0xFFb8bb26
+ANTHROPIC_ORANGE=0xFFD97757
+FABLE_GOLD=0xFFFABD2F
 
 # main bar & defaults
 sketchybar --bar height=40        \
@@ -177,10 +179,23 @@ sketchybar --add item claude_usage left                                      \
                       background.padding_left=8                              \
                       icon=":claude:"                                        \
                       icon.font="sketchybar-app-font:Regular:16.0"           \
-                      icon.color=0xFFFFFFFF                                  \
-                      label="--%"                                            \
+                      icon.color=$ANTHROPIC_ORANGE                           \
+                      label="--% · --% |"                                   \
+                      label.padding_right=2                                  \
                       script='./plugins/claude-usage.sh'                     \
-                      update_freq=60                                         \
+                      update_freq=300                                        \
+                      click_script='open https://claude.ai/settings/usage'
+
+sketchybar --add item fable_usage left                                       \
+           --set      fable_usage                                            \
+                      drawing=off                                            \
+                      icon=                                                  \
+                      icon.color=$FABLE_GOLD                                 \
+                      icon.padding_left=6                                    \
+                      icon.padding_right=4                                   \
+                      label="--% |"                                          \
+                      label.padding_left=0                                   \
+                      label.padding_right=4                                  \
                       click_script='open https://claude.ai/settings/usage'
 
 sketchybar --add item codex_usage left                                       \
@@ -193,7 +208,7 @@ sketchybar --add item codex_usage left                                       \
                       update_freq=60                                         \
                       click_script='open https://chatgpt.com/codex/settings/usage'
 
-sketchybar --add bracket ai_usage claude_usage codex_usage                   \
+sketchybar --add bracket ai_usage claude_usage fable_usage codex_usage       \
            --set         ai_usage background.color=0xbf000000                \
                                   background.corner_radius=10                \
                                   background.height=25
