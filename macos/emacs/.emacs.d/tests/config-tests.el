@@ -466,6 +466,7 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   "Vterm helper functions should be defined."
   (should (fboundp 'mr-x/vterm-popup))
   (should (fboundp 'mr-x/vterm-in-dir))
+  (should (fboundp 'mr-x/vterm-run))
   (should (fboundp 'mr-x/vterm-buffer))
   (should (fboundp 'mr-x/vterm-frame))
   (should (fboundp 'mr-x/vterm-restart)))
@@ -1707,7 +1708,16 @@ underline up one pixel to meet it."
 Catches edits to emacs.org made outside Emacs (scripts, agents, git merges)
 where the after-save auto-tangle hook never fired.  Works by copying
 emacs.org into a temp dir, tangling there (targets are relative, so output
-lands in the temp dir), and hashing fresh vs live output."
+lands in the temp dir), and hashing fresh vs live output.
+
+Tangles IN-PROCESS on purpose: this suite runs under `-l init.el', so the
+Org doing the tangling is Elpaca's — the same one the daemon's auto-tangle
+hook and `tangle-emacs-org.sh' use, and therefore the one that generated
+the checked-in files.  Do NOT switch this to a `--batch -Q' subprocess:
+built-in Org 9.7 strips leading indentation from indented src blocks where
+Elpaca's 10.0-pre preserves it, so a -Q tangle disagrees with every file
+this repo has ever checked in (that swap happened in d670e8b on 2026-09-02
+and inverted the canon until it was reverted)."
   (require 'org)
   (let* ((src (expand-file-name "emacs.org" user-emacs-directory))
          (tmpdir (make-temp-file "tangle-sync-" t))
@@ -1715,23 +1725,8 @@ lands in the temp dir), and hashing fresh vs live output."
     (unwind-protect
         (progn
           (copy-file src tmp-org)
-          ;; Match the documented batch -Q tangle in a clean subprocess.
-          ;; The configured Org may be a newer version whose whitespace
-          ;; output differs from the built-in Org used to generate these
-          ;; checked-in files.
-          (let* ((emacs-binary
-                  (expand-file-name invocation-name
-                                    invocation-directory))
-                 (status
-                  (call-process
-                   emacs-binary nil nil nil
-                   "--batch" "-Q"
-                   "--eval" "(require 'org)"
-                   "--eval"
-                   (format
-                    "(let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file %S))"
-                    tmp-org))))
-            (should (zerop status)))
+          (let ((org-confirm-babel-evaluate nil))
+            (org-babel-tangle-file tmp-org))
           (dolist (file '("init.el" "agent-shell-config.el"))
             (ert-info ((format "%s is stale — re-tangle emacs.org (C-c C-v t)" file))
               (let ((fresh (expand-file-name file tmpdir))
