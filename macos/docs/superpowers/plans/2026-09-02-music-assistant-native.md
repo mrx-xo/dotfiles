@@ -1073,12 +1073,12 @@ fi
 ```
 
 If missing, use the already authenticated Chrome Music Assistant profile page
-to create a long-lived access token. Put it into Keychain from a private
-terminal prompt:
-
-```bash
-security add-generic-password -U -a emacs -s music-assistant-token -w
-```
+to create a long-lived access token. Add it through Keychain Access with
+service `music-assistant-token` and account `emacs`. Do not use the interactive
+`security add-generic-password ... -w` prompt: current Music Assistant JWTs
+exceed its 128-byte input limit and are silently truncated. An owner-only
+temporary file may instead be imported through the native Security framework
+and removed immediately after verification.
 
 Do not paste the token into chat, an Emacs eval form, a shell argument, the
 clipboard history, or any captured tool output.
