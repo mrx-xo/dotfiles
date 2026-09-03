@@ -1005,7 +1005,8 @@
             (dolist (expected
                      '("Music Assistant" "MrX.local" "Be Nice 2 Me"
                        "Bladee" "Ecco2k" "Icedancer" "2018"
-                       "01:42" "03:18" "73%" "playing" "Queue"))
+                       "01:42" "03:18" "73%" "playing" "Queue"
+                       "SPC ," "SPC M"))
               (should (string-match-p expected text))))
           (should (music-assistant-test--item-position
                    buffer "item-1"))

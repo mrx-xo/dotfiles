@@ -3587,6 +3587,23 @@ Falls back to a one-liner if fastfetch isn't installed."
         "l" 'winner-redo
         ;; "s" 'mr-x/toggle-shortcuts
         "S" '(mr-x/new-scratch :wk "new scratch")
+        "M" '(:ignore t :wk "music")
+        "M SPC" '(music-assistant-play-pause :wk "play/pause")
+        "M p" '(music-assistant-previous :wk "previous")
+        "M n" '(music-assistant-next :wk "next")
+        "M h" '(music-assistant-seek-backward :wk "seek backward")
+        "M l" '(music-assistant-seek-forward :wk "seek forward")
+        "M -" '(music-assistant-volume-down :wk "volume down")
+        "M +" '(music-assistant-volume-up :wk "volume up")
+        "M =" '(music-assistant-volume-up :wk "volume up")
+        "M j" '(music-assistant-queue-next :wk "queue next")
+        "M k" '(music-assistant-queue-previous :wk "queue previous")
+        "M RET" '(music-assistant-play-selected :wk "play selected")
+        "M s" '(music-assistant-search :wk "search")
+        "M P" '(music-assistant-choose-player :wk "choose player")
+        "M g" '(music-assistant-refresh :wk "refresh")
+        "M ?" '(describe-mode :wk "help")
+        "M q" '(music-assistant-quit :wk "quit dashboard")
         ;; "v" 'multi-vterm
         "e" '((lambda () (interactive) (find-file (expand-file-name "~/.dotfiles/macos/emacs/.emacs.d/emacs.org"))) :wk "emacs.org")
         "t" '(mr-x/test-environment :wk "Test environment")
@@ -3600,6 +3617,8 @@ Falls back to a one-liner if fastfetch isn't installed."
         "Launch the hydra for the current major mode."
         (interactive)
         (cond
+         ((derived-mode-p 'music-assistant-mode)
+          (hydra-music-assistant/body))
          ((derived-mode-p 'org-agenda-mode) (hydra-org-agenda/body))
          ((derived-mode-p 'org-mode) (hydra-org/body))
          ((derived-mode-p 'pdf-view-mode) (hydra-pdf/body))
@@ -5558,6 +5577,33 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
       ("-" text-scale-decrease)
       ("0" (text-scale-set 0) :exit t)
       ("q" nil :exit t))
+
+    ;; ── Music Assistant Hydra ────────────────────────────────────
+    (defhydra hydra-music-assistant (:hint nil :foreign-keys run)
+      "
+  ╭─── Music Assistant ───────────────────────────────────────────╮
+   Playback                    Queue             Session
+   _SPC_: play/pause             _j_/_k_: select      _s_: search
+   _p_/_n_: previous/next        _RET_: play          _P_: player
+   _h_/_l_: seek -/+10s          _g_: refresh         _?_: help
+   _-_/_+_/_=_: volume                              _q_: quit
+  ╰───────────────────────────────────────────────────────────────╯"
+      ("SPC" music-assistant-play-pause)
+      ("p" music-assistant-previous)
+      ("n" music-assistant-next)
+      ("h" music-assistant-seek-backward)
+      ("l" music-assistant-seek-forward)
+      ("-" music-assistant-volume-down)
+      ("+" music-assistant-volume-up)
+      ("=" music-assistant-volume-up)
+      ("j" music-assistant-queue-next)
+      ("k" music-assistant-queue-previous)
+      ("RET" music-assistant-play-selected)
+      ("s" music-assistant-search :exit t)
+      ("P" music-assistant-choose-player :exit t)
+      ("g" music-assistant-refresh)
+      ("?" describe-mode :exit t)
+      ("q" music-assistant-quit :exit t))
 
     ;; ── Org-Mode Hydra ──────────────────────────────────────────
     (defhydra hydra-org (:hint nil :foreign-keys run)

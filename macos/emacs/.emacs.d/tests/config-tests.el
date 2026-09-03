@@ -131,8 +131,46 @@
   "Per-mode hydras dispatched by `mr-x/mode-hydra' should be defined."
   (should (fboundp 'mr-x/mode-hydra))
   (dolist (body '(hydra-dired/body hydra-ibuffer/body hydra-info/body
-                  hydra-ediff/body hydra-window/body hydra-zoom/body))
+                  hydra-ediff/body hydra-music-assistant/body
+                  hydra-window/body hydra-zoom/body))
     (should (fboundp body))))
+
+(ert-deftest config-test-music-assistant-mode-hydra-controls ()
+  "The Music Assistant mode hydra should expose every dashboard control."
+  (should (boundp 'hydra-music-assistant/heads))
+  (dolist (binding
+           '(("SPC" . music-assistant-play-pause)
+             ("p" . music-assistant-previous)
+             ("n" . music-assistant-next)
+             ("h" . music-assistant-seek-backward)
+             ("l" . music-assistant-seek-forward)
+             ("-" . music-assistant-volume-down)
+             ("+" . music-assistant-volume-up)
+             ("=" . music-assistant-volume-up)
+             ("j" . music-assistant-queue-next)
+             ("k" . music-assistant-queue-previous)
+             ("RET" . music-assistant-play-selected)
+             ("s" . music-assistant-search)
+             ("P" . music-assistant-choose-player)
+             ("g" . music-assistant-refresh)
+             ("?" . describe-mode)
+             ("q" . music-assistant-quit)))
+    (should (eq (cadr (assoc (car binding)
+                             hydra-music-assistant/heads))
+                (cdr binding)))))
+
+(ert-deftest config-test-mode-hydra-dispatches-music-assistant ()
+  "SPC comma should open Music Assistant controls in its dashboard."
+  (require 'music-assistant)
+  (should (fboundp 'hydra-music-assistant/body))
+  (let ((hydra-curr-body-fn nil))
+    (unwind-protect
+        (with-temp-buffer
+          (music-assistant-mode)
+          (mr-x/mode-hydra)
+          (should (eq hydra-curr-body-fn
+                      'hydra-music-assistant/body)))
+      (hydra-keyboard-quit))))
 
 (ert-deftest config-test-project-commands ()
   "Per-project named commands: function defined, dir-locals var safe,
@@ -1270,6 +1308,28 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should
    (eq (config-test--leader-key "s m")
        'music-assistant)))
+
+(ert-deftest config-test-leader-music-assistant-controls ()
+  "SPC M should expose direct Music Assistant dashboard controls."
+  (dolist (binding
+           '(("M SPC" . music-assistant-play-pause)
+             ("M p" . music-assistant-previous)
+             ("M n" . music-assistant-next)
+             ("M h" . music-assistant-seek-backward)
+             ("M l" . music-assistant-seek-forward)
+             ("M -" . music-assistant-volume-down)
+             ("M +" . music-assistant-volume-up)
+             ("M =" . music-assistant-volume-up)
+             ("M j" . music-assistant-queue-next)
+             ("M k" . music-assistant-queue-previous)
+             ("M RET" . music-assistant-play-selected)
+             ("M s" . music-assistant-search)
+             ("M P" . music-assistant-choose-player)
+             ("M g" . music-assistant-refresh)
+             ("M ?" . describe-mode)
+             ("M q" . music-assistant-quit)))
+    (should (eq (config-test--leader-key (car binding))
+                (cdr binding)))))
 
 (ert-deftest config-test-leader-git-keys ()
   "SPC g git keys must resolve correctly."
