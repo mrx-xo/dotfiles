@@ -75,6 +75,90 @@ live state instead."
 (defvar-local syzygy-live--turn-count 0
   "Counter feeding phone-turn fragment block ids.")
 
+(defface syzygy-live-phone-label
+  '((((background light)) :foreground "#5f005f" :weight bold)
+    (t :foreground "#c678dd" :weight bold))
+  "Face for the header of a phone-originated prompt (icon + device name).
+Deliberately not the desktop prompt color: color = machine."
+  :group 'syzygy)
+
+(defface syzygy-live-phone-bar
+  '((((background light)) :foreground "#5f005f")
+    (t :foreground "#c678dd"))
+  "Face for the bar drawn down the left of a phone-originated prompt body."
+  :group 'syzygy)
+
+(defcustom syzygy-live-phone-name "DAEMON"
+  "Device name shown in the phone-turn header."
+  :type 'string
+  :group 'syzygy)
+
+(defun syzygy-live--phone-glyph ()
+  "The phone's Nerd Font mark (cellphone-message), in the phone face.
+Uses `nerd-icons' when loaded (correct icon font), else the raw glyph."
+  (if (fboundp 'nerd-icons-mdicon)
+      (nerd-icons-mdicon "nf-md-cellphone_message"
+                         :face 'syzygy-live-phone-label)
+    (propertize "\U000F08D3" 'font-lock-face 'syzygy-live-phone-label)))
+
+(defun syzygy-live--phone-label ()
+  "Header string for a phone turn: phone glyph + device name."
+  (concat (syzygy-live--phone-glyph) " "
+          (propertize syzygy-live-phone-name
+                      'font-lock-face 'syzygy-live-phone-label)))
+
+(defvar-local syzygy-live--prompt-overlay nil
+  "Overlay showing the phone mark on the live prompt during a remote turn.")
+
+(defun syzygy-live--sync-prompt-mark ()
+  "Swap the live prompt glyph for the phone mark while the phone owns the turn.
+State, not transition: while `syzygy-live--remote-turn-active' the prompt
+wears DAEMON's glyph and color (\"not your turn\"); on turn_complete it
+snaps back.  Overlay-only, so any draft typed after the prompt is untouched."
+  (when (derived-mode-p 'agent-shell-mode)
+    (if (and syzygy-live--remote-turn-active
+             (bound-and-true-p comint-last-prompt))
+        (let ((start (marker-position (car comint-last-prompt)))
+              (end (marker-position (cdr comint-last-prompt))))
+          (when (and start end (< start end))
+            (unless (overlayp syzygy-live--prompt-overlay)
+              (setq syzygy-live--prompt-overlay (make-overlay start end)))
+            (let ((ov syzygy-live--prompt-overlay))
+              (move-overlay ov start end)
+              (overlay-put ov 'display (concat (syzygy-live--phone-glyph) " "))
+              (overlay-put ov 'face 'syzygy-live-phone-label)
+              (overlay-put ov 'evaporate t))))
+      (when (overlayp syzygy-live--prompt-overlay)
+        (delete-overlay syzygy-live--prompt-overlay))
+      (setq syzygy-live--prompt-overlay nil))))
+
+;; Remote turn boundaries run this hook with the shell buffer current.
+(add-hook 'syzygy-live-turn-state-change-hook #'syzygy-live--sync-prompt-mark)
+
+(defun syzygy-live--apply-phone-bar (namespace-id block-id)
+  "Draw the phone bar down the body of fragment NAMESPACE-ID/BLOCK-ID.
+Run after every `agent-shell--update-fragment': the fragment renderer
+resets `line-prefix' on the body it inserts, so props set on the chunk
+beforehand do not survive.  Visual only, the copied text is untouched."
+  (let ((qualified-id (format "%s-%s" namespace-id block-id))
+        (bar (propertize "\u2502 " 'face 'syzygy-live-phone-bar)))
+    (save-excursion
+      (goto-char (point-max))
+      (when-let* ((match (text-property-search-backward
+                          'agent-shell-ui-state nil
+                          (lambda (_ state)
+                            (equal (map-elt state :qualified-id) qualified-id))
+                          t))
+                  (start (prop-match-beginning match))
+                  (end (or (map-elt (agent-shell-ui--block-range :position start) :end)
+                           (prop-match-end match)))
+                  (body (agent-shell-ui--nearest-range-matching-property
+                         :property 'agent-shell-ui-section :value 'body
+                         :from start :to end)))
+        (let ((inhibit-read-only t))
+          (add-text-properties (map-elt body :start) (map-elt body :end)
+                               (list 'line-prefix bar 'wrap-prefix bar)))))))
+
 ;;;###autoload
 (define-minor-mode syzygy-live-mode
   "Render phone turns live in this agent-shell buffer instead of locking.
@@ -186,17 +270,20 @@ ORIG and ARGS as in the advised function."
                                       "unknown")))))
             (when new-turn
               (cl-incf syzygy-live--turn-count))
-            (agent-shell--update-fragment
-             :state state
-             :namespace-id "out-of-turn"
-             :block-id (format "phone-turn-%d" syzygy-live--turn-count)
-             :label-left (propertize "𐆖 phone"
-                                     'font-lock-face 'agent-shell-prompt)
-             :body text
-             :append t
-             :create-new new-turn
-             :expanded t
-             :above-last-prompt t)
+            (let ((block-id (format "phone-turn-%d" syzygy-live--turn-count)))
+              (agent-shell--update-fragment
+               :state state
+               :namespace-id "out-of-turn"
+               :block-id block-id
+               :label-left (syzygy-live--phone-label)
+               :body text
+               :append t
+               :create-new new-turn
+               :expanded t
+               :above-last-prompt t)
+              (syzygy-live--apply-phone-bar "out-of-turn" block-id)
+              ;; The above-prompt insert can re-emit the prompt; re-pin the mark.
+              (syzygy-live--sync-prompt-mark))
             (map-put! state :last-entry-type "phone_user_message_chunk")))))))
 
 (defun syzygy-live--guard-submit (orig &rest args)
