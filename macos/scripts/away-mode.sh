@@ -5,6 +5,8 @@
 #                 battery sleep -> 0, print the access recipes
 #   away off      restore everything from the snapshot
 #   away status   on/off + preflight
+#   away dark     desk lights off + displays to sleep (HA script.sleep_desk);
+#                 also as `away on --dark`. Cosmetic only: the Mac stays awake.
 #
 # Snapshot lives in ~/.config/away-mode/state. Design:
 #   ~/home-lab/docs/superpowers/specs/2026-09-04-away-mode-design.md
@@ -24,8 +26,14 @@ HOMELAB_TS=100.80.97.50
 MRX2_TS=100.84.72.38
 ACP_PORT=8090
 
-force=0
-for a in "$@"; do [ "$a" = "--force" ] && force=1; done
+HA_URL=https://home.andrade-lab.com
+HA_TOKEN_FILE="$HOME/.config/gaia/ha-token.txt"
+
+force=0; dark=0
+for a in "$@"; do
+  [ "$a" = "--force" ] && force=1
+  [ "$a" = "--dark" ] && dark=1
+done
 cmd="${1:-status}"
 
 ok()   { printf '  ok    %s\n' "$*"; }
@@ -130,6 +138,18 @@ do_on() {
   echo
   echo "away mode ON: auto-install updates off, battery sleep 0. Snapshot in $STATE"
   print_recipes
+  [ "$dark" -eq 1 ] && { echo; do_dark; }
+}
+
+do_dark() {
+  # Same path as saying "good night": lights off, monitor light bars off,
+  # displays to sleep. Nothing here affects sleep/network/remote access.
+  [ -r "$HA_TOKEN_FILE" ] || { echo "dark: no HA token at $HA_TOKEN_FILE"; return 1; }
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST \
+    -H "Authorization: Bearer $(cat "$HA_TOKEN_FILE")" -H "Content-Type: application/json" \
+    "$HA_URL/api/services/script/turn_on" -d '{"entity_id":"script.sleep_desk"}')
+  if [ "$code" = "200" ]; then echo "dark: desk lights off, displays sleeping (script.sleep_desk)"; else echo "dark: HA call failed (http $code)"; return 1; fi
 }
 
 do_off() {
@@ -152,6 +172,7 @@ do_status() {
 case "$cmd" in
   on) do_on ;;
   off) do_off ;;
-  status|--force) do_status ;;
-  *) echo "usage: away-mode.sh on|off|status [--force]"; exit 2 ;;
+  dark) do_dark ;;
+  status|--force|--dark) do_status ;;
+  *) echo "usage: away-mode.sh on|off|status|dark [--force] [--dark]"; exit 2 ;;
 esac
