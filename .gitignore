@@ -36,6 +36,7 @@ macos/karabiner/automatic_backups/
 # Shared
 .claude/
 .agent-shell/
+/.superpowers/
 # root scratch docs only — must NOT swallow windows/docs, macos/docs
 # (comment on its own line: gitignore has NO inline comments — a
 #  trailing "# ..." becomes part of the pattern and silently breaks it)

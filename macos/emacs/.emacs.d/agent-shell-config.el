@@ -1064,6 +1064,7 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
 
 
+
         ;; Give Codex the same compact prompt as Claude instead of "Codex> ".
         ;; Keep this as a filter on the upstream factory so authentication,
         ;; models, session modes, and future config fields continue to come
