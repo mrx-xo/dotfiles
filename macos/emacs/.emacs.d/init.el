@@ -2927,6 +2927,17 @@ Secondary frames: title bar + frame number."
   (when (fboundp 'evil-set-initial-state)
     (evil-set-initial-state 'music-assistant-mode 'motion)))
 
+(defun mr-x/music-remote-call (command)
+  "Run COMMAND inside the Music Assistant dashboard buffer.
+Starts the dashboard if it is not open yet, without stealing the
+current window layout."
+  (let ((buffer (get-buffer "*Music Assistant*")))
+    (unless buffer
+      (save-window-excursion
+        (setq buffer (music-assistant))))
+    (with-current-buffer buffer
+      (funcall command))))
+
 
   (use-package perspective
   :ensure t
@@ -5504,7 +5515,8 @@ TRAMP can't match under a PTY — both need pipe mode."
                      ("embark-bury-buffer"      . "send buffer to back")
                      ("mr-x/rig-lookup"         . "rig lookup")
                      ("embark-copy-file-to-clipboard" . "copy file→clipboard")
-                     ("mr-x/embark-copy-buffer-path"  . "copy buffer path")))
+                     ("mr-x/embark-copy-buffer-path"  . "copy buffer path")
+                     ("mr-x/embark-markup-file" . "markup in Preview")))
       (push `((nil . ,(format "\\`%s\\'" (car entry)))
               nil . ,(cdr entry))
             which-key-replacement-alist))
@@ -5526,6 +5538,34 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     (define-key embark-file-map (kbd "O") #'embark-open-externally)
     (define-key embark-file-map (kbd "F") #'embark-open-in-finder)
     (define-key embark-file-map (kbd "P") #'embark-copy-file-to-clipboard)
+
+    ;; M = mark it up: Preview is macOS's markup app.  Opening the file is
+    ;; the whole feature; the second call just clicks View > Show Markup
+    ;; Toolbar so the pen and shapes are already out.
+    ;;
+    ;; That click is UI scripting, which needs an Accessibility grant, and
+    ;; Emacs does not have one that sticks -- so it goes through Hammerspoon
+    ;; instead, which is already granted and already running.  The Lua polls
+    ;; because `open' returns before Preview has the document up; it stops
+    ;; as soon as either markup menu item exists (the item is named "Hide
+    ;; Markup Toolbar" when the toolbar is already showing), or after ~6s.
+    ;; No Hammerspoon, no `hs' on PATH: the file still opens, Cmd+Shift+A
+    ;; shows the toolbar by hand.
+    (defconst mr-x/embark-markup-lua
+      (concat "local n=0 local t t=hs.timer.doEvery(0.3,function() n=n+1 "
+              "local a=hs.application.get(\"Preview\") "
+              "if a and (a:selectMenuItem({\"View\",\"Show Markup Toolbar\"}) "
+              "or a:findMenuItem({\"View\",\"Hide Markup Toolbar\"})) then "
+              "a:activate() t:stop() elseif n>20 then t:stop() end end)")
+      "Lua run in Hammerspoon to raise Preview's Markup toolbar.")
+
+    (defun mr-x/embark-markup-file (file)
+      "Open FILE in Preview with the Markup toolbar showing."
+      (call-process "open" nil 0 nil "-a" "Preview" (expand-file-name file))
+      (if-let ((hs (executable-find "hs")))
+          (call-process hs nil 0 nil "-c" mr-x/embark-markup-lua)
+        (message "Opened in Preview (Cmd+Shift+A for markup tools)")))
+    (define-key embark-file-map (kbd "M") #'mr-x/embark-markup-file)
 
     ;; Y = copy the current buffer's file path, from anywhere in the buffer
     ;; (target doesn't matter).  The menu-item :filter hides Y entirely in
