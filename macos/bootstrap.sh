@@ -88,6 +88,7 @@ ln -sf "$DOTDIR/sketchybar" "$HOME/.config/sketchybar"
 ln -sf "$DOTDIR/borders" "$HOME/.config/borders"
 ln -sfn "$DOTDIR/ghostty" "$HOME/.config/ghostty"
 ln -sfn "$DOTDIR/nvim" "$HOME/.config/nvim"
+ln -sfn "$DOTDIR/karabiner" "$HOME/.config/karabiner"
 ln -sf "$DOTDIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 
 # whereami — fleet-wide machine identity helper (shared/, not macos/)

@@ -27,6 +27,7 @@ macos/scripts/ipleak-check.sh
 macos/crontab
 macos/emacs/.emacs.d/ytr/
 macos/sketchybar/plugins/network.sh
+macos/karabiner/automatic_backups/
 *.bak
 
 # Per-machine shell overrides

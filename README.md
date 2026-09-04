@@ -49,6 +49,9 @@ for Elpaca to bootstrap packages, cron install).
   [sketchybar](https://github.com/FelixKratz/SketchyBar) (status bar) +
   [borders](https://github.com/FelixKratz/JankyBorders) (window highlights).
 - **Hammerspoon** (`macos/hammerspoon/`) — misc macOS automation glue.
+- **Karabiner** (`macos/karabiner/`) — caps lock to control (Karabiner
+  overrides System Settings modifier keys once installed), plus DualShock 4
+  buttons wired to Music Assistant and push-to-talk.
 - **Terminals** — Ghostty config, plus a Dracula Terminal.app profile.
 - **Neovim** (`macos/nvim/`) — secondary editor config.
 - **Scripts** (`macos/scripts/`) — Emacs daemon/sandbox/restart helpers,
