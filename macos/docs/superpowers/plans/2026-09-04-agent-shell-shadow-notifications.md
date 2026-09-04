@@ -53,9 +53,12 @@ Homebrew Bundle.
   timeout, empty response, invalid response, or process-launch error, deliver
   one plain AppleScript notification for each original event.
 - Invoke terminal-notifier with `-title`, `-message`, and `-contentImage`.
-  Version 3.1 removed `-sender`; do not pass that ignored, warning-producing
-  option. Do not add grouping, sounds, click actions, names, moods, animation,
-  or character UI.
+  Prefix the title and message argument values with exactly one literal
+  backslash because version 3.1 parses values through `NSUserDefaults` and
+  strips that prefix before display; keep the AppleScript fallback title and
+  body unmodified. Version 3.1 removed `-sender`; do not pass that ignored,
+  warning-producing option. Do not add grouping, sounds, click actions, names,
+  moods, animation, or character UI.
 - If terminal-notifier exits nonzero or cannot launch, deliver the same event
   once through AppleScript. This preserves notifications when macOS permission
   for terminal-notifier is disabled.
@@ -216,8 +219,8 @@ function, and process assertions verify this module's argument-vector contract:
        (equal
         (plist-get (car process-calls) :command)
         (list "/opt/homebrew/bin/terminal-notifier"
-              "-title" "Project"
-              "-message" "Finished"
+              "-title" "\\Project"
+              "-message" "\\Finished"
               "-contentImage" cache-file))))))
 ```
 
@@ -324,8 +327,8 @@ arguments:
           (agent-shell-notify--spawn
            "agent-shell-notification"
            (list notifier
-                 "-title" title
-                 "-message" body
+                 "-title" (concat "\\" title)
+                 "-message" (concat "\\" body)
                  "-contentImage" file)
            (lambda (process _event)
              (when (memq (process-status process) '(exit signal))
@@ -664,7 +667,7 @@ or raw session ID.
 
 Run the command from Step 2.
 
-Expected: 10 tests pass, 0 unexpected, with pristine output.
+Expected: 16 focused tests pass, 0 unexpected, with pristine output.
 
 - [ ] **Step 9: Byte-compile the module and commit Task 1**
 
@@ -808,7 +811,7 @@ unchanged because the edited source block tangles only to
 
 Run the integration command from Step 2, then the Task 1 focused command.
 
-Expected: both integration tests and all 12 focused tests pass with 0 unexpected.
+Expected: both integration tests and all 16 focused tests pass with 0 unexpected.
 
 - [ ] **Step 7: Run the full configuration suite**
 

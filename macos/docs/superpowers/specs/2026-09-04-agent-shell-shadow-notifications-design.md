@@ -48,7 +48,7 @@ agent-shell-attention event
 
 The first uncached notification may be delayed by the image fetch, bounded to three seconds. Emacs never blocks on network I/O. Later notifications for that session use the cached file immediately.
 
-`terminal-notifier` is added to `macos/Brewfile` and invoked with separate process arguments, including `-title`, `-message`, and `-contentImage`. Version 3 removed `-sender`: it accepts the option only to print a warning and ignores it because the UserNotifications framework reads the app's signed bundle identity. Image notifications therefore appear under terminal-notifier and require notification permission for that app. AppleScript remains the fallback because its `display notification` command cannot attach a content image.
+`terminal-notifier` is added to `macos/Brewfile` and invoked with separate process arguments, including `-title`, `-message`, and `-contentImage`. Version 3 removed `-sender`: it accepts the option only to print a warning and ignores it because the UserNotifications framework reads the app's signed bundle identity. Version 3.1 parses option values through `NSUserDefaults`, so the module prefixes exactly one literal backslash to each terminal-notifier title and message argument; terminal-notifier strips that one prefix before display. The AppleScript fallback retains the original unmodified title and body. Image notifications therefore appear under terminal-notifier and require notification permission for that app. AppleScript remains the fallback because its `display notification` command cannot attach a content image.
 
 ## Failure Behavior
 
