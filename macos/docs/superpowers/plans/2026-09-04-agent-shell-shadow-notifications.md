@@ -674,11 +674,13 @@ Run:
 shadow_root=/Users/marcosandrade/.dotfiles/.worktrees/agent-shell-shadow-notifications
 /opt/homebrew/opt/emacs-plus@30/bin/emacs --batch -Q \
   -L "$shadow_root/macos/emacs/.emacs.d/lisp" \
-  --eval "(let ((byte-compile-error-on-warn t)
-                 (byte-compile-dest-file-function
-                  (lambda (_) (make-temp-file \"agent-shell-notify-\" nil \".elc\"))))
-            (byte-compile-file
-             \"$shadow_root/macos/emacs/.emacs.d/lisp/agent-shell-notify.el\"))"
+  --eval "(progn
+            (require 'bytecomp)
+            (let ((byte-compile-error-on-warn t)
+                  (byte-compile-dest-file-function
+                   (lambda (_) (make-temp-file \"agent-shell-notify-\" nil \".elc\"))))
+              (byte-compile-file
+               \"$shadow_root/macos/emacs/.emacs.d/lisp/agent-shell-notify.el\")))"
 ```
 
 Expected: exit 0 with no warnings. The compiled artifact goes to the system
