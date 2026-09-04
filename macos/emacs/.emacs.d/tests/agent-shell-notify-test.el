@@ -84,8 +84,8 @@
        (equal
         (plist-get (car process-calls) :command)
         (list "/opt/homebrew/bin/terminal-notifier"
-              "-title" "Project"
-              "-message" "Finished"
+              "-title" "\\Project"
+              "-message" "\\Finished"
               "-contentImage" cache-file))))))
 
 (ert-deftest agent-shell-notify-image-delivery-failure-falls-back-to-plain ()
@@ -97,7 +97,7 @@
                (lambda (&rest args)
                  (push args process-calls)
                  'fake-process)))
-      (agent-shell-notify--deliver-image "Project" "Finished" "/tmp/shadow.png")
+      (agent-shell-notify--deliver-image "[Project" "[Finished" "/tmp/shadow.png")
       (let ((sentinel (plist-get (car process-calls) :sentinel)))
         (cl-letf (((symbol-function 'process-status) (lambda (_) 'exit))
                   ((symbol-function 'process-exit-status) (lambda (_) 3)))
@@ -105,7 +105,41 @@
     (should (= (length process-calls) 2))
     (should (equal (plist-get (car process-calls) :command)
                    '("/usr/bin/osascript" "-e"
-                     "display notification \"Finished\" with title \"Project\"")))))
+                     "display notification \"[Finished\" with title \"[Project\"")))))
+
+(ert-deftest agent-shell-notify-image-delivery-escapes-special-leading-values ()
+  "terminal-notifier TITLE and BODY values must gain one leading backslash."
+  (let (process-calls)
+    (cl-letf (((symbol-function 'executable-find)
+               #'agent-shell-notify-test--executable)
+              ((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (push args process-calls)
+                 'fake-process)))
+      (agent-shell-notify--deliver-image "[Project" "[Finished" "/tmp/shadow.png"))
+    (should (= (length process-calls) 1))
+    (should (equal (plist-get (car process-calls) :command)
+                   '("/opt/homebrew/bin/terminal-notifier"
+                     "-title" "\\[Project"
+                     "-message" "\\[Finished"
+                     "-contentImage" "/tmp/shadow.png")))))
+
+(ert-deftest agent-shell-notify-image-delivery-prefixes-already-escaped-values ()
+  "terminal-notifier values starting with backslash must receive another one."
+  (let (process-calls)
+    (cl-letf (((symbol-function 'executable-find)
+               #'agent-shell-notify-test--executable)
+              ((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (push args process-calls)
+                 'fake-process)))
+      (agent-shell-notify--deliver-image "\\Project" "\\Finished" "/tmp/shadow.png"))
+    (should (= (length process-calls) 1))
+    (should (equal (plist-get (car process-calls) :command)
+                   '("/opt/homebrew/bin/terminal-notifier"
+                     "-title" "\\\\Project"
+                     "-message" "\\\\Finished"
+                     "-contentImage" "/tmp/shadow.png")))))
 
 (ert-deftest agent-shell-notify-image-spawn-error-falls-back-to-plain-once ()
   "A terminal-notifier spawn error must not escape or lose the notification."
@@ -294,5 +328,56 @@
       (should (equal (car (plist-get (car process-calls) :command))
                      "/usr/bin/osascript"))
       (should (= (hash-table-count agent-shell-notify--downloads) 0)))))
+
+(ert-deftest agent-shell-notify-download-cleanup-error-still-drains-queue ()
+  "A failed download cleanup error must not prevent one plain notification."
+  (agent-shell-notify-test--with-cache
+    (let* ((digest (agent-shell-notify--digest "session-a"))
+           (temp-file (make-temp-file
+                       (expand-file-name ".download-"
+                                         agent-shell-notify-cache-directory)))
+           (cache-file (agent-shell-notify--cache-file digest))
+           process-calls)
+      (puthash digest (list (cons "Project" "Finished"))
+               agent-shell-notify--downloads)
+      (cl-letf (((symbol-function 'executable-find)
+                 #'agent-shell-notify-test--executable)
+                ((symbol-function 'delete-file)
+                 (lambda (_) (error "cleanup failed")))
+                ((symbol-function 'make-process)
+                 (lambda (&rest args)
+                   (push args process-calls)
+                   'fake-process))
+                ((symbol-function 'process-status) (lambda (_) 'exit))
+                ((symbol-function 'process-exit-status) (lambda (_) 22)))
+        (agent-shell-notify--finish-download
+         digest temp-file cache-file 'fake-process))
+      (should (= (hash-table-count agent-shell-notify--downloads) 0))
+      (should (= (length process-calls) 1))
+      (should (equal (car (plist-get (car process-calls) :command))
+                     "/usr/bin/osascript")))))
+
+(ert-deftest agent-shell-notify-curl-launch-cleanup-error-still-drains-queue ()
+  "A curl launch cleanup error must not prevent one plain notification."
+  (agent-shell-notify-test--with-cache
+    (let (process-calls)
+      (cl-letf (((symbol-function 'executable-find)
+                 #'agent-shell-notify-test--executable)
+                ((symbol-function 'delete-file)
+                 (lambda (_) (error "cleanup failed")))
+                ((symbol-function 'make-process)
+                 (lambda (&rest args)
+                   (if (equal (car (plist-get args :command)) "/usr/bin/curl")
+                       (error "curl launch failed")
+                     (push args process-calls)
+                     'fake-process))))
+        (with-temp-buffer
+          (setq-local agent-shell--state
+                      (list (cons :session (list (cons :id "session-a")))))
+          (mr-x/agent-shell-notify (current-buffer) "Project" "Finished")))
+      (should (= (hash-table-count agent-shell-notify--downloads) 0))
+      (should (= (length process-calls) 1))
+      (should (equal (car (plist-get (car process-calls) :command))
+                     "/usr/bin/osascript")))))
 
 ;;; agent-shell-notify-test.el ends here

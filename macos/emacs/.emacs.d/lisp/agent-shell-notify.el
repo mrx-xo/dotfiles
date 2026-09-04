@@ -80,8 +80,8 @@
             (agent-shell-notify--spawn
              "agent-shell-notification"
              (list notifier
-                   "-title" title
-                   "-message" body
+                   "-title" (concat "\\" title)
+                   "-message" (concat "\\" body)
                    "-contentImage" file)
              (lambda (process _event)
                (when (and (not finished)
@@ -127,10 +127,13 @@ Use IMAGE-FILE when non-nil; otherwise deliver plain notifications."
                    (rename-file temp-file cache-file t)
                    cache-file)
                (file-error nil)))))
-      (unless image-file
-        (when (file-exists-p temp-file)
-          (delete-file temp-file)))
-      (agent-shell-notify--drain digest image-file))))
+      (if image-file
+          (agent-shell-notify--drain digest image-file)
+        (unwind-protect
+            (ignore-errors
+              (when (file-exists-p temp-file)
+                (delete-file temp-file)))
+          (agent-shell-notify--drain digest nil))))))
 
 (defun agent-shell-notify--start-download (digest)
   "Start the one asynchronous Shadow download for DIGEST."
@@ -163,9 +166,11 @@ Use IMAGE-FILE when non-nil; otherwise deliver plain notifications."
                    (agent-shell-notify--finish-download
                     digest temp-file cache-file process)))))
           (error
-           (when (and temp-file (file-exists-p temp-file))
-             (delete-file temp-file))
-           (agent-shell-notify--drain digest nil))))
+           (unwind-protect
+               (ignore-errors
+                 (when (and temp-file (file-exists-p temp-file))
+                   (delete-file temp-file)))
+             (agent-shell-notify--drain digest nil)))))
     (agent-shell-notify--drain digest nil)))
 
 (defun agent-shell-notify--queue-download (digest title body)
