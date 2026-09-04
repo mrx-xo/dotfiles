@@ -808,7 +808,7 @@ unchanged because the edited source block tangles only to
 
 Run the integration command from Step 2, then the Task 1 focused command.
 
-Expected: both integration tests and all 10 focused tests pass with 0 unexpected.
+Expected: both integration tests and all 12 focused tests pass with 0 unexpected.
 
 - [ ] **Step 7: Run the full configuration suite**
 
