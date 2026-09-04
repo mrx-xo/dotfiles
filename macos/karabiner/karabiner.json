@@ -1,0 +1,220 @@
+{
+    "profiles": [
+        {
+            "devices": [
+                {
+                    "identifiers": {
+                        "is_game_pad": true,
+                        "product_id": 2508,
+                        "vendor_id": 1356
+                    },
+                    "ignore": false
+                }
+            ],
+            "name": "Default profile",
+            "selected": true,
+            "virtual_hid_keyboard": {
+                "keyboard_type_v2": "ansi"
+            },
+            "complex_modifications": {
+                "rules": [
+                    {
+                        "description": "DualShock 4: control Music Assistant in Emacs",
+                        "manipulators": [
+                            {
+                                "type": "basic",
+                                "description": "Cross -> play/pause",
+                                "from": {
+                                    "pointing_button": "button2",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/opt/homebrew/bin/emacsclient -e '(mr-x/music-remote-call (function music-assistant-play-pause))' >/dev/null 2>&1"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "basic",
+                                "description": "Circle -> next track",
+                                "from": {
+                                    "pointing_button": "button3",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/opt/homebrew/bin/emacsclient -e '(mr-x/music-remote-call (function music-assistant-next))' >/dev/null 2>&1"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "basic",
+                                "description": "Triangle -> previous track",
+                                "from": {
+                                    "pointing_button": "button4",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/opt/homebrew/bin/emacsclient -e '(mr-x/music-remote-call (function music-assistant-previous))' >/dev/null 2>&1"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "basic",
+                                "description": "L1 -> volume down",
+                                "from": {
+                                    "pointing_button": "button5",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/opt/homebrew/bin/emacsclient -e '(mr-x/music-remote-call (function music-assistant-volume-down))' >/dev/null 2>&1"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "basic",
+                                "description": "R1 -> volume up",
+                                "from": {
+                                    "pointing_button": "button6",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/opt/homebrew/bin/emacsclient -e '(mr-x/music-remote-call (function music-assistant-volume-up))' >/dev/null 2>&1"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "description": "DualShock 4: hold L2 to talk to Andromeda",
+                        "manipulators": [
+                            {
+                                "type": "basic",
+                                "description": "L2 held -> record; released -> transcribe and dispatch",
+                                "from": {
+                                    "pointing_button": "button7",
+                                    "modifiers": {
+                                        "optional": [
+                                            "any"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "/usr/bin/curl -s -m 2 http://127.0.0.1:8799/start"
+                                    }
+                                ],
+                                "to_after_key_up": [
+                                    {
+                                        "shell_command": "/usr/bin/curl -s -m 2 http://127.0.0.1:8799/stop"
+                                    }
+                                ],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            {
+                                                "vendor_id": 1356,
+                                                "product_id": 2508
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "simple_modifications": [
+                {
+                    "from": {
+                        "key_code": "caps_lock"
+                    },
+                    "to": [
+                        {
+                            "key_code": "left_control"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
