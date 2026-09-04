@@ -332,6 +332,19 @@ and bound on RET in `projectile-command-map'."
   (should (fboundp 'agent-shell-inbox-disarm))
   (should (fboundp 'agent-shell-inbox-armed-p)))
 
+(ert-deftest config-test-agent-shell-notify-integration ()
+  "Agent attention should own notifications through the Shadow module."
+  (should (featurep 'agent-shell-notify))
+  (should (eq agent-shell-attention-notify-function
+              #'mr-x/agent-shell-notify)))
+
+(ert-deftest config-test-agent-shell-macext-notifications-disabled ()
+  "Macext must not duplicate notifications owned by agent-shell-attention."
+  (require 'agent-shell-macext)
+  (should (boundp 'agent-shell-macext-notifications))
+  (should-not agent-shell-macext-notifications)
+  (should-not agent-shell-macext-notify-current-buffer))
+
 (ert-deftest config-test-agent-terminal ()
   "Agent terminal observer package should be loaded with its entry points."
   (should (featurep 'agent-terminal))
