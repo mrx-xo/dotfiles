@@ -107,6 +107,42 @@
                    '("/usr/bin/osascript" "-e"
                      "display notification \"Finished\" with title \"Project\"")))))
 
+(ert-deftest agent-shell-notify-image-spawn-error-falls-back-to-plain-once ()
+  "A terminal-notifier spawn error must not escape or lose the notification."
+  (let (process-calls)
+    (cl-letf (((symbol-function 'executable-find)
+               #'agent-shell-notify-test--executable)
+              ((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (if (equal (car (plist-get args :command))
+                            "/opt/homebrew/bin/terminal-notifier")
+                     (error "terminal-notifier launch failed")
+                   (push args process-calls)
+                   'fake-process))))
+      (agent-shell-notify--deliver-image "Project" "Finished" "/tmp/shadow.png"))
+    (should (= (length process-calls) 1))
+    (should (equal (plist-get (car process-calls) :command)
+                   '("/usr/bin/osascript" "-e"
+                     "display notification \"Finished\" with title \"Project\"")))))
+
+(ert-deftest agent-shell-notify-image-signal-falls-back-to-plain-once ()
+  "A signaled terminal-notifier process must deliver one AppleScript fallback."
+  (let (process-calls)
+    (cl-letf (((symbol-function 'executable-find)
+               #'agent-shell-notify-test--executable)
+              ((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (push args process-calls)
+                 'fake-process)))
+      (agent-shell-notify--deliver-image "Project" "Finished" "/tmp/shadow.png")
+      (let ((sentinel (plist-get (car process-calls) :sentinel)))
+        (cl-letf (((symbol-function 'process-status) (lambda (_) 'signal)))
+          (funcall sentinel 'fake-process "killed\n"))))
+    (should (= (length process-calls) 2))
+    (should (equal (plist-get (car process-calls) :command)
+                   '("/usr/bin/osascript" "-e"
+                     "display notification \"Finished\" with title \"Project\"")))))
+
 (ert-deftest agent-shell-notify-first-fetch-caches-then-delivers-image ()
   "A successful first fetch must atomically cache and deliver the image."
   (agent-shell-notify-test--with-cache
