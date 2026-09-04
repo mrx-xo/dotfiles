@@ -76,19 +76,22 @@
   "Deliver TITLE and BODY with content image FILE, or fall back to plain."
   (if-let ((notifier (executable-find "terminal-notifier")))
       (let ((finished nil))
-        (agent-shell-notify--spawn
-         "agent-shell-notification"
-         (list notifier
-               "-title" title
-               "-message" body
-               "-contentImage" file)
-         (lambda (process _event)
-           (when (and (not finished)
-                      (memq (process-status process) '(exit signal)))
-             (setq finished t)
-             (unless (and (eq (process-status process) 'exit)
-                          (zerop (process-exit-status process)))
-               (agent-shell-notify--deliver-plain title body))))))
+        (condition-case nil
+            (agent-shell-notify--spawn
+             "agent-shell-notification"
+             (list notifier
+                   "-title" title
+                   "-message" body
+                   "-contentImage" file)
+             (lambda (process _event)
+               (when (and (not finished)
+                          (memq (process-status process) '(exit signal)))
+                 (setq finished t)
+                 (unless (and (eq (process-status process) 'exit)
+                              (zerop (process-exit-status process)))
+                   (agent-shell-notify--deliver-plain title body)))))
+          (error
+           (agent-shell-notify--deliver-plain title body))))
     (agent-shell-notify--deliver-plain title body)))
 
 (defun agent-shell-notify--title (buffer fallback-title)
