@@ -1254,21 +1254,8 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
         (setq agent-shell-attention-render-function #'mr-x/agent-shell-attention-render)
 
-        ;; macOS notifications via AppleScript
-        (defun mr-x/agent-shell-notify (buffer _title body)
-          "Send macOS notification via AppleScript.
-Titles the banner with the buffer's major-pane label (falling back to
-the stripped project dir) instead of the raw agent buffer name, so
-finished-turn notifications read as \"my-label\" not
-\"Claude Agent @ .dotfiles<2>\".  Falls back to upstream's title when
-major-pane isn't loaded."
-          (let ((title (if (and buffer (fboundp 'major-pane--tab-label))
-                           (major-pane--tab-label buffer)
-                         _title)))
-            (start-process "notify" nil "osascript"
-                           "-e" (format "display notification %S with title %S"
-                                        body title))))
-
+        ;; Stable per-session Shadows content images with AppleScript fallback.
+        (require 'agent-shell-notify)
         (setq agent-shell-attention-notify-function #'mr-x/agent-shell-notify)
         (agent-shell-attention-mode 1))
 
@@ -1846,7 +1833,7 @@ silent context-only capture with no marker."
         :hook (agent-shell-mode . agent-shell-macext-setup)
         :custom
         (agent-shell-macext-file-copy-policy 'auto)
-        (agent-shell-macext-notifications t)
+        (agent-shell-macext-notifications nil)
         (agent-shell-macext-notify-current-buffer nil))
 
       ;; Permission UI Override - Hybrid Style (cleaner vertical layout)
