@@ -52,9 +52,13 @@ Homebrew Bundle.
 - On a missing session ID, missing dependency, download failure, HTTP error,
   timeout, empty response, invalid response, or process-launch error, deliver
   one plain AppleScript notification for each original event.
-- Invoke terminal-notifier with `-sender org.gnu.Emacs`, `-title`, `-message`,
-  and `-contentImage`. Do not add grouping, sounds, click actions, names, moods,
-  animation, or character UI.
+- Invoke terminal-notifier with `-title`, `-message`, and `-contentImage`.
+  Version 3.1 removed `-sender`; do not pass that ignored, warning-producing
+  option. Do not add grouping, sounds, click actions, names, moods, animation,
+  or character UI.
+- If terminal-notifier exits nonzero or cannot launch, deliver the same event
+  once through AppleScript. This preserves notifications when macOS permission
+  for terminal-notifier is disabled.
 - A machine-local cache guarantees long-term artwork stability only after that
   machine has fetched the image. A different Mac's first fetch after an upstream
   DiceBear art change may differ; this accepted caveat does not expand scope.
@@ -212,7 +216,6 @@ function, and process assertions verify this module's argument-vector contract:
        (equal
         (plist-get (car process-calls) :command)
         (list "/opt/homebrew/bin/terminal-notifier"
-              "-sender" "org.gnu.Emacs"
               "-title" "Project"
               "-message" "Finished"
               "-contentImage" cache-file))))))
@@ -317,13 +320,20 @@ arguments:
 (defun agent-shell-notify--deliver-image (title body file)
   "Deliver TITLE and BODY with content image FILE, or fall back to plain."
   (if-let ((notifier (executable-find "terminal-notifier")))
-      (agent-shell-notify--spawn
-       "agent-shell-notification"
-       (list notifier
-             "-sender" "org.gnu.Emacs"
-             "-title" title
-             "-message" body
-             "-contentImage" file))
+      (condition-case nil
+          (agent-shell-notify--spawn
+           "agent-shell-notification"
+           (list notifier
+                 "-title" title
+                 "-message" body
+                 "-contentImage" file)
+           (lambda (process _event)
+             (when (memq (process-status process) '(exit signal))
+               (unless (and (eq (process-status process) 'exit)
+                            (zerop (process-exit-status process)))
+                 (agent-shell-notify--deliver-plain title body)))))
+        (error
+         (agent-shell-notify--deliver-plain title body)))
     (agent-shell-notify--deliver-plain title body)))
 
 (defun agent-shell-notify--title (buffer fallback-title)
@@ -527,6 +537,33 @@ status and exit code are the only process functions stubbed:
       (should (equal (car (plist-get (car process-calls) :command))
                      "/usr/bin/osascript"))
       (should (= (hash-table-count agent-shell-notify--downloads) 0)))))
+
+(ert-deftest agent-shell-notify-image-delivery-failure-falls-back-once ()
+  "A rejected image delivery must preserve the event through AppleScript."
+  (let (process-calls)
+    (cl-letf (((symbol-function 'executable-find)
+               #'agent-shell-notify-test--executable)
+              ((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (push args process-calls)
+                 'fake-process)))
+      (agent-shell-notify--deliver-image "Project" "Finished" "/tmp/image.png")
+      (should (= (length process-calls) 1))
+      (let ((sentinel (plist-get (car process-calls) :sentinel)))
+        (cl-letf (((symbol-function 'process-status) (lambda (_) 'exit))
+                  ((symbol-function 'process-exit-status) (lambda (_) 3)))
+          (funcall sentinel 'fake-process "failed\n")))
+      (should (= (length process-calls) 2))
+      (should (= (cl-count "/opt/homebrew/bin/terminal-notifier" process-calls
+                           :key (lambda (call)
+                                  (car (plist-get call :command)))
+                           :test #'equal)
+                 1))
+      (should (= (cl-count "/usr/bin/osascript" process-calls
+                           :key (lambda (call)
+                                  (car (plist-get call :command)))
+                           :test #'equal)
+                 1)))))
 ```
 
 - [ ] **Step 6: Run the focused suite and witness the second RED**
@@ -627,7 +664,7 @@ or raw session ID.
 
 Run the command from Step 2.
 
-Expected: 9 tests pass, 0 unexpected, with pristine output.
+Expected: 10 tests pass, 0 unexpected, with pristine output.
 
 - [ ] **Step 9: Byte-compile the module and commit Task 1**
 
@@ -769,7 +806,7 @@ unchanged because the edited source block tangles only to
 
 Run the integration command from Step 2, then the Task 1 focused command.
 
-Expected: both integration tests and all 9 focused tests pass with 0 unexpected.
+Expected: both integration tests and all 10 focused tests pass with 0 unexpected.
 
 - [ ] **Step 7: Run the full configuration suite**
 

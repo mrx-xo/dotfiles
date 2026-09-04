@@ -48,12 +48,13 @@ agent-shell-attention event
 
 The first uncached notification may be delayed by the image fetch, bounded to three seconds. Emacs never blocks on network I/O. Later notifications for that session use the cached file immediately.
 
-`terminal-notifier` is added to `macos/Brewfile` and invoked with separate process arguments, including `-sender org.gnu.Emacs`, `-title`, `-message`, and `-contentImage`. AppleScript remains the fallback because its `display notification` command cannot attach a content image.
+`terminal-notifier` is added to `macos/Brewfile` and invoked with separate process arguments, including `-title`, `-message`, and `-contentImage`. Version 3 removed `-sender`: it accepts the option only to print a warning and ignores it because the UserNotifications framework reads the app's signed bundle identity. Image notifications therefore appear under terminal-notifier and require notification permission for that app. AppleScript remains the fallback because its `display notification` command cannot attach a content image.
 
 ## Failure Behavior
 
 - Missing session ID: notify immediately without an image.
 - Missing `terminal-notifier`: use the current AppleScript notification.
+- Rejected or failed `terminal-notifier` delivery: use the current AppleScript notification once.
 - Missing `curl`, timeout, HTTP error, empty response, or invalid cache entry: notify once without an image.
 - Failed temporary downloads are removed; an existing valid cached image is never overwritten by a failed request.
 - Notification and download processes never query on Emacs shutdown.
@@ -70,12 +71,12 @@ The first uncached notification may be delayed by the image fetch, bounded to th
 
 Focused ERT tests will prove deterministic identity, distinct session identities, cache hits, successful first-fetch delivery, and failure fallback without duplicate notifications. Process calls will be captured at the boundary; seed/path logic and state transitions will use the real implementation.
 
-The full config suite must pass, including tangled-output synchronization. A live daemon check must show macext notifications disabled, and a real notification must show a Shadows image while retaining the current title and body. Emacs will be live-evaluated, not restarted.
+The full config suite must pass, including tangled-output synchronization. A live daemon check must show macext notifications disabled. After terminal-notifier has macOS notification permission, a real notification must show a Shadows image while retaining the current title and body. Without that permission, the same event must fall back once to the current plain AppleScript notification. Emacs will be live-evaluated, not restarted.
 
 ## References
 
 - [DiceBear HTTP API](https://www.dicebear.com/integrations/http-api/)
 - [DiceBear Shadows style](https://www.dicebear.com/styles/shadows/)
 - [DiceBear licenses](https://www.dicebear.com/licenses/)
-- [terminal-notifier usage](https://github.com/julienXX/terminal-notifier/blob/master/README.markdown)
+- [terminal-notifier 3.1 usage](https://github.com/julienXX/terminal-notifier/blob/3.1.0/README.markdown)
 - [Homebrew terminal-notifier formula](https://formulae.brew.sh/formula/terminal-notifier)
