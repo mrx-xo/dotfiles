@@ -156,6 +156,34 @@
                              (concat "Permission: " title
                                      (if kind (format " (%s)" kind) ""))))))
 
+;; Phone-initiated turns: Emacs never sent that prompt, so agent-shell
+;; gets no response and agent-shell-attention never sees turn-complete.
+;; acp-multiplex instead broadcasts a synthetic session/update
+;; {sessionUpdate: "turn_complete", stopReason} to every frontend except
+;; the sender.  Catch it at the raw notification boundary.
+
+(defun agent-shell-push--own-turn-p (state)
+  "Non-nil when Emacs itself has a prompt in flight for STATE."
+  (and (fboundp 'agent-shell--active-requests-p)
+       (agent-shell--active-requests-p state)))
+
+(defun agent-shell-push--on-notification (&rest args)
+  "Push when ARGS carry a synthetic turn_complete for a remote turn.
+ARGS are the keyword arguments of `agent-shell--on-notification'."
+  (let* ((state (plist-get args :state))
+         (notification (plist-get args :acp-notification))
+         (buffer (map-elt state :buffer)))
+    (when (and (buffer-live-p buffer)
+               (equal (map-elt notification 'method) "session/update")
+               (equal (map-nested-elt notification
+                                      '(params update sessionUpdate))
+                      "turn_complete")
+               (not (agent-shell-push--own-turn-p state)))
+      (when-let ((body (agent-shell-push--describe-stop
+                        (map-nested-elt notification
+                                        '(params update stopReason)))))
+        (agent-shell-push-send buffer body)))))
+
 ;;; Phone-side control: sidecar read by acp-mobile, setter called by it
 
 (defcustom agent-shell-push-sidecar-file "~/.acp-mobile/push.json"
@@ -235,6 +263,10 @@ Return \"on\" or \"off\", or nil when no such buffer exists."
   (message "Phone push %s for %s"
            (if agent-shell-push-mode "ON" "off")
            (buffer-name)))
+
+(with-eval-after-load 'agent-shell
+  (advice-add 'agent-shell--on-notification :before
+              #'agent-shell-push--on-notification))
 
 (with-eval-after-load 'agent-shell-attention
   (advice-add 'agent-shell-attention--handle-success :after

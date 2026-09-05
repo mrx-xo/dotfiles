@@ -239,5 +239,59 @@ would double-send."
   (agent-shell-push-test--with-sidecar
     (should (null (agent-shell-push-set "nope" t)))))
 
+;;; Phone-initiated turns: acp-multiplex broadcasts a synthetic turn_complete
+
+(defun agent-shell-push-test--turn-complete (stop-reason)
+  "Return a parsed session/update notification ending a remote turn."
+  (list (cons 'method "session/update")
+        (cons 'params (list (cons 'sessionId "sess")
+                            (cons 'update (list (cons 'sessionUpdate "turn_complete")
+                                                (cons 'stopReason stop-reason)))))))
+
+(ert-deftest agent-shell-push-remote-turn-complete-sends ()
+  "A synthetic turn_complete for a phone-initiated turn pushes Finished."
+  (agent-shell-push-test--with-env
+    (agent-shell-push-mode 1)
+    (agent-shell-push--on-notification
+     :state (list :buffer (current-buffer))
+     :acp-notification (agent-shell-push-test--turn-complete "end_turn"))
+    (should (= 1 (length agent-shell-push-test--sent)))
+    (should (equal (alist-get 'message (agent-shell-push-test--last-payload))
+                   "Finished"))))
+
+(ert-deftest agent-shell-push-remote-turn-complete-respects-cancel-and-mode ()
+  "Cancelled remote turns and unarmed buffers do not push."
+  (agent-shell-push-test--with-env
+    (agent-shell-push--on-notification
+     :state (list :buffer (current-buffer))
+     :acp-notification (agent-shell-push-test--turn-complete "end_turn"))
+    (agent-shell-push-mode 1)
+    (agent-shell-push--on-notification
+     :state (list :buffer (current-buffer))
+     :acp-notification (agent-shell-push-test--turn-complete "cancelled"))
+    (should (null agent-shell-push-test--sent))))
+
+(ert-deftest agent-shell-push-own-turn-notification-is-ignored ()
+  "When Emacs itself has the prompt in flight, handle-success owns the push."
+  (agent-shell-push-test--with-env
+    (agent-shell-push-mode 1)
+    (cl-letf (((symbol-function 'agent-shell--active-requests-p)
+               (lambda (_state) t)))
+      (agent-shell-push--on-notification
+       :state (list :buffer (current-buffer))
+       :acp-notification (agent-shell-push-test--turn-complete "end_turn")))
+    (should (null agent-shell-push-test--sent))))
+
+(ert-deftest agent-shell-push-other-session-updates-are-ignored ()
+  "Streaming chunks never push."
+  (agent-shell-push-test--with-env
+    (agent-shell-push-mode 1)
+    (agent-shell-push--on-notification
+     :state (list :buffer (current-buffer))
+     :acp-notification
+     (list (cons 'method "session/update")
+           (cons 'params (list (cons 'update (list (cons 'sessionUpdate "agent_message_chunk")))))))
+    (should (null agent-shell-push-test--sent))))
+
 (provide 'agent-shell-push-test)
 ;;; agent-shell-push-test.el ends here

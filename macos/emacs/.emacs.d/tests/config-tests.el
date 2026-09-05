@@ -348,6 +348,10 @@ and bound on RET in `projectile-command-map'."
                            'agent-shell-attention--handle-failure))
   (should (advice-member-p #'agent-shell-push--on-event
                            'agent-shell-attention--handle-event))
+  ;; Phone-initiated turns end with a synthetic turn_complete notification
+  ;; from acp-multiplex, never a turn-complete attention event.
+  (should (advice-member-p #'agent-shell-push--on-notification
+                           'agent-shell--on-notification))
   (should (eq (lookup-key (config-test--leader-map) (kbd "c N"))
               'agent-shell-push-mode)))
 
