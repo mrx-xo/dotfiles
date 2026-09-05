@@ -50,7 +50,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 8ce1b8c (iOS: send on the first tap while the keyboard is up)
 # + local 7e990b2 (iOS standalone: restore the layout viewport after the keyboard)
 # + local 58cff90 (send motion visible; bubble stays above the thinking bar)
-ACP_MOBILE_COMMIT="58cff9031ae07cca046882f5d3505006d5a663ef"
+# + local 3403106 (jump-to-bottom snaps to the real bottom, then auto-follows)
+ACP_MOBILE_COMMIT="3403106292682ad385ca0b629c4659da1f91a426"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
