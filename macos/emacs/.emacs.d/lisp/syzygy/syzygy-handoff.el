@@ -20,6 +20,16 @@
   (expand-file-name "~/.dotfiles/macos/syzygy/agent-session-handoff.sh")
   "Path to the export/import/sync script.")
 
+(defcustom syzygy-handoff-group-by 'project
+  "How the resume-handoff picker groups its rows.
+`project' — one group per project cwd (the default).
+`date'    — group into relative-time buckets (Today, Yesterday, This
+            week, ...), newest bucket first.
+Either way rows stay sorted newest-first within their group."
+  :type '(choice (const :tag "Project" project)
+                 (const :tag "Date (newest first)" date))
+  :group 'syzygy)
+
 (defun syzygy-handoff--read-meta (file)
   "Parse KEY=VALUE lines of a handoff meta FILE into an alist.
 Values are read literally (never eval'd), so titles may contain spaces."
@@ -107,6 +117,18 @@ up).  Deduped by session id."
             ((< s 86400) (format "%dh" (/ s 3600)))
             (t (format "%dd" (/ s 86400)))))))
 
+(defun syzygy-handoff--date-bucket (mtime)
+  "Relative-time bucket label for MTIME, for `date' grouping.
+Buckets coarsen with age so recent chats stay finely separated while
+old ones collapse together."
+  (if (null mtime) "Unknown"
+    (let ((s (float-time (time-subtract (current-time) mtime))))
+      (cond ((< s 86400)   "Today")
+            ((< s 172800)  "Yesterday")
+            ((< s 604800)  "This week")
+            ((< s 2592000) "This month")
+            (t             "Older")))))
+
 (defun syzygy-handoff--read (candidates)
   "Pick one of CANDIDATES with marginalia-style annotations.
 
@@ -154,7 +176,10 @@ grouped by project and sorted newest-first, consult-style."
          (group
           (lambda (cand transform)
             (if transform cand
-              (plist-get (funcall lookup cand) :project))))
+              (let ((pl (funcall lookup cand)))
+                (if (eq syzygy-handoff-group-by 'date)
+                    (syzygy-handoff--date-bucket (plist-get pl :mtime))
+                  (plist-get pl :project))))))
          (choice
           (completing-read
            "Resume handoff: "
