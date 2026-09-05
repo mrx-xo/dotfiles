@@ -16,8 +16,18 @@ Emacs daemon (always up)
                                 (socket: $TMPDIR/acp-multiplex/<pid>.sock)
 acp-mobile (launchd, port 8090) = SECONDARY
   └── discovers sockets; serves web UI on 127.0.0.1 AND the tailnet IP
-Air/phone → http://mrx.tail9179e0.ts.net:8090?authkey=…  (over Tailscale)
+Air/phone → https://mrx.tail9179e0.ts.net?authkey=…  (tailscale serve → 8090)
 ```
+
+`tailscale serve` proxies `https://mrx.tail9179e0.ts.net` to port 8090
+(`/Applications/Tailscale.app/Contents/MacOS/Tailscale serve status`).
+acp-mobile detects that and hands out the https URL in `~/.acp-mobile/link`.
+The https origin matters: phone push is Web Push from the home-screen web
+app, which needs a secure origin, a service worker, and an install from
+that exact origin. If the phone's icon was added from the old
+`http://...:8090` URL, delete it and re-add from the https link, then tap a
+chat's bell and allow notifications. Design:
+`macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md`.
 
 ## Files here
 
@@ -43,6 +53,9 @@ Air/phone → http://mrx.tail9179e0.ts.net:8090?authkey=…  (over Tailscale)
   dirs holding `tailscale`, `claude-agent-acp`, `emacsclient`, `lsof`)
 - **Secrets**: `~/.acp-mobile/authkey` (0600). The URL to open lives in
   `~/.acp-mobile/link`. Delete `authkey` + restart to rotate.
+  `~/.acp-mobile/vapid.json` (0600) is the Web Push signing keypair and
+  `push-subscriptions.json` the phone subscriptions; deleting `vapid.json`
+  invalidates every phone subscription (re-tap a bell to resubscribe).
 
 ## Health checks
 
@@ -50,6 +63,8 @@ Air/phone → http://mrx.tail9179e0.ts.net:8090?authkey=…  (over Tailscale)
 # link file must contain the tailnet hostname, NOT 127.0.0.1 (else the
 # tailscale CLI wasn't found on PATH and remote access silently broke)
 grep -q "ts.net" ~/.acp-mobile/link && echo OK || echo BROKEN
+# https form means tailscale serve was detected (needed for phone push)
+grep -q "^https://" ~/.acp-mobile/link && echo HTTPS || echo "http only: check tailscale serve"
 
 launchctl list | grep acp-mobile          # running?
 ls "$TMPDIR"acp-multiplex/*.sock          # sessions exposed?

@@ -1,10 +1,12 @@
 ;;; agent-shell-push.el --- Opt-in phone push for agent-shell turns -*- lexical-binding: t; -*-
 
-;; Per-buffer, default-off iOS push via the Home Assistant companion app.
-;; Fires on three agent-shell-attention events only: turn done, turn
-;; failed, permission request.  Ignores the buffer-visible suppression
-;; that gates the macOS notification, because an armed buffer is usually
-;; still on screen on the Mac the user walked away from.
+;; Per-buffer, default-off iOS push.  Delivery is Web Push sent by the
+;; local acp-mobile (POST /api/notify), so a tap opens the home-screen
+;; web app on that conversation.  Fires on three agent-shell-attention
+;; events only: turn done, turn failed, permission request.  Ignores the
+;; buffer-visible suppression that gates the macOS notification, because
+;; an armed buffer is usually still on screen on the Mac the user walked
+;; away from.
 ;; Design: macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md
 
 (require 'map)
@@ -15,23 +17,13 @@
   "Phone push notifications for agent-shell conversations."
   :group 'agent-shell)
 
-(defcustom agent-shell-push-ha-url "https://home.andrade-lab.com"
-  "Home Assistant base URL."
-  :type 'string
+(defcustom agent-shell-push-port 8090
+  "Port of the local acp-mobile instance that fans out Web Push."
+  :type 'integer
   :group 'agent-shell-push)
 
-(defcustom agent-shell-push-token-file "~/.config/gaia/ha-token.txt"
-  "File holding the Home Assistant long-lived access token."
-  :type 'file
-  :group 'agent-shell-push)
-
-(defcustom agent-shell-push-service "mobile_app_daemon"
-  "Home Assistant notify service name for the target phone."
-  :type 'string
-  :group 'agent-shell-push)
-
-(defcustom agent-shell-push-link-file "~/.acp-mobile/link"
-  "File holding the acp-mobile URL that a tapped push should open."
+(defcustom agent-shell-push-authkey-file "~/.acp-mobile/authkey"
+  "File holding acp-mobile's authkey; sent as the authkey cookie."
   :type 'file
   :group 'agent-shell-push)
 
@@ -67,44 +59,40 @@
       (major-pane--tab-label buffer)
     (buffer-name buffer)))
 
-(defun agent-shell-push--payload (title body tag)
-  "Return the JSON string for a push titled TITLE with BODY grouped by TAG."
-  (let* ((link (agent-shell-push--read-line agent-shell-push-link-file))
-         (data (append (when link (list (cons 'url link)))
-                       (list (cons 'group "agent-shell")
-                             (cons 'tag tag)))))
-    (json-encode (list (cons 'title title)
-                       (cons 'message body)
-                       (cons 'data data)))))
+(defun agent-shell-push--payload (buffer-name title body)
+  "Return the JSON string acp-mobile's /api/notify expects.
+BUFFER-NAME routes the tap back to the conversation and doubles as the
+notification tag; TITLE and BODY are what the banner shows."
+  (json-encode (list (cons 'bufferName buffer-name)
+                     (cons 'title title)
+                     (cons 'message body))))
 
-(defun agent-shell-push--command (token payload)
-  "Return the curl argv posting PAYLOAD with bearer TOKEN."
-  (list "curl" "-s" "-o" "/dev/null" "--max-time" "8"
+(defun agent-shell-push--command (authkey payload)
+  "Return the curl argv posting PAYLOAD to local acp-mobile with AUTHKEY."
+  (list "curl" "-s" "-o" "/dev/null" "--max-time" "20"
         "-X" "POST"
-        "-H" (concat "Authorization: Bearer " token)
+        "-H" (concat "Cookie: authkey=" authkey)
         "-H" "Content-Type: application/json"
         "-d" payload
-        (format "%s/api/services/notify/%s"
-                (string-remove-suffix "/" agent-shell-push-ha-url)
-                agent-shell-push-service)))
+        (format "http://127.0.0.1:%d/api/notify" agent-shell-push-port)))
 
 (defun agent-shell-push-send (buffer body)
   "Push BODY for BUFFER when it is armed.  Never signals."
   (when (and (buffer-live-p buffer)
              (buffer-local-value 'agent-shell-push-mode buffer))
-    (let ((token (agent-shell-push--read-line agent-shell-push-token-file)))
-      (if (not token)
-          (message "agent-shell-push: no HA token at %s"
-                   agent-shell-push-token-file)
+    (let ((authkey (agent-shell-push--read-line agent-shell-push-authkey-file)))
+      (if (not authkey)
+          (message "agent-shell-push: no acp-mobile authkey at %s"
+                   agent-shell-push-authkey-file)
         (condition-case err
             (funcall agent-shell-push-spawn-function
                      "agent-shell-push"
                      (agent-shell-push--command
-                      token
+                      authkey
                       (agent-shell-push--payload
+                       (buffer-name buffer)
                        (agent-shell-push--title buffer)
-                       body
-                       (buffer-name buffer))))
+                       body)))
           (error (message "agent-shell-push: %s" err)))))))
 
 ;;; Event filters (mirror agent-shell-attention's wording)
