@@ -1,0 +1,72 @@
+# Agent Shell Phone Push Design
+
+Date: 2026-09-05
+Status: Shipped with the implementation
+
+**Goal:** Let an opted-in agent-shell conversation push an iOS notification to
+DAEMON when the agent finishes a turn, fails, or needs a permission answer, so
+a session can be watched from the phone without polling acp-mobile.
+
+## Decisions
+
+- **Opt-in per buffer, default off.** `agent-shell-push-mode` is a buffer-local
+  minor mode. Nothing pushes unless the user arms that specific conversation.
+  The flag dies with the buffer; a resumed session must be re-armed.
+- **Any agent.** The hook sits on `agent-shell-attention`'s event handlers,
+  which are ACP-generic. Claude, Codex, Gemini, and any other agent-shell
+  backend report the same three events.
+- **Three events only.** `done` (turn complete, any stop reason except
+  `cancelled`), `failed` (request error), and `permission` (permission
+  request). Streaming chunks, tool progress, and permission responses never
+  reach the push path. A user-initiated cancel is not pushed because the user
+  caused it.
+- **No focus suppression.** `agent-shell-attention` skips the macOS
+  notification when the buffer is visible. The push path ignores that check:
+  an armed buffer is usually still visible on the Mac the user walked away
+  from.
+- **No away-mode gate.** Arming a buffer is the "I am remote" signal. Coupling
+  to `away` would add a second switch to remember.
+- **Delivery: Home Assistant companion push.** `POST
+  /api/services/notify/mobile_app_daemon` on `home.andrade-lab.com`, bearer
+  token from `~/.config/gaia/ha-token.txt` (same pattern as `away-mode.sh
+  dark`). Works off the tailnet because HA is reachable over the public
+  hostname.
+- **Tap opens acp-mobile.** `data.url` carries the link from
+  `~/.acp-mobile/link` (tailnet URL with authkey). Opening it still needs
+  Tailscale on the phone.
+- **Grouping.** `data.group` is `agent-shell`; `data.tag` is the buffer name so
+  a newer event for the same conversation replaces the older banner instead
+  of stacking.
+- **Title.** The major-pane tab label, via `agent-shell-notify--title`, so the
+  push says which agent and which session, matching the Mac notification.
+
+## Flow
+
+```text
+agent-shell-attention event (done | failed | permission)
+  -> agent-shell-push-mode on in that buffer?  no: stop
+  -> stop reason is "cancelled"?               yes: stop
+  -> token file readable?                      no: message, stop
+  -> build JSON {title, message, data{url, group, tag}}
+  -> async curl POST to HA notify service (fire and forget)
+```
+
+## Files
+
+- `macos/emacs/.emacs.d/lisp/agent-shell-push.el`: minor mode, event
+  filters, payload builder, curl spawn, advice on
+  `agent-shell-attention--handle-success`, `--handle-failure`, and
+  `--handle-event`.
+- `macos/emacs/.emacs.d/tests/agent-shell-push-test.el`: ERT suite. External
+  processes are captured at the command boundary; tests assert on the argv
+  and JSON the module would hand to curl.
+- `emacs.org` agent-shell section: `(require 'agent-shell-push)` next to the
+  Shadow notifier, plus `SPC c N` bound to `agent-shell-push-mode`.
+
+## Not in scope
+
+- Shadow image on the phone banner (needs a hosted PNG).
+- Rate limiting. One push per event; revisit if long autonomous runs get
+  noisy.
+- Persisting the armed flag across buffer kills or machines.
+- Telegram or the Claude Code push tool as alternate channels.

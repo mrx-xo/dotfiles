@@ -338,6 +338,19 @@ and bound on RET in `projectile-command-map'."
   (should (eq agent-shell-attention-notify-function
               #'mr-x/agent-shell-notify)))
 
+(ert-deftest config-test-agent-shell-push-integration ()
+  "Phone push module loads, is off by default, and hooks attention events."
+  (should (featurep 'agent-shell-push))
+  (should-not (default-value 'agent-shell-push-mode))
+  (should (advice-member-p #'agent-shell-push--on-success
+                           'agent-shell-attention--handle-success))
+  (should (advice-member-p #'agent-shell-push--on-failure
+                           'agent-shell-attention--handle-failure))
+  (should (advice-member-p #'agent-shell-push--on-event
+                           'agent-shell-attention--handle-event))
+  (should (eq (lookup-key (config-test--leader-map) (kbd "c N"))
+              'agent-shell-push-mode)))
+
 (ert-deftest config-test-agent-shell-macext-notifications-disabled ()
   "Macext must not duplicate notifications owned by agent-shell-attention."
   (require 'agent-shell-macext)
