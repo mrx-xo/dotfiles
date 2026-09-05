@@ -19,6 +19,7 @@
   `(let* ((dir (make-temp-file "agent-shell-push-test-" t))
           (agent-shell-push-token-file (expand-file-name "token" dir))
           (agent-shell-push-link-file (expand-file-name "link" dir))
+          (agent-shell-push-sidecar-file (expand-file-name "push.json" dir))
           (agent-shell-push-ha-url "https://ha.example")
           (agent-shell-push-service "mobile_app_daemon")
           (agent-shell-push-test--sent nil)
@@ -170,6 +171,73 @@ would double-send."
     (agent-shell-push-mode -1)
     (should-not (member agent-shell-push-lighter mode-line-process))
     (should (member ":%s" mode-line-process))))
+
+;;; Phone-side control: sidecar + setter
+
+(defvar agent-shell--state nil)
+
+(defmacro agent-shell-push-test--with-sidecar (&rest body)
+  "Run BODY with an isolated sidecar file and two fake session buffers."
+  (declare (indent 0) (debug t))
+  `(let* ((dir (make-temp-file "agent-shell-push-sidecar-" t))
+          (agent-shell-push-sidecar-file (expand-file-name "push.json" dir))
+          (a (generate-new-buffer "Claude Agent @ a"))
+          (b (generate-new-buffer "Codex Agent @ b")))
+     (with-current-buffer a
+       (setq-local agent-shell--state (list :session (list :id "sess-a"))))
+     (with-current-buffer b
+       (setq-local agent-shell--state (list :session (list :id "sess-b"))))
+     (unwind-protect
+         (progn ,@body)
+       (when (buffer-live-p a) (kill-buffer a))
+       (when (buffer-live-p b) (kill-buffer b))
+       (delete-directory dir t))))
+
+(defun agent-shell-push-test--sidecar ()
+  "Return the parsed sidecar as an alist, or nil when absent."
+  (when (file-exists-p agent-shell-push-sidecar-file)
+    (let ((json-object-type 'alist) (json-key-type 'string))
+      (with-temp-buffer
+        (insert-file-contents agent-shell-push-sidecar-file)
+        (json-read-from-string (buffer-string))))))
+
+(ert-deftest agent-shell-push-sidecar-lists-only-armed-sessions ()
+  "Arming writes the session id to the sidecar; unarmed sessions are absent."
+  (agent-shell-push-test--with-sidecar
+    (with-current-buffer a (agent-shell-push-mode 1))
+    (let ((sidecar (agent-shell-push-test--sidecar)))
+      (should (eq t (alist-get "sess-a" sidecar nil nil #'equal)))
+      (should-not (assoc "sess-b" sidecar)))))
+
+(ert-deftest agent-shell-push-sidecar-drops-disarmed-session ()
+  "Disarming rewrites the sidecar without that session."
+  (agent-shell-push-test--with-sidecar
+    (with-current-buffer a (agent-shell-push-mode 1))
+    (with-current-buffer b (agent-shell-push-mode 1))
+    (with-current-buffer a (agent-shell-push-mode -1))
+    (let ((sidecar (agent-shell-push-test--sidecar)))
+      (should-not (assoc "sess-a" sidecar))
+      (should (eq t (alist-get "sess-b" sidecar nil nil #'equal))))))
+
+(ert-deftest agent-shell-push-sidecar-drops-killed-buffer ()
+  "Killing an armed buffer removes its session from the sidecar."
+  (agent-shell-push-test--with-sidecar
+    (with-current-buffer a (agent-shell-push-mode 1))
+    (kill-buffer a)
+    (should-not (assoc "sess-a" (agent-shell-push-test--sidecar)))))
+
+(ert-deftest agent-shell-push-set-by-buffer-name ()
+  "The phone setter flips the mode by buffer name and reports the new state."
+  (agent-shell-push-test--with-sidecar
+    (should (equal (agent-shell-push-set "Claude Agent @ a" t) "on"))
+    (should (buffer-local-value 'agent-shell-push-mode a))
+    (should (equal (agent-shell-push-set "Claude Agent @ a" nil) "off"))
+    (should-not (buffer-local-value 'agent-shell-push-mode a))))
+
+(ert-deftest agent-shell-push-set-unknown-buffer-returns-nil ()
+  "An unknown buffer name yields nil so acp-mobile can answer 404."
+  (agent-shell-push-test--with-sidecar
+    (should (null (agent-shell-push-set "nope" t)))))
 
 (provide 'agent-shell-push-test)
 ;;; agent-shell-push-test.el ends here
