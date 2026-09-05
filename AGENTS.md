@@ -180,12 +180,11 @@ Windows bootstrap and subsystem details live in `windows/README.md` and
 
 ## Design Docs and Vocabulary
 
-Specs and PRDs follow `docs/templates/prd.md` (reference it in a chat as
-`@docs/templates/prd.md`). Rig-level specs go in
-`macos/docs/superpowers/specs/`, plans and handoffs in
-`macos/docs/superpowers/plans/`, subsystem PRDs in `docs/`. Every term a doc
-or feature coins gets a line in `docs/glossary.md` in the same commit; device
-and persona names stay in `docs/naming.md`.
+Rig-level specs live in `macos/docs/superpowers/specs/`, plans and handoffs
+in `macos/docs/superpowers/plans/`, subsystem PRDs in `docs/`. An optional
+house template for the spec shape is `docs/templates/prd.md` (reference it in
+a chat as `@docs/templates/prd.md`). Vocabulary for the whole rig is
+`~/atlas/glossary.md`; add a line there when a feature coins a term.
 
 ## Explanation Style
 
