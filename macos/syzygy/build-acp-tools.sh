@@ -53,7 +53,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 3403106 (jump-to-bottom snaps to the real bottom, then auto-follows)
 # + local bc0b684 (answered permissions in replay no longer look busy)
 # + local eb3d212 (phone push bell in chat header; /api/push + push.json sidecar)
-ACP_MOBILE_COMMIT="eb3d2122e2365ecce3088b030d46ac276559bcfe"
+# + local e2a6555 (filled bell on session cards when push is armed)
+ACP_MOBILE_COMMIT="e2a6555ab2900b599f3ac4c5ef66b5013d71304e"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
