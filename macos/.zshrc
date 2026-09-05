@@ -297,3 +297,5 @@ alias upshow="upload-media \$1 shows"
 # Reachable from other tailnet devices as http://mrx2:11434 or http://100.84.72.38:11434.
 # Revert to 0.0.0.0 if you need it on the plain LAN or on localhost without tailscale.
 export OLLAMA_HOST=100.84.72.38
+
+. "$HOME/.local/bin/env"
