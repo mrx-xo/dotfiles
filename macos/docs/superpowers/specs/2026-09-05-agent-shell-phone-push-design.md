@@ -100,8 +100,12 @@ chat shows the rig's current state without an extra round trip.
   not merged, because armed state is not meant to persist.
 - Same validation and escaping as `/api/label`: buffer name must match
   `validBufferName`, quotes and backslashes are escaped in the Lisp call.
-- acp-mobile side lives in `~/src/acp-mobile` (commit `eb3d212`, pinned in
-  `macos/syzygy/build-acp-tools.sh`); Go tests in `push_test.go`.
+- acp-mobile side lives in `~/src/acp-mobile` (commits `eb3d212` header
+  bell, `e2a6555` card bell; pinned in `macos/syzygy/build-acp-tools.sh`);
+  Go tests in `push_test.go`.
+- Session cards in the navigator show a small filled orange bell after the
+  name when armed, and nothing when off. State-only, not a tap target; the
+  sessions poll (every 12s while the navigator is visible) keeps it fresh.
 
 ## Not in scope
 
@@ -109,5 +113,4 @@ chat shows the rig's current state without an extra round trip.
 - Rate limiting. One push per event; revisit if long autonomous runs get
   noisy.
 - Persisting the armed flag across buffer kills or machines.
-- Bell on the session cards in the navigator. Header only for now.
 - Telegram or the Claude Code push tool as alternate channels.
