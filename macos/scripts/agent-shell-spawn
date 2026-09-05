@@ -1,23 +1,32 @@
 #!/bin/bash
-# agent-shell-spawn NAME CWD [TASK] [PRESET]
+# agent-shell-spawn NAME CWD [TASK] [PRESET] [CLONE_OF]
 #
 # Bridge for acp-mobile's /api/spawn (see handleSpawn in main.go): asks
 # the Emacs daemon to open a new agent-shell convo in CWD, pane-labeled
 # NAME, optionally submitting TASK as the first prompt once the session
 # handshake completes.  PRESET is a single char key into the rig's
-# mr-x/agent-shell-presets (model + permission mode).  Lives on the
-# daemon's PATH via ~/.local/bin (extraPath in ~/.acp-mobile/config.json).
+# mr-x/agent-shell-presets (model + permission mode).  CLONE_OF names an
+# existing agent-shell buffer to copy agent, model, permission mode and
+# directory from (the phone's Clone menu item; CWD may then be empty).
+# Lives on the daemon's PATH via ~/.local/bin (extraPath in
+# ~/.acp-mobile/config.json).
 set -euo pipefail
 
 name="${1-}"
-cwd="${2:?usage: agent-shell-spawn NAME CWD [TASK] [PRESET]}"
+cwd="${2-}"
 task="${3:-}"
 preset="${4:-}"
+clone_of="${5:-}"
+
+if [[ -z "$cwd" && -z "$clone_of" ]]; then
+  echo "usage: agent-shell-spawn NAME CWD [TASK] [PRESET] [CLONE_OF] (CWD or CLONE_OF required)" >&2
+  exit 2
+fi
 
 esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 out=$(emacsclient --eval \
-  "(mr-x/agent-shell-spawn-for-mobile \"$(esc "$cwd")\" \"$(esc "$name")\" \"$(esc "$task")\" \"$(esc "$preset")\")")
+  "(mr-x/agent-shell-spawn-for-mobile \"$(esc "$cwd")\" \"$(esc "$name")\" \"$(esc "$task")\" \"$(esc "$preset")\" \"$(esc "$clone_of")\")")
 
 case "$out" in
   nil) echo "spawn failed: daemon returned nil" >&2; exit 1 ;;

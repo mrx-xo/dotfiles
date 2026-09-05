@@ -76,8 +76,12 @@ tail ~/Library/Logs/acp-mobile/acp-mobile.err.log
 - **R3.7 blind spot**: the agent-shell buffer does NOT render turns initiated
   from the web UI (shell-maker only displays its own turns). Session state is
   shared — the web UI shows everything from both sides; Emacs only shows its own.
-- Remote **spawn/kill** from the phone needs `agent-shell-spawn` +
-  `meta-agent-shell-close-session` (not implemented — attach-only for now).
+- Remote **spawn/kill/clone** from the phone go through `agent-shell-spawn`
+  (`macos/scripts/`, symlinked into `~/.local/bin`) and
+  `meta-agent-shell-close-session` in emacs.org. The chat menu's Clone item
+  POSTs `{cloneOf: <buffer name>}` to `/api/spawn`; the rig copies that
+  buffer's agent, model, permission mode and directory into a fresh session
+  (no history, same as `SPC c n`), label suffixed ` 2`.
 - Session lifetime is coupled to the Emacs daemon (accepted trade-off, R3.3).
 
 ## Wake-on-LAN facts (this M4)

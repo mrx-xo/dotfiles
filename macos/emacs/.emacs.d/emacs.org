@@ -9443,12 +9443,44 @@ an aborted invocation reschedules itself like a not-ready one."
                  (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
                               buf task (1- tries)))))))
 
-        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset)
+        (defun mr-x/agent-shell--clone-config (source)
+          "Copy SOURCE's agent config pinned to its live model + permission mode.
+SOURCE is an agent-shell buffer.  This is what `mr-x/agent-shell-clone'
+does for the rig; the phone's Clone menu item reaches it through
+`mr-x/agent-shell-spawn-for-mobile'."
+          (with-current-buffer source
+            (unless (derived-mode-p 'agent-shell-mode)
+              (error "Not an agent-shell buffer: %s" (buffer-name source)))
+            (let* ((state (agent-shell--state))
+                   (config (copy-alist (map-elt state :agent-config)))
+                   (model-id (agent-shell--current-model-id state))
+                   (mode-id (agent-shell--current-mode-id state)))
+              (when model-id
+                (setf (alist-get :default-model-id config)
+                      (lambda () model-id)))
+              (when mode-id
+                (setf (alist-get :default-session-mode-id config)
+                      (lambda () mode-id)))
+              config)))
+
+        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset clone-of)
           "Spawn an agent-shell convo in CWD, label it NAME, queue TASK.
 PRESET, when non-empty, is a char key into `mr-x/agent-shell-presets'
 \(e.g. \"f\") — the shell launches with that preset's model +
-permission mode, same as C-u SPC c P on the rig."
-          (let ((dir (file-name-as-directory (expand-file-name cwd))))
+permission mode, same as C-u SPC c P on the rig.
+CLONE-OF, when non-empty, names an existing agent-shell buffer: the new
+convo copies its agent, model, permission mode and directory (what
+SPC c n does on the rig), CWD may then be empty, and an empty NAME
+inherits the source's pane label with a \" 2\" suffix.  A PRESET
+still wins over the copied model + mode."
+          (let* ((source (and clone-of (not (string-empty-p clone-of))
+                              (or (get-buffer clone-of)
+                                  (error "No such buffer: %s" clone-of))))
+                 (dir (file-name-as-directory
+                       (expand-file-name
+                        (if (and source (or (null cwd) (string-empty-p cwd)))
+                            (buffer-local-value 'default-directory source)
+                          cwd)))))
             (unless (file-directory-p dir)
               (error "No such directory: %s" dir))
             (let* ((default-directory dir)
@@ -9456,15 +9488,21 @@ permission mode, same as C-u SPC c P on the rig."
                                (or (assq (string-to-char preset)
                                          mr-x/agent-shell-presets)
                                    (error "No preset for %s" preset))))
-                   (config (if tuple
-                               (mr-x/agent-shell--config-with
-                                (nth 2 tuple) (nth 3 tuple) (nth 4 tuple))
-                             agent-shell-preferred-agent-config))
+                   (config (cond
+                            (tuple (mr-x/agent-shell--config-with
+                                    (nth 2 tuple) (nth 3 tuple) (nth 4 tuple)))
+                            (source (mr-x/agent-shell--clone-config source))
+                            (t agent-shell-preferred-agent-config)))
+                   (label (cond
+                           ((and name (not (string-empty-p name))) name)
+                           (source
+                            (when-let ((src-label (gethash source major-pane--labels)))
+                              (concat src-label " 2")))))
                    (buf (agent-shell--start
                          :config config
                          :new-session t :no-focus t)))
-              (when (and name (not (string-empty-p name)))
-                (puthash buf name major-pane--labels))
+              (when label
+                (puthash buf label major-pane--labels))
               (when (nth 5 tuple)
                 (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                              buf (nth 5 tuple) 60))
