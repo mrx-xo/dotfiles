@@ -63,10 +63,35 @@ agent-shell-attention event (done | failed | permission)
 - `emacs.org` agent-shell section: `(require 'agent-shell-push)` next to the
   Shadow notifier, plus `SPC c N` bound to `agent-shell-push-mode`.
 
+## Phone-side toggle (the bell)
+
+The primary control surface is acp-mobile, not the rig. A bell sits right of
+the chat title in the header: outline and muted when off, filled orange when
+on (same orange as a labeled title). `SPC c N` on the rig flips the same
+switch and the two stay in sync both ways.
+
+```text
+tap bell  -> POST /api/push {bufferName, enabled}
+          -> emacsclient (agent-shell-push-set "<buffer>" t|nil)
+          -> minor mode toggles; sidecar ~/.acp-mobile/push.json rewritten
+          -> reply {ok, push} sets the final bell state
+/api/sessions merges push.json as a `push` bool per session, so entering a
+chat shows the rig's current state without an extra round trip.
+```
+
+- The sidecar is rewritten from live buffers on every toggle and on
+  kill-buffer, so it never carries dead sessions. Unlike labels.json it is
+  not merged, because armed state is not meant to persist.
+- Same validation and escaping as `/api/label`: buffer name must match
+  `validBufferName`, quotes and backslashes are escaped in the Lisp call.
+- acp-mobile side lives in `~/src/acp-mobile` (commit `eb3d212`, pinned in
+  `macos/syzygy/build-acp-tools.sh`); Go tests in `push_test.go`.
+
 ## Not in scope
 
 - Shadow image on the phone banner (needs a hosted PNG).
 - Rate limiting. One push per event; revisit if long autonomous runs get
   noisy.
 - Persisting the armed flag across buffer kills or machines.
+- Bell on the session cards in the navigator. Header only for now.
 - Telegram or the Claude Code push tool as alternate channels.

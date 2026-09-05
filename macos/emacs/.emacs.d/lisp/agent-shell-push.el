@@ -156,6 +156,58 @@
                              (concat "Permission: " title
                                      (if kind (format " (%s)" kind) ""))))))
 
+;;; Phone-side control: sidecar read by acp-mobile, setter called by it
+
+(defcustom agent-shell-push-sidecar-file "~/.acp-mobile/push.json"
+  "JSON object of armed session IDs, read by acp-mobile for its bell state."
+  :type 'file
+  :group 'agent-shell-push)
+
+(defun agent-shell-push--session-id (buffer)
+  "Return BUFFER's ACP session ID, or nil."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (boundp 'agent-shell--state)
+        (ignore-errors
+          (map-nested-elt agent-shell--state '(:session :id)))))))
+
+(defun agent-shell-push--armed-session-ids (&optional except)
+  "Return session IDs of live armed buffers, skipping buffer EXCEPT."
+  (let (ids)
+    (dolist (buf (buffer-list))
+      (when (and (not (eq buf except))
+                 (buffer-local-value 'agent-shell-push-mode buf))
+        (when-let ((sid (agent-shell-push--session-id buf)))
+          (push sid ids))))
+    (nreverse ids)))
+
+(defun agent-shell-push--sync-sidecar (&optional except)
+  "Rewrite the sidecar from live armed buffers, skipping EXCEPT.
+Never signals: the phone bell is a convenience, not a dependency."
+  (condition-case err
+      (let ((file (expand-file-name agent-shell-push-sidecar-file))
+            (table (make-hash-table :test #'equal)))
+        (dolist (sid (agent-shell-push--armed-session-ids except))
+          (puthash sid t table))
+        (make-directory (file-name-directory file) t)
+        (with-temp-file file
+          (insert (json-encode table))))
+    (error (message "agent-shell-push: sidecar sync failed: %s" err))))
+
+(defun agent-shell-push--on-buffer-killed ()
+  "Drop the dying buffer from the sidecar."
+  (when agent-shell-push-mode
+    (agent-shell-push--sync-sidecar (current-buffer))))
+
+(defun agent-shell-push-set (buffer-name enabled)
+  "Set phone push for BUFFER-NAME to ENABLED.  For acp-mobile's /api/push.
+Return \"on\" or \"off\", or nil when no such buffer exists."
+  (let ((inhibit-quit t))
+    (when-let ((buf (get-buffer buffer-name)))
+      (with-current-buffer buf
+        (agent-shell-push-mode (if enabled 1 -1))
+        (if agent-shell-push-mode "on" "off")))))
+
 ;;; Minor mode
 
 (defun agent-shell-push--mark-mode-line (on)
@@ -176,6 +228,10 @@
   "Push this conversation's done, failed, and permission events to the phone."
   :lighter nil
   (agent-shell-push--mark-mode-line agent-shell-push-mode)
+  (if agent-shell-push-mode
+      (add-hook 'kill-buffer-hook #'agent-shell-push--on-buffer-killed nil t)
+    (remove-hook 'kill-buffer-hook #'agent-shell-push--on-buffer-killed t))
+  (agent-shell-push--sync-sidecar)
   (message "Phone push %s for %s"
            (if agent-shell-push-mode "ON" "off")
            (buffer-name)))
