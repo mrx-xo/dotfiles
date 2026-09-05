@@ -978,11 +978,15 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         (setq agent-shell-anthropic-default-model-id "default")
         (setq agent-shell-anthropic-authentication
               (agent-shell-anthropic-make-authentication :login t))
-        ;; Use the globally updated Claude Code executable instead of the older
-        ;; binary bundled with claude-agent-acp, while inheriting PATH and auth.
+        ;; Resolve Claude Code at runtime: it self-updates and relocates itself
+        ;; (npm -g shim -> native installer), so a hardcoded path eventually
+        ;; dies as -32603 "native binary not found" when creating a session.
+        ;; `executable-find' covers interactive frames; the fallback covers the
+        ;; launchd daemon, whose PATH does not include ~/.local/bin.
         (setq agent-shell-anthropic-claude-environment
               (agent-shell-make-environment-variables
-               "CLAUDE_CODE_EXECUTABLE" "/opt/homebrew/bin/claude"
+               "CLAUDE_CODE_EXECUTABLE" (or (executable-find "claude")
+                                            (expand-file-name "~/.local/bin/claude"))
                :inherit-env t))
         ;; Launch the agent through acp-multiplex so this agent-shell session
         ;; becomes the multiplex PRIMARY: the proxy exposes a Unix socket that
