@@ -57,7 +57,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 994b258 (Web Push: /api/notify fan-out, sw.js, manifest, https link)
 # + local 75fb757 (cue-prefix styling table mirrors agent-shell; Separately: blue aside)
 # + local cd7efe9 (push tap lands on the chat after iOS reload / cold launch)
-ACP_MOBILE_COMMIT="cd7efe99b3002bf49d894cae4c1c0142df841536"
+# + local f7f6fcf (home screen named Orrery: header + ids + comments)
+ACP_MOBILE_COMMIT="f7f6fcf3a077528d05a3861dd50f7df5c7439324"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

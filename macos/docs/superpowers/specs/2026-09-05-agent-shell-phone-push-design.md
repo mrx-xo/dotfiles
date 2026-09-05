@@ -43,7 +43,7 @@ a session can be watched from the phone without polling acp-mobile.
   cannot route a URL from another app into a home-screen web app, and a
   push from the web app itself can.
 - **Tap target is durable, not just messaged (fix 2026-09-05, acp-mobile
-  `cd7efe9`).** First on-device use landed on the navigator, not the chat:
+  `cd7efe9`).** First on-device use landed on the Orrery (chat home screen), not the chat:
   iOS freezes a backgrounded home-screen app and reloads it on focus, so
   the `open-session` message went to a page that no longer existed, and
   the cold-launch URL is not always honored either. `sw.js` now writes the
@@ -141,9 +141,9 @@ chat shows the rig's current state without an extra round trip.
 - acp-mobile side lives in `~/src/acp-mobile` (commits `eb3d212` header
   bell, `e2a6555` card bell; pinned in `macos/syzygy/build-acp-tools.sh`);
   Go tests in `push_test.go`.
-- Session cards in the navigator show a small filled orange bell after the
+- Session cards in the Orrery show a small filled orange bell after the
   name when armed, and nothing when off. State-only, not a tap target; the
-  sessions poll (every 12s while the navigator is visible) keeps it fresh.
+  sessions poll (every 12s while the Orrery is visible) keeps it fresh.
 
 ## Phone setup (once per phone)
 

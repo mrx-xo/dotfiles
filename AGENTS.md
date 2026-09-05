@@ -178,6 +178,15 @@ Windows Emacs uses `package.el` with MELPA. Edit
 Windows bootstrap and subsystem details live in `windows/README.md` and
 `windows/bootstrap.ps1`.
 
+## Design Docs and Vocabulary
+
+Specs and PRDs follow `docs/templates/prd.md` (reference it in a chat as
+`@docs/templates/prd.md`). Rig-level specs go in
+`macos/docs/superpowers/specs/`, plans and handoffs in
+`macos/docs/superpowers/plans/`, subsystem PRDs in `docs/`. Every term a doc
+or feature coins gets a line in `docs/glossary.md` in the same commit; device
+and persona names stay in `docs/naming.md`.
+
 ## Explanation Style
 
 When explaining code, include a concrete snippet when it improves clarity and
