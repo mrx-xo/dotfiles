@@ -348,38 +348,78 @@ with a bare \"1. \" and would otherwise match the list-item regex."
 
         ;; ADHD-skill response vocabulary — the i-have-adhd skill (plus the
         ;; contract in ~/.claude/CLAUDE.md) makes the model open certain
-        ;; lines with fixed prefixes.  Style just the prefix, gruvbox orange,
-        ;; so the eye can jump straight to the action line.
-        ;; Gruvbox bright red on a 15% red tint of the #101112 chat bg —
-        ;; picked from a sandbox swatch pass (2026-09-02).  Deliberately
+        ;; lines with fixed prefixes.  Style just the prefix so the eye can
+        ;; jump straight to the action line.
+        ;;
+        ;; STYLING API (shared with the phone, acp-mobile index.html):
+        ;; `mr-x/agent-shell-cues' is the one table of cue prefixes.  Each
+        ;; cue carries a STYLE symbol; each style is one face here and one
+        ;; `--cue-<style>-fg/bg' CSS variable pair on the phone.  Add a cue
+        ;; or change a color here first, then mirror it in AGENT_CUES /
+        ;; :root of index.html.  The phone keeps a separate, empty-by-
+        ;; default override block so it can diverge without touching the
+        ;; shared defaults.
+        ;;
+        ;; `cue': gruvbox bright red on a 15% red tint of the #101112 chat
+        ;; bg — picked from a sandbox swatch pass (2026-09-02).  Deliberately
         ;; not the inline-code gray (#3c3836) so cues never read as code
         ;; spans, and not orange so they never read as headings/markers.
+        ;; `aside': gruvbox blue, same 15%-tint recipe — Separately: is a
+        ;; deferred tangent, not an alert, so it must not shout like Next:.
         (defface mr-x/agent-shell-cue-face
           '((t :foreground "#fb4934" :background "#331917" :weight bold))
-          "Face for ADHD-skill line prefixes (Next:, Cause:, Fix:, ...) in agent-shell.")
+          "Face for action cue prefixes (Next:, Cause:, Fix:, Step N of M done:).")
 
-        (defvar mr-x/agent-shell-cue-keywords
-          '(;; line-start cues, optionally after a list bullet or number
-            ("^\\s-*\\(?:[-*] \\|[0-9]+\\. \\)?\\(Next:\\|Separately:\\|Step [0-9]+ of [0-9]+ done:\\)"
-             1 'mr-x/agent-shell-cue-face t)
-            ;; Cause:/Fix: — the skill puts them on one line, so also match
-            ;; after a sentence end
-            ("\\(?:^\\s-*\\|\\. \\)\\(Cause:\\|Fix:\\)"
-             1 'mr-x/agent-shell-cue-face t))
-          "Font-lock keywords styling ADHD-skill cue prefixes in agent-shell buffers.")
+        (defface mr-x/agent-shell-cue-aside-face
+          '((t :foreground "#83a598" :background "#212726" :weight bold))
+          "Face for the deferred-tangent cue prefix (Separately:).")
+
+        (defvar mr-x/agent-shell-cue-styles
+          '((cue   . mr-x/agent-shell-cue-face)
+            (aside . mr-x/agent-shell-cue-aside-face))
+          "Cue style name -> face.  Phone mirror: --cue-<style>-fg/bg.")
+
+        (defvar mr-x/agent-shell-cues
+          '((next       "Next:"                       line   cue)
+            (separately "Separately:"                 line   aside)
+            (step       "Step [0-9]+ of [0-9]+ done:" line   cue)
+            (cause      "Cause:"                      inline cue)
+            (fix        "Fix:"                        inline cue))
+          "ADHD-skill cue prefixes: (NAME REGEXP POSITION STYLE).
+POSITION `line' matches at line start, optionally after a list bullet or
+number.  `inline' also matches after a sentence end, because the skill
+puts Cause:/Fix: on one line.  STYLE keys `mr-x/agent-shell-cue-styles'.")
+
+        (defun mr-x/agent-shell-cue-build-keywords ()
+          "Build font-lock keywords from `mr-x/agent-shell-cues'."
+          (mapcar (lambda (cue)
+                    (pcase-let ((`(,_name ,re ,position ,style) cue))
+                      (list (concat (if (eq position 'inline)
+                                        "\\(?:^\\s-*\\|\\. \\)"
+                                      "^\\s-*\\(?:[-*] \\|[0-9]+\\. \\)?")
+                                    "\\(" re "\\)")
+                            1 `(quote ,(alist-get style mr-x/agent-shell-cue-styles)) t)))
+                  mr-x/agent-shell-cues))
+
+        (defvar mr-x/agent-shell-cue-keywords nil
+          "Font-lock keywords currently installed by `mr-x/agent-shell-cue-setup'.")
 
         (defun mr-x/agent-shell-cue-setup ()
           "Install (or refresh) cue-prefix font-lock in agent-shell buffers.
-Idempotent: removes before adding so re-running never stacks keywords.
+Idempotent: removes the previously installed keywords before adding the
+freshly built ones, so re-running after editing the table never stacks.
 Patches live buffers too, since mode-level keywords only reach new ones."
-          (font-lock-remove-keywords 'agent-shell-mode mr-x/agent-shell-cue-keywords)
-          (font-lock-add-keywords 'agent-shell-mode mr-x/agent-shell-cue-keywords)
-          (dolist (buf (buffer-list))
-            (with-current-buffer buf
-              (when (derived-mode-p 'agent-shell-mode)
-                (font-lock-remove-keywords nil mr-x/agent-shell-cue-keywords)
-                (font-lock-add-keywords nil mr-x/agent-shell-cue-keywords)
-                (font-lock-flush)))))
+          (let ((old mr-x/agent-shell-cue-keywords)
+                (new (mr-x/agent-shell-cue-build-keywords)))
+            (font-lock-remove-keywords 'agent-shell-mode old)
+            (font-lock-add-keywords 'agent-shell-mode new)
+            (dolist (buf (buffer-list))
+              (with-current-buffer buf
+                (when (derived-mode-p 'agent-shell-mode)
+                  (font-lock-remove-keywords nil old)
+                  (font-lock-add-keywords nil new)
+                  (font-lock-flush))))
+            (setq mr-x/agent-shell-cue-keywords new)))
         (mr-x/agent-shell-cue-setup)
 
         ;; Custom icons
