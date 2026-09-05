@@ -1,9 +1,9 @@
 # Handoff: acp-mobile Web Push (tap opens the home-screen app)
 
 Date: 2026-09-05
-Status: Built 2026-09-05 (steps 1-5 done and verified in Chrome and via
-the Emacs replay; step 6, the on-device check, is the user's). The design
-spec below is the canon now; this doc stays as the build log.
+Status: Shipped and confirmed on the phone 2026-09-05 (all six steps;
+tap opens the home-screen app on the right chat). The design spec is the
+canon now; this doc stays as the build log.
 Predecessor: `macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md`
 (read it first; everything below assumes it).
 
