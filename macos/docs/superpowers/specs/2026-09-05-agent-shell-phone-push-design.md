@@ -42,8 +42,24 @@ a session can be watched from the phone without polling acp-mobile.
 
 ## Flow
 
+Two entry points, because a turn can be started from either side:
+
+- **Rig-initiated turn.** Emacs sent the prompt, so agent-shell gets the
+  response and agent-shell-attention fires `done` / `failed`. Advice on
+  `--handle-success` and `--handle-failure` pushes.
+- **Phone-initiated turn.** Emacs never sent the prompt, so there is no
+  response and no attention event. acp-multiplex broadcasts a synthetic
+  `session/update {sessionUpdate: "turn_complete", stopReason}` to every
+  frontend except the sender. Advice on `agent-shell--on-notification`
+  catches it, guarded by `agent-shell--active-requests-p` so an in-flight
+  rig turn is never double-counted. This was the bug found on first use
+  (2026-09-05 morning): pushes worked for rig turns and not for phone turns.
+- **Permission requests** arrive as notifications on both paths and reach
+  the attention `permission-request` event either way.
+
 ```text
 agent-shell-attention event (done | failed | permission)
+  or synthetic turn_complete notification (phone-initiated turn)
   -> agent-shell-push-mode on in that buffer?  no: stop
   -> stop reason is "cancelled"?               yes: stop
   -> token file readable?                      no: message, stop
