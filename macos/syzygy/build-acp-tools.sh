@@ -56,7 +56,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local e2a6555 (filled bell on session cards when push is armed)
 # + local 994b258 (Web Push: /api/notify fan-out, sw.js, manifest, https link)
 # + local 75fb757 (cue-prefix styling table mirrors agent-shell; Separately: blue aside)
-ACP_MOBILE_COMMIT="75fb757c450627e83bb64d6f58536a9843ab0e3f"
+# + local cd7efe9 (push tap lands on the chat after iOS reload / cold launch)
+ACP_MOBILE_COMMIT="cd7efe99b3002bf49d894cae4c1c0142df841536"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

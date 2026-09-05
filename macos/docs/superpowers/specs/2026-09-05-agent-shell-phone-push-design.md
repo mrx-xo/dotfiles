@@ -42,6 +42,16 @@ a session can be watched from the phone without polling acp-mobile.
   both by selecting that session. This is the reason for the switch: iOS
   cannot route a URL from another app into a home-screen web app, and a
   push from the web app itself can.
+- **Tap target is durable, not just messaged (fix 2026-09-05, acp-mobile
+  `cd7efe9`).** First on-device use landed on the navigator, not the chat:
+  iOS freezes a backgrounded home-screen app and reloads it on focus, so
+  the `open-session` message went to a page that no longer existed, and
+  the cold-launch URL is not always honored either. `sw.js` now writes the
+  tapped bufferName to the Cache API (`acp-pending` / `/pending-session`)
+  before messaging or opening a window; `index.html` reads and clears it
+  after the initial session load and on every pageshow / focus /
+  visibilitychange. Covered by two headless-Chrome tests in
+  `push_tap_ui_test.go` (load route and resume route).
 - **Secure origin.** Web Push needs https and the home-screen install must
   come from the same origin. `tailscale serve` on MrX proxies
   `https://mrx.tail9179e0.ts.net` to port 8090; acp-mobile detects that via
