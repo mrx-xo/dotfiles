@@ -4154,6 +4154,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
+        "c N" '(agent-shell-push-mode :wk "Phone push toggle (done/perms to DAEMON)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")

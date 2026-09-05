@@ -1258,6 +1258,10 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         ;; Stable per-session Shadows content images with AppleScript fallback.
         (require 'agent-shell-notify)
         (setq agent-shell-attention-notify-function #'mr-x/agent-shell-notify)
+        ;; Opt-in per-buffer phone push (done/failed/permission) via HA
+        ;; companion; SPC c N arms a conversation.  Design doc:
+        ;; macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md
+        (require 'agent-shell-push)
         (agent-shell-attention-mode 1))
 
 

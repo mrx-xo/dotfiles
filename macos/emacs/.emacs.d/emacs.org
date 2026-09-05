@@ -4319,6 +4319,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
+        "c N" '(agent-shell-push-mode :wk "Phone push toggle (done/perms to DAEMON)")
         "c o" '(agent-shell-other-buffer :wk "Other buffer (viewport/shell)")
         "c m" '(:ignore t :wk "Mode")
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
@@ -9258,6 +9259,10 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         ;; Stable per-session Shadows content images with AppleScript fallback.
         (require 'agent-shell-notify)
         (setq agent-shell-attention-notify-function #'mr-x/agent-shell-notify)
+        ;; Opt-in per-buffer phone push (done/failed/permission) via HA
+        ;; companion; SPC c N arms a conversation.  Design doc:
+        ;; macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md
+        (require 'agent-shell-push)
         (agent-shell-attention-mode 1))
 
 
