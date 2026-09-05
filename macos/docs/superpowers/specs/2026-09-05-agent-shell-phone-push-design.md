@@ -26,17 +26,35 @@ a session can be watched from the phone without polling acp-mobile.
   from.
 - **No away-mode gate.** Arming a buffer is the "I am remote" signal. Coupling
   to `away` would add a second switch to remember.
-- **Delivery: Home Assistant companion push.** `POST
-  /api/services/notify/mobile_app_daemon` on `home.andrade-lab.com`, bearer
-  token from `~/.config/gaia/ha-token.txt` (same pattern as `away-mode.sh
-  dark`). Works off the tailnet because HA is reachable over the public
-  hostname.
-- **Tap opens acp-mobile.** `data.url` carries the link from
-  `~/.acp-mobile/link` (tailnet URL with authkey). Opening it still needs
-  Tailscale on the phone.
-- **Grouping.** `data.group` is `agent-shell`; `data.tag` is the buffer name so
-  a newer event for the same conversation replaces the older banner instead
-  of stacking.
+- **Delivery: Web Push sent by acp-mobile.** Emacs posts `{bufferName,
+  title, message}` to `http://127.0.0.1:8090/api/notify` (cookie
+  `authkey=` from `~/.acp-mobile/authkey`). acp-mobile fans out one Web Push
+  per stored phone subscription, signed with a VAPID keypair it generated
+  once into `~/.acp-mobile/vapid.json`. The phone subscribes from the bell
+  tap: `Notification.requestPermission()` inside the gesture, then
+  `pushManager.subscribe` against `/api/push-key`, posted to
+  `/api/push-subscribe` and stored in `~/.acp-mobile/push-subscriptions.json`.
+  Subscriptions the push service reports gone (404/410) are dropped.
+- **Tap opens the home-screen app on that chat.** The service worker
+  (`sw.js`, root scope, no fetch handler) shows the notification and on tap
+  focuses an open client and posts `{type: "open-session", bufferName}`, or
+  opens `/?session=<bufferName>` when none is open. `index.html` handles
+  both by selecting that session. This is the reason for the switch: iOS
+  cannot route a URL from another app into a home-screen web app, and a
+  push from the web app itself can.
+- **Secure origin.** Web Push needs https and the home-screen install must
+  come from the same origin. `tailscale serve` on MrX proxies
+  `https://mrx.tail9179e0.ts.net` to port 8090; acp-mobile detects that via
+  `tailscale serve status --json` and writes the https URL (no port) into
+  `~/.acp-mobile/link`. Falls back to the http tailnet URL when no serve
+  proxy exists. Still needs Tailscale on the phone.
+- **Grouping.** The Web Push `tag` is the buffer name so a newer event for
+  the same conversation replaces the older banner instead of stacking.
+- **Retired: Home Assistant companion push (2026-09-05).** The first
+  delivery path posted to HA's `notify.mobile_app_daemon` with `data.url`
+  pointing at the acp-mobile link. It worked, but a tapped banner always
+  opened Safari or HA's in-app browser, never the home-screen app. No
+  `data` field can fix that on iOS, so it was replaced the same day.
 - **Title.** The major-pane tab label, via `agent-shell-notify--title`, so the
   push says which agent and which session, matching the Mac notification.
 
@@ -62,9 +80,11 @@ agent-shell-attention event (done | failed | permission)
   or synthetic turn_complete notification (phone-initiated turn)
   -> agent-shell-push-mode on in that buffer?  no: stop
   -> stop reason is "cancelled"?               yes: stop
-  -> token file readable?                      no: message, stop
-  -> build JSON {title, message, data{url, group, tag}}
-  -> async curl POST to HA notify service (fire and forget)
+  -> ~/.acp-mobile/authkey readable?           no: message, stop
+  -> build JSON {bufferName, title, message}
+  -> async curl POST http://127.0.0.1:8090/api/notify (fire and forget)
+  -> acp-mobile: Web Push {title, body, bufferName, tag} to every subscription
+  -> sw.js showNotification; tap -> open-session message or /?session=
 ```
 
 ## Files
@@ -72,7 +92,15 @@ agent-shell-attention event (done | failed | permission)
 - `macos/emacs/.emacs.d/lisp/agent-shell-push.el`: minor mode, event
   filters, payload builder, curl spawn, advice on
   `agent-shell-attention--handle-success`, `--handle-failure`, and
-  `--handle-event`.
+  `--handle-event`. Port in `agent-shell-push-port` (8090), key file in
+  `agent-shell-push-authkey-file`.
+- acp-mobile (`~/src/acp-mobile`, branch `syzygy`): `webpush.go` (VAPID,
+  subscription store, `/api/push-key`, `/api/push-subscribe`,
+  `/api/notify`, `/sw.js`, `/manifest.webmanifest`, serve-URL detection),
+  `sw.js`, `manifest.webmanifest`, bell subscribe flow and session routing
+  in `index.html`; tests in `webpush_test.go`. Both `/sw.js` and the
+  manifest are served without the authkey (iOS fetches the manifest without
+  cookies; neither holds a secret). The page CSP gained `worker-src 'self'`.
 - `macos/emacs/.emacs.d/tests/agent-shell-push-test.el`: ERT suite. External
   processes are captured at the command boundary; tests assert on the argv
   and JSON the module would hand to curl.
@@ -106,6 +134,14 @@ chat shows the rig's current state without an extra round trip.
 - Session cards in the navigator show a small filled orange bell after the
   name when armed, and nothing when off. State-only, not a tap target; the
   sessions poll (every 12s while the navigator is visible) keeps it fresh.
+
+## Phone setup (once per phone)
+
+Open the https link from `~/.acp-mobile/link` (or `acp-link-to-phone.sh`),
+Add to Home Screen, open from the home screen, tap a bell, allow
+notifications. A home-screen app added from the old `http://...:8090` URL
+is a different origin and will never receive pushes; delete it and re-add.
+Pushes only reach the home-screen install, never a Safari tab.
 
 ## Not in scope
 

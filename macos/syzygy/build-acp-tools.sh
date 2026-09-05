@@ -54,7 +54,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local bc0b684 (answered permissions in replay no longer look busy)
 # + local eb3d212 (phone push bell in chat header; /api/push + push.json sidecar)
 # + local e2a6555 (filled bell on session cards when push is armed)
-ACP_MOBILE_COMMIT="e2a6555ab2900b599f3ac4c5ef66b5013d71304e"
+# + local 994b258 (Web Push: /api/notify fan-out, sw.js, manifest, https link)
+ACP_MOBILE_COMMIT="994b258463aef1f5bbf95681fbe7ed85e0ee5b3a"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

@@ -14,21 +14,17 @@
   "Commands the module handed to its spawn seam, newest first.")
 
 (defmacro agent-shell-push-test--with-env (&rest body)
-  "Run BODY with fake token and link files and a captured spawn seam."
+  "Run BODY with a fake acp-mobile authkey file and a captured spawn seam."
   (declare (indent 0) (debug t))
   `(let* ((dir (make-temp-file "agent-shell-push-test-" t))
-          (agent-shell-push-token-file (expand-file-name "token" dir))
-          (agent-shell-push-link-file (expand-file-name "link" dir))
+          (agent-shell-push-authkey-file (expand-file-name "authkey" dir))
           (agent-shell-push-sidecar-file (expand-file-name "push.json" dir))
-          (agent-shell-push-ha-url "https://ha.example")
-          (agent-shell-push-service "mobile_app_daemon")
+          (agent-shell-push-port 18090)
           (agent-shell-push-test--sent nil)
           (agent-shell-push-spawn-function
            (lambda (_name command)
              (push command agent-shell-push-test--sent))))
-     (with-temp-file agent-shell-push-token-file (insert "TOKEN\n"))
-     (with-temp-file agent-shell-push-link-file
-       (insert "http://mrx.ts.net:8090?authkey=K\n"))
+     (with-temp-file agent-shell-push-authkey-file (insert "KEY\n"))
      (unwind-protect
          (with-temp-buffer
            (rename-buffer "Claude Agent @ home-lab" t)
@@ -116,38 +112,29 @@ would double-send."
                                   (:data . ((stopReason . "end_turn")))))
     (should (null agent-shell-push-test--sent))))
 
-(ert-deftest agent-shell-push-payload-carries-link-group-and-tag ()
-  "The push deep-links to acp-mobile and groups per conversation."
+(ert-deftest agent-shell-push-payload-carries-buffer-name-title-message ()
+  "The payload names the buffer so a tapped push lands on that conversation."
   (agent-shell-push-test--with-env
     (agent-shell-push-mode 1)
     (agent-shell-push--on-success (current-buffer)
                                   '((stopReason . "end_turn")))
-    (let ((data (alist-get 'data (agent-shell-push-test--last-payload))))
-      (should (equal (alist-get 'url data) "http://mrx.ts.net:8090?authkey=K"))
-      (should (equal (alist-get 'group data) "agent-shell"))
-      (should (equal (alist-get 'tag data) "Claude Agent @ home-lab")))))
+    (let ((payload (agent-shell-push-test--last-payload)))
+      (should (equal (alist-get 'bufferName payload) "Claude Agent @ home-lab"))
+      (should (equal (alist-get 'title payload) "Claude Agent @ home-lab"))
+      (should (equal (alist-get 'message payload) "Finished"))
+      (should-not (assq 'data payload)))))
 
-(ert-deftest agent-shell-push-missing-link-still-sends ()
-  "No acp-mobile link file means a push without a URL, not a dropped push."
+(ert-deftest agent-shell-push-missing-authkey-sends-nothing ()
+  "Without acp-mobile's authkey the module must not spawn curl or signal."
   (agent-shell-push-test--with-env
-    (delete-file agent-shell-push-link-file)
-    (agent-shell-push-mode 1)
-    (agent-shell-push--on-success (current-buffer)
-                                  '((stopReason . "end_turn")))
-    (should (= 1 (length agent-shell-push-test--sent)))
-    (should-not (assq 'url (alist-get 'data (agent-shell-push-test--last-payload))))))
-
-(ert-deftest agent-shell-push-missing-token-sends-nothing ()
-  "Without an HA token the module must not spawn curl or signal."
-  (agent-shell-push-test--with-env
-    (delete-file agent-shell-push-token-file)
+    (delete-file agent-shell-push-authkey-file)
     (agent-shell-push-mode 1)
     (agent-shell-push--on-success (current-buffer)
                                   '((stopReason . "end_turn")))
     (should (null agent-shell-push-test--sent))))
 
 (ert-deftest agent-shell-push-curl-command-shape ()
-  "The spawned command is a bearer-authenticated JSON POST to the HA service."
+  "The spawned command is a cookie-authenticated JSON POST to local acp-mobile."
   (agent-shell-push-test--with-env
     (agent-shell-push-mode 1)
     (agent-shell-push--on-success (current-buffer)
@@ -156,10 +143,10 @@ would double-send."
       (should (equal (car command) "curl"))
       (should (member "-X" command))
       (should (equal (cadr (member "-X" command)) "POST"))
-      (should (member "Authorization: Bearer TOKEN" command))
+      (should (member "Cookie: authkey=KEY" command))
       (should (member "Content-Type: application/json" command))
       (should (equal (car (last command))
-                     "https://ha.example/api/services/notify/mobile_app_daemon")))))
+                     "http://127.0.0.1:18090/api/notify")))))
 
 (ert-deftest agent-shell-push-mode-marks-mode-line-process ()
   "Arming shows a marker in mode-line-process; disarming removes it."
