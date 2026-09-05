@@ -47,7 +47,10 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 0ea33a6 (ordered lists; pins re-render on the current renderer)
 # + local dff199a (lists: agent-shell panel + yellow bold markers)
 # + local 34baede (lists: no panel, 12px gap between items)
-ACP_MOBILE_COMMIT="34baede87824794e37abccd1ebf350c8f139d4de"
+# + local 8ce1b8c (iOS: send on the first tap while the keyboard is up)
+# + local 7e990b2 (iOS standalone: restore the layout viewport after the keyboard)
+# + local 58cff90 (send motion visible; bubble stays above the thinking bar)
+ACP_MOBILE_COMMIT="58cff9031ae07cca046882f5d3505006d5a663ef"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
