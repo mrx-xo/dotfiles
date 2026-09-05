@@ -55,7 +55,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local eb3d212 (phone push bell in chat header; /api/push + push.json sidecar)
 # + local e2a6555 (filled bell on session cards when push is armed)
 # + local 994b258 (Web Push: /api/notify fan-out, sw.js, manifest, https link)
-ACP_MOBILE_COMMIT="994b258463aef1f5bbf95681fbe7ed85e0ee5b3a"
+# + local 75fb757 (cue-prefix styling table mirrors agent-shell; Separately: blue aside)
+ACP_MOBILE_COMMIT="75fb757c450627e83bb64d6f58536a9843ab0e3f"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
