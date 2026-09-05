@@ -51,7 +51,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 7e990b2 (iOS standalone: restore the layout viewport after the keyboard)
 # + local 58cff90 (send motion visible; bubble stays above the thinking bar)
 # + local 3403106 (jump-to-bottom snaps to the real bottom, then auto-follows)
-ACP_MOBILE_COMMIT="3403106292682ad385ca0b629c4659da1f91a426"
+# + local bc0b684 (answered permissions in replay no longer look busy)
+ACP_MOBILE_COMMIT="bc0b68437f3e186afee85e4597c5e3de84db9c86"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
