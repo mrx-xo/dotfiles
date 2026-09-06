@@ -3092,6 +3092,20 @@ buffer before invoking a command.
   (define-advice persp-names (:filter-return (names) hide-global)
     (cl-remove persp-frame-global-perspective-name names :test #'string=))
 
+  ;; `persp-reactivate-buffers' reorders the buffer list by calling
+  ;; `switch-to-buffer' on every buffer in the perspective, trusting the
+  ;; following `set-window-configuration' to undo the display.  With
+  ;; `switch-to-buffer-obey-display-actions' those calls become real
+  ;; display-buffer calls: popup buffers pop, and minibuffer buffers
+  ;; (which perspective's set-window-buffer advice adds to the persp)
+  ;; get split into whichever frame display-buffer picks -- on frame
+  ;; delete that was the MAIN frame, which came back with a giant
+  ;; " *Minibuf-1*" window and a *Messages* popup.  Restore the plain
+  ;; set-window-buffer semantics perspective was written against.
+  (define-advice persp-reactivate-buffers (:around (fn buffers) plain-switch)
+    (let ((switch-to-buffer-obey-display-actions nil))
+      (funcall fn buffers)))
+
   ;; ── Sketchybar perspective integration ─────────────────────
   (defvar mr-x/sketchybar-persp--timer nil
     "Debounce timer for sketchybar perspective updates.")
@@ -3795,14 +3809,15 @@ Falls back to a one-liner if fastfetch isn't installed."
     (interactive)
     (pop-to-buffer-same-window (mr-x/fetch-buffer)))
 
-  ;; Main (sole GUI) frame lands on the fetch splash; secondary frames
-  ;; keep *scratch* — same sole-frame predicate as
-  ;; mr-x/decorate-secondary-frame.
-  (setq initial-buffer-choice
-        (lambda ()
-          (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
-              (get-buffer-create "*scratch*")
-            (mr-x/fetch-buffer))))
+  ;; Every frame lands on the fetch splash, main and secondary alike.
+  ;; Secondary frames used to get *scratch*, but *scratch* is a popper
+  ;; popup and `switch-to-buffer-obey-display-actions' routes the
+  ;; server's initial switch-to-buffer through display-buffer-alist: the
+  ;; scratch landed in a bottom side window and the frame's main window
+  ;; kept whatever buffer make-frame inherited from the old selected
+  ;; window (the agent pane, typically).  The splash is not a popup, so
+  ;; it takes the main window as intended.
+  (setq initial-buffer-choice #'mr-x/fetch-buffer)
 
 #+end_src
 
