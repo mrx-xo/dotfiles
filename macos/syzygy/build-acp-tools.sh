@@ -62,7 +62,11 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 909a7be (resume exact agent-recall conversations from History)
 # + local 6fd71e2 (resumable/resumeReason survive the transcriptInfo decode)
 # + local 198ad20 (push tap works with the app already open: startMessages + BroadcastChannel)
-ACP_MOBILE_COMMIT="198ad203b883d916b764fa2ed2f8330334844025"
+# + local 9487f6a (turn nav arrows jump between prompts and responses)
+# + local d5752f8 (turn nav starts hidden; Show/Hide turn nav in the chat menu)
+# + local 0aa2c47 (in-app banner for pushes while the app is already open)
+# + local 576c1f8 (Settings page: gear in Orrery header; turn nav corner top/bottom + left/right)
+ACP_MOBILE_COMMIT="576c1f8ce120b3a312538e6487c8ec1968a3c690"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
