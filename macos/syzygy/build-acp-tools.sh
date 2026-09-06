@@ -61,7 +61,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local a004620 (Clone in the chat menu: /api/spawn cloneOf -> fresh convo, same model/mode/cwd)
 # + local 909a7be (resume exact agent-recall conversations from History)
 # + local 6fd71e2 (resumable/resumeReason survive the transcriptInfo decode)
-ACP_MOBILE_COMMIT="6fd71e2b70d03f41232920df47d2498cba1a2d60"
+# + local 198ad20 (push tap works with the app already open: startMessages + BroadcastChannel)
+ACP_MOBILE_COMMIT="198ad203b883d916b764fa2ed2f8330334844025"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
