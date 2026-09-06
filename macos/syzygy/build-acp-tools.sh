@@ -60,7 +60,7 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local f7f6fcf (home screen named Orrery: header + ids + comments)
 # + local a004620 (Clone in the chat menu: /api/spawn cloneOf -> fresh convo, same model/mode/cwd)
 # + local 909a7be (resume exact agent-recall conversations from History)
-ACP_MOBILE_COMMIT="909a7be"
+ACP_MOBILE_COMMIT="909a7be321aed26ed3f644c600da5db05a9dd24c"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
