@@ -66,7 +66,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local d5752f8 (turn nav starts hidden; Show/Hide turn nav in the chat menu)
 # + local 0aa2c47 (in-app banner for pushes while the app is already open)
 # + local 576c1f8 (Settings page: gear in Orrery header; turn nav corner top/bottom + left/right)
-ACP_MOBILE_COMMIT="576c1f8ce120b3a312538e6487c8ec1968a3c690"
+# + local e88bee3 (turn nav auto-shows in History transcripts; markup moved to body root)
+ACP_MOBILE_COMMIT="e88bee32f021f287cd9e6d3faa6779f88809ae31"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
