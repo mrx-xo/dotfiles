@@ -19,6 +19,11 @@
 ;; an ACP process.
 (provide 'agent-recall)
 
+;; Main's History cards carry the durable label; the stub keeps the tests
+;; free of agent-recall's sidecar machinery.
+(unless (fboundp 'agent-recall-session-label)
+  (defun agent-recall-session-label (_session-id) nil))
+
 (defun syzygy-recall-test--decode (encoded)
   "Decode ENCODED base64 JSON into an alist."
   (json-parse-string
