@@ -8,7 +8,9 @@
 set -u
 if [ "${1:-}" = "--host" ]; then
   shift; host=${1:?usage: agent-fleet-check --host <ssh-alias>}; shift
-  exec ssh "$host" 'zsh -lc "$HOME/.local/bin/agent-fleet-check"' "$@"
+  # -n: stdin from /dev/null. From an interactive terminal ssh otherwise hands the
+  # remote command the user's keyboard, and codex/opencode block until it closes.
+  exec ssh -n "$host" 'zsh -lc "$HOME/.local/bin/agent-fleet-check"' "$@"
 fi
 # ~/.local/bin holds the opencode symlink; non-interactive login shells (ssh) do not
 # source .zshrc, so add it here rather than depend on the caller's PATH
@@ -20,7 +22,7 @@ run() { # run <label> <cmd...>
   local label=$1; shift
   local out rc
   if ! command -v "$1" >/dev/null 2>&1; then echo "FAIL  $label ($1 not installed)"; fail=1; return; fi
-  out=$(timeout "$T" "$@" 2>&1); rc=$?
+  out=$(timeout "$T" "$@" 2>&1 </dev/null); rc=$?
   if [ $rc -eq 124 ]; then echo "FAIL  $label (timeout ${T}s: login prompt or hung)"; fail=1
   elif [ $rc -ne 0 ]; then echo "FAIL  $label (exit $rc): $(printf '%s' "$out" | tail -1 | cut -c1-120)"; fail=1
   elif printf '%s' "$out" | grep -qi pong; then echo "ok    $label"
