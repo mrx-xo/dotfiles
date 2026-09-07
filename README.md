@@ -76,8 +76,10 @@ through the root `CLAUDE.md`; Codex reads `AGENTS.md` directly. Update
 `AGENTS.md` rather than duplicating rules between harness-specific files.
 
 Rules that apply to every project, not just this repo, are not here either —
-they live in the private docs repo as `~/docs/agents/claude-global.md`,
-symlinked to `~/.claude/CLAUDE.md` by `bootstrap.sh`.
+they live in the private docs repo as `~/docs/agents/core.md` (every agent) and
+`~/docs/agents/orchestrator.md` (session drivers and delegators). Every
+installed CLI agent is pointed at them by
+`macos/scripts/wire-agent-instructions.sh`, which `bootstrap.sh` runs.
 
 ### agent-inbox (phone screenshots → Emacs)
 
