@@ -5,10 +5,31 @@
 set -euo pipefail
 "$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
 open -g vnc://MrX2@mrx2
+# The vnc:// path ignores the saved connection's type and asks "Select Screen
+# Sharing Type" every time (Standard preselected). Press Continue for it. Needs an
+# Accessibility grant for the process running this script (System Settings ->
+# Privacy & Security -> Accessibility). High Performance would forward MrX2's
+# audio, which came through as static on 2026-09-07; Standard has no audio.
+dismiss_type_dialog() {
+  osascript >/dev/null 2>&1 <<'APPLESCRIPT'
+tell application "System Events"
+  tell process "Screen Sharing"
+    repeat with w in windows
+      if exists (button "Continue" of w) then
+        click button "Continue" of w
+        return "clicked"
+      end if
+    end repeat
+  end tell
+end tell
+return "none"
+APPLESCRIPT
+}
 # belt and braces: once the session window exists, pin it (the rule alone misses it)
 for _ in $(seq 1 30); do
   sleep 0.5
-  if yabai -m query --windows | jq -e 'map(select(.app == "Screen Sharing")) | length > 0' >/dev/null 2>&1; then
+  dismiss_type_dialog
+  if yabai -m query --windows | jq -e 'map(select(.app == "Screen Sharing" and .title == "MrX2")) | length > 0' >/dev/null 2>&1; then
     yabai -m rule --apply agent-screenshare >/dev/null 2>&1; break
   fi
 done
