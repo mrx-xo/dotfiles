@@ -134,6 +134,20 @@ if [ -d "$HOME/skills" ]; then
     done
 fi
 
+# ── Private docs ─────────────────────────────────────────
+# ~/docs is the private working-document repo on the home forge: design docs,
+# PRDs, research, setup guides, and the global agent instructions. It is private
+# because most of it names machines, paths and LAN details that must never land
+# in THIS repo, which is public on GitHub. This repo only wires it up.
+if [ ! -d "$HOME/docs" ]; then
+    git clone ssh://git@omphalos.io:2222/mr-x/docs.git "$HOME/docs" \
+        || echo "Warning: could not clone mr-x/docs (forge unreachable?) - skipping docs symlink"
+fi
+if [ -f "$HOME/docs/agents/claude-global.md" ]; then
+    mkdir -p "$HOME/.claude"
+    ln -sfn "$HOME/docs/agents/claude-global.md" "$HOME/.claude/CLAUDE.md"
+fi
+
 # Emacs LaunchAgents — generated from templates, not symlinked: launchd can't
 # expand ~ or env vars in ProgramArguments, so bake this machine's $HOME into
 # the __HOME__ placeholder at install time.
