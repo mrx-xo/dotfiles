@@ -1,0 +1,13 @@
+#!/bin/bash
+# agent-open — open a URL for an agent without stealing focus or disturbing yabai.
+#   agent-open <url>
+# Uses Brave (the dedicated agent browser). `open -g` launches without activation;
+# the yabairc rule pins Brave windows to the space labelled "agent".
+set -euo pipefail
+url=${1:-}
+[ -n "$url" ] || { sed -n '2,3p' "$0" >&2; exit 2; }
+case "$url" in
+  http://*|https://*|file://*) ;;
+  *) echo "agent-open: refusing non-URL argument" >&2; exit 2 ;;
+esac
+exec open -g -a "Brave Browser" "$url"

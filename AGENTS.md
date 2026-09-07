@@ -192,6 +192,13 @@ When explaining code, include a concrete snippet when it improves clarity and
 identify its full file path in a comment. Keep prose direct and avoid markdown
 tables in narrow agent-shell windows; prefer short lists.
 
+## Opening URLs (agents)
+
+Open pages with `agent-open <url>` (Brave, pinned to the `agent` yabai space,
+launched without activation). Never `open -a`, never `open <url>`, never Chrome:
+those steal focus and break the working layout. Prefer verifying pages headless
+through the Chrome DevTools MCP; only surface a Brave window when asked.
+
 ## Task Master
 
 When Task Master applies, read and follow `.taskmaster/CLAUDE.md`.
