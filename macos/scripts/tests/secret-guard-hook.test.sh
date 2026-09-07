@@ -11,7 +11,7 @@ check() { # check <expected-exit> <tool_name> <field> <value>
   if [ "$rc" = "$1" ]; then echo "ok   $n [$1] $4"; else echo "FAIL $n want $1 got $rc: $4"; fail=1; fi
 }
 # --- must ALLOW (exit 0)
-check 0 Bash command 'secret "Google Gemini API Key" | sed "s/^/GEMINI_API_KEY=/" > ~/.gemini/.env'
+check 0 Bash command 'secret gemini-api-token | sed "s/^/GEMINI_API_KEY=/" > ~/.gemini/.env'
 check 0 Bash command 'export DEEPSEEK_API_KEY=$(secret deepseek-api-key)'
 check 0 Bash command 'secret --list'
 check 0 Bash command 'secret --cache "Deepseek API Key"'
@@ -32,7 +32,7 @@ check 0 Bash command 'curl -s --config <(printf "header = \"Authorization: token
 check 0 Bash command 'printf "add-generic-password -a x -s y -U -w %s\n" "$(rbw get "Deepseek API Key")" | security -i'
 # --- must DENY (exit 2)
 check 2 Bash command 'secret deepseek-api-key'
-check 2 Bash command 'secret "Google Gemini API Key"'
+check 2 Bash command 'secret gemini-api-token'
 check 2 Bash command 'echo $(secret deepseek-api-key)'
 check 2 Bash command 'cd /tmp; secret deepseek-api-key'
 check 2 Bash command 'cat ~/.gemini/.env'
