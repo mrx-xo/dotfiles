@@ -158,6 +158,47 @@ M-x elpaca-rebuild
 M-x elpaca-log
 ```
 
+### Proposing Keybindings (IMPORTANT)
+
+Never propose a keybinding from memory of vanilla Evil or vanilla Emacs. This
+config's normal state is fully saturated: every printable ASCII key and every
+`C-<letter>` is already bound, and several stock keys mean something else
+(`s`/`f`/`t` and friends are evil-snipe, `C-s` is `consult-line`, `C-u` is
+`evil-scroll-up`, `TAB` is not `evil-jump-forward`, `<escape>` and `C-g` are
+`mr-x/escape-quit`).
+
+Before suggesting or adding any binding, run the survey and read it. It takes
+about six seconds and reports the running daemon's actual state:
+
+```bash
+~/.dotfiles/macos/scripts/evil-key-survey.sh
+```
+
+That prints the free `SPC` leader keys and a dozen gotchas a single-key lookup
+will not warn you about. `--full` adds every prefix tree, the diff against
+stock evil, and per-major-mode shadowing.
+
+Nothing is checked in on purpose. A saved keymap snapshot goes stale the moment
+a binding changes, and a stale one is worse than none because it gets trusted.
+Regenerate, never cite a saved copy or a previous run in this conversation.
+
+Then:
+
+1. Put new feature bindings under the `SPC` leader — a free leader key, or a
+   new key inside an existing `SPC` group. `general-override-mode` is on, so
+   the leader survives every major mode.
+2. Confirm the exact key is free in the live session. Probe in a scratch
+   buffer, not the daemon's current buffer, or the answer depends on whatever
+   mode happens to be focused (`"nil"` means free):
+
+   ```bash
+   emacsclient --eval '(with-current-buffer (get-buffer-create " *kb*") \
+     (fundamental-mode) (evil-local-mode 1) (evil-normal-state) \
+     (prog1 (format "%s" (key-binding (kbd "SPC k") t)) (kill-buffer)))'
+   ```
+
+3. Give any new prefix a which-key name, since `which-key-mode` is on.
+
 ## macOS Window Services
 
 Apply configuration changes with each service's supported command:
