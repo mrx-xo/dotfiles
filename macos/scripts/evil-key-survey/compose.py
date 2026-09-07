@@ -25,7 +25,9 @@ def tsv(path):
 live, owner = tsv(f"{D}/live.tsv")
 trees = open(f"{D}/trees.md").read()
 varmap = dict(l.rstrip("\n").split("\t") for l in open(f"{D}/vars.txt"))
-survival = [l.rstrip("\n").split("\t") for l in open(f"{D}/leader-survival.txt")]
+_surv = [l.rstrip("\n").split("\t") for l in open(f"{D}/leader-survival.txt")]
+survival = [r for r in _surv if r[0] != "#"]
+skipped = next((r[1] for r in _surv if r[0] == "#"), None)
 van = tsv(f"{D}/vanilla.tsv")[0] if os.path.exists(f"{D}/vanilla.tsv") else {}
 
 STATES = ("normal", "visual", "insert")
@@ -70,9 +72,15 @@ nb, nf = top_level("normal")
 vb, vf = top_level("visual")
 ib, ifree = top_level("insert")
 
-PROBE = ('emacsclient --eval \'(with-current-buffer (get-buffer-create " *kb*") \\\n'
-         '  (fundamental-mode) (evil-local-mode 1) (evil-normal-state) \\\n'
-         '  (prog1 (format "%s" (key-binding (kbd "SPC k") t)) (kill-buffer)))\'')
+# kill-buffer-query-functions is nil-bound because this daemon has four of them
+# (shell-maker, xwidget, perspective, process); any one can raise a prompt that
+# an emacsclient --eval cannot answer, wedging Emacs.
+# One line on purpose: a backslash continuation inside single quotes is NOT a
+# shell continuation, it reaches Emacs as a literal \ and the form errors.
+# kill-buffer-query-functions is nil-bound because this daemon has four of
+# them (shell-maker, xwidget, perspective, process); any one can raise a
+# prompt an emacsclient --eval cannot answer, wedging Emacs.
+PROBE = 'emacsclient --eval \\\n  ' + '\'(let ((kill-buffer-query-functions nil)) (with-current-buffer (get-buffer-create " *kb*") (fundamental-mode) (evil-local-mode 1) (evil-normal-state) (prog1 (format "%s" (key-binding (kbd "SPC k") t)) (kill-buffer))))\''
 
 brief = f"""# Evil keymap survey (live daemon)
 
@@ -192,8 +200,9 @@ Emacs state with Vertico's map. Normal-state bindings do not apply; bind in
 ## Leader and special keys, per major mode
 
 ```
-{chr(10).join(f"{m:<20} {rest}" for m, rest in survival)}
+{chr(10).join(f"{m:<22} {rest}" for m, rest in survival)}
 ```
+{"_" + skipped + ". Open one and re-run to include it._" if skipped else ""}
 """
 
 def diff_block(state):
