@@ -1,12 +1,12 @@
 # SYZYGY — cross-device conversation continuity
 
-The shell/Go half of syzygy (see `docs/naming.md`): remote on-demand access to
+The shell/Go half of syzygy (see `~/docs/naming.md`): remote on-demand access to
 Claude Code sessions on the M4 from the Air/phone over Tailscale
 (acp-multiplex + acp-mobile), plus cross-machine session handoff
 (`agent-session-handoff.sh`, resumed in Emacs with `SPC c H`) and the
 phone-link helper (`acp-link-to-phone.sh`). The elisp half lives in
 `macos/emacs/.emacs.d/lisp/syzygy/`.
-Full design: [docs/prd-remote-agent-access.md](../../docs/prd-remote-agent-access.md).
+Full design: `~/docs/prd-remote-agent-access.md` (private repo).
 
 ## Architecture
 

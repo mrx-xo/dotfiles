@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-shot wake + open for the M4 agent workstation (R7.3,
-# docs/prd-remote-agent-access.md). Run this from the MacBook Air.
+# ~/docs/prd-remote-agent-access.md). Run this from the MacBook Air.
 #
 # Wakes the M4 via the always-on home server (WoL relay over Tailscale),
 # waits for boot + tailnet reconnect, then opens the acp-mobile UI.

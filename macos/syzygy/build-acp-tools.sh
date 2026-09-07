@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build acp-multiplex + acp-mobile at the reviewed/pinned commits (R2.4/R2.5,
-# docs/prd-remote-agent-access.md). Installs into ~/.local/bin.
+# ~/docs/prd-remote-agent-access.md). Installs into ~/.local/bin.
 #
 # Both tools build from the mrx-xo forks: reviewed SYZYGY changes land as
 # commits on their `syzygy` branches, and the pinned hashes may not exist on

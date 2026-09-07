@@ -1,5 +1,5 @@
 #!/bin/bash
-# agent-term-run.sh <base64-of-command> — Phase 2 of docs/agent-terminal-prd.md.
+# agent-term-run.sh <base64-of-command> — Phase 2 of ~/docs/agent-terminal-prd.md.
 #
 # Runs the agent's Bash command inside tmux session "agent" so a human can
 # watch it execute (and type into the same shell between commands), while

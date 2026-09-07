@@ -84,7 +84,7 @@ symlinked to `~/.claude/CLAUDE.md` by `bootstrap.sh`.
 Telegram bot → local daemon → `~/agent-inbox/` → armed agent-shell buffer.
 Take a screenshot on the phone, send it to the bot, it lands as an image
 attachment in the Emacs agent conversation you armed with `SPC c I`.
-Design doc: `docs/phone-screenshot-ez-send.md`. Needs one-time secrets on a
+Design doc: `~/docs/phone-screenshot-ez-send.md`. Needs one-time secrets on a
 new machine (bot token in Keychain, chat ID in `~/.config/agent-inbox/env`) —
 see the comments in `bootstrap.sh`.
 

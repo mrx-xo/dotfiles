@@ -7,7 +7,7 @@
 
 ;; Companion to the agent-inbox Telegram daemon
 ;; (~/.dotfiles/macos/scripts/agent-inbox-daemon.py).  Design doc:
-;; ~/.dotfiles/docs/phone-screenshot-ez-send.md
+;; ~/docs/phone-screenshot-ez-send.md
 ;;
 ;; Flow: `agent-shell-inbox-arm' in an agent-shell buffer captures that
 ;; buffer and watches `agent-shell-inbox-directory' (poll primary,

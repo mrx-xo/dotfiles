@@ -1,6 +1,6 @@
 #!/bin/bash
 # agent-terminal-hook.sh — feed Claude Code Bash tool calls into Emacs.
-# Phase 1 of docs/agent-terminal-prd.md (observer buffer).
+# Phase 1 of ~/docs/agent-terminal-prd.md (observer buffer).
 #
 # Wired from ~/.claude/settings.json:
 #   PreToolUse  (matcher "Bash") → agent-terminal-hook.sh pre
