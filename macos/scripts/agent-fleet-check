@@ -1,0 +1,32 @@
+#!/bin/bash
+# agent-fleet-check — headless smoke test for the non-Claude agents on this Mac.
+#   agent-fleet-check                 probe codex, opencode, RHEA qwen (via opencode), gemini
+#   agent-fleet-check --host mrx2     run the same probes on another Mac over ssh
+# One trivial prompt per CLI, bounded by timeout. Exit 1 if any fails.
+# Catches: retired default models, expired OAuth (hangs on a browser login),
+# missing keys, RHEA offline. See docs/agent-fleet-ops.md section 6.
+set -u
+if [ "${1:-}" = "--host" ]; then
+  shift; host=${1:?usage: agent-fleet-check --host <ssh-alias>}; shift
+  exec ssh "$host" 'zsh -lc "agent-fleet-check"' "$@"
+fi
+T=${AGENT_CHECK_TIMEOUT:-90}
+PROMPT='Reply with exactly the word: pong'
+fail=0
+run() { # run <label> <cmd...>
+  local label=$1; shift
+  local out rc
+  if ! command -v "$1" >/dev/null 2>&1; then echo "FAIL  $label ($1 not installed)"; fail=1; return; fi
+  out=$(timeout "$T" "$@" 2>&1); rc=$?
+  if [ $rc -eq 124 ]; then echo "FAIL  $label (timeout ${T}s: login prompt or hung)"; fail=1
+  elif [ $rc -ne 0 ]; then echo "FAIL  $label (exit $rc): $(printf '%s' "$out" | tail -1 | cut -c1-120)"; fail=1
+  elif printf '%s' "$out" | grep -qi pong; then echo "ok    $label"
+  else echo "FAIL  $label (no pong): $(printf '%s' "$out" | tail -1 | cut -c1-120)"; fail=1
+  fi
+}
+cd /tmp || exit 1
+run codex     codex exec --skip-git-repo-check -s read-only "$PROMPT"
+run opencode  opencode run "$PROMPT"
+run rhea-qwen opencode run -m ollama-rhea/qwen3:30b-a3b-instruct-2507-q4_K_M "$PROMPT"
+run gemini    gemini --skip-trust -p "$PROMPT"
+exit $fail
