@@ -5,7 +5,7 @@
 ;; SYZYGY ("SIZ-i-jee"): an alignment where separate celestial bodies
 ;; fall into one straight line — sun–earth–moon at an eclipse.  Here:
 ;; the fleet's devices snapping into conjunction around one shared
-;; agent conversation (see ~/.dotfiles/docs/naming.md).
+;; agent conversation (see ~/docs/naming.md).
 ;;
 ;; The elisp half lives in this directory:
 ;;

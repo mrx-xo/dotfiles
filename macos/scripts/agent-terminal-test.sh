@@ -1,6 +1,6 @@
 #!/bin/bash
 # agent-terminal-test.sh [--live] [--emacs] — smoke suite for the Agent
-# Terminal stack (docs/agent-terminal.md). Run before/after touching any
+# Terminal stack (~/docs/agent-terminal.md). Run before/after touching any
 # moving part; add a check whenever a bug teaches us something new.
 #
 #   default : offline checks, incl. headless UX/rendering ERT (no tokens, ~30s)

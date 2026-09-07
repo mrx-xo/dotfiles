@@ -1,6 +1,6 @@
 #!/bin/bash
 # agent-tmux-hook.sh — PreToolUse(Bash) rewrite for Phase 2 of
-# docs/agent-terminal-prd.md (tmux interception).
+# ~/docs/agent-terminal-prd.md (tmux interception).
 #
 # When ~/.claude/agent-tmux-enabled exists, rewrites tool_input.command to
 #   agent-term-run.sh <base64-of-original-command>

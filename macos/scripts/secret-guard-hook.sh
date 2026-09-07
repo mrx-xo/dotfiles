@@ -1,6 +1,6 @@
 #!/bin/bash
 # secret-guard-hook.sh — Claude Code PreToolUse guard against secrets entering
-# the transcript. Layer 5 of docs/agent-fleet-ops.md section 3. Convention-only
+# the transcript. Layer 5 of ~/docs/agent-fleet-ops.md section 3. Convention-only
 # elsewhere; enforced here for Bash and Read.
 #
 # Denies (exit 2 + reason on stderr):

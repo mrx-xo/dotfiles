@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 
-;; Phase 1 of the Agent Terminal PRD (docs/agent-terminal-prd.md): a
+;; Phase 1 of the Agent Terminal PRD (~/docs/agent-terminal-prd.md): a
 ;; read-only, terminal-styled buffer showing every Bash command any
 ;; Claude Code session on this machine runs, live-ish.  Fed by
 ;; PreToolUse/PostToolUse hooks in ~/.claude/settings.json via
@@ -357,7 +357,7 @@ From the command line, folds the output right below it."
     "n" #'agent-terminal-next-command
     "p" #'agent-terminal-previous-command))
 
-;;; Phase 2 — tmux interception (docs/agent-terminal-prd.md)
+;;; Phase 2 — tmux interception (~/docs/agent-terminal-prd.md)
 
 (defcustom agent-terminal-tmux-flag-file
   (expand-file-name "~/.claude/agent-tmux-enabled")
@@ -466,7 +466,7 @@ granular toggles (`mr-x/agent-tmux-toggle', `mr-x/agent-terminal',
     (message "agent-terminal live ON — every agent Bash call runs in tmux session %S"
              agent-terminal-tmux-session)))
 
-;;; Phase 3 — native ACP terminal channel (docs/agent-terminal-prd.md)
+;;; Phase 3 — native ACP terminal channel (~/docs/agent-terminal-prd.md)
 ;;
 ;; The claude-agent-acp adapter (0.54.x) has a dormant terminal channel
 ;; gated on `clientCapabilities._meta.terminal_output'.  When advertised,

@@ -95,7 +95,7 @@ ln -sf "$DOTDIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 mkdir -p "$HOME/.local/bin"
 ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 
-# Agent-fleet helpers (docs/agent-fleet-ops.md): secret handoff, focus-safe
+# Agent-fleet helpers (~/docs/agent-fleet-ops.md): secret handoff, focus-safe
 # agent browser, headless smoke check, MrX2 sandbox viewer
 for s in secret agent-open agent-space-ensure agent-fleet-check sandbox-view claude-acp-headless; do
   ln -sf "$DOTDIR/scripts/$s" "$HOME/.local/bin/$s"
@@ -159,7 +159,7 @@ for pl in com.marcosandrade.emacsdaemon.plist com.marcosandrade.emacsclient.plis
     sed "s|__HOME__|$HOME|g" "$DOTDIR/emacs/$pl" > "$HOME/Library/LaunchAgents/$pl"
 done
 
-# agent-inbox daemon (phone screenshots → agent-shell; docs/phone-screenshot-ez-send.md).
+# agent-inbox daemon (phone screenshots → agent-shell; ~/docs/phone-screenshot-ez-send.md).
 # Needs one-time secrets on a new machine: bot token in the Keychain
 # (security add-generic-password -s agent-inbox-token -w) and
 # TELEGRAM_ALLOWED_CHAT_ID in ~/.config/agent-inbox/env.

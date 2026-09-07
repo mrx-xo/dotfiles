@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """agent-inbox daemon: long-poll a Telegram bot, drop the user's images into ~/agent-inbox.
 
-Design (see ~/.dotfiles/docs/phone-screenshot-ez-send.md):
+Design (see ~/docs/phone-screenshot-ez-send.md):
 - Dumb transport only: no knowledge of Emacs/ACP. Writes complete image files
   into INBOX via atomic temp-write + os.replace so watchers never see partials.
 - Allowlist of one chat id: every other sender is dropped.
