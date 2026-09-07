@@ -15,3 +15,10 @@ yabai -m rule --add label="agent-browser"     app="^Brave Browser$"  space=agent
 yabai -m rule --add label="agent-screenshare" app="^Screen Sharing$" space=agent mouse_follows_focus=off
 yabai -m rule --apply agent-browser >/dev/null 2>&1
 yabai -m rule --apply agent-screenshare >/dev/null 2>&1
+# Screen Sharing reuses and retitles its connection window, so the rule misses it
+# at creation time; re-apply on create and on title change.
+for ev in window_created window_title_changed; do
+  yabai -m signal --remove "agent-screenshare-$ev" >/dev/null 2>&1
+  yabai -m signal --add label="agent-screenshare-$ev" event="$ev" app="^Screen Sharing$" \
+    action="yabai -m rule --apply agent-screenshare"
+done
