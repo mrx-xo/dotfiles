@@ -192,9 +192,8 @@ Then:
    mode happens to be focused (`"nil"` means free):
 
    ```bash
-   emacsclient --eval '(with-current-buffer (get-buffer-create " *kb*") \
-     (fundamental-mode) (evil-local-mode 1) (evil-normal-state) \
-     (prog1 (format "%s" (key-binding (kbd "SPC k") t)) (kill-buffer)))'
+   emacsclient --eval \
+     '(let ((kill-buffer-query-functions nil)) (with-current-buffer (get-buffer-create " *kb*") (fundamental-mode) (evil-local-mode 1) (evil-normal-state) (prog1 (format "%s" (key-binding (kbd "SPC k") t)) (kill-buffer))))'
    ```
 
 3. Give any new prefix a which-key name, since `which-key-mode` is on.
