@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""agent-browser-newtab — open a URL in the agent browser WITHOUT activating it.
+
+Called by agent-open. The obvious route, `PUT /json/new?<url>` on the DevTools
+HTTP endpoint, brings Brave to the front and drags the user to the agent space
+(Chrome/152, verified 2026-09-07) — and it takes no "background" parameter, so
+there is nothing to turn off. The CDP command behind it does: Target.createTarget
+with background=true creates the tab without focusing it.
+
+That command is websocket-only, hence this file. Stdlib only: a minimal RFC 6455
+client is cheaper than a dependency for one request/response.
+
+Exit 0 on success; any failure exits nonzero so agent-open can fall back.
+"""
+import base64
+import json
+import os
+import socket
+import struct
+import sys
+import urllib.request
+
+PORT = int(os.environ.get("AGENT_BROWSER_PORT", "9333"))
+TIMEOUT = 5
+
+
+def ws_connect(port, path):
+    sock = socket.create_connection(("127.0.0.1", port), timeout=TIMEOUT)
+    sock.settimeout(TIMEOUT)
+    key = base64.b64encode(os.urandom(16)).decode()
+    sock.sendall(
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: 127.0.0.1:{port}\r\n"
+        f"Upgrade: websocket\r\n"
+        f"Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\n"
+        f"Sec-WebSocket-Version: 13\r\n\r\n".encode()
+    )
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise OSError("devtools closed the connection during handshake")
+        buf += chunk
+    if b" 101 " not in buf.split(b"\r\n", 1)[0]:
+        raise OSError("devtools refused the websocket upgrade")
+    return sock
+
+
+def ws_send(sock, obj):
+    payload = json.dumps(obj).encode()
+    n = len(payload)
+    header = b"\x81"
+    if n < 126:
+        header += bytes([0x80 | n])
+    elif n < 65536:
+        header += bytes([0x80 | 126]) + struct.pack(">H", n)
+    else:
+        header += bytes([0x80 | 127]) + struct.pack(">Q", n)
+    mask = os.urandom(4)
+    sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+
+def ws_recv(sock):
+    def read(n):
+        buf = b""
+        while len(buf) < n:
+            chunk = sock.recv(n - len(buf))
+            if not chunk:
+                raise OSError("devtools closed the connection mid-frame")
+            buf += chunk
+        return buf
+
+    header = read(2)
+    n = header[1] & 0x7F
+    if n == 126:
+        n = struct.unpack(">H", read(2))[0]
+    elif n == 127:
+        n = struct.unpack(">Q", read(8))[0]
+    return json.loads(read(n))
+
+
+def create_target(sock, msg_id, url, new_window):
+    ws_send(
+        sock,
+        {
+            "id": msg_id,
+            "method": "Target.createTarget",
+            "params": {"url": url, "background": True, "newWindow": new_window},
+        },
+    )
+    return ws_recv(sock)
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: agent-browser-newtab <url>", file=sys.stderr)
+        return 2
+    url = sys.argv[1]
+
+    version = json.load(
+        urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/version", timeout=TIMEOUT)
+    )
+    # ws://127.0.0.1:<port>/devtools/browser/<id> — we only need the path.
+    ws_url = version["webSocketDebuggerUrl"]
+    path = ws_url.split(f"127.0.0.1:{PORT}", 1)[1]
+
+    sock = ws_connect(PORT, path)
+    try:
+        reply = create_target(sock, 1, url, new_window=False)
+        # On macOS the app outlives its last window, so a running Brave with every
+        # window closed is normal — and then there is no window to add a tab to.
+        # Ask for a window instead; background=true keeps it unfocused either way.
+        if "error" in reply and "no browser is open" in str(reply["error"]):
+            reply = create_target(sock, 2, url, new_window=True)
+    finally:
+        sock.close()
+
+    if "error" in reply:
+        print(f"agent-browser-newtab: {reply['error']}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:  # any failure -> agent-open falls back
+        print(f"agent-browser-newtab: {exc}", file=sys.stderr)
+        sys.exit(1)

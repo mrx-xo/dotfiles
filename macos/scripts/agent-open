@@ -3,10 +3,14 @@
 #   agent-open <url>
 # Brave is the dedicated agent browser, run as its own instance (own profile dir,
 # DevTools port 9333). First launch uses `open -g` (no activation); every later URL
-# goes in through the DevTools HTTP endpoint, which adds a tab without activating
-# the app. Plain `open -g -a Brave <url>` is NOT enough: a running Chromium
-# activates itself on every URL it receives (verified 2026-09-06). The yabairc rule
-# pins Brave windows to the space labelled "agent".
+# goes in through CDP `Target.createTarget` with background=true (see
+# agent-browser-newtab), which adds a tab without activating the app. Plain
+# `open -g -a Brave <url>` is NOT enough: a running Chromium activates itself on
+# every URL it receives (verified 2026-09-06). Neither is the DevTools HTTP
+# endpoint `PUT /json/new?<url>`: it front-and-centers Brave and drags you to the
+# agent space, and takes no background flag (Chrome/152, verified 2026-09-07) — it
+# is kept only as a last-resort fallback. The yabairc rule pins Brave windows to
+# the space labelled "agent".
 set -euo pipefail
 url=${1:-}
 [ -n "$url" ] || { sed -n '2,3p' "$0" >&2; exit 2; }
@@ -16,14 +20,60 @@ case "$url" in
 esac
 PORT=${AGENT_BROWSER_PORT:-9333}
 PROFILE="$HOME/.local/share/agent-browser"
-"$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
+HERE=$(dirname "$(readlink -f "$0")")
+JQ=$(command -v jq || echo /opt/homebrew/bin/jq)
+
+# Adding a tab to an existing window is silent, but any path that has to CREATE a
+# window is not: yabai focuses a new window, the agent-browser rule then moves it
+# to the agent space, and your view goes with it. Nothing in Chromium or yabai
+# prevents that, so snapshot where focus was and put it back afterwards.
+focused_space() { yabai -m query --spaces 2>/dev/null | "$JQ" -r 'first(.[]|select(."has-focus")|.index) // empty' 2>/dev/null || true; }
+focused_window() { yabai -m query --windows 2>/dev/null | "$JQ" -r 'first(.[]|select(."has-focus")|.id) // empty' 2>/dev/null || true; }
+have_brave_window() { yabai -m query --windows 2>/dev/null | "$JQ" -e 'any(.[]; .app == "Brave Browser")' >/dev/null 2>&1; }
+
+snap_space=$(focused_space)
+snap_window=$(focused_window)
+
+restore_focus() {
+  [ -n "$snap_space" ] || return 0
+  local now
+  now=$(focused_space)
+  [ -n "$now" ] && [ "$now" != "$snap_space" ] || return 0
+  { [ -n "$snap_window" ] && yabai -m window --focus "$snap_window" >/dev/null 2>&1; } ||
+    yabai -m space --focus "$snap_space" >/dev/null 2>&1 || true
+}
+
+# Brave takes a moment to put its window on screen; restoring before it appears
+# just loses the race with the steal we are trying to undo.
+wait_for_brave_window() {
+  local i
+  for i in $(seq 1 60); do
+    have_brave_window && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+"$HERE/agent-space-ensure" >/dev/null 2>&1 || true
 if curl -s --max-time 1 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1; then
-  curl -s --max-time 5 -X PUT "http://127.0.0.1:$PORT/json/new?$url" >/dev/null
-elif pgrep -q -f "Brave Browser.app/Contents/MacOS/Brave Browser$"; then
-  echo "agent-open: Brave is running without the agent profile; falling back to open -g (may steal focus)" >&2
-  exec open -g -a "Brave Browser" "$url"
+  had_window=no
+  have_brave_window && had_window=yes
+  if ! "$HERE/agent-browser-newtab" "$url"; then
+    echo "agent-open: background tab failed; falling back to /json/new (steals focus)" >&2
+    curl -s --max-time 5 -X PUT "http://127.0.0.1:$PORT/json/new?$url" >/dev/null
+  fi
+  [ "$had_window" = yes ] || wait_for_brave_window || true
+  sleep 0.4
 else
-  mkdir -p "$PROFILE"
-  exec open -g -a "Brave Browser" --args --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
-    --no-first-run --no-default-browser-check "$url"
+  if pgrep -q -f "Brave Browser.app/Contents/MacOS/Brave Browser$"; then
+    echo "agent-open: Brave is running without the agent profile; falling back to open -g (may steal focus)" >&2
+    open -g -a "Brave Browser" "$url"
+  else
+    mkdir -p "$PROFILE"
+    open -g -a "Brave Browser" --args --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
+      --no-first-run --no-default-browser-check "$url"
+  fi
+  wait_for_brave_window || true
+  sleep 0.6
 fi
+restore_focus
