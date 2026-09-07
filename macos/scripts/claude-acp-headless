@@ -1,0 +1,16 @@
+#!/bin/bash
+# claude-acp-headless — run claude-agent-acp for an ssh-launched agent-shell session.
+# ssh sessions on macOS get a locked login Keychain, so the interactive `claude login`
+# is invisible there; use the long-lived token from `claude setup-token` instead,
+# stored at ~/.config/claude/oauth-token (chmod 600) on the agent box (MrX2).
+# Used from MrX as: agent-shell-anthropic-claude-acp-command = ("ssh" "mrx2" "claude-acp-headless")
+set -u
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
+nodebin=$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)
+[ -n "$nodebin" ] && export PATH="$nodebin:$PATH"
+tok="$HOME/.config/claude/oauth-token"
+if [ -r "$tok" ]; then
+  CLAUDE_CODE_OAUTH_TOKEN=$(tr -d '[:space:]' < "$tok"); export CLAUDE_CODE_OAUTH_TOKEN
+fi
+export CLAUDE_CODE_EXECUTABLE="$HOME/.local/bin/claude"
+exec claude-agent-acp "$@"
