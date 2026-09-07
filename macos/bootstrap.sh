@@ -95,6 +95,12 @@ ln -sf "$DOTDIR/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 mkdir -p "$HOME/.local/bin"
 ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 
+# Agent-fleet helpers (docs/agent-fleet-ops.md): secret handoff, focus-safe
+# agent browser, headless smoke check, MrX2 sandbox viewer
+for s in secret agent-open agent-fleet-check sandbox-view; do
+  ln -sf "$DOTDIR/scripts/$s" "$HOME/.local/bin/$s"
+done
+
 # ── Machine identity ─────────────────────────────────────
 # ~/.config/machine-id is the fleet-wide source of truth for "which machine
 # am I on" — read by ~/.zshenv (exports MACHINE_ID), `whereami`, and any

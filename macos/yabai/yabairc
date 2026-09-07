@@ -74,6 +74,15 @@ yabai -m rule --add app="Emacs" title="SCRATCHPAD-ORG" scratchpad="scratch-org" 
 yabai -m rule --add app="Messages" scratchpad="imessage" grid="6:6:1:1:4:4" manage=off
 yabai -m rule --add app="Discord" scratchpad="discord" grid="6:6:0:0:3:6" manage=off
 
+# Agent space: Brave (agent-open) and the MrX2 Screen Sharing window (sandbox-view)
+# live on a space labelled "agent" so agent windows never land in the working
+# layout. Space is created once, idempotently. See docs/agent-fleet-ops.md.
+if ! yabai -m query --spaces | jq -e 'map(select(.label == "agent")) | length > 0' >/dev/null; then
+  yabai -m space --create
+  yabai -m space last --label agent
+fi
+yabai -m rule --add label="agent-browser" app="^Brave Browser$" space=agent mouse_follows_focus=off
+
 # Add signal to force tile Emacs windows when created (but not scratchpads)
 yabai -m signal --add event=window_created app="^Emacs$" action="if [[ \$(yabai -m query --windows --window \$YABAI_WINDOW_ID | jq -r '.scratchpad') == '' ]]; then yabai -m window \$YABAI_WINDOW_ID --toggle float; yabai -m window \$YABAI_WINDOW_ID --toggle float; fi"
 
