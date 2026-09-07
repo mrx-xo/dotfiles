@@ -1,0 +1,7 @@
+#!/bin/bash
+# sandbox-view — open the MrX2 Screen Sharing window (sandbox Emacs and the agent
+# box live there) on the yabai "agent" space without stealing focus.
+# Requires Screen Sharing enabled on MrX2 (System Settings -> General -> Sharing).
+set -euo pipefail
+"$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
+exec open -g vnc://mrx2
