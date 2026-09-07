@@ -1,8 +1,12 @@
 #!/bin/bash
 # agent-open — open a URL for an agent without stealing focus or disturbing yabai.
 #   agent-open <url>
-# Uses Brave (the dedicated agent browser). `open -g` launches without activation;
-# the yabairc rule pins Brave windows to the space labelled "agent".
+# Brave is the dedicated agent browser, run as its own instance (own profile dir,
+# DevTools port 9333). First launch uses `open -g` (no activation); every later URL
+# goes in through the DevTools HTTP endpoint, which adds a tab without activating
+# the app. Plain `open -g -a Brave <url>` is NOT enough: a running Chromium
+# activates itself on every URL it receives (verified 2026-09-06). The yabairc rule
+# pins Brave windows to the space labelled "agent".
 set -euo pipefail
 url=${1:-}
 [ -n "$url" ] || { sed -n '2,3p' "$0" >&2; exit 2; }
@@ -10,5 +14,16 @@ case "$url" in
   http://*|https://*|file://*) ;;
   *) echo "agent-open: refusing non-URL argument" >&2; exit 2 ;;
 esac
+PORT=${AGENT_BROWSER_PORT:-9333}
+PROFILE="$HOME/.local/share/agent-browser"
 "$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
-exec open -g -a "Brave Browser" "$url"
+if curl -s --max-time 1 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1; then
+  curl -s --max-time 5 -X PUT "http://127.0.0.1:$PORT/json/new?$url" >/dev/null
+elif pgrep -q -f "Brave Browser.app/Contents/MacOS/Brave Browser$"; then
+  echo "agent-open: Brave is running without the agent profile; falling back to open -g (may steal focus)" >&2
+  exec open -g -a "Brave Browser" "$url"
+else
+  mkdir -p "$PROFILE"
+  exec open -g -a "Brave Browser" --args --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
+    --no-first-run --no-default-browser-check "$url"
+fi
