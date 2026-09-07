@@ -4,7 +4,7 @@
 # Requires Screen Sharing enabled on MrX2 (System Settings -> General -> Sharing).
 set -euo pipefail
 "$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
-open -g vnc://mrx2
+open -g vnc://MrX2@mrx2
 # belt and braces: once the session window exists, pin it (the rule alone misses it)
 for _ in $(seq 1 30); do
   sleep 0.5
