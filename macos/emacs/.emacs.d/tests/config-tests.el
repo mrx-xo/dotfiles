@@ -1368,6 +1368,14 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should (eq (config-test--leader-key "g g") 'magit-status))
   (should (eq (config-test--leader-key "g G") 'mr-x/magit-status-side-window)))
 
+(ert-deftest config-test-major-pane-workspace-loaded ()
+  "The open-convo snapshot module is loaded, its mode is on, and SPC c / w
+resumes from it."
+  (should (featurep 'major-pane-workspace))
+  (should (bound-and-true-p major-pane-workspace-mode))
+  (should (memq #'major-pane-workspace-save kill-emacs-hook))
+  (should (eq (config-test--leader-key "c / w") 'major-pane-workspace-resume)))
+
 (ert-deftest config-test-leader-pane-keys ()
   "SPC & pane keys must resolve correctly."
   (should (eq (config-test--leader-key "& n") 'major-pane-new-chat))
@@ -1489,6 +1497,31 @@ drop the entire tab row."
   ;; no busy tabs at test time → timer must not be running
   (major-pane--spinner-sync)
   (should (null major-pane--spinner-timer)))
+
+(ert-deftest config-test-major-pane-short-mode-names-match-agent-vocabulary ()
+  "Banner mode keys must be the agent's own :name strings, verbatim.
+`major-pane--short-mode-name' matches with `assoc', and
+`major-pane-alert-mode-names' keys off the SHORTENED name.  A key that
+drifts from the agent's wording therefore fails silently twice: the
+banner shows the long name, and an unguarded session (Claude bypass,
+Codex full access) renders in the calm info face instead of the alert
+face.  Title-cased Claude keys shipped that way once already."
+  (require 'major-pane)
+  ;; Observed from live `:config-options' — the agents' full mode vocabulary.
+  (let ((vocabulary '("Manual" "Accept edits" "Plan" "Auto" "Bypass permissions"
+                      "Read-only" "Agent" "Agent (full access)"
+                      "build" "plan")))
+    (dolist (entry major-pane-short-mode-names)
+      (should (member (car entry) vocabulary))))
+  ;; The two unguarded modes must shorten INTO the alert set.
+  (dolist (mode '("Bypass permissions" "Agent (full access)"))
+    (should (member (major-pane--short-mode-name mode)
+                    major-pane-alert-mode-names)))
+  ;; ...and a guarded mode must not.
+  (should (equal "Read" (major-pane--short-mode-name "Read-only")))
+  (should-not (member "Read" major-pane-alert-mode-names))
+  ;; Unlisted names pass through untouched.
+  (should (equal "Manual" (major-pane--short-mode-name "Manual"))))
 
 (ert-deftest config-test-major-pane-ping-keeps-computed-pixel-size ()
   "Done ping must opt out of Emacs' implicit high-DPI image scaling.
@@ -1887,5 +1920,43 @@ in a streamed chunk pops the blocking coding-system prompt mid-turn."
   (should (fboundp 'mr-x/agent-shell--transcript-utf8))
   (should (advice-member-p 'mr-x/agent-shell--transcript-utf8
                            'agent-shell--append-transcript)))
+
+(ert-deftest config-test-org-tidy-guards ()
+  "org-tidy marks must stay clamped to their drawer, and orphans must be swept.
+Upstream, `org-element-end' counts an element's trailing blank lines, so the
+last drawer in a buffer yields an overlay reaching `point-max'; headings added
+below it then stop rendering at all. `org-tidy-overlays' is also a
+`defvar-local', so `kill-all-local-variables' (revert-buffer, re-running the
+major mode) strands overlays that `org-tidy-untidy-buffer' can never reach.
+Together these hid 106 lines of roaming/notes/homelab.org."
+  (should (fboundp 'mr-x/org-tidy-sweep-orphans))
+  (should (fboundp 'mr-x/org-tidy-clamp-overlays))
+  (should (advice-member-p 'mr-x/org-tidy-sweep-orphans 'org-tidy-buffer))
+  (should (advice-member-p 'mr-x/org-tidy-clamp-overlays 'org-tidy-buffer))
+  (with-temp-buffer
+    ;; Trailing blank lines are the trigger: they land inside the last
+    ;; drawer's `org-element-end'.
+    (insert "* One\n:LOGBOOK:\n- a note\n:END:\n"
+            "* Last\n:LOGBOOK:\n- another\n:END:\n\n\n")
+    (let ((org-mode-hook nil)) (org-mode))
+    (org-tidy-mode 1)
+    (let ((ovs (seq-filter (lambda (o) (stringp (overlay-get o 'display)))
+                           (overlays-in (point-min) (point-max)))))
+      ;; One mark per drawer, and none of them runs to the end of the buffer.
+      (should (= 2 (length ovs)))
+      (should-not (seq-some (lambda (o) (= (overlay-end o) (point-max))) ovs))
+      ;; Each mark stops on its own :END: line.
+      (dolist (o ovs)
+        (should (equal ":END:"
+                       (save-excursion
+                         (goto-char (overlay-end o))
+                         (buffer-substring-no-properties
+                          (line-beginning-position) (line-end-position)))))))
+    ;; An untracked mark overlay is swept on the next tidy.
+    (let ((orphan (make-overlay (point-min) (point-max))))
+      (overlay-put orphan 'display
+                   (format " %s" org-tidy-properties-inline-symbol))
+      (org-tidy-buffer)
+      (should-not (overlay-buffer orphan)))))
 
 ;;; config-tests.el ends here

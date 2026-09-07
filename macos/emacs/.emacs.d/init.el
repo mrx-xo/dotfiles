@@ -354,9 +354,56 @@ during daemon init the selected frame is non-graphic)."
           (org-indent-mode 1)))
       (add-hook 'org-mode-hook #'my/org-indent-unless-hidden)
 
+      ;; org-tidy replaces a :PROPERTIES:/:LOGBOOK: drawer with one mark parked
+      ;; on the heading line. Two upstream bugs need guarding:
+      ;;
+      ;; 1. `org-element-end' counts an element's trailing blank lines, so the
+      ;;    last drawer in a buffer yields an overlay reaching `point-max'.
+      ;;    Headings appended below it land inside that overlay and stop being
+      ;;    displayed — the text is still in the buffer, so search finds it and
+      ;;    point can move there, but nothing renders.
+      ;; 2. `org-tidy-overlays' is a `defvar-local', so `kill-all-local-variables'
+      ;;    (revert-buffer, re-running the major mode) drops org-tidy's record of
+      ;;    its overlays without deleting the overlays themselves.
+      ;;    `org-tidy-untidy-buffer' can never reach them again, and each later
+      ;;    session stacks a fresh set on top of the orphans.
+      ;;
+      ;; Together these hid 106 lines of roaming/notes/homelab.org behind five
+      ;; stacked orphans, found 2026-09-06.
+      (defface mr-x/org-tidy-mark
+        `((t (:foreground ,(mr-x/color 'red 'dark))))
+        "Face for org-tidy's collapsed-drawer mark.
+Red, so it reads as distinct from the orange `org-ellipsis' dot, which
+marks a fold made by hand rather than one org-tidy applied.")
+
+      (defun mr-x/org-tidy-sweep-orphans (&rest _)
+        "Delete org-tidy overlays that org-tidy no longer tracks."
+        (let ((tracked (mapcar (lambda (i) (plist-get i :ov)) org-tidy-overlays))
+              (marks (list "" (format " %s" org-tidy-properties-inline-symbol))))
+          (dolist (o (overlays-in (point-min) (point-max)))
+            (when (and (member (overlay-get o 'display) marks)
+                       (not (memq o tracked)))
+              (delete-overlay o)))))
+
+      (defun mr-x/org-tidy-clamp-overlays (&rest _)
+        "Clamp each org-tidy overlay to its drawer's :END: line."
+        (dolist (item org-tidy-overlays)
+          (let ((o (plist-get item :ov)))
+            (when (and (overlayp o) (overlay-buffer o))
+              (save-excursion
+                (goto-char (overlay-start o))
+                (when (re-search-forward "^[ \t]*:END:" (overlay-end o) t)
+                  (move-overlay o (overlay-start o) (line-end-position))))))))
+
       (use-package org-tidy
   	:ensure t
-  	:hook (org-mode . org-tidy-mode))
+  	:hook (org-mode . org-tidy-mode)
+  	:custom
+  	(org-tidy-properties-inline-symbol
+  	 (propertize "‧" 'face 'mr-x/org-tidy-mark))
+  	:config
+  	(advice-add 'org-tidy-buffer :before #'mr-x/org-tidy-sweep-orphans)
+  	(advice-add 'org-tidy-buffer :after  #'mr-x/org-tidy-clamp-overlays))
 
       (use-package org-super-agenda
   	:ensure t
@@ -4215,6 +4262,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c / b a" '(agent-recall-browse :wk "All")
         "c / b d" '(agent-recall-browse-project :wk "Directory")
         "c / r" '(agent-recall-resume :wk "Resume")
+        "c / w" '(major-pane-workspace-resume :wk "Workspace (last open)")
         "c / B" '(agent-recall-backfill :wk "Backfill")
         "c / t" '(agent-recall-stats :wk "Stats"))
 
@@ -5117,6 +5165,7 @@ only sees the freshly restored frames."
   (setq evil-want-C-u-scroll t)
   (setq evil-want-C-i-jump nil)
   (setq evil-respect-visual-line-mode t)
+  (setq evil-undo-system 'undo-redo)
   :config
   (evil-mode 1)
   ;; ESC in normal state → progressive escape instead of evil-force-normal-state
@@ -5125,6 +5174,21 @@ only sees the freshly restored frames."
   (define-key evil-insert-state-map (kbd "M-<backspace>")
     (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
 
+
+
+
+;; vundo renders Emacs' native undo history as a tree.  Arrow keys move
+;; between nodes and the buffer updates live, so a branch abandoned earlier
+;; is reachable without blindly alternating undo and redo.
+(use-package vundo
+  :ensure t
+  :commands (vundo)
+  :config
+  (setq vundo-glyph-alist vundo-unicode-symbols))
+
+(with-eval-after-load 'general
+  (mr-x/leader-def
+    "U" '(vundo :wk "undo tree")))
 
 
 

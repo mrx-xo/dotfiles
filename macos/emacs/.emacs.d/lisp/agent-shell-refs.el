@@ -251,9 +251,10 @@ order — e.g. \" ❝2 📄1\"."
 
 ;;; --- Input preview ---
 ;; A display-only bar above the current input line showing which refs are
-;; queued, BEFORE you send.  It lives in an overlay `before-string', so it
-;; never enters the buffer text shell-maker sends and can't be corrupted by
-;; typing/backspace — clear it with the ref commands, not the keyboard.
+;; queued, BEFORE you send.  With one ref and a leading `[ref 1]:' marker,
+;; the overlay replaces that marker with the pill at the prompt and puts the
+;; actual input on the next line.  Otherwise it lives in a `before-string'
+;; above the prompt.  Neither form changes the text shell-maker sends.
 ;; (The header-line is unavailable: agent-shell owns it for its config bar.)
 
 (defvar-local agent-shell-refs--preview-overlay nil
@@ -295,21 +296,41 @@ preview sits on whatever line you're about to type into."
     (when (re-search-backward comint-prompt-regexp nil t)
       (line-beginning-position))))
 
+(defun agent-shell-refs--input-prompt-end ()
+  "Position immediately after the current input prompt, or nil."
+  (save-excursion
+    (goto-char (point-max))
+    (when (re-search-backward comint-prompt-regexp nil t)
+      (match-end 0))))
+
 (defun agent-shell-refs--update-input-preview ()
-  "Refresh the queued-refs preview overlay above the input line.
-Rebuilt from scratch each call: drop the old overlay, and when refs are
-queued and a prompt exists, anchor a fresh zero-width overlay whose
-`before-string' is the snippet bar plus a newline (its own line above
-the prompt)."
+  "Refresh the queued-refs preview overlay at the current input."
   (when (overlayp agent-shell-refs--preview-overlay)
     (delete-overlay agent-shell-refs--preview-overlay)
     (setq agent-shell-refs--preview-overlay nil))
-  (let ((pos (and agent-shell-refs--list
-                  (agent-shell-refs--input-line-start))))
-    (when pos
-      (let ((ov (make-overlay pos pos)))
-        (overlay-put ov 'before-string
-                     (concat (agent-shell-refs--preview-bar-string) "\n"))
+  (let* ((prompt-end (and agent-shell-refs--list
+                          (agent-shell-refs--input-prompt-end)))
+         (marker-end
+          (and (= (length agent-shell-refs--list) 1)
+               prompt-end
+               (save-excursion
+                 (goto-char prompt-end)
+                 (when (looking-at "\n\\[ref 1\\]:\n\n")
+                   (match-end 0)))))
+         (line-start (and prompt-end
+                          (agent-shell-refs--input-line-start))))
+    (when line-start
+      (let ((ov (if marker-end
+                    (make-overlay prompt-end marker-end nil t nil)
+                  (make-overlay line-start line-start))))
+        (if marker-end
+            (progn
+              (overlay-put ov 'display
+                           (concat (agent-shell-refs--preview-bar-string)
+                                   "\n   "))
+              (overlay-put ov 'evaporate t))
+          (overlay-put ov 'before-string
+                       (concat (agent-shell-refs--preview-bar-string) "\n")))
         (overlay-put ov 'agent-shell-refs-preview t)
         (setq agent-shell-refs--preview-overlay ov)))))
 
@@ -375,7 +396,8 @@ in the preview chips."
     ;;   [ref N]:
     ;;   <blank>
     ;;   <reply starts here>
-    (insert (format "\n[ref %d]:\n\n" n))))
+    (insert (format "\n[ref %d]:\n\n" n))
+    (agent-shell-refs--update-input-preview)))
 
 (defface agent-shell-refs-marker-face
   '((t :inherit agent-shell-refs-pill-face :foreground "#fe8019"))
@@ -587,10 +609,30 @@ the `face' property on input regions."
                   (setq pos (+ chunk-end 2))))
               ;; closing tag + trailing blank line
               (hide body-end block-end)
-              ;; pill row visually replaces the opening tag line
-              (overlay-put tag-ov 'display
-                           (concat (mapconcat #'identity (nreverse pills) " ")
-                                   "\n"))
+              ;; With one ref, a leading `[ref 1]:' is redundant beside the
+              ;; numbered pill.  Keep the literal marker in the buffer for the
+              ;; model, but fold it into the pill and start the prompt below.
+              ;; Multiple refs retain their explicit markers so the visual
+              ;; mapping between each marker and its reply stays unambiguous.
+              (let ((marker-end
+                     (and (= (length pills) 1)
+                          (save-excursion
+                            (goto-char block-end)
+                            (when (looking-at "\n\\[ref 1\\]:\n\n")
+                              (match-end 0))))))
+                (when marker-end
+                  (dolist (ov (overlays-in block-end marker-end))
+                    (when (overlay-get ov 'agent-shell-refs-coalesced-marker)
+                      (delete-overlay ov)))
+                  (let ((marker-ov (hide block-end marker-end)))
+                    (overlay-put marker-ov
+                                 'agent-shell-refs-coalesced-marker t)))
+                ;; Pill row visually replaces the opening tag line.  A merged
+                ;; marker supplies one newline plus a small hanging indent for
+                ;; the actual prompt text.
+                (overlay-put tag-ov 'display
+                             (concat (mapconcat #'identity (nreverse pills) " ")
+                                     (if marker-end "\n   " "\n"))))
               t)))))))
 
 (defun agent-shell-refs--block-covered-p (beg end)
