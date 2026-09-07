@@ -300,3 +300,6 @@ alias upshow="upload-media \$1 shows"
 export OLLAMA_HOST=100.84.72.38
 
 . "$HOME/.local/bin/env"
+
+# opencode
+export PATH="$HOME/.opencode/bin:$PATH"

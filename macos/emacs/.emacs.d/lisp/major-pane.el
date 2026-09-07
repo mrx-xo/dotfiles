@@ -599,6 +599,10 @@ selected frame, the pane lands on the home frame instead."
   (let ((win (display-buffer buffer
                              `((display-buffer-in-direction)
                                (direction . ,major-pane-direction)
+                               ;; Split the frame root, not the selected
+                               ;; window: the pane always spans the whole
+                               ;; left edge of the frame.
+                               (window . root)
                                (window-width . ,major-pane-width)))))
     (set-window-parameter win 'major-pane t)
     ;; Soft dedication: display-buffer won't hijack the pane for other
@@ -641,6 +645,7 @@ Intended for `display-buffer-alist' (see Commentary):
                                   (display-buffer-in-direction
                                    buffer
                                    `((direction . ,major-pane-direction)
+                                     (window . root)
                                      (window-width . ,major-pane-width))))))
                       (if (and home (not (eq home (selected-frame))))
                           (with-selected-frame home (funcall make))
@@ -769,15 +774,19 @@ and date numbers.  Works across backends:
     (if (string-empty-p short) model-id short)))
 
 (defvar major-pane-short-mode-names
-  '(;; Claude
-    ("Bypass Permissions" . "Bypass")
-    ("Accept Edits" . "Edits")
-    ("Plan Mode" . "Plan")
+  '(;; Claude.  Keys are the agent's own :name strings, sentence case —
+    ;; title case here silently stops matching, which also drops the
+    ;; mode out of `major-pane-alert-mode-names' and paints an unguarded
+    ;; session in the calm info face.
+    ("Bypass permissions" . "Bypass")
+    ("Accept edits" . "Edits")
     ;; Codex
     ("Agent (full access)" . "Full")
     ("Read-only" . "Read")
     ("Agent" . "Agent"))
-  "Alist shortening permission-mode display names for the banner.")
+  "Alist shortening permission-mode display names for the banner.
+Names not listed here pass through unchanged (Claude \"Manual\"/\"Auto\"/
+\"Plan\", OpenCode \"build\"/\"plan\") — they are already short.")
 
 (defvar major-pane-alert-mode-names '("Bypass" "Full")
   "Shortened permission modes rendered with the alert face in the banner.

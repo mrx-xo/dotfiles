@@ -149,13 +149,31 @@
         ;; customizations live on agent-shell-markdown now.
         (with-eval-after-load 'agent-shell-markdown
           ;; Map fenced-block languages to tree-sitter modes
+          ;; Emacs 30 ships tree-sitter-only modes for much of what the
+          ;; agents write — there is no `go-mode', `bash-mode', `yaml-mode'
+          ;; etc., and an unresolved language renders as flat, uncoloured
+          ;; text.  Every entry below has its grammar installed.
+          ;; (No rust: rust-ts-mode exists but the grammar isn't built.)
           (dolist (mapping '(("typescript" . "typescript-ts")
+                             ("ts" . "typescript-ts")
                              ("tsx" . "tsx-ts")
                              ("javascript" . "js-ts")
                              ("js" . "js-ts")
+                             ("go" . "go-ts")
+                             ("golang" . "go-ts")
+                             ("yaml" . "yaml-ts")
+                             ("yml" . "yaml-ts")
+                             ("toml" . "toml-ts")
+                             ("json" . "json-ts")
+                             ("dockerfile" . "dockerfile-ts")
+                             ("kotlin" . "kotlin-ts")
+                             ("lua" . "lua-ts")
                              ;; no bash-mode exists, so ```bash blocks
                              ;; render plain without an alias
-                             ("bash" . "bash-ts")))
+                             ("bash" . "bash-ts")
+                             ("sh" . "bash-ts")
+                             ("shell" . "bash-ts")
+                             ("zsh" . "bash-ts")))
             (add-to-list 'agent-shell-markdown-language-mapping mapping))
 
           ;; Rainbow parens in fenced blocks: upstream fontifies with
@@ -1019,6 +1037,39 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         (setq agent-shell-opencode-acp-command
               (list (expand-file-name "~/.opencode/bin/opencode") "acp"))
 
+        ;; ── Gemini (Google API key) ─────────────────────────────
+        ;; agent-shell defaults Google to :login (OAuth).  That fails here:
+        ;; `security.auth.selectedType' in ~/.gemini/settings.json is
+        ;; "gemini-api-key", and the gemini CLI never loads ~/.gemini/.env
+        ;; when running as an ACP agent — ACP has no channel for the folder
+        ;; trust prompt, so every cwd is untrusted ("Skipping project agents
+        ;; due to untrusted folder") and dotenv loading is skipped.  session/new
+        ;; then dies with -32000 "Gemini API key is missing or not configured."
+        ;; Passing the key explicitly puts it in the child process environment,
+        ;; which bypasses .env entirely and works from any cwd.
+        (defun mr-x/gemini-api-key ()
+          "Return the Gemini API key, or nil when it is not available.
+
+Shells out to the `secret' helper, which reads the login Keychain item
+\"Google Gemini API Key\" first and only falls back to Vaultwarden.  The
+call is wrapped in `timeout' so a Keychain miss cannot wedge the Emacs
+daemon on an interactive `rbw unlock' prompt.  Refresh the Keychain copy
+with  secret --cache \"Google Gemini API Key\"."
+          (when-let* ((secret-bin (executable-find "secret"))
+                      (command (concat (if-let* ((timeout-bin (executable-find "timeout")))
+                                           (concat (shell-quote-argument timeout-bin) " 5 ")
+                                         "")
+                                       (shell-quote-argument secret-bin) " "
+                                       (shell-quote-argument "Google Gemini API Key")
+                                       " 2>/dev/null"))
+                      (key (string-trim (shell-command-to-string command)))
+                      ((not (string-empty-p key))))
+            key))
+
+        (setq agent-shell-google-authentication
+              (agent-shell-google-make-authentication
+               :api-key #'mr-x/gemini-api-key))
+
         ;; ── Goose (local Ollama agent) ──────────────────────────
         ;; Goose talks to qwen3.5:9b through the local goose-scope proxy,
         ;; which routes to the primary fleet Ollama host.  The private host
@@ -1109,30 +1160,52 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
 
 
-        ;; Give Codex the same compact prompt as Claude instead of "Codex> ".
-        ;; Keep this as a filter on the upstream factory so authentication,
-        ;; models, session modes, and future config fields continue to come
-        ;; from agent-shell-openai.
-        (with-eval-after-load 'agent-shell-openai
-          (defun mr-x/agent-shell-codex-compact-prompt (config)
-            "Replace Codex's verbose input prompt in CONFIG with `𐆖 '."
-            (setf (alist-get :shell-prompt config) "𐆖 "
-                  (alist-get :shell-prompt-regexp config) "𐆖 ")
-            config)
-          (unless (advice-member-p #'mr-x/agent-shell-codex-compact-prompt
-                                   'agent-shell-openai-make-codex-config)
-            (advice-add 'agent-shell-openai-make-codex-config
-                        :filter-return
-                        #'mr-x/agent-shell-codex-compact-prompt)))
+        ;; ── One prompt symbol for every agent ───────────────────
+        ;; Upstream gives each provider its own verbose prompt ("Claude> ",
+        ;; "Codex> ", "Gemini> ", "OpenCode> ", ...).  In a 30%-wide agent
+        ;; pane that is mostly noise, and it makes every agent's input line
+        ;; look different for no reason.  Every provider builds its config
+        ;; through `agent-shell-make-agent-config', so filtering that one
+        ;; factory standardizes the prompt across all of them at once —
+        ;; including providers added by future agent-shell releases.
+        (defvar mr-x/agent-shell-prompt "𐆖 "
+          "Input prompt used for every agent-shell agent by default.")
 
-        ;; Custom prompt config
+        (defvar mr-x/agent-shell-prompt-alist nil
+          "Per-agent input prompt overrides, keyed by config `:identifier'.
+Entries look like (gemini-cli . \"G> \").  Any agent not listed here
+uses `mr-x/agent-shell-prompt'.")
+
+        (defun mr-x/agent-shell-prompt-for (identifier)
+          "Return the input prompt configured for agent IDENTIFIER."
+          (or (alist-get identifier mr-x/agent-shell-prompt-alist)
+              mr-x/agent-shell-prompt))
+
+        (defun mr-x/agent-shell-standardize-prompt (config)
+          "Replace CONFIG's provider-specific input prompt with ours.
+Filters the return value of `agent-shell-make-agent-config', so
+authentication, models, session modes, and future config fields keep
+coming from the provider untouched."
+          (when (consp config)
+            (let ((prompt (mr-x/agent-shell-prompt-for
+                           (alist-get :identifier config))))
+              (setf (alist-get :shell-prompt config) prompt
+                    (alist-get :shell-prompt-regexp config) prompt)))
+          config)
+
+        (unless (advice-member-p #'mr-x/agent-shell-standardize-prompt
+                                 'agent-shell-make-agent-config)
+          (advice-add 'agent-shell-make-agent-config
+                      :filter-return
+                      #'mr-x/agent-shell-standardize-prompt))
+
+        ;; Custom prompt config.  :shell-prompt is omitted deliberately —
+        ;; the advice above fills it in like it does for every other agent.
         (setq agent-shell-preferred-agent-config
               (agent-shell-make-agent-config
                :identifier 'claude-code
                :mode-line-name "Claude"
                :buffer-name "Claude"
-               :shell-prompt "𐆖 "
-               :shell-prompt-regexp "𐆖 "
                :icon-name "anthropic.png"
                :welcome-function #'agent-shell-anthropic--claude-code-welcome-message
                :client-maker (lambda (buffer)
@@ -1327,6 +1400,13 @@ Resolves agent config once, then spawns shells staggered 3s apart."
       ;; the session; bookmark-jump reopens/resumes it (vendored from
       ;; dcluna/agent-shell-bookmark, see lisp/agent-shell-bookmark.el)
       (require 'agent-shell-bookmark)
+
+      ;; Major Pane Workspace - keeps a snapshot history of which convos
+      ;; were open (session id, cwd, agent, label, order) so a restart
+      ;; can list them and resume the one you want (SPC c / w, C-u for
+      ;; older snapshots).  See lisp/major-pane-workspace.el.
+      (require 'major-pane-workspace)
+      (major-pane-workspace-mode 1)
 
       ;; SYZYGY — cross-device conversation continuity (lisp/syzygy/):
       ;; resync lockdown (SPC c y), live 2-way sync (SPC c Y), and
@@ -1863,6 +1943,14 @@ silent context-only capture with no marker."
                       (when (and (require 'major-pane nil t)
                                  (boundp 'major-pane--labels))
                         (puthash shell-buffer label major-pane--labels))))))
+        ;; agent-recall registers its embark keymap (o/r/R on transcript
+        ;; rows) only when `agent-recall-browse' runs, so in a fresh daemon
+        ;; the consult-search and workspace pickers had no `r' until you had
+        ;; browsed once.  agent-recall self-registers at load when embark
+        ;; is already in; this covers embark loading second.
+        (with-eval-after-load 'embark
+          (when (fboundp 'agent-recall--setup-embark)
+            (agent-recall--setup-embark)))
         ;; Resume/browse placement needs no advice: agent-recall funnels
         ;; display through `agent-recall--display-buffer' (a plain
         ;; pop-to-buffer), which the "Claude Agent @" display-buffer-alist
