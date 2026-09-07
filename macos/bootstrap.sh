@@ -100,6 +100,8 @@ ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 for s in secret agent-open agent-fleet-check sandbox-view; do
   ln -sf "$DOTDIR/scripts/$s" "$HOME/.local/bin/$s"
 done
+# OpenCode installs to ~/.opencode/bin, which is not on PATH
+[ -x "$HOME/.opencode/bin/opencode" ] && ln -sf "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/opencode"
 
 # ── Machine identity ─────────────────────────────────────
 # ~/.config/machine-id is the fleet-wide source of truth for "which machine
