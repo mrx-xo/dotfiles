@@ -9145,16 +9145,16 @@ Resolves agent config once, then spawns shells staggered 3s apart."
           "Return the Gemini API key, or nil when it is not available.
 
 Shells out to the `secret' helper, which reads the login Keychain item
-\"Google Gemini API Key\" first and only falls back to Vaultwarden.  The
+\"gemini-api-token\" first and only falls back to Vaultwarden.  The
 call is wrapped in `timeout' so a Keychain miss cannot wedge the Emacs
 daemon on an interactive `rbw unlock' prompt.  Refresh the Keychain copy
-with  secret --cache \"Google Gemini API Key\"."
+with  secret --cache \"gemini-api-token\"."
           (when-let* ((secret-bin (executable-find "secret"))
                       (command (concat (if-let* ((timeout-bin (executable-find "timeout")))
                                            (concat (shell-quote-argument timeout-bin) " 5 ")
                                          "")
                                        (shell-quote-argument secret-bin) " "
-                                       (shell-quote-argument "Google Gemini API Key")
+                                       (shell-quote-argument "gemini-api-token")
                                        " 2>/dev/null"))
                       (key (string-trim (shell-command-to-string command)))
                       ((not (string-empty-p key))))
