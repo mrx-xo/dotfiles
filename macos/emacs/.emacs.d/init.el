@@ -3164,12 +3164,23 @@ Covers the plain =buffer= category and consult-buffer's
   (defvar mr-x/escape-hook nil
     "Hook run by `mr-x/escape-quit'. If any function returns non-nil, stop there.")
 
+  (defun mr-x/minibuffer-suspended-p ()
+    "Non-nil when the active minibuffer is a picker parked by `vertico-suspend'."
+    (when-let ((win (active-minibuffer-window)))
+      (and (boundp 'vertico-suspend--ov)
+           (buffer-local-value 'vertico-suspend--ov (window-buffer win)))))
+
   (defun mr-x/escape-quit (&optional interactive)
     "Layered escape: minibuffer > region > escape-hook > keyboard-quit."
     (interactive (list 'interactive))
     (cond
-     ;; 1. Quit minibuffer if active
-     ((minibuffer-window-active-p (minibuffer-window))
+     ;; 1. Quit minibuffer if active -- unless it is a picker parked by
+     ;;    `vertico-suspend' (agent-recall opens transcripts that way):
+     ;;    its recursive edit is alive but hidden, and aborting it from
+     ;;    the transcript would close the transcript and yank focus back
+     ;;    to the picker's origin window.
+     ((and (minibuffer-window-active-p (minibuffer-window))
+           (not (mr-x/minibuffer-suspended-p)))
       (when interactive (setq this-command 'abort-recursive-edit))
       (abort-recursive-edit))
      ;; 2. Deactivate active region/selection
