@@ -1,0 +1,17 @@
+#!/bin/bash
+# agent-space-ensure — make sure the yabai space labelled "agent" exists and the
+# agent-window rules point at it. Idempotent and cheap; called from yabairc at
+# start, from display_added/display_removed/space_destroyed signals (macOS
+# destroys the space when the display it lived on goes away, which also
+# invalidates rules that were resolved against it), and by agent-open /
+# sandbox-view right before they open a window.
+set -u
+JQ=$(command -v jq || echo /opt/homebrew/bin/jq)
+if ! yabai -m query --spaces | "$JQ" -e 'map(select(.label == "agent")) | length > 0' >/dev/null; then
+  yabai -m space --create last && yabai -m space last --label agent
+fi
+for r in agent-browser agent-screenshare; do yabai -m rule --remove "$r" >/dev/null 2>&1; done
+yabai -m rule --add label="agent-browser"     app="^Brave Browser$"  space=agent mouse_follows_focus=off
+yabai -m rule --add label="agent-screenshare" app="^Screen Sharing$" space=agent mouse_follows_focus=off
+yabai -m rule --apply agent-browser >/dev/null 2>&1
+yabai -m rule --apply agent-screenshare >/dev/null 2>&1

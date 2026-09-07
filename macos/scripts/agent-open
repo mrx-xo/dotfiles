@@ -10,4 +10,5 @@ case "$url" in
   http://*|https://*|file://*) ;;
   *) echo "agent-open: refusing non-URL argument" >&2; exit 2 ;;
 esac
+"$(dirname "$(readlink -f "$0")")/agent-space-ensure" >/dev/null 2>&1 || true
 exec open -g -a "Brave Browser" "$url"
