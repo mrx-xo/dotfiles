@@ -28,6 +28,8 @@ check 0 Bash command 'echo "$HOME"'
 check 0 Bash command 'printenv PATH'
 check 0 Bash command 'cat .env.example'
 check 0 Read file_path '/Users/marcosandrade/.ssh/id_ed25519.pub'
+check 0 Bash command 'curl -s --config <(printf "header = \"Authorization: token %s\"\n" "$(secret forgejo-api-token)") https://omphalos.io/api/v1/user'
+check 0 Bash command 'printf "add-generic-password -a x -s y -U -w %s\n" "$(rbw get "Deepseek API Key")" | security -i'
 # --- must DENY (exit 2)
 check 2 Bash command 'secret deepseek-api-key'
 check 2 Bash command 'secret "Google Gemini API Key"'
@@ -63,6 +65,8 @@ check 2 Bash command 'echo $DEEPSEEK_API_KEY'
 check 2 Bash command 'echo "${GEMINI_API_KEY}"'
 check 2 Read file_path '/Users/marcosandrade/.ssh/id_ed25519'
 check 2 Read file_path '/Users/marcosandrade/.config/krypt-fetch/env'
+check 2 Bash command 'printf "%s\n" "$(secret forgejo-api-token)"'
+check 2 Bash command 'echo "$(secret forgejo-api-token)" | tee /tmp/x'
 # --- other tools pass through
 check 0 Edit file_path '/Users/marcosandrade/.gemini/.env'
 echo; [ $fail = 0 ] && echo "all $n passed" || { echo "FAILURES"; exit 1; }

@@ -49,8 +49,12 @@ case "$tool" in
       fi
     done < <(printf '%s\n' "$stripped" | sed -E 's/(&&|\|\|)/;/g' | tr ';' '\n')
 
-    # captured, then printed: echo $(secret X) / printf ... $(rbw get X)
-    printf '%s' "$unquoted" | grep -Eq '(echo|printf)[^;&|]*\$\([[:space:]]*(secret|rbw[[:space:]]+get)' && deny "echoed secret"
+    # captured, then printed: echo $(secret X) / printf ... $(rbw get X).
+    # Exempt: process substitution `<(printf ... $(secret X))` (a private pipe read
+    # by curl --config etc., the recommended way to pass a credential) and
+    # `printf ... $(rbw get X) | security -i` (how secret --cache stores items).
+    nosubst=$(printf '%s' "$unquoted" | sed -E 's/<\([^)]*\)[^)]*\)//g; s/(echo|printf)[^;&|]*\|[[:space:]]*security[[:space:]]//g')
+    printf '%s' "$nosubst" | grep -Eq '(echo|printf)[^;&|]*\$\([[:space:]]*(secret|rbw[[:space:]]+get)' && deny "echoed secret"
     printf '%s' "$unquoted" | grep -Eq 'security[[:space:]]+(find|dump)-(generic|internet)-password.*[[:space:]]-[wg]([[:space:]]|$)' && deny "security -w/-g"
     printf '%s' "$unquoted" | grep -Eq 'security[[:space:]]+dump-keychain.*[[:space:]]-d([[:space:]]|$)' && deny "keychain dump"
     printf '%s' "$unquoted" | grep -Eq '(^|[;&|(][[:space:]]*)printenv[[:space:]]+[A-Za-z_]*(KEY|TOKEN|SECRET|PASS)' && deny "printenv secret"
