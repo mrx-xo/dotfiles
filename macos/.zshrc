@@ -244,6 +244,7 @@ alias reload='source ~/.zshrc'
 alias shl='ssh homelab'
 alias shm2='ssh mrx2'
 alias shv='ssh vengeance'
+alias mrx2-pull='~/.dotfiles/macos/scripts/mrx2-pull.sh'   # git pull every repo on MrX2 (--wake to WoL first)
 alias away='~/.dotfiles/macos/scripts/away-mode.sh'           # away mode on/off/status (remote-access safety toggle)
 alias shb='ssh boox'                                     # Termux on the BOOX tablet (needs sshd running there)
 alias boox='~/.dotfiles/macos/scripts/boox-mirror.sh'    # live mirror; also Cmd+Shift+B
