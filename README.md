@@ -19,7 +19,7 @@ and git tracks everything.
 ├── macos/        # everything Mac: emacs, yabai, skhd, sketchybar, scripts, launchd, …
 ├── windows/      # everything Windows: glazewm, kanata, autohotkey, terminal, …
 ├── shared/       # cross-platform scripts and configuration
-├── docs/         # local scratch: PRDs, research, setup guides (untracked)
+├── docs/         # just the public PRD template (private docs live in ~/docs)
 └── ebak/         # old pre-Elpaca Emacs config (archive)
 ```
 
@@ -75,6 +75,10 @@ Project guidance has one canonical copy in `AGENTS.md`. Claude Code imports it
 through the root `CLAUDE.md`; Codex reads `AGENTS.md` directly. Update
 `AGENTS.md` rather than duplicating rules between harness-specific files.
 
+Rules that apply to every project, not just this repo, are not here either —
+they live in the private docs repo as `~/docs/agents/claude-global.md`,
+symlinked to `~/.claude/CLAUDE.md` by `bootstrap.sh`.
+
 ### agent-inbox (phone screenshots → Emacs)
 
 Telegram bot → local daemon → `~/agent-inbox/` → armed agent-shell buffer.
@@ -109,8 +113,13 @@ Windows Terminal + PowerShell/Starship, plus a Windows Emacs config.
 
 ## Docs
 
-`docs/` holds the longer-form stuff: PRDs for features in flight, research
-notes, and setup guides (SSH between machines, remote agent access, task
-system, etc.). Worth skimming before rebuilding or extending any of the
-bigger subsystems. It's gitignored scratch space — local to each machine,
-not part of the repo.
+The longer-form stuff — PRDs for features in flight, research notes, and setup
+guides (SSH between machines, remote agent access, task system) — lives in a
+separate PRIVATE repo, `~/docs`, cloned by `bootstrap.sh` from the home forge.
+It is private because most of those documents name machines, paths and LAN
+details that must never appear in this repo, which is public. Worth skimming
+before rebuilding or extending any of the bigger subsystems; the index to all of
+it is `~/ATLAS.md`.
+
+What stays here is `docs/templates/prd.md`, the design-spec template, since
+`AGENTS.md` references it by repo-relative path.

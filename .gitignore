@@ -37,10 +37,13 @@ macos/karabiner/automatic_backups/
 .claude/
 .agent-shell/
 /.superpowers/
-# root scratch docs only — must NOT swallow windows/docs, macos/docs
+# root docs are private working material and live in the private mr-x/docs
+# repo (~/docs), not here. Only the public PRD template stays.
 # (comment on its own line: gitignore has NO inline comments — a
 #  trailing "# ..." becomes part of the pattern and silently breaks it)
-/docs/
+# must NOT swallow windows/docs, macos/docs
+/docs/*
+!/docs/templates/
 ebak/
 random.org
 

@@ -55,8 +55,13 @@ On Windows, from the `windows/` directory:
   `init.el` loads.
 - Standalone packages live under `macos/emacs/.emacs.d/lisp/` and are edited
   directly.
-- Elpaca is the package manager. Do not wipe its `builds/` directory as a
-  cleanup step.
+- Elpaca is the package manager (v0.12, with a `repos`->`sources` compat
+  symlink). Do not wipe its `builds/` directory as a cleanup step, and do not
+  "fix" that symlink.
+
+Files loaded from `agent-shell-config.el` must not hard-`require` `agent-shell`.
+Elpaca has not activated packages yet when the config is loaded in batch mode,
+so a hard require breaks the test suite.
 
 ### Tangling emacs.org
 
@@ -101,9 +106,10 @@ already open. Loading code does not necessarily rerender an existing buffer.
 ### Never Restart Emacs Without Permission
 
 Never restart, kill, or reload the main Emacs daemon unless the user explicitly
-asked for it in the current message. Restarting kills every agent-shell
-conversation, including the current one. Live-evaluate changes instead and ask
-for a fresh confirmation each time a restart seems necessary.
+asked for it in the current message. Not to apply a change, not to test a fix,
+not as a retry. Restarting kills every agent-shell conversation, including the
+current one. Live-evaluate changes instead and ask for a fresh confirmation each
+time a restart seems necessary.
 
 This prohibition includes:
 
@@ -112,7 +118,8 @@ This prohibition includes:
 - `launchctl` operations on `com.marcosandrade.emacsdaemon`
 - `kill` or `pkill` targeting Emacs
 
-The sandbox daemon using `--socket-name=sandbox` is exempt.
+The sandbox daemon using `--socket-name=sandbox` is exempt, including
+`emacs-sandbox.sh --fresh` and `--restart`. It exists to be restarted.
 
 ### Sandbox Emacs
 
@@ -206,10 +213,17 @@ Apply configuration changes with each service's supported command:
 yabai --restart-service
 skhd --reload
 sketchybar --reload
+brew services restart borders
 ```
 
 Prefer a live reload when the service supports one; yabai requires a service
-restart to reread its configuration.
+restart to reread its configuration. For yabai troubleshooting, turn on
+`yabai -m config debug_output on`.
+
+## Git Branching
+
+`main` is the branch; day-to-day work happens directly on it. Use a feature
+branch only for a larger experiment.
 
 ## Windows Configuration
 
