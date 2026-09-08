@@ -1,7 +1,9 @@
 #!/bin/bash
-# secret-guard-hook.sh — Claude Code PreToolUse guard against secrets entering
-# the transcript. Layer 5 of ~/docs/agent-fleet-ops.md section 3. Convention-only
-# elsewhere; enforced here for Bash and Read.
+# secret-guard-hook.sh — PreToolUse guard against secrets entering the
+# transcript. Wired for Claude Code (~/.claude/settings.json) and, since
+# 2026-09-08, Codex (~/.codex/hooks.json, same wire format; installed and
+# trusted by wire-agent-instructions.sh). Layer 5 of ~/docs/agent-fleet-ops.md
+# section 3. Convention-only elsewhere; enforced here for Bash and Read.
 #
 # Denies (exit 2 + reason on stderr):
 #   - bare `secret <name>` / `rbw get <name>` whose stdout is not captured with
