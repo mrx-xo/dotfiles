@@ -71,7 +71,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 02f0c4b (standalone viewport nudge on launch/resume; History turn nav on one-prompt transcripts; hold chat bottom while replay settles)
 # + local 37fec37 (standalone launch: passes from 0ms, bottom chrome veiled until the first recompute clears)
 # + local 297f14f (iOS: repair viewport during keyboard dismissal, removing the delayed bottom jump)
-ACP_MOBILE_COMMIT="297f14ffefcb2986881407c6a8df2b8d37aa968c"
+# + local 8fb76c8 (Soft motion: slower sends, stable streaming word reveals, and smoother swipes)
+ACP_MOBILE_COMMIT="8fb76c8d5653e6b4170c0a3cc611ac049a4e866d"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
