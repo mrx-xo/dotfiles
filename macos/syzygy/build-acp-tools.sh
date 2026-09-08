@@ -68,7 +68,8 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 576c1f8 (Settings page: gear in Orrery header; turn nav corner top/bottom + left/right)
 # + local e88bee3 (turn nav auto-shows in History transcripts; markup moved to body root)
 # + local 69a2cfa (one elisp call helper for the daemon bridges; label/push/kill migrated)
-ACP_MOBILE_COMMIT="69a2cfa02984887351f2f08d81d7d7d75ad707b4"
+# + local 02f0c4b (standalone viewport nudge on launch/resume; History turn nav on one-prompt transcripts; hold chat bottom while replay settles)
+ACP_MOBILE_COMMIT="02f0c4b9b6522cc0da137a5079eba482bf493fb8"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
