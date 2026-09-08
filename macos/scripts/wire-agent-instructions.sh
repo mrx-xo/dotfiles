@@ -90,6 +90,8 @@ CODEX_HOME="$HOME/.codex"
 if [ -d "$CODEX_HOME" ] && command -v codex >/dev/null 2>&1; then
     GUARD="$HOME/.dotfiles/macos/scripts/secret-guard-hook.sh"
     HOOKS_JSON="$CODEX_HOME/hooks.json"
+    # A fresh Codex login has no config.toml; both TOML edits below need one.
+    touch "$CODEX_HOME/config.toml"
     python3 - "$HOOKS_JSON" "$GUARD" <<'EOF'
 import json, sys, os
 
