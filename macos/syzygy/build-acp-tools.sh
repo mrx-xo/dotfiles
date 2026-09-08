@@ -70,9 +70,11 @@ ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
 # + local 69a2cfa (one elisp call helper for the daemon bridges; label/push/kill migrated)
 # + local 02f0c4b (standalone viewport nudge on launch/resume; History turn nav on one-prompt transcripts; hold chat bottom while replay settles)
 # + local 37fec37 (standalone launch: passes from 0ms, bottom chrome veiled until the first recompute clears)
+# + local adf76d0 (spawn presets: Astra chip -> GPT-6-Astra, full access)
 # + local 297f14f (iOS: repair viewport during keyboard dismissal, removing the delayed bottom jump)
 # + local 8fb76c8 (Soft motion: slower sends, stable streaming word reveals, and smoother swipes)
-ACP_MOBILE_COMMIT="8fb76c8d5653e6b4170c0a3cc611ac049a4e866d"
+# + local 7e34d1b (reconnect UX: yellow grace state, 400ms first retry, no-blank replay, 25s keepalive + 60s silence timer, foreground redial)
+ACP_MOBILE_COMMIT="7e34d1be45923aed7d3f0e1e8436326608af7052"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
