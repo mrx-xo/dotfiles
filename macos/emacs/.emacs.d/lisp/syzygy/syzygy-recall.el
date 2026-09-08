@@ -31,6 +31,10 @@
 (declare-function agent-recall--display-buffer "agent-recall" (buffer))
 (declare-function agent-recall--start-resume "agent-recall"
                   (session-id &optional transcript-file))
+(declare-function agent-recall-catalogue-get "agent-recall" (session-id))
+(declare-function agent-recall-catalogue-put "agent-recall" (session-id &rest args))
+(declare-function agent-recall-catalogue-remove "agent-recall" (session-id))
+(declare-function agent-recall-catalogue-tags "agent-recall")
 (declare-function agent-shell-subscribe-to "agent-shell"
                   (&rest args))
 (declare-function agent-shell-unsubscribe "agent-shell"
@@ -299,6 +303,11 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
     (setq operation (plist-put operation :result result))
     (setq operation (plist-put operation :monitor-external monitor-external))
     (setq operation (syzygy-recall--cancel-operation-timer operation))
+    ;; Mac-side callers (see `syzygy-recall-resume-strict') have no poll
+    ;; loop; hand them the settled result exactly once.
+    (when-let ((on-finish (plist-get operation :on-finish)))
+      (setq operation (plist-put operation :on-finish nil))
+      (funcall on-finish result))
     (if monitor-external
         (setq operation
               (syzygy-recall--install-external-lifecycle token operation))
@@ -545,7 +554,9 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
                 (let* ((file (car fe))
                        (e (cdr fe))
                        (session-id (or (plist-get e :session-id) ""))
-                       (readiness (syzygy-recall--resume-readiness file e)))
+                       (readiness (syzygy-recall--resume-readiness file e))
+                       (catalogue (and (not (string-empty-p session-id))
+                                       (agent-recall-catalogue-get session-id))))
                   `((file . ,file)
                     (project . ,(or (plist-get e :project) ""))
                     (timestamp . ,(or (plist-get e :timestamp) ""))
@@ -554,8 +565,170 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
                     (sessionId . ,session-id)
                     (label . ,(or (agent-recall-session-label session-id) ""))
                     (resumable . ,(if (car readiness) t :false))
-                    (resumeReason . ,(cdr readiness)))))
+                    (resumeReason . ,(cdr readiness))
+                    (catalogued . ,(or (alist-get 'catalogued catalogue) ""))
+                    (note . ,(or (alist-get 'note catalogue) ""))
+                    (tags . ,(vconcat (alist-get 'tags catalogue))))))
               entries)))))
+
+;;;; Catalogue bridges
+;;
+;; Catalogue = keep a chat on purpose, durably, with a note and tags.  The
+;; store is agent-recall's sidecar metadata; these bridges only translate
+;; base64 in / base64 JSON out for acp-mobile's /api/catalogue.  A session
+;; the index has never seen yields nil, which the Go side maps to 404.
+
+(defun syzygy-recall--decode-base64 (encoded)
+  "Return ENCODED base64 as a UTF-8 string, or nil when ENCODED is nil."
+  (and encoded
+       (decode-coding-string (base64-decode-string encoded) 'utf-8)))
+
+(defun syzygy-recall--session-known-p (session-id)
+  "Return non-nil when some indexed transcript carries SESSION-ID."
+  (agent-recall--index-ensure)
+  (and (stringp session-id)
+       (not (string-empty-p session-id))
+       (catch 'found
+         (maphash (lambda (_file entry)
+                    (when (equal (plist-get entry :session-id) session-id)
+                      (throw 'found t)))
+                  agent-recall--index)
+         nil)))
+
+(defun syzygy-recall--catalogue-result (session-id)
+  "Return the JSON-ready catalogue state of SESSION-ID."
+  (let ((entry (agent-recall-catalogue-get session-id)))
+    `((sessionId . ,session-id)
+      (catalogued . ,(or (alist-get 'catalogued entry) ""))
+      (note . ,(or (alist-get 'note entry) ""))
+      (tags . ,(vconcat (alist-get 'tags entry)))
+      (allTags . ,(vconcat (agent-recall-catalogue-tags))))))
+
+(defun syzygy-recall-catalogue-json (session-base64 &optional note-base64 tags-base64)
+  "Catalogue the session named by SESSION-BASE64 with a note and tags.
+NOTE-BASE64 is the note text; TAGS-BASE64 is a JSON array of tag strings.
+Return the new state as base64 JSON, or nil for an unknown session."
+  (require 'agent-recall)
+  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+    (when (syzygy-recall--session-known-p session-id)
+      (let ((note (syzygy-recall--decode-base64 note-base64))
+            (tags (when-let ((json (syzygy-recall--decode-base64 tags-base64)))
+                    (append (json-parse-string json :array-type 'array) nil))))
+        (agent-recall-catalogue-put session-id :note note :tags tags)
+        (syzygy-recall--encode-json
+         (syzygy-recall--catalogue-result session-id))))))
+
+(defun syzygy-recall-uncatalogue-json (session-base64)
+  "Uncatalogue the session named by SESSION-BASE64.
+Return the new state as base64 JSON, or nil for an unknown session."
+  (require 'agent-recall)
+  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+    (when (syzygy-recall--session-known-p session-id)
+      (agent-recall-catalogue-remove session-id)
+      (syzygy-recall--encode-json
+       (syzygy-recall--catalogue-result session-id)))))
+
+;;;; Phone pins
+;;
+;; Pin = an ordering hint that dies with the chat.  The phone's pins live
+;; here, in the daemon, as buffer names, so a page reload sees the same
+;; set and a killed chat drops out on its own.  Nothing is persisted and
+;; nothing is shared with the Mac's major-pane anchoring.
+
+(defvar syzygy-orrery--pins nil
+  "Buffer names the phone has pinned, most recent first.")
+
+(defun syzygy-orrery-pins ()
+  "Return the live pinned buffer names, dropping killed buffers."
+  (setq syzygy-orrery--pins
+        (seq-filter (lambda (name) (buffer-live-p (get-buffer name)))
+                    syzygy-orrery--pins)))
+
+(defun syzygy-orrery-pin-json (&optional name-base64 action)
+  "Pin, unpin, or toggle the buffer named by NAME-BASE64 for the Orrery.
+ACTION is \"pin\", \"unpin\" or nil for toggle.  With no NAME-BASE64,
+only report.  Return base64 JSON with bufferName, pinned and pins, or nil
+when the named buffer is not live."
+  (let ((name (syzygy-recall--decode-base64 name-base64)))
+    (cond
+     ((null name)
+      (syzygy-recall--encode-json
+       `((pins . ,(vconcat (syzygy-orrery-pins))))))
+     ((not (buffer-live-p (get-buffer name))) nil)
+     (t
+      (let* ((pins (syzygy-orrery-pins))
+             (pin (pcase action
+                    ("pin" t)
+                    ("unpin" nil)
+                    (_ (not (member name pins))))))
+        (setq syzygy-orrery--pins
+              (if pin
+                  (cons name (remove name pins))
+                (remove name pins)))
+        (syzygy-recall--encode-json
+         `((bufferName . ,name)
+           (pinned . ,(if pin t :false))
+           (pins . ,(vconcat syzygy-orrery--pins)))))))))
+
+;;;; Mac-side strict resume for catalogued chats
+;;
+;; agent-recall's own resume falls back to a fresh session when the
+;; archived one cannot be restored, which is how the old bookmark jump
+;; handed back a blank chat.  A catalogued chat was kept on purpose, so
+;; its resume goes through the phone's strict path instead: the blank
+;; buffer is killed and the reason lands in the echo area.
+
+(defvar syzygy-recall-strict-resume-predicate
+  (lambda (session-id _file)
+    (and (fboundp 'agent-recall-catalogue-get)
+         (agent-recall-catalogue-get session-id)))
+  "Function of (SESSION-ID FILE) deciding whether a Mac resume is strict.
+Default: catalogued sessions only.")
+
+(defun syzygy-recall--report-resume (result)
+  "Echo the settled strict-resume RESULT."
+  (pcase (alist-get 'status result)
+    ("ready" (message "Resumed %s" (alist-get 'bufferName result)))
+    ("failed" (message "Resume refused: %s" (alist-get 'error result)))))
+
+(defun syzygy-recall-resume-strict (file)
+  "Resume indexed transcript FILE without agent-shell's new-session fallback.
+Same machinery as the phone's History resume; the outcome is reported in
+the echo area once it settles.  Return the live buffer when one exists."
+  (require 'agent-recall)
+  (let ((result (condition-case err
+                    (syzygy-recall--resume file)
+                  (error (syzygy-recall--failed-result
+                          (error-message-string err))))))
+    (pcase (alist-get 'status result)
+      ("pending"
+       (let ((token (alist-get 'operation result)))
+         (when-let ((operation (gethash token syzygy-recall--resume-operations)))
+           (puthash token
+                    (plist-put operation :on-finish #'syzygy-recall--report-resume)
+                    syzygy-recall--resume-operations)))
+       (message "Resuming %s..." (alist-get 'bufferName result)))
+      (_ (syzygy-recall--report-resume result)))
+    (and (alist-get 'bufferName result)
+         (get-buffer (alist-get 'bufferName result)))))
+
+(defun syzygy-recall--strict-start-resume (original session-id &optional file)
+  "Route ORIGINAL (`agent-recall--start-resume') through the strict path.
+Applies when FILE is indexed, `syzygy-recall-strict-resume-predicate'
+accepts SESSION-ID, and no strict resume is already in flight (the strict
+path itself calls ORIGINAL)."
+  (if (and file
+           (not syzygy-recall--starting-session-id)
+           (funcall syzygy-recall-strict-resume-predicate session-id file)
+           (progn (agent-recall--index-ensure)
+                  (gethash file agent-recall--index)))
+      (syzygy-recall-resume-strict file)
+    (funcall original session-id file)))
+
+(unless (advice-member-p #'syzygy-recall--strict-start-resume
+                         'agent-recall--start-resume)
+  (advice-add 'agent-recall--start-resume :around
+              #'syzygy-recall--strict-start-resume))
 
 (unless (advice-member-p #'syzygy-recall--arm-strict-resume
                          'agent-shell--handle)
