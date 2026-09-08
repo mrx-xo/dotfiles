@@ -4254,6 +4254,12 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c 2" '(mr-x/agent-shell-deny :wk "Deny")
         "c 3" '(mr-x/agent-shell-allow-always :wk "Allow always")
         "c 0" '(mr-x/agent-shell-view-diff :wk "View diff")
+        ;; Catalogue: keep this chat on purpose (note + tags in
+        ;; agent-recall's sidecar), and browse the kept ones.  Not a
+        ;; bookmark: resumes go through syzygy's strict path, which
+        ;; refuses to hand back a blank chat.
+        "c k" '(agent-recall-catalogue :wk "Catalogue this chat")
+        "c K" '(agent-recall-catalogue-browse :wk "Browse catalogue (C-u: by tag)")
         "c /" '(:ignore t :wk "Recall")
         "c / s" '(:ignore t :wk "Search")
         "c / s c" '(agent-recall-consult-search :wk "Consult")

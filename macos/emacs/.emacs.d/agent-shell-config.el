@@ -1732,11 +1732,16 @@ still wins over the copied model + mode."
                                           bookmark-alist)))
           (bookmark-jump (bookmark-completing-read "Jump to bookmark: "))))
 
+      ;; SPC m a was `mr-x/agent-shell-bookmark-jump'.  It now opens the
+      ;; agent-recall catalogue browser (see the Catalogue design spec,
+      ;; 2026-09-07): bookmark-alist lost entries and a jump to a session
+      ;; that could not resume silently opened a fresh empty shell.  The
+      ;; bookmark integration stays loaded; nothing points at it.
       (with-eval-after-load 'general
         (general-define-key
          :states '(normal visual)
          :prefix "SPC"
-         "m a" '(mr-x/agent-shell-bookmark-jump :wk "jump to agent session")
+         "m a" '(agent-recall-catalogue-browse :wk "browse catalogue")
          "m j" '(mr-x/bookmark-jump-no-sessions :wk "jump to bookmark")))
 
       (defun mr-x/agent-shell-refs-capture-and-go ()
@@ -1918,6 +1923,8 @@ silent context-only capture with no marker."
         :commands (agent-recall-search
                    agent-recall-browse agent-recall-browse-project
                    agent-recall-resume
+                   agent-recall-catalogue agent-recall-uncatalogue
+                   agent-recall-catalogue-browse
                    agent-recall-backfill agent-recall-stats)
         :custom
         (agent-recall-search-paths '("~"))

@@ -254,6 +254,19 @@ and bound on RET in `projectile-command-map'."
     (should (lookup-key leader-map (kbd "W")))   ; Window hydra
     (should (lookup-key leader-map (kbd "t")))))  ; Test environment
 
+(ert-deftest config-test-catalogue-leader-keys ()
+  "Catalogue keys resolve: SPC c k saves, SPC c K and SPC m a browse.
+SPC m a used to be the bookmark jump, which could hand back a blank chat;
+a regression here would silently bring that back."
+  (let ((leader-map (config-test--leader-map)))
+    (should leader-map)
+    (should (eq 'agent-recall-catalogue (lookup-key leader-map (kbd "c k"))))
+    (should (eq 'agent-recall-catalogue-browse (lookup-key leader-map (kbd "c K"))))
+    ;; SPC m a is defined with a bare `general-define-key' (no override
+    ;; map), so it lives in evil's normal-state map, not the leader map.
+    (should (eq 'agent-recall-catalogue-browse
+                (lookup-key evil-normal-state-map (kbd "SPC m a"))))))
+
 ;; ═══════════════════════════════════════════════════════════════════════════
 ;; Tier 3 — "Are my custom functions defined?"
 ;; ═══════════════════════════════════════════════════════════════════════════
