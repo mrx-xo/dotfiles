@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.marx.agent-recall-summarize</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.dotfiles/macos/scripts/agent-recall-summarize-nightly.sh</string>
+  </array>
+  <!-- No secrets here: the OpenRouter key is read from OpenCode's auth store
+       by the summarizer itself, and is never logged or passed on argv. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
+  <!-- Deliberately not RunAtLoad: a login or reboot at noon would summarize
+       conversations that are still in progress. The 4:15am slot is the point. -->
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/agent-recall/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/agent-recall/launchd.err</string>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

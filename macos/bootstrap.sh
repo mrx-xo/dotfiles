@@ -176,6 +176,15 @@ rm -f "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
 sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.airdrop-inbox.plist" \
     > "$HOME/Library/LaunchAgents/com.marx.airdrop-inbox.plist"
 
+# Nightly transcript summarization (agent-recall searchable summaries).
+# No secrets needed: the summarizer reads the OpenRouter key from OpenCode's
+# auth store. Runs at 4:15am and skips anything touched in the last 6 hours,
+# since agent-shell is still appending to a live conversation's transcript.
+mkdir -p "$HOME/Library/Logs/agent-recall"
+rm -f "$HOME/Library/LaunchAgents/com.marx.agent-recall-summarize.plist"
+sed "s|__HOME__|$HOME|g" "$DOTDIR/launchd/com.marx.agent-recall-summarize.plist" \
+    > "$HOME/Library/LaunchAgents/com.marx.agent-recall-summarize.plist"
+
 # ── 6. Emacs ─────────────────────────────────────────────
 step "Setting up Emacs..."
 if [ ! -d "$HOME/.emacs.d" ]; then
