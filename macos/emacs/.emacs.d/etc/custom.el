@@ -142,7 +142,7 @@
      ("major pane" . "~/roaming/projects/major-pane/")
      ("keymap explorer" . "~/roaming/projects/keymap-explorer/")
      ("Learning Elisp" . "~/roaming/code/learning/elisp/")
-     ("Gaia" . "~/roaming/projects/gaia/"))))
+     ("Gaia" . "~/roaming/projects/gaia/") ("testing" . "~/testing/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
