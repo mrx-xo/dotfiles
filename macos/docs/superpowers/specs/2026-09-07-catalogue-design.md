@@ -1,7 +1,7 @@
 # Catalogue Design
 
 Date: 2026-09-07
-Status: Approved, not yet implemented
+Status: Shipped 2026-09-08 (Mac half, bridges, phone half, docs)
 
 **Goal:** Let a chat be kept on purpose and found again later, from the Mac
 and from the phone, without Emacs bookmarks. Two features share the name:
