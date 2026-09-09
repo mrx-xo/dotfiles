@@ -1920,7 +1920,7 @@ silent context-only capture with no marker."
         ;; consult-search lives in agent-recall-consult.el, not the main file,
         ;; so it needs its own autoload rather than going through :commands.
         (autoload 'agent-recall-consult-search "agent-recall-consult" nil t)
-        :commands (agent-recall-search
+        :commands (agent-recall-search agent-recall-search-summaries
                    agent-recall-browse agent-recall-browse-project
                    agent-recall-resume
                    agent-recall-catalogue agent-recall-uncatalogue
