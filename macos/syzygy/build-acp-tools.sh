@@ -86,7 +86,8 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 3d1dd9a (scroll button and bottom turn nav clear the thinking bar as it appears and disappears)
 # + local b131b40 (in-app push delivery, presence, escalation: /api/presence, statuses carries pushes, acp-mobile/push socket frames, parked pushes escalate to Web Push when the page leaves unread within 20s; /api/push-inbox removed)
 # + local 4686dea (jump-to-bottom waits for explicit replay completion and rendered assets; delayed Loading chat indicator; requires new multiplex sessions)
-ACP_MOBILE_COMMIT="4686dea4e4c1960572d1bc101ec51419671f5d08"
+# + local 04425d5 (mermaid fences render as diagrams: engine embedded under assets/ and lazily injected, config exported from the rig via /api/mermaid-config, full-screen inspector with pinch/pan/double-tap-fit, fence source carried base64 in data-code which also fixes multi-line copy)
+ACP_MOBILE_COMMIT="04425d513161876357ec3e5a715fbd818902e5c5"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
