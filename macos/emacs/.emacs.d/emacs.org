@@ -2091,6 +2091,23 @@ so the file is the only reliable source."
           ;; one-machine rule needs.
           org-caldav-debug-level 1))
 
+  ;; Home Assistant completes a task by setting STATUS:COMPLETED and leaves
+  ;; PERCENT-COMPLETE alone. org-caldav exports every TODO with
+  ;; PERCENT-COMPLETE:0 and, on import, trusts the percent whenever it is
+  ;; present, so a task written from org and ticked by HA reads back as 0
+  ;; percent, TODO, forever. Let STATUS win. (Found 2026-09-09, Phase 2.)
+  (defun mr-x/arca-caldav--completed-wins (eventdata)
+    "Return EVENTDATA with percent-complete forced to \"100\" when status is COMPLETED."
+    (if (and (equal (alist-get 'status eventdata) "COMPLETED")
+             (not (equal (alist-get 'percent-complete eventdata) "100")))
+        (cons (cons 'percent-complete "100")
+              (assq-delete-all 'percent-complete (copy-alist eventdata)))
+      eventdata))
+
+  (with-eval-after-load 'org-caldav
+    (advice-add 'org-caldav-convert-event-or-todo--todo
+                :filter-return #'mr-x/arca-caldav--completed-wins))
+
   (defun mr-x/arca-caldav-sync (&optional interactive)
     "Run `org-caldav-sync', on MrX only.
 Elsewhere do nothing and return nil; say so when called INTERACTIVE-ly."

@@ -2043,4 +2043,12 @@ Together these hid 106 lines of roaming/notes/homelab.org."
       (should (mr-x/arca-caldav-sync))
       (should called))))
 
+(ert-deftest config-test-arca-caldav-completed-status-wins ()
+  "A VTODO with STATUS:COMPLETED reads as 100 percent even if PERCENT-COMPLETE says 0."
+  (let ((done '((summary . "x") (percent-complete . "0") (status . "COMPLETED")))
+        (open '((summary . "y") (percent-complete . "0") (status . "NEEDS-ACTION"))))
+    (should (equal (alist-get 'percent-complete (mr-x/arca-caldav--completed-wins done)) "100"))
+    (should (equal (alist-get 'summary (mr-x/arca-caldav--completed-wins done)) "x"))
+    (should (eq (mr-x/arca-caldav--completed-wins open) open))))
+
 ;;; config-tests.el ends here
