@@ -14,7 +14,9 @@ SRC_DIR="$HOME/src"
 BIN_DIR="$HOME/.local/bin"
 
 # Pinned commits reviewed in PRD Phase 0
-ACP_MULTIPLEX_COMMIT="3874a5b90a174da8d166ebf08e355fa1f20edfd2"
+# acp-multiplex: 3874a5b (thought identity across replay)
+# + local 050a7b4 (every matched prompt response closes its turn: errors, agent exit, failed forward; sessionId from the request; queued prompts share one open/close)
+ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
