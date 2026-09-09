@@ -2042,6 +2042,8 @@ Elsewhere do nothing and return nil; say so when called INTERACTIVE-ly."
                                        (mr-x/arca-caldav-sync)
                                      (error (message "org-caldav idle sync failed: %s"
                                                      (error-message-string err)))))))))
+  ;; Enabled 2026-09-09 after the Phase 2 round trip passed. No-op off MrX.
+  (mr-x/arca-caldav-enable-timer)
   ;; END org-caldav (ARCA)
 
 (use-package osx-dictionary
