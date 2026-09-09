@@ -80,7 +80,8 @@ ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # + local e985348 (Fork entry in the chat menu: /api/fork through syzygy-fork-json, greyed out for agents without session/fork)
 # + local 3b2c3f0 (rig-fed pickers: spawn presets from mr-x/agent-shell-presets, Model entry in the chat menu over agent-shell models, project picker with filter over project-dashboard-projects merged with live cwds)
 # + local eb2f552 (spawn sheet: path box is a project combobox with a vertical filtered list, rows pick on touch pointerup so the keyboard can stay up, sheet 94 percent tall)
-ACP_MOBILE_COMMIT="eb2f55294521e4c4d0c0878f2c48b31840e81295"
+# + local 1da9116 (spawn sheet: project list is a dropdown, opens on focus, collapses on pick)
+ACP_MOBILE_COMMIT="1da9116b04841f119509291395429bf9b7a0d781"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
