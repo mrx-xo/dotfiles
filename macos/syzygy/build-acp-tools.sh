@@ -16,7 +16,8 @@ BIN_DIR="$HOME/.local/bin"
 # Pinned commits reviewed in PRD Phase 0
 # acp-multiplex: 3874a5b (thought identity across replay)
 # + local 050a7b4 (every matched prompt response closes its turn: errors, agent exit, failed forward; sessionId from the request; queued prompts share one open/close)
-ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
+# + local 0173b23 (explicit secondary replay start/complete markers before queued live delivery)
+ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
@@ -84,7 +85,8 @@ ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # + local 434b4a6 (catalogue and pin from the phone: /api/catalogue + /api/pin over the syzygy-recall bridges, Pin chat and Catalogue in the chat menu, pinned chats first in the Orrery, History Catalogued chip, #tag search, catalogue/uncatalogue in the transcript view)
 # + local 3d1dd9a (scroll button and bottom turn nav clear the thinking bar as it appears and disappears)
 # + local b131b40 (in-app push delivery, presence, escalation: /api/presence, statuses carries pushes, acp-mobile/push socket frames, parked pushes escalate to Web Push when the page leaves unread within 20s; /api/push-inbox removed)
-ACP_MOBILE_COMMIT="b131b402655df4de2784e35d281bf4cf728cefc6"
+# + local 4686dea (jump-to-bottom waits for explicit replay completion and rendered assets; delayed Loading chat indicator; requires new multiplex sessions)
+ACP_MOBILE_COMMIT="4686dea4e4c1960572d1bc101ec51419671f5d08"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
