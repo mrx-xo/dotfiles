@@ -604,6 +604,17 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
       (tags . ,(vconcat (alist-get 'tags entry)))
       (allTags . ,(vconcat (agent-recall-catalogue-tags))))))
 
+(defun syzygy-recall-catalogue-get-json (session-base64)
+  "Return the catalogue state of the session named by SESSION-BASE64.
+Base64 JSON with sessionId, catalogued, note, tags and allTags, or nil for
+an unknown session.  Read-only: the phone asks before drawing its chat
+menu entry, so a chat that was never saved must not gain an entry."
+  (require 'agent-recall)
+  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+    (when (syzygy-recall--session-known-p session-id)
+      (syzygy-recall--encode-json
+       (syzygy-recall--catalogue-result session-id)))))
+
 (defun syzygy-recall-catalogue-json (session-base64 &optional note-base64 tags-base64)
   "Catalogue the session named by SESSION-BASE64 with a note and tags.
 NOTE-BASE64 is the note text; TAGS-BASE64 is a JSON array of tag strings.
