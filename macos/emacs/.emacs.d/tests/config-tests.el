@@ -254,6 +254,41 @@ and bound on RET in `projectile-command-map'."
     (should (lookup-key leader-map (kbd "W")))   ; Window hydra
     (should (lookup-key leader-map (kbd "t")))))  ; Test environment
 
+(ert-deftest config-test-killing-labeled-chat-keeps-stored-label ()
+  "Killing a labeled agent-shell buffer must not erase the stored label.
+`major-pane--unregister-conversation' runs first on the kill hook and
+drops the label from the hash; the agent-recall capture that follows
+used to read nil there and delete the label from the sidecar store."
+  (require 'agent-recall)
+  (require 'major-pane)
+  (let* ((dir (make-temp-file "config-test-label-" t))
+         (agent-recall-metadata-file (expand-file-name "metadata.el" dir))
+         (agent-recall--metadata nil)
+         (agent-recall--metadata-loaded-p nil)
+         (major-pane--state (major-pane--make-state))
+         (sid "cccccccc-0000-0000-0000-000000000009")
+         (buf (generate-new-buffer "config-test-labeled-chat")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq-local agent-shell--state `((:session . ((:id . ,sid)))))
+            ;; Register directly: the eligibility check wants a real
+            ;; agent-shell buffer, and only the list membership matters here.
+            (setf (major-pane-state-conversations major-pane--state) (list buf))
+            (puthash buf "KEEP ME" major-pane--labels)
+            ;; Same order as a live agent-shell buffer.
+            (add-hook 'kill-buffer-hook #'major-pane--unregister-conversation nil t)
+            (add-hook 'kill-buffer-hook #'agent-recall--session-metadata-capture t t)
+            ;; A turn-complete style capture stores the label first.
+            (agent-recall--session-metadata-capture))
+          (should (equal "KEEP ME" (agent-recall-metadata-get sid 'label)))
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer buf))
+          (should (equal "KEEP ME" (agent-recall-metadata-get sid 'label))))
+      (when (buffer-live-p buf)
+        (let ((kill-buffer-query-functions nil)) (kill-buffer buf)))
+      (delete-directory dir t))))
+
 (ert-deftest config-test-catalogue-leader-keys ()
   "Catalogue keys resolve: SPC c k saves, SPC c K and SPC m a browse.
 SPC m a used to be the bookmark jump, which could hand back a blank chat;

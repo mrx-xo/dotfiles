@@ -10040,9 +10040,21 @@ silent context-only capture with no marker."
         ;; agent-recall sidecar metadata store (v0.7.0+).  Capture only
         ;; contributes when major-pane is loaded — returning (label . nil)
         ;; there means "label cleared", which removes it from the store.
+        ;;
+        ;; Only while the buffer is still a registered conversation.  On
+        ;; kill, `major-pane--unregister-conversation' runs first on the
+        ;; same hook and drops the label from the hash; the capture that
+        ;; followed read nil and deleted the stored label of every killed
+        ;; chat (observed 2026-09-08: "ANDROID SCEEEN" lost after a kill).
+        ;; Unregister also removes the buffer from the conversations list,
+        ;; so that membership is the "still alive" signal.
         (add-hook 'agent-recall-capture-functions
                   (defun mr-x/agent-recall-capture-label ()
-                    (when (boundp 'major-pane--labels)
+                    (when (and (boundp 'major-pane--labels)
+                               (boundp 'major-pane--state)
+                               (memq (current-buffer)
+                                     (major-pane-state-conversations
+                                      major-pane--state)))
                       `((label . ,(gethash (current-buffer) major-pane--labels))))))
         (add-hook 'agent-recall-restore-functions
                   (defun mr-x/agent-recall-restore-label (metadata shell-buffer)
