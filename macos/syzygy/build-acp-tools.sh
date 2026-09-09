@@ -77,7 +77,8 @@ ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # + local 8fb76c8 (Soft motion: slower sends, stable streaming word reveals, and smoother swipes)
 # + local 7e34d1b (reconnect UX: yellow grace state, 400ms first retry, no-blank replay, 25s keepalive + 60s silence timer, foreground redial)
 # + local 60850a9 (busy state follows prompt turns, so background-task continuations no longer leave a chat stuck on thinking; composer drafts are per chat)
-ACP_MOBILE_COMMIT="60850a9f51fdbbfe030f5b1ac6acb0e34ad75733"
+# + local e985348 (Fork entry in the chat menu: /api/fork through syzygy-fork-json, greyed out for agents without session/fork)
+ACP_MOBILE_COMMIT="e9853482ac546513a6b81be24d2c5978c9ab2553"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

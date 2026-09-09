@@ -670,6 +670,164 @@ when the named buffer is not live."
            (pinned . ,(if pin t :false))
            (pins . ,(vconcat syzygy-orrery--pins)))))))))
 
+;;;; Phone fork
+;;
+;; Fork = a new chat that shares this one's history and diverges from
+;; here.  The phone only needs the new buffer's name, and before
+;; offering the entry, whether the agent can fork at all: codex-acp
+;; 1.6.2 advertises resume, list, close and delete but not fork, so
+;; Codex chats probe as unsupported; claude-agent-acp forks.
+;;
+;; Not `agent-shell-fork'.  claude-agent-acp 0.75.1 answers session/fork
+;; with the new id only: it forks the transcript on disk and registers
+;; no live session, so the buffer agent-shell builds from that reply has
+;; no models, no config options, and every prompt fails with "Session
+;; not found" (agent-shell falls back to session/set_model first, which
+;; the agent does not implement either).  Forking here means asking the
+;; source chat's own client for the id, then starting the new chat as a
+;; resume of that id, which is the path that loads a session properly.
+
+(declare-function agent-shell--state "agent-shell")
+(declare-function agent-shell--start "agent-shell"
+                  (&key config no-focus new-session session-strategy
+                        session-id fork-session-id outgoing-request-decorator))
+(declare-function agent-shell--send-request "agent-shell"
+                  (&key state client request buffer on-success on-failure sync))
+(declare-function agent-shell--resolve-path "agent-shell" (path))
+(declare-function agent-shell--mcp-servers "agent-shell")
+(declare-function agent-shell-cwd "agent-shell")
+(declare-function acp-make-session-fork-request "acp"
+                  (&key session-id cwd mcp-servers meta))
+(declare-function mr-x/agent-shell--clone-config "agent-shell-config" (source))
+(declare-function mr-x/agent-spawn--send-when-ready "agent-shell-config"
+                  (buf task tries))
+
+(defvar syzygy-fork-timeout 15
+  "Seconds to wait for the agent's session/fork reply.
+The agent answers in milliseconds; the cap only keeps a dead agent
+from wedging the daemon inside a server eval.")
+
+(defun syzygy-fork--chat-buffer (name)
+  "Return the live agent-shell buffer called NAME, or nil."
+  (let ((buffer (and name (get-buffer name))))
+    (and (buffer-live-p buffer)
+         (eq (buffer-local-value 'major-mode buffer) 'agent-shell-mode)
+         buffer)))
+
+(defun syzygy-fork--supported-p (buffer)
+  "Return non-nil when BUFFER's agent advertised session/fork."
+  (and (map-elt (buffer-local-value 'agent-shell--state buffer)
+                :supports-session-fork)
+       t))
+
+(defun syzygy-fork--session-id (buffer)
+  "Return BUFFER's live ACP session id, or nil."
+  (map-nested-elt (buffer-local-value 'agent-shell--state buffer)
+                  '(:session :id)))
+
+(defun syzygy-fork--request (source)
+  "Ask SOURCE's agent to fork its live session; return the new session id.
+Blocks for the reply, up to `syzygy-fork-timeout' seconds."
+  (with-current-buffer source
+    (let* ((state (agent-shell--state))
+           (client (map-elt state :client))
+           (request (acp-make-session-fork-request
+                     :session-id (map-nested-elt state '(:session :id))
+                     :cwd (agent-shell--resolve-path (agent-shell-cwd))
+                     :mcp-servers (agent-shell--mcp-servers)
+                     :meta (map-nested-elt state '(:agent-config :session-meta))))
+           (outcome nil))
+      (agent-shell--send-request
+       :state state
+       :client client
+       :request request
+       :buffer source
+       :on-success (lambda (response)
+                     (setq outcome (cons 'ok (map-elt response 'sessionId))))
+       :on-failure (lambda (acp-error _raw)
+                     (setq outcome (cons 'failed acp-error))))
+      ;; agent-shell retires the request from :active-requests only when
+      ;; a reply lands.  Abandoning the wait (timeout, desk-side C-g)
+      ;; must not leave the source chat looking busy forever.
+      (unwind-protect
+          (let ((deadline (+ (float-time) syzygy-fork-timeout)))
+            (while (and (null outcome) (< (float-time) deadline))
+              (accept-process-output (map-elt client :process) 0.05)))
+        (unless outcome
+          (map-put! state :active-requests
+                    (seq-remove (lambda (r) (equal r request))
+                                (map-elt state :active-requests)))))
+      (pcase outcome
+        (`(ok . ,(and (pred stringp) id)) id)
+        (`(ok . ,_) (error "Fork response missing sessionId"))
+        (`(failed . ,acp-error)
+         (error "Fork failed: %s" (or (map-elt acp-error 'message) acp-error)))
+        (_ (error "Fork timed out after %s seconds" syzygy-fork-timeout))))))
+
+(defun syzygy-fork--start (source session-id)
+  "Start a chat resuming SESSION-ID with SOURCE's agent, model and mode.
+The new chat is not displayed: a server eval has no window worth
+stealing, and the phone opens it by name."
+  (let ((default-directory (buffer-local-value 'default-directory source))
+        (config (if (fboundp 'mr-x/agent-shell--clone-config)
+                    (mr-x/agent-shell--clone-config source)
+                  (map-elt (buffer-local-value 'agent-shell--state source)
+                           :agent-config))))
+    (agent-shell--start :config config
+                        :session-id session-id
+                        :new-session t
+                        :no-focus t)))
+
+(defun syzygy-fork--label (source new)
+  "Carry SOURCE's pane label to NEW with a \" fork\" suffix, then sync it."
+  (when (boundp 'major-pane--labels)
+    (when-let ((label (gethash source major-pane--labels)))
+      (puthash new (concat label " fork") major-pane--labels)))
+  (when (fboundp 'mr-x/agent-spawn--send-when-ready)
+    (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready new "" 60)))
+
+(defun syzygy-fork--run (source)
+  "Fork SOURCE and return the new chat buffer."
+  (unless (syzygy-fork--session-id source)
+    (error "No active session to fork"))
+  (let ((new (syzygy-fork--start source (syzygy-fork--request source))))
+    (syzygy-fork--label source new)
+    new))
+
+(defun syzygy-fork-json (name-base64 &optional probe)
+  "Fork the agent-shell chat named by NAME-BASE64 into a new chat.
+With PROBE non-nil, only report whether the chat can be forked.
+Return base64 JSON: bufferName (the new chat, or the source when
+probing), supported, and forkedFrom after a fork; ok is false with an
+error string when the fork could not start.  Return nil when the name
+is not a live agent-shell chat."
+  (when-let ((source (syzygy-fork--chat-buffer
+                      (syzygy-recall--decode-base64 name-base64))))
+    (let ((supported (syzygy-fork--supported-p source)))
+      (syzygy-recall--encode-json
+       (cond
+        (probe
+         `((ok . t)
+           (bufferName . ,(buffer-name source))
+           (supported . ,(if supported t :false))))
+        ((not supported)
+         `((ok . :false)
+           (bufferName . ,(buffer-name source))
+           (supported . :false)
+           (error . "Agent does not support session forking")))
+        (t
+         (condition-case err
+             (let ((new (syzygy-fork--run source)))
+               `((ok . t)
+                 (bufferName . ,(buffer-name new))
+                 (forkedFrom . ,(buffer-name source))
+                 (supported . t)))
+           ((error quit)
+            `((ok . :false)
+              (bufferName . ,(buffer-name source))
+              (supported . t)
+              (error . ,(error-message-string err)))))))))))
+
 ;;;; Mac-side strict resume for catalogued chats
 ;;
 ;; agent-recall's own resume falls back to a fresh session when the
