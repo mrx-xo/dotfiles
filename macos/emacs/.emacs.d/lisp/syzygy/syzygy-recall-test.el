@@ -10,9 +10,9 @@
 ;; feature keeps this unit test independent from the user's installed package.
 (provide 'agent-recall)
 
-(load (expand-file-name "syzygy-recall.el"
-                        (file-name-directory (or load-file-name buffer-file-name)))
-      nil t)
+(let ((dir (file-name-directory (or load-file-name buffer-file-name))))
+  (load (expand-file-name "syzygy-bridge.el" dir) nil t)
+  (load (expand-file-name "syzygy-recall.el" dir) nil t))
 
 (defun syzygy-recall-test--decode (encoded)
   "Decode ENCODED JSON returned by `syzygy-recall-transcripts-json'."
