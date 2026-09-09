@@ -24,6 +24,9 @@
 ;;                       (/api/models, /api/model)
 ;; - syzygy-projects.el — project list for the phone's spawn sheet
 ;;                        (/api/projects)
+;; - syzygy-mermaid.el — export the rig's Mermaid config so the phone's
+;;                       diagrams match the xwidget preview
+;;                       (/api/mermaid-config)
 ;;
 ;; The non-elisp half lives in ~/.dotfiles/macos/syzygy/: the
 ;; acp-multiplex/acp-mobile build pin, the acp-mobile launchd agent,
@@ -44,6 +47,7 @@
 (require 'syzygy-presets)
 (require 'syzygy-models)
 (require 'syzygy-projects)
+(require 'syzygy-mermaid)
 
 (provide 'syzygy)
 ;;; syzygy.el ends here
