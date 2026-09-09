@@ -2007,4 +2007,40 @@ Together these hid 106 lines of roaming/notes/homelab.org."
       (org-tidy-buffer)
       (should-not (overlay-buffer orphan)))))
 
+;;; org-caldav (ARCA PIM Phase 2)
+
+(ert-deftest config-test-arca-caldav-configured ()
+  "org-caldav is configured for ARCA's two collections and nothing else."
+  (should (fboundp 'mr-x/arca-caldav-sync))
+  (should (equal org-caldav-url
+                 "https://arca.andrade-lab.com/remote.php/dav/calendars/marx"))
+  (should (equal (mapcar (lambda (c) (plist-get c :calendar-id)) org-caldav-calendars)
+                 '("marx" "marx-tasks")))
+  (let ((tasks (cadr org-caldav-calendars)))
+    (should (eq (plist-get tasks :caldav-sync-todo) t))
+    (should (eq (plist-get tasks :icalendar-include-todo) 'all))
+    (should (equal (plist-get tasks :files) '("~/roaming/notes/arca-tasks.org"))))
+  (should (eq org-caldav-delete-org-entries 'ask))
+  (should (eq org-caldav-delete-calendar-entries 'ask))
+  ;; no-littering relocates the state dir under var/; per machine is the point.
+  (should (string-prefix-p (expand-file-name "var/" user-emacs-directory)
+                           (expand-file-name org-caldav-save-directory))))
+
+(ert-deftest config-test-arca-caldav-guard-blocks-other-machines ()
+  "On any machine but mrx the sync wrapper is a no-op and never calls org-caldav-sync."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx2"))
+              ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
+      (should-not (mr-x/arca-caldav-sync))
+      (should-not called)
+      (should-not (mr-x/arca-caldav-enable-timer)))))
+
+(ert-deftest config-test-arca-caldav-guard-passes-on-mrx ()
+  "On mrx the wrapper calls org-caldav-sync."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
+              ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
+      (should (mr-x/arca-caldav-sync))
+      (should called))))
+
 ;;; config-tests.el ends here

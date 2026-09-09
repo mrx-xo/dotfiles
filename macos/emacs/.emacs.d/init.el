@@ -1942,6 +1942,91 @@ navigation.  Candidates are file targets, so embark actions
       (message "Created Mdox: %s" (file-name-nondirectory filename))))
 
 
+  ;; BEGIN org-caldav (ARCA)
+  (defun mr-x/machine-id ()
+    "This box's id from ~/.config/machine-id, or \"\".
+The daemon is started by launchd with no MACHINE_ID in its environment,
+so the file is the only reliable source."
+    (string-trim
+     (or (ignore-errors
+           (with-temp-buffer
+             (insert-file-contents (expand-file-name "~/.config/machine-id"))
+             (buffer-string)))
+         "")))
+
+  (defconst mr-x/arca-caldav-machine "mrx"
+    "The one machine allowed to run `org-caldav-sync' against ARCA.")
+
+  (defun mr-x/arca-caldav-on-sync-machine-p ()
+    (string= (mr-x/machine-id) mr-x/arca-caldav-machine))
+
+  (use-package org-caldav
+    :ensure t
+    :defer t
+    :commands (org-caldav-sync)
+    :init
+    (setq org-caldav-url "https://arca.andrade-lab.com/remote.php/dav/calendars/marx"
+          ;; Two collections, two files. Keys other than the documented ones
+          ;; bind org-<key> for that calendar's run, so :caldav-sync-todo binds
+          ;; org-caldav-sync-todo and :icalendar-include-todo binds
+          ;; org-icalendar-include-todo. Only the task list syncs TODOs; the
+          ;; calendar collection is VEVENT-only on the server.
+          org-caldav-calendars
+          '((:calendar-id "marx"
+             :files ("~/roaming/notes/arca-calendar.org")
+             :inbox "~/roaming/notes/arca-calendar.org")
+            (:calendar-id "marx-tasks"
+             :files ("~/roaming/notes/arca-tasks.org")
+             :inbox "~/roaming/notes/arca-tasks.org"
+             :caldav-sync-todo t
+             :icalendar-include-todo all))
+          ;; Soak setting: ask before deleting on either side.
+          org-caldav-delete-org-entries 'ask
+          org-caldav-delete-calendar-entries 'ask
+          ;; org-caldav-save-directory is owned by no-littering
+          ;; (var/org/caldav/save), per machine, which is what the
+          ;; one-machine rule needs.
+          org-caldav-debug-level 1))
+
+  (defun mr-x/arca-caldav-sync (&optional interactive)
+    "Run `org-caldav-sync', on MrX only.
+Elsewhere do nothing and return nil; say so when called INTERACTIVE-ly."
+    (interactive "p")
+    (if (mr-x/arca-caldav-on-sync-machine-p)
+        (progn (org-caldav-sync) t)
+      (when interactive
+        (message "org-caldav: sync runs on %s only; this is %s"
+                 mr-x/arca-caldav-machine (mr-x/machine-id)))
+      nil))
+
+  (defvar mr-x/arca-caldav-timer nil
+    "Idle timer that runs `mr-x/arca-caldav-sync', or nil.")
+
+  (defcustom mr-x/arca-caldav-idle-minutes 15
+    "Minutes of idle time before org-caldav syncs with ARCA."
+    :type 'integer)
+
+  (defun mr-x/arca-caldav-disable-timer ()
+    "Cancel the idle sync timer if it exists."
+    (interactive)
+    (when (timerp mr-x/arca-caldav-timer)
+      (cancel-timer mr-x/arca-caldav-timer))
+    (setq mr-x/arca-caldav-timer nil))
+
+  (defun mr-x/arca-caldav-enable-timer ()
+    "Start the idle sync timer on MrX. Return the timer, or nil elsewhere."
+    (interactive)
+    (when (mr-x/arca-caldav-on-sync-machine-p)
+      (mr-x/arca-caldav-disable-timer)
+      (setq mr-x/arca-caldav-timer
+            (run-with-idle-timer (* 60 mr-x/arca-caldav-idle-minutes) t
+                                 (lambda ()
+                                   (condition-case err
+                                       (mr-x/arca-caldav-sync)
+                                     (error (message "org-caldav idle sync failed: %s"
+                                                     (error-message-string err)))))))))
+  ;; END org-caldav (ARCA)
+
 (use-package osx-dictionary
   :ensure t
   :commands (osx-dictionary-search-word-at-point
