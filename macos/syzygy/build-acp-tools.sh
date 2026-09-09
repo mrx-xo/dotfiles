@@ -82,7 +82,8 @@ ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # + local eb2f552 (spawn sheet: path box is a project combobox with a vertical filtered list, rows pick on touch pointerup so the keyboard can stay up, sheet 94 percent tall)
 # + local 1da9116 (spawn sheet: project list is a dropdown, opens on focus, collapses on pick)
 # + local 434b4a6 (catalogue and pin from the phone: /api/catalogue + /api/pin over the syzygy-recall bridges, Pin chat and Catalogue in the chat menu, pinned chats first in the Orrery, History Catalogued chip, #tag search, catalogue/uncatalogue in the transcript view)
-ACP_MOBILE_COMMIT="434b4a6f462a92fe3fb6fc4af151279272fedcc0"
+# + local 3d1dd9a (scroll button and bottom turn nav clear the thinking bar as it appears and disappears)
+ACP_MOBILE_COMMIT="3d1dd9a1021974a47ed28c519c73cbdccb73cc19"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
