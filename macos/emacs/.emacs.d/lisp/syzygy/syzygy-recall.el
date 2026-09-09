@@ -19,6 +19,7 @@
 (require 'map)
 (require 'seq)
 (require 'subr-x)
+(require 'syzygy-bridge)
 
 (defvar agent-recall--index nil)
 (defvar agent-recall-resume-restore-preferences)
@@ -82,12 +83,6 @@ the phone can override an older durable agent-recall label immediately."
                      (match-string 1)
                    "?"))
                syzygy-recall--agent-cache)))
-
-(defun syzygy-recall--encode-json (value)
-  "Serialize VALUE as UTF-8 JSON wrapped in base64."
-  (base64-encode-string
-   (encode-coding-string (json-serialize value) 'utf-8)
-   t))
 
 (defun syzygy-recall--resume-readiness (file entry)
   "Return (RESUMABLE . REASON) for transcript FILE and index ENTRY."
@@ -504,7 +499,7 @@ OWNED means this request created BUFFER.  EXISTING means it attached to one."
 Return a base64-wrapped JSON result for acp-mobile.  Errors are returned as
 structured JSON so the phone can keep the transcript open and explain why."
   (require 'agent-recall)
-  (syzygy-recall--encode-json
+  (syzygy-bridge-encode-json
    (condition-case err
        (let ((file (decode-coding-string
                     (base64-decode-string file-base64) 'utf-8)))
@@ -516,7 +511,7 @@ structured JSON so the phone can keep the transcript open and explain why."
 
 (defun syzygy-recall-resume-status-json (operation-base64)
   "Return base64-wrapped JSON status for OPERATION-BASE64."
-  (syzygy-recall--encode-json
+  (syzygy-bridge-encode-json
    (condition-case err
        (let* ((token (decode-coding-string
                       (base64-decode-string operation-base64) 'utf-8))
@@ -548,7 +543,7 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
                            (or (plist-get (cdr b) :timestamp) "")))))
     (unless (and limit (zerop limit))
       (setq entries (seq-take entries (or limit 100))))
-    (syzygy-recall--encode-json
+    (syzygy-bridge-encode-json
      (vconcat
       (mapcar (lambda (fe)
                 (let* ((file (car fe))
@@ -578,11 +573,6 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
 ;; base64 in / base64 JSON out for acp-mobile's /api/catalogue.  A session
 ;; the index has never seen yields nil, which the Go side maps to 404.
 
-(defun syzygy-recall--decode-base64 (encoded)
-  "Return ENCODED base64 as a UTF-8 string, or nil when ENCODED is nil."
-  (and encoded
-       (decode-coding-string (base64-decode-string encoded) 'utf-8)))
-
 (defun syzygy-recall--session-known-p (session-id)
   "Return non-nil when some indexed transcript carries SESSION-ID."
   (agent-recall--index-ensure)
@@ -610,9 +600,9 @@ Base64 JSON with sessionId, catalogued, note, tags and allTags, or nil for
 an unknown session.  Read-only: the phone asks before drawing its chat
 menu entry, so a chat that was never saved must not gain an entry."
   (require 'agent-recall)
-  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+  (let ((session-id (syzygy-bridge-decode-base64 session-base64)))
     (when (syzygy-recall--session-known-p session-id)
-      (syzygy-recall--encode-json
+      (syzygy-bridge-encode-json
        (syzygy-recall--catalogue-result session-id)))))
 
 (defun syzygy-recall-catalogue-json (session-base64 &optional note-base64 tags-base64)
@@ -620,23 +610,23 @@ menu entry, so a chat that was never saved must not gain an entry."
 NOTE-BASE64 is the note text; TAGS-BASE64 is a JSON array of tag strings.
 Return the new state as base64 JSON, or nil for an unknown session."
   (require 'agent-recall)
-  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+  (let ((session-id (syzygy-bridge-decode-base64 session-base64)))
     (when (syzygy-recall--session-known-p session-id)
-      (let ((note (syzygy-recall--decode-base64 note-base64))
-            (tags (when-let ((json (syzygy-recall--decode-base64 tags-base64)))
+      (let ((note (syzygy-bridge-decode-base64 note-base64))
+            (tags (when-let ((json (syzygy-bridge-decode-base64 tags-base64)))
                     (append (json-parse-string json :array-type 'array) nil))))
         (agent-recall-catalogue-put session-id :note note :tags tags)
-        (syzygy-recall--encode-json
+        (syzygy-bridge-encode-json
          (syzygy-recall--catalogue-result session-id))))))
 
 (defun syzygy-recall-uncatalogue-json (session-base64)
   "Uncatalogue the session named by SESSION-BASE64.
 Return the new state as base64 JSON, or nil for an unknown session."
   (require 'agent-recall)
-  (let ((session-id (syzygy-recall--decode-base64 session-base64)))
+  (let ((session-id (syzygy-bridge-decode-base64 session-base64)))
     (when (syzygy-recall--session-known-p session-id)
       (agent-recall-catalogue-remove session-id)
-      (syzygy-recall--encode-json
+      (syzygy-bridge-encode-json
        (syzygy-recall--catalogue-result session-id)))))
 
 ;;;; Phone pins
@@ -660,10 +650,10 @@ Return the new state as base64 JSON, or nil for an unknown session."
 ACTION is \"pin\", \"unpin\" or nil for toggle.  With no NAME-BASE64,
 only report.  Return base64 JSON with bufferName, pinned and pins, or nil
 when the named buffer is not live."
-  (let ((name (syzygy-recall--decode-base64 name-base64)))
+  (let ((name (syzygy-bridge-decode-base64 name-base64)))
     (cond
      ((null name)
-      (syzygy-recall--encode-json
+      (syzygy-bridge-encode-json
        `((pins . ,(vconcat (syzygy-orrery-pins))))))
      ((not (buffer-live-p (get-buffer name))) nil)
      (t
@@ -676,7 +666,7 @@ when the named buffer is not live."
               (if pin
                   (cons name (remove name pins))
                 (remove name pins)))
-        (syzygy-recall--encode-json
+        (syzygy-bridge-encode-json
          `((bufferName . ,name)
            (pinned . ,(if pin t :false))
            (pins . ,(vconcat syzygy-orrery--pins)))))))))
@@ -813,9 +803,9 @@ probing), supported, and forkedFrom after a fork; ok is false with an
 error string when the fork could not start.  Return nil when the name
 is not a live agent-shell chat."
   (when-let ((source (syzygy-fork--chat-buffer
-                      (syzygy-recall--decode-base64 name-base64))))
+                      (syzygy-bridge-decode-base64 name-base64))))
     (let ((supported (syzygy-fork--supported-p source)))
-      (syzygy-recall--encode-json
+      (syzygy-bridge-encode-json
        (cond
         (probe
          `((ok . t)
