@@ -7365,6 +7365,14 @@ is already running.  The regular Chrome-tab action does not use this profile."
           (themeVariables . ,theme-variables)
           (themeCSS . ,mr-x/markdown-mermaid-theme-css))))
 
+    ;; The phone renders the same diagrams with the same engine, so it
+    ;; reads this same config rather than keeping a second copy of the
+    ;; palette.  Exporting here means the JSON is refreshed whenever
+    ;; markdown-xwidget loads; `syzygy-export-mermaid-config' is also a
+    ;; command for a manual refresh after a Customize edit.
+    (when (require 'syzygy-mermaid nil t)
+      (syzygy-export-mermaid-config))
+
     (defun mr-x/markdown-mermaid-layout-style ()
       "Return inline sizing and viewer CSS for Mermaid preview blocks."
       (let* ((gutter mr-x/markdown-mermaid-gutter)
@@ -7581,6 +7589,8 @@ Diagram-local frontmatter with its own `look' remains authoritative."
                 (mr-x/markdown-preview-header-html
                  (mr-x/agent-recall-transcript-p)))
           (markdown-live-preview-export))
+        (when (fboundp 'syzygy-export-mermaid-config)
+          (syzygy-export-mermaid-config))
         (message "Mermaid look: %s%s"
                  next-look
                  (if persist " (saved)" ""))
