@@ -35,6 +35,16 @@ a session can be watched from the phone without polling acp-mobile.
   `pushManager.subscribe` against `/api/push-key`, posted to
   `/api/push-subscribe` and stored in `~/.acp-mobile/push-subscriptions.json`.
   Subscriptions the push service reports gone (404/410) are dropped.
+- **In front of the app, the server decides.** iOS gives a home-screen
+  web app no way to hear its own worker while it is open (no window
+  clients, no BroadcastChannel, stale Cache API reads, no tap event;
+  traced 2026-09-06). So the page reports presence (visibility notes,
+  the Orrery poll, a 20s in-chat heartbeat) and acp-mobile delivers a
+  push about another chat in-app (injected into the chat socket, or on
+  the statuses reply) and parks it. If the page goes away within 20s and
+  that chat was never on screen or dismissed, the Apple push goes out
+  late. Details and flowchart:
+  `~/docs/SYZYGY-FEATURES/push-in-app-and-escalation.md` (mr-x/docs).
 - **Tap opens the home-screen app on that chat.** The service worker
   (`sw.js`, root scope, no fetch handler) shows the notification and on tap
   focuses an open client and posts `{type: "open-session", bufferName}`, or

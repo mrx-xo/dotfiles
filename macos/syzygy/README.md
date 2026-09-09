@@ -29,6 +29,11 @@ that exact origin. If the phone's icon was added from the old
 chat's bell and allow notifications. Design:
 `macos/docs/superpowers/specs/2026-09-05-agent-shell-phone-push-design.md`.
 
+With the app open, pushes about other chats show as an in-app banner
+(tap opens the chat) and the Apple banner is held back; it is sent late
+only if you leave within 20s without opening that chat. Trace any push
+problem with `grep -E "webpush|push-trace" ~/Library/Logs/acp-mobile/acp-mobile.err.log`.
+
 ## Files here
 
 - `build-acp-tools.sh` — clone/pin/build both Go tools into `~/.local/bin`
