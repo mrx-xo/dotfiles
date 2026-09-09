@@ -99,3 +99,12 @@ build() {
 
 build mrx-xo acp-multiplex "$ACP_MULTIPLEX_COMMIT"
 build mrx-xo acp-mobile "$ACP_MOBILE_COMMIT"
+
+# The phone's 8090 instance is a launchd job that keeps the old binary in
+# memory until relaunched.  Kickstart it when it is loaded (MrX); on boxes
+# without the agent this is a no-op.  acp-multiplex needs nothing: each
+# agent-shell session spawns its own, so new sessions pick up the build.
+if launchctl print "gui/$(id -u)/com.marcosandrade.acp-mobile" >/dev/null 2>&1; then
+  launchctl kickstart -k "gui/$(id -u)/com.marcosandrade.acp-mobile"
+  echo "restarted com.marcosandrade.acp-mobile"
+fi
