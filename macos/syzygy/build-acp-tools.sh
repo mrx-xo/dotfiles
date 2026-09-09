@@ -83,7 +83,8 @@ ACP_MULTIPLEX_COMMIT="050a7b482bb6736cae2093b0854806c6168442be"
 # + local 1da9116 (spawn sheet: project list is a dropdown, opens on focus, collapses on pick)
 # + local 434b4a6 (catalogue and pin from the phone: /api/catalogue + /api/pin over the syzygy-recall bridges, Pin chat and Catalogue in the chat menu, pinned chats first in the Orrery, History Catalogued chip, #tag search, catalogue/uncatalogue in the transcript view)
 # + local 3d1dd9a (scroll button and bottom turn nav clear the thinking bar as it appears and disappears)
-ACP_MOBILE_COMMIT="3d1dd9a1021974a47ed28c519c73cbdccb73cc19"
+# + local b131b40 (in-app push delivery, presence, escalation: /api/presence, statuses carries pushes, acp-mobile/push socket frames, parked pushes escalate to Web Push when the page leaves unread within 20s; /api/push-inbox removed)
+ACP_MOBILE_COMMIT="b131b402655df4de2784e35d281bf4cf728cefc6"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
