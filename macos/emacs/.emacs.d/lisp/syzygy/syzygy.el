@@ -17,6 +17,13 @@
 ;;                       (SPC c H)
 ;; - syzygy-recall.el  — transcript history + exact-session resume JSON for
 ;;                       acp-mobile (reads agent-recall's index)
+;; - syzygy-bridge.el  — base64 JSON encoding shared by the phone bridges
+;; - syzygy-presets.el — launch presets for the phone's spawn sheet
+;;                       (/api/presets)
+;; - syzygy-models.el  — list and switch a live session's model
+;;                       (/api/models, /api/model)
+;; - syzygy-projects.el — project list for the phone's spawn sheet
+;;                        (/api/projects)
 ;;
 ;; The non-elisp half lives in ~/.dotfiles/macos/syzygy/: the
 ;; acp-multiplex/acp-mobile build pin, the acp-mobile launchd agent,
@@ -33,6 +40,10 @@
 (require 'syzygy-live)
 (require 'syzygy-handoff)
 (require 'syzygy-recall)
+(require 'syzygy-bridge)
+(require 'syzygy-presets)
+(require 'syzygy-models)
+(require 'syzygy-projects)
 
 (provide 'syzygy)
 ;;; syzygy.el ends here
