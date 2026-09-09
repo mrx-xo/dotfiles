@@ -202,6 +202,34 @@ it, get returns nil for an unknown session."
               (should (equal (alist-get 'tags row) '())))))
       (delete-file file))))
 
+(ert-deftest syzygy-recall-catalogue-get-json-reads-without-writing ()
+  "Reading must report the stored entry and never create one."
+  (let ((agent-recall--index (make-hash-table :test #'equal))
+        (store (make-hash-table :test #'equal))
+        (file (make-temp-file "syzygy-recall-" nil ".md")))
+    (unwind-protect
+        (progn
+          (puthash file '(:session-id "session-1") agent-recall--index)
+          (syzygy-recall-test--with-catalogue-stubs store
+            (let ((row (syzygy-recall-test--decode
+                        (syzygy-recall-catalogue-get-json
+                         (syzygy-recall-test--b64 "session-1")))))
+              (should (equal (alist-get 'sessionId row) "session-1"))
+              (should (equal (alist-get 'catalogued row) ""))
+              (should (= (hash-table-count store) 0)))
+            (puthash "session-1"
+                     '((catalogued . "2026-09-08T10:00:00+0000")
+                       (note . "why kept") (tags . ("syzygy")))
+                     store)
+            (let ((row (syzygy-recall-test--decode
+                        (syzygy-recall-catalogue-get-json
+                         (syzygy-recall-test--b64 "session-1")))))
+              (should (equal (alist-get 'note row) "why kept"))
+              (should (equal (alist-get 'tags row) '("syzygy"))))
+            (should-not (syzygy-recall-catalogue-get-json
+                         (syzygy-recall-test--b64 "session-2")))))
+      (delete-file file))))
+
 (ert-deftest syzygy-recall-uncatalogue-json-round-trip ()
   "Uncataloguing must clear the returned state and remove the stored entry."
   (let ((agent-recall--index (make-hash-table :test #'equal))
