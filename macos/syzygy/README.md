@@ -95,3 +95,30 @@ tail ~/Library/Logs/acp-mobile/acp-mobile.err.log
 - Waking interface: **en8** (USB wired LAN), MAC `98:fc:84:e9:ab:e7`
 - Home server must have `wakeonlan` installed and be SSH-reachable over
   Tailscale as `homeserver`
+
+## New Chat
+
+The phone's New Chat screen has separate searchable project, agent, model,
+permission, and effort pickers. Rig presets fill all settings; individual
+changes mark the preset Modified, and reset restores its values. Custom
+presets, project pins/recents, and the unfinished draft are stored on the
+current device. The folder icon enters an explicit rig directory; search
+text never becomes a path.
+
+`syzygy-launch.el` supplies `POST /api/launch-options` from configured agents,
+rig presets, and advertised live-session choices. The daemon retains the
+last advertised catalogue for agents whose chats have closed; before any
+chat has advertised choices, only its preset choices are available.
+Explicit `POST /api/spawn` settings are validated against this catalogue.
+Model, permissions, and effort must be confirmed before the optional first
+message is submitted. The response identifies the exact created buffer.
+Partial failures keep the buffer and unsent draft available for recovery.
+The return-to-draft icon releases recovery if the created chat is gone.
+Missing configured defaults require a choice; the first permission option
+is never silently selected.
+Legacy preset and clone requests continue through the existing bridge.
+
+Validation: `go test ./...` and `node --test index_test.mjs` in
+`~/src/acp-mobile`; focused ERT in `lisp/syzygy/syzygy-launch-test.el`.
+Set `SYZYGY_UI_SHOTS` to an existing directory when running
+`go test -run TestNewChatVisualReview` to capture phone-sized review images.
