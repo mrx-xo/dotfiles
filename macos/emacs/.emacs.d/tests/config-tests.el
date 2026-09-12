@@ -328,11 +328,12 @@ a regression here would silently bring that back."
   (should (fboundp 'mr-x/focus-ai-window)))
 
 (ert-deftest config-test-opencode-command ()
-  "OpenCode should use the installed ACP executable by absolute path."
+  "OpenCode is discoverable on the phone when the multiplex is installed."
   (require 'agent-shell-opencode)
   (should (equal agent-shell-opencode-acp-command
-                 (list (expand-file-name "~/.opencode/bin/opencode") "acp")))
-  (should (file-executable-p (car agent-shell-opencode-acp-command))))
+                 (append (when (executable-find "acp-multiplex") '("acp-multiplex"))
+                         (list (expand-file-name "~/.opencode/bin/opencode") "acp"))))
+  (should (file-executable-p (expand-file-name "~/.opencode/bin/opencode"))))
 
 (ert-deftest config-test-agent-shell-clone-reuses-current-model-in-fresh-session ()
   "Clone starts a fresh shell with the source provider, model, and directory."

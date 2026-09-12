@@ -21,6 +21,7 @@ to their function name so a new agent still shows up rather than
 disappearing."
   (cond ((null config-fn) "claude")
         ((eq config-fn 'agent-shell-openai-make-codex-config) "codex")
+        ((eq config-fn 'agent-shell-opencode-make-agent-config) "opencode")
         ((eq config-fn 'mr-x/agent-shell-make-deepseek-config) "deepseek")
         (t (symbol-name config-fn))))
 

@@ -3,6 +3,7 @@
 (require 'cl-lib)
 (require 'map)
 (require 'json)
+(defvar mr-x/agent-shell-presets)
 (add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
 (require 'syzygy-bridge)
 (when (locate-library "syzygy-launch") (require 'syzygy-launch))
@@ -17,6 +18,36 @@
     (modes . [((id . "agent") (name . "Agent"))])
     (efforts . [((id . "high") (name . "High"))])
     (defaults . ((model . "sol") (mode . "agent") (effort . "")))))
+
+(ert-deftest syzygy-launch-opencode-preset-works-without-a-live-chat ()
+  "A cold daemon can offer and validate OpenCode through its rig preset."
+  (let ((mr-x/agent-shell-presets
+         '((?O "OpenCode Luna Build" "openai/gpt-5.6-luna" "build"
+               agent-shell-opencode-make-agent-config)))
+        (syzygy-launch--capabilities (make-hash-table :test #'equal)))
+    (cl-letf (((symbol-function 'buffer-list) (lambda () nil))
+              ((symbol-function 'agent-shell--resolve-preferred-config) (lambda () nil))
+              ((symbol-function 'agent-shell-opencode-make-agent-config)
+               (lambda () '((:identifier . opencode) (:mode-line-name . "OpenCode")))))
+      (let* ((reply (syzygy-launch-test--decode (syzygy-launch-options-json)))
+             (agents (alist-get 'agents reply))
+             (presets (syzygy-launch-test--decode (syzygy-presets-json))))
+        (should (equal (alist-get 'agent (car presets)) "opencode"))
+        (should (equal (mapcar (lambda (a) (alist-get 'id a)) agents) '("opencode")))
+        (should (syzygy-launch--validate
+                 '((agent . "opencode") (model . "openai/gpt-5.6-luna") (mode . "build"))
+                 agents))
+        ;; Live-session capabilities use the config identifier, not the
+        ;; constructor's function name. They must enrich the same entry.
+        (puthash "opencode"
+                 '((models . [((id . "openai/gpt-5.6-luna")) ((id . "openai/gpt-5.6-sol"))])
+                   (modes . [((id . "build")) ((id . "plan"))]) (efforts . []))
+                 syzygy-launch--capabilities)
+        (let ((warm (syzygy-launch--catalog)))
+          (should (= (length warm) 1))
+          (should (syzygy-launch--validate
+                   '((agent . "opencode") (model . "openai/gpt-5.6-sol") (mode . "plan"))
+                   warm)))))))
 
 (ert-deftest syzygy-launch-validation-rejects-incompatible-settings ()
   (should (fboundp 'syzygy-launch--validate))

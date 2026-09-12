@@ -118,6 +118,13 @@ Missing configured defaults require a choice; the first permission option
 is never silently selected.
 Legacy preset and clone requests continue through the existing bridge.
 
+OpenCode is available in the Agent picker and through the `OpenCode Luna · Build`
+rig preset. It launches `openai/gpt-5.6-luna` in `build` mode through
+`acp-multiplex`, using the installer's absolute executable path. The preset
+keeps OpenCode launchable before any chat has advertised choices; after an
+OpenCode chat opens, the pickers also expose its advertised models, Build/Plan
+modes, and effort choices. OpenCode uses its existing CLI authentication.
+
 Validation: `go test ./...` and `node --test index_test.mjs` in
 `~/src/acp-mobile`; focused ERT in `lisp/syzygy/syzygy-launch-test.el`.
 Set `SYZYGY_UI_SHOTS` to an existing directory when running
