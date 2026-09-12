@@ -3869,6 +3869,9 @@ Falls back to a one-liner if fastfetch isn't installed."
         ". d" '(mr-x/calliope-send-day :wk "day (schedule)")
         ". s" '(mr-x/calliope-send-scratch :wk "global scratch")
         ". b" '(mr-x/calliope-send-buffer :wk "this buffer")
+        ". g" '(:ignore t :wk "goto")
+        ". g g" '(mr-x/calliope-goto-top :wk "top")
+        ". G" '(mr-x/calliope-goto-bottom :wk "bottom")
         ". m" '(mr-x/calliope-mirror :wk "mirror (scrcpy)")
         ;; "m" 'mu4e
         "f" 'link-hint-open-link
@@ -4722,6 +4725,33 @@ the e-ink, not the Mac.  LABEL is only for the echo-area confirmation."
     "Show the CALLIOPE day view (Schedule timeline + Deadlines) on the e-ink."
     (interactive)
     (mr-x/calliope--send-agenda-view "D" "day"))
+
+  (defun mr-x/calliope--scroll-edge (edge)
+    "Jump CALLIOPE's visible window to EDGE (`top' or `bottom').
+Acts on whatever buffer her tty frame is currently showing, not on a
+buffer we pick here — the tablet is dumb glass, so \"scroll it\" means
+\"scroll what is on the e-ink\".  With emx down there is nothing on the
+panel to move, so this reports instead of launching it."
+    (let ((frame (mr-x/calliope-frame)))
+      (if (not frame)
+          (message "emx isn't running on CALLIOPE — nothing on the e-ink to scroll")
+        (let ((window (frame-selected-window frame)))
+          (with-selected-window window
+            (goto-char (if (eq edge 'top) (point-min) (point-max)))
+            (recenter (if (eq edge 'top) 0 -1)))
+          (message "CALLIOPE: %s of %s"
+                   (if (eq edge 'top) "top" "bottom")
+                   (buffer-name (window-buffer window)))))))
+
+  (defun mr-x/calliope-goto-top ()
+    "Scroll CALLIOPE's e-ink to the top of the buffer she is showing (evil `gg')."
+    (interactive)
+    (mr-x/calliope--scroll-edge 'top))
+
+  (defun mr-x/calliope-goto-bottom ()
+    "Scroll CALLIOPE's e-ink to the bottom of the buffer she is showing (evil `G')."
+    (interactive)
+    (mr-x/calliope--scroll-edge 'bottom))
 
   (defun mr-x/calliope-mirror ()
     "Live-mirror CALLIOPE's screen onto the Mac via scrcpy (boox-mirror.sh).
