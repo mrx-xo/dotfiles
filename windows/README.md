@@ -184,6 +184,8 @@ reconfigure a running driver or firewall rule automatically.
 `preset: <name>` selection per preset. `effect_current` reflects the selected
 control setting, even at night. Observed `effect`, `on`, `brightness`, and other
 engine fields always come from status, and may lag the accepted selection.
+Removed stored effect/preset names follow the driver's rotation fallback and
+remain repairable through a valid effect patch; malformed stored types fail.
 
 Example patch:
 
@@ -221,7 +223,12 @@ header timeout/deadline expiry may close without an HTTP response. Slow clients
 cannot retain unbounded workers. Deadlines bound network I/O, not filesystem I/O.
 
 HTTP writers hold a lock across read/modify/write and use a same-directory
-temporary file, flush/fsync, then atomic replace. **The legacy SSH writer does
+temporary file, flush/fsync, then atomic replace.
+The replace retries Windows sharing/access failures up to five attempts over
+80 ms, allowing the resident reader to close its short-lived handle. Persistent
+failure returns 503 and preserves the old file.
+
+**The legacy SSH writer does
 not share this lock.** Concurrent SSH and HTTP updates can still lose a setting;
 a partial SSH write can temporarily cause 503. Avoid simultaneous use of both
 transports. The driver's existing non-atomic status writes can likewise produce
