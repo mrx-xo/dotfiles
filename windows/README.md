@@ -116,3 +116,131 @@ Verify with `schtasks /query /tn OllamaServe /v /fo list` and `ollama ps`.
 - To migrate later (e.g. fold into a cross-platform dotfiles repo), this whole folder
   can move into a `windows/` subdirectory; only the paths in `bootstrap.ps1` would need
   adjusting.
+
+## Resident lighting HTTP API
+
+`scripts/icue-lights.py` starts `scripts/icue_http.py` alongside its existing
+lighting loop. The API uses only the Python standard library; neither the API
+nor `shared/lights/schedule.py` imports the hardware SDK. The shared schedule
+preserves the local-clock 08:00–23:00 window and next-boundary override expiry,
+including DST. Mac CLI commands and the existing interactive Windows logon task
+retain their behavior.
+
+### Configuration and firewall
+
+Set configuration in the environment inherited by the driver's logon task:
+
+- `ICUE_HTTP_HOST`: bind IP literal, default `0.0.0.0`; IPv6 literals are also
+  supported. Hostnames and empty values are rejected.
+- `ICUE_HTTP_PORT`: decimal port 1–65535, default `7790`.
+- `ICUE_HTTP_ALLOWED_NETWORKS`: comma-separated network CIDRs. **Replaces all
+  defaults**, which are `127.0.0.0/8,::1/128,100.64.0.0/10`. Include those ranges
+  explicitly when adding deployment-specific LAN ranges. Keep private network
+  configuration outside this public repository.
+
+This is trusted-network access, with no user authentication or TLS. Every HTTP
+method checks the socket peer before reading a body; forwarded headers confer
+no access. RFC6598 admits only `100.64.0.0/10`, not all `100.*` addresses.
+`/health` confirms the API is answering, not that the lighting engine is healthy.
+Invalid configuration or bind failure is logged and the lighting schedule
+continues without HTTP.
+
+From the repository's `windows` directory, scheduler setup remains unelevated:
+
+```powershell
+.\scripts\setup-icue-scheduler.ps1
+```
+
+It invokes the firewall helper only if the session is already elevated.
+Otherwise it prints the exact helper command to run separately from PowerShell
+as Administrator. It never opens an elevation prompt. The standalone step is:
+
+```powershell
+.\scripts\setup-icue-firewall.ps1
+```
+
+The helper requires administrator rights and creates or updates the named
+`ICUELights-HTTP` inbound TCP rule, with `Profile Any` and restricted remote
+ranges. It reads the same port/network environment variables; explicit `-Port`
+and `-AllowedNetworks` parameters override them. Use identical settings in the
+administrator session and the driver's logon environment. Rerunning updates the
+existing rule instead of accumulating rules. Other independently configured
+firewall rules are not removed. Changing environment variables does not
+reconfigure a running driver or firewall rule automatically.
+
+### Endpoint contract
+
+1. `GET /health`: 200 with `{"ok":true,"engine":"icue-lights"}`.
+2. `GET /status`: observed status fields plus `age` (seconds since the opened
+   status file's mtime), `effect_list`, `effect_current`, and `descriptions`.
+   Missing/corrupt status or corrupt existing control returns 503. A valid stale
+   status remains 200 with its actual age and old observed state; clients should
+   treat `age >= 10` as unavailable. Future mtimes produce age zero.
+3. `POST /control`: accepts a JSON object with only `effect`, `brightness`, and
+   `force`, each optional. Success is 200 with `accepted: true` plus the status
+   response fields. **This acknowledges control acceptance, not applied LEDs.**
+
+`effect_list` is the effects module's named effects, `random`, and one
+`preset: <name>` selection per preset. `effect_current` reflects the selected
+control setting, even at night. Observed `effect`, `on`, `brightness`, and other
+engine fields always come from status, and may lag the accepted selection.
+
+Example patch:
+
+```json
+{"effect":"random","brightness":0.5,"force":"on"}
+```
+
+Named effects pin a selection; `preset: <name>` resumes that rotation pool;
+`random` rolls fresh parameters. Brightness must be finite numeric input (never
+boolean), clamped to 0.01–1.0. `force` accepts `"on"`, `"off"`, or `null`.
+On/off sets expiry to the next local 08:00 or 23:00; null removes both override
+keys. An empty object is an accepted no-op patch. Unmanaged settings, including
+fan overrides and parameters when not rolling, are preserved.
+
+All validation completes before mutation. **POST preflights observed status
+before writing:** absent/corrupt status returns 503 without changing control.
+Success includes that preflight snapshot, even if the driver rewrites or removes
+status immediately afterward. Missing control uses the driver's defaults
+(rotation mode, rotation preset, brightness 1.0); corrupt existing control is
+refused with 503 rather than losing settings. A client polls status after success.
+
+Requests require `Content-Type: application/json` and one valid `Content-Length`.
+Bodies are limited to 8192 bytes. Unknown keys/selections, malformed or non-object
+JSON, NaN/Infinity, invalid lengths, and transfer encoding are rejected. Errors
+use 400 (invalid input/framing), 403 (peer denied), 404 (unknown endpoint),
+408 (body timeout), 411 (missing length), 413 (oversized body), 415 (media type),
+or 503 (state/write unavailable). Invalid requests leave control byte-identical.
+
+### Concurrency and lifecycle
+
+The threaded server allows at most 16 active connections, with a two-second
+socket inactivity timeout and a five-second absolute request deadline, including
+headers. Connections close after one response. Overload closes new connections;
+header timeout/deadline expiry may close without an HTTP response. Slow clients
+cannot retain unbounded workers. Deadlines bound network I/O, not filesystem I/O.
+
+HTTP writers hold a lock across read/modify/write and use a same-directory
+temporary file, flush/fsync, then atomic replace. **The legacy SSH writer does
+not share this lock.** Concurrent SSH and HTTP updates can still lose a setting;
+a partial SSH write can temporarily cause 503. Avoid simultaneous use of both
+transports. The driver's existing non-atomic status writes can likewise produce
+brief 503 responses during a read; no fresh device state is invented.
+
+`start_server(control_file, status_file, effects_module, host=None, port=None,
+allowed_networks=None)` returns a running server. None arguments use the
+configuration above; explicit arguments override environment values. Explicit
+`port=0` is available for ephemeral test listeners only. On exit the caller must
+invoke `server.shutdown()` then `server.server_close()` from outside the serving
+thread. Closing interrupts active client sockets and joins handlers. The driver
+does this on graceful stop and exception unwinding before handing back its layer.
+
+Development checks (no hardware access):
+
+```sh
+python3 -m unittest discover -s shared/lights/tests -v
+python3 -m unittest discover -s windows/scripts/tests -v
+```
+
+Run from the repository root with a current Python (3.12+). PowerShell syntax,
+firewall changes, and physical SDK behavior require separate Windows validation.

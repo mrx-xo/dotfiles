@@ -29,7 +29,6 @@ Talks to the box named by $LIGHTS_HOST (default: vengeance, an ssh alias).
 Control lives in ~/icue-scheduler/{control,status}.json on that box.
 """
 import argparse
-import datetime
 import json
 import os
 import subprocess
@@ -40,10 +39,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared" / "lights"))
 import effects  # noqa: E402
 import rig  # noqa: E402
+from schedule import next_boundary  # noqa: E402
 
 HOST = os.environ.get("LIGHTS_HOST", "vengeance")
 MAC = os.environ.get("LIGHTS_MAC", "34:5A:60:C0:95:87")  # VENGEANCE Realtek NIC
-DAY_START_HOUR, DAY_END_HOUR = 8, 23      # keep in sync with icue-lights.py
 CONTROL = "icue-scheduler/control.json"   # home-relative on the box
 STATUS = "icue-scheduler/status.json"
 _SOCK = f"/tmp/lightsctl-{HOST}.sock"
@@ -126,20 +125,6 @@ def is_reachable():
                         "-o", "ControlMaster=no", HOST, "true"],
                        capture_output=True, text=True)
     return r.returncode == 0
-
-
-def next_boundary(now=None):
-    """Epoch of the next 08:00 or 23:00 — where a manual override expires and
-    the schedule takes back over."""
-    now = now if now is not None else time.time()
-    lt = datetime.datetime.fromtimestamp(now)
-    best = None
-    for h in (DAY_START_HOUR, DAY_END_HOUR):
-        b = lt.replace(hour=h, minute=0, second=0, microsecond=0)
-        if b <= lt:
-            b += datetime.timedelta(days=1)
-        best = b if best is None else min(best, b)
-    return best.timestamp()
 
 
 def send_magic_packet(mac=MAC):
