@@ -215,6 +215,43 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.control.parent.iterdir()),
                          ['control.json', 'status.json'])
 
+    def test_windows_sharing_failure_retries_then_commits(self):
+        sharing = PermissionError('file held by reader')
+        sharing.winerror = 32
+        real_replace = icue_http.os.replace
+        attempts = []
+        def replace(source, target):
+            attempts.append(source)
+            if len(attempts) < 3:
+                raise sharing
+            return real_replace(source, target)
+        with patch.object(icue_http.os, 'replace', side_effect=replace):
+            self.assertEqual(self.post({'brightness': .6})[0], 200)
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(json.loads(self.control.read_text())['brightness'], .6)
+
+    def test_persistent_windows_sharing_failure_is_bounded(self):
+        sharing = PermissionError('file held by reader')
+        sharing.winerror = 32
+        before = self.control.read_bytes()
+        with patch.object(icue_http.os, 'replace', side_effect=sharing) as replace:
+            self.assertEqual(self.post({'brightness': .6})[0], 503)
+        self.assertEqual(replace.call_count, 5)
+        self.assertEqual(self.control.read_bytes(), before)
+        self.assertFalse(list(self.control.parent.glob('*.tmp')))
+
+    def test_removed_selections_keep_fallback_and_can_be_repaired(self):
+        for saved in ({'mode': 'rotation', 'effect': 'retired'},
+                      {'mode': 'pinned', 'effect': 'retired', 'preset': 'retired'},
+                      {'mode': 'pinned'}):
+            self.control.write_text(json.dumps(dict(self.original, **saved)))
+            code, data = self.request()
+            self.assertEqual(code, 200)
+            self.assertEqual(data['effect_current'], 'preset: rotation')
+            replacement = next(iter(effects.EFFECTS))
+            self.assertEqual(self.post({'effect': replacement})[0], 200)
+            self.assertEqual(self.request()[1]['effect_current'], replacement)
+
     def test_allowlist_blocks_before_body_and_ignores_forwarded_headers(self):
         self.close_server()
         self.server = icue_http.start_server(self.control, self.status, effects,

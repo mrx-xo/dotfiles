@@ -90,8 +90,10 @@ def read_control(path, effects):
         raise ValueError('invalid stored brightness')
     if not 0 <= control.get('brightness', 1.0) <= 1:
         raise ValueError('invalid stored brightness')
-    for key, choices in (('preset', effects.PRESETS), ('effect', effects.EFFECTS)):
-        if key in control and (not isinstance(control[key], str) or control[key] not in choices):
+    for key in ('preset', 'effect'):
+        # Removed names are valid old configuration: the driver falls back to
+        # rotation. Keep status readable and allow an HTTP selection to repair it.
+        if key in control and not isinstance(control[key], str):
             raise ValueError('invalid stored selection')
     if control.get('force') not in (None, 'on', 'off'):
         raise ValueError('invalid stored force')
@@ -113,8 +115,6 @@ def read_control(path, effects):
             effects.make_parametric(params)(0.5, 0.0)
         except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
             raise ValueError('invalid stored random parameters') from exc
-    if mode == 'pinned' and 'effect' not in control:
-        raise ValueError('missing stored effect')
     return control
 
 
@@ -129,8 +129,14 @@ def observed_status(path):
 
 def augment(status, control, effects):
     mode = control.get('mode', 'rotation')
-    current = ('random' if mode == 'random' else control['effect'] if mode == 'pinned'
-               else 'preset: ' + control.get('preset', 'rotation'))
+    preset = control.get('preset', 'rotation')
+    if preset not in effects.PRESETS:
+        preset = 'rotation'
+    current = 'preset: ' + preset
+    if mode == 'random' and control.get('params'):
+        current = 'random'
+    elif mode == 'pinned' and control.get('effect') in effects.EFFECTS:
+        current = control['effect']
     return dict(status, effect_current=current,
                 effect_list=list(effects.EFFECTS) + ['random'] +
                 ['preset: ' + name for name in effects.PRESETS],
@@ -182,7 +188,16 @@ def atomic_write(path, control):
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        # Windows readers may briefly hold the destination without delete
+        # sharing. Retry only Windows sharing/access errors, for at most 80 ms.
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except OSError as exc:
+                if getattr(exc, 'winerror', None) not in (5, 32, 33) or attempt == 4:
+                    raise
+                time.sleep(.02)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
