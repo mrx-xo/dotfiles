@@ -1031,11 +1031,12 @@ Resolves agent config once, then spawns shells staggered 3s apart."
           (setq agent-shell-openai-codex-acp-command
                 '("acp-multiplex" "codex-acp")))
 
-        ;; OpenCode is an optional agent (Claude remains preferred).  Use the
-        ;; installer's absolute path because the long-running Emacs daemon may
-        ;; not inherit ~/.opencode/bin in PATH.
+        ;; OpenCode through the same multiplex so SYZYGY can discover it.
+        ;; Keep the installer's absolute path: the long-running daemon may
+        ;; not inherit ~/.opencode/bin in PATH. Direct ACP remains the fallback.
         (setq agent-shell-opencode-acp-command
-              (list (expand-file-name "~/.opencode/bin/opencode") "acp"))
+              (append (when (executable-find "acp-multiplex") '("acp-multiplex"))
+                      (list (expand-file-name "~/.opencode/bin/opencode") "acp")))
 
         ;; ── Gemini (Google API key) ─────────────────────────────
         ;; agent-shell defaults Google to :login (OAuth).  That fails here:

@@ -4131,6 +4131,8 @@ prepended, so they shadow any inherited ANTHROPIC_* values."
               agent-shell-openai-make-codex-config "high")
           (?x "Sol Max · Full"  "gpt-5.6-sol"        "agent-full-access"
               agent-shell-openai-make-codex-config "max")
+          (?O "OpenCode Luna · Build" "openai/gpt-5.6-luna" "build"
+              agent-shell-opencode-make-agent-config)
           (?d "DeepSeek · Accept" "default"          "acceptEdits"
               mr-x/agent-shell-make-deepseek-config))
         "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
