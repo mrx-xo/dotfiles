@@ -88,7 +88,8 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 4686dea (jump-to-bottom waits for explicit replay completion and rendered assets; delayed Loading chat indicator; requires new multiplex sessions)
 # + local 04425d5 (mermaid fences render as diagrams: engine embedded under assets/ and lazily injected, config exported from the rig via /api/mermaid-config, full-screen inspector with pinch/pan/double-tap-fit, fence source carried base64 in data-code which also fixes multi-line copy)
 # + local 733378a (New Chat: independent agent/model/permissions/effort, searchable pickers, editable presets, saved drafts and exact launch recovery; requires syzygy-launch.el)
-ACP_MOBILE_COMMIT="733378abc55d68fcbabde23c760dc9c8dc0d6046"
+# + local 306c5dd (preset chips accept horizontal touch swipes; verified with a browser touch gesture)
+ACP_MOBILE_COMMIT="306c5ddca2ef6a093df3c8c53e57154b00363956"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
