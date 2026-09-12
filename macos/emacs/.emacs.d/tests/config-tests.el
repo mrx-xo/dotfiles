@@ -2012,8 +2012,11 @@ Together these hid 106 lines of roaming/notes/homelab.org."
 (ert-deftest config-test-arca-caldav-configured ()
   "org-caldav is configured for ARCA's two collections and nothing else."
   (should (fboundp 'mr-x/arca-caldav-sync))
+  ;; The address is read from ~/.config/org-caldav/url, never written here.
   (should (equal org-caldav-url
-                 "https://arca.andrade-lab.com/remote.php/dav/calendars/marx"))
+                 (or (mr-x/arca-caldav-url) "https://unconfigured.invalid/caldav")))
+  (should (string-suffix-p "/remote.php/dav/calendars/marx"
+                           (or (mr-x/arca-caldav-url) "/remote.php/dav/calendars/marx")))
   (should (equal (mapcar (lambda (c) (plist-get c :calendar-id)) org-caldav-calendars)
                  '("marx" "marx-tasks")))
   (let ((tasks (cadr org-caldav-calendars)))
@@ -2039,9 +2042,19 @@ Together these hid 106 lines of roaming/notes/homelab.org."
   "On mrx the wrapper calls org-caldav-sync."
   (let ((called nil))
     (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
+              ((symbol-function 'mr-x/arca-caldav-url) (lambda () "https://example.invalid/dav"))
               ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
       (should (mr-x/arca-caldav-sync))
       (should called))))
+
+(ert-deftest config-test-arca-caldav-no-url-file-means-no-sync ()
+  "Without ~/.config/org-caldav/url the wrapper is a no-op even on mrx."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
+              ((symbol-function 'mr-x/arca-caldav-url) (lambda () nil))
+              ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
+      (should-not (mr-x/arca-caldav-sync))
+      (should-not called))))
 
 (ert-deftest config-test-arca-caldav-completed-status-wins ()
   "A VTODO with STATUS:COMPLETED reads as 100 percent even if PERCENT-COMPLETE says 0."

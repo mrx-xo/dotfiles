@@ -1958,14 +1958,26 @@ so the file is the only reliable source."
     "The one machine allowed to run `org-caldav-sync' against ARCA.")
 
   (defun mr-x/arca-caldav-on-sync-machine-p ()
-    (string= (mr-x/machine-id) mr-x/arca-caldav-machine))
+    "True on the one syncing machine, and only when the URL file exists."
+    (and (string= (mr-x/machine-id) mr-x/arca-caldav-machine)
+         (mr-x/arca-caldav-url)
+         t))
+
+  (defun mr-x/arca-caldav-url ()
+    "The CalDAV base URL for the ARCA calendars, read from ~/.config/org-caldav/url.
+One line, e.g. https://HOST/remote.php/dav/calendars/USER. Kept out of the
+public dotfiles on purpose. nil when the file is missing or empty."
+    (let ((f (expand-file-name "~/.config/org-caldav/url")))
+      (when (file-readable-p f)
+        (let ((s (string-trim (with-temp-buffer (insert-file-contents f) (buffer-string)))))
+          (unless (string-empty-p s) s)))))
 
   (use-package org-caldav
     :ensure t
     :defer t
     :commands (org-caldav-sync)
     :init
-    (setq org-caldav-url "https://arca.andrade-lab.com/remote.php/dav/calendars/marx"
+    (setq org-caldav-url (or (mr-x/arca-caldav-url) "https://unconfigured.invalid/caldav")
           ;; Two collections, two files. Keys other than the documented ones
           ;; bind org-<key> for that calendar's run, so :caldav-sync-todo binds
           ;; org-caldav-sync-todo and :icalendar-include-todo binds
