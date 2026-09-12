@@ -30,3 +30,17 @@ schtasks /create /f /tn ICUELights /sc onlogon /it `
     /tr "wscript.exe `"$vbs`" `"$python`" `"$script`""
 
 Write-Host "Done. Start now with: schtasks /run /tn ICUELights"
+
+# Preserve the existing interactive logon task; firewall setup is a separate
+# administrative action. Never prompt for elevation from scheduler setup.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    & "$PSScriptRoot\setup-icue-firewall.ps1"
+} else {
+    $helper = Join-Path $PSScriptRoot 'setup-icue-firewall.ps1'
+    $quotedHelper = $helper.Replace("'", "''")
+    Write-Host 'Firewall pending. Open a separate PowerShell session as Administrator and run:'
+    Write-Host "& '$quotedHelper'"
+    Write-Host 'Use the same ICUE_HTTP_PORT and ICUE_HTTP_ALLOWED_NETWORKS settings as the driver.'
+}
