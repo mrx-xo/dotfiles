@@ -46,6 +46,7 @@
 (require 'syzygy-bridge)
 (require 'syzygy-presets)
 (require 'syzygy-models)
+(require 'syzygy-launch)
 (require 'syzygy-projects)
 (require 'syzygy-mermaid)
 
