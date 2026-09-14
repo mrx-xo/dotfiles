@@ -222,7 +222,8 @@ sync_windows() {
   # a monitor that's showing another machine. Scheduled tasks on
   # VENGEANCE (they must run in the desktop session): mon-extend uses
   # SetDisplayConfig via extend.ps1, mon-only3/4 disable via
-  # MultiMonitorTool. Fire-and-forget: PC may be off/asleep.
+  # MultiMonitorTool. Wait for SSH to submit the tasks: a detached SSH
+  # process can die when Emacs closes the command's PTY on script exit.
   local c r task wake=""
   c=$(current_machine center); r=$(current_machine right)
   if   [ "$c" = pc ] && [ "$r" = pc ]; then task=mon-extend
@@ -233,13 +234,20 @@ sync_windows() {
   # anything pointing at the PC -> also wake its display (mon-wake
   # jiggles the mouse + SetThreadExecutionState in the desktop session)
   if [ "$c" = pc ] || [ "$r" = pc ]; then
-    wake=" & MSYS_NO_PATHCONV=1 schtasks /run /tn mon-wake"
+    wake=" && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-wake"
   fi
   # mon-assert (assert-hz.ps1): topology changes reset displays to the EDID
   # default 59.95 Hz; this re-asserts 155 (multi-pass, so it wins the race
   # against the topology task's fallback)
-  (ssh -o ConnectTimeout=4 -o BatchMode=yes vengeance \
-     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task & MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert$wake" >/dev/null 2>&1 &)
+  if ! ssh -n -o ConnectTimeout=4 -o BatchMode=yes \
+     -o ServerAliveInterval=5 -o ServerAliveCountMax=2 vengeance \
+     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert$wake" \
+     >"$STATE_DIR/windows-sync.log" 2>&1; then
+    echo "Windows sync failed ($task); see $STATE_DIR/windows-sync.log" >&2
+    notify "Windows sync failed ($task); PC may be asleep or unreachable"
+  fi
+  # A failed Windows request must not prevent Mac window restoration.
+  return 0
 }
 
 case "${1:-}" in
