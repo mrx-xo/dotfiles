@@ -116,10 +116,25 @@ From =autohotkey/emacs.ahk= (Windows port of the macOS skhd cmd+shift binds) and
 | =Win+Shift+E= | Open an Emacs frame (auto-starts the daemon)       |
 | =Win+Shift+R= | Restart the daemon, then open a fresh frame        |
 | =Win+Shift+G= | Restart GlazeWM (kill + relaunch from repo config) |
+| =Win+Shift+O= | Launch OBS armed for Skate clips (replay buffer, tray) |
 
 =Win+Shift+G= runs =scripts/glazewm-restart.ps1=. Use it when =Super+o= (reload
 config) isn't enough — e.g. GlazeWM wedged. It lives in AHK (a separate process),
 so it works even when GlazeWM itself is unresponsive.
+
+=Win+Shift+O= (=autohotkey/obs-skate.ahk= → =scripts/obs-skate-arm.ps1=) launches OBS
+with the Skate profile/scene, starts the replay buffer, and drops it to the tray —
+idempotent, so it no-ops if OBS is already up.
+
+*F10* (same =obs-skate.ahk=) saves the last *5 minutes* to =~\Videos\Skate=
+(prefix =SkateReplay=). AHK catches the key and triggers the save over *obs-websocket*
+(=scripts/obs-save-replay.ps1=, port 4455, reads OBS's own password) rather than via an
+OBS raw-key hotkey — OBS never reliably registered a hand-set F-key binding, and a
+keyboard Fn-lock can send media codes instead of F10. The websocket path is
+focus-independent and deterministic. =bootstrap.ps1= flips =server_enabled= on in OBS's
+(machine-local, uncommitted) websocket config. To rebind, edit the =F10::= line in
+=obs-skate.ahk=. The replay buffer lives in RAM (RecRBTime=300s, cap RecRBSize=6144MB;
+CQP18 1440p60 ≈ 100 Mbps, so 5 min ≈ 3.7 GB).
 
 With home row mods, press these as opposite-hand combos (e.g. =d= Super + =j= Shift
 + =e=) or just use the physical Win/Shift keys (kanata leaves them untouched).
@@ -150,6 +165,8 @@ With home row mods, press these as opposite-hand combos (e.g. =d= Super + =j= Sh
 - =Emacs Hotkeys.lnk= → AutoHotkey running =autohotkey\emacs.ahk=
 - =GlazeWM Game Pause.lnk= → AutoHotkey running =autohotkey\glaze-game-pause.ahk=
   (pauses GlazeWM while a fullscreen app/game is focused)
+- =OBS Skate Hotkey.lnk= → AutoHotkey running =autohotkey\obs-skate.ahk=
+  (Win+Shift+O: launch OBS + arm the replay buffer for Skate clips; F10: save last 5 min)
 
 Re-running =bootstrap.ps1= is safe/idempotent and also cleans up the old komorebi
 wiring if present.

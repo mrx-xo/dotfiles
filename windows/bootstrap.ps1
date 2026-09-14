@@ -178,6 +178,56 @@ if ((Test-Path $ahkExe) -and (Test-Path $gamePauseScript)) {
 }
 
 # ---------------------------------------------------------------------------
+# OBS Skate clip hotkey (AutoHotkey) — autostart on login.
+# Win+Shift+O launches OBS armed for Skate (Skate profile/scene + replay buffer,
+# minimized to tray); tap F10 after a trick to save the last 5 min to
+# ~\Videos\Skate. Thin AHK wrapper -> scripts\obs-skate-arm.ps1 (the launcher).
+# ---------------------------------------------------------------------------
+$obsSkateScript = "$repo\autohotkey\obs-skate.ahk"
+
+if ((Test-Path $ahkExe) -and (Test-Path $obsSkateScript)) {
+    $ws = New-Object -ComObject WScript.Shell
+    $obsSkateLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "OBS Skate Hotkey.lnk"
+    if (-not (Test-StartupDisabled $obsSkateLnk)) {
+        $sc = $ws.CreateShortcut($obsSkateLnk)
+        $sc.TargetPath       = $ahkExe
+        $sc.Arguments        = "`"$obsSkateScript`""
+        $sc.WorkingDirectory = Split-Path $obsSkateScript -Parent
+        $sc.Description       = "OBS Skate clip hotkey (Win+Shift+O: launch OBS + arm replay buffer)"
+        $sc.Save()
+        Write-Host "Created obs-skate shortcut -> $obsSkateLnk" -ForegroundColor Green
+    }
+} else {
+    Write-Host "AutoHotkey or obs-skate.ahk not found - skipping obs-skate hotkey shortcut." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
+# OBS: enable obs-websocket so the F10 save-replay hotkey can drive
+# SaveReplayBuffer (OBS's own raw-key hotkey didn't fire reliably; we trigger the
+# save over the websocket from scripts\obs-save-replay.ps1 instead). The config is
+# machine-local — it holds an auto-generated password, so it's NOT symlinked from
+# the repo and never committed; we only flip server_enabled on (auth stays on).
+# OBS must have run once to create the file; otherwise re-run bootstrap after.
+# ---------------------------------------------------------------------------
+$obsWsCfg = "$env:APPDATA\obs-studio\plugin_config\obs-websocket\config.json"
+if (Test-Path $obsWsCfg) {
+    try {
+        $j = Get-Content $obsWsCfg -Raw | ConvertFrom-Json
+        if (-not $j.server_enabled) {
+            $j.server_enabled = $true
+            ($j | ConvertTo-Json) | Set-Content $obsWsCfg -Encoding UTF8
+            Write-Host "Enabled obs-websocket server (127.0.0.1:$($j.server_port))" -ForegroundColor Green
+        } else {
+            Write-Host "obs-websocket already enabled (127.0.0.1:$($j.server_port))" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Could not patch obs-websocket config ($obsWsCfg): $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "obs-websocket config not found - launch OBS once, then re-run bootstrap to enable the F10 save hotkey." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
 # GlazeWM tiling WM — Windows port of yabai/skhd.
 #
 # We used to run komorebi + whkd here, but komorebi's AF_UNIX IPC is broken on
