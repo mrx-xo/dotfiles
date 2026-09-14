@@ -91,10 +91,12 @@ yabai -m signal --add event=window_created app="^Emacs$" action="if [[ \$(yabai 
 # Signal to update sketchybar when space changes
 yabai -m signal --add event=space_changed action="sketchybar --trigger space_change"
 
-# Signals to recreate layout indicators when displays change
+# Recreate layout indicators only when the connected displays change.
 yabai -m signal --add event=display_added action="bash $HOME/.dotfiles/macos/sketchybar/plugins/yabai-layout-setup.sh"
 yabai -m signal --add event=display_removed action="bash $HOME/.dotfiles/macos/sketchybar/plugins/yabai-layout-setup.sh"
-yabai -m signal --add event=display_changed action="bash $HOME/.dotfiles/macos/sketchybar/plugins/yabai-layout-setup.sh"
+# display_changed means focus moved to another monitor. Update in place:
+# running setup here removes the pills and forces a full bar refresh.
+yabai -m signal --add event=display_changed action="sketchybar --trigger layout_change" label=sketchybar-layout-focus
 
 # Sandbox Emacs: create new space and move it there
 # yabai -m signal --add event=window_created app="^Emacs$" title="SANDBOX" action="yabai -m space --create && index=\$(yabai -m query --spaces --display | jq 'map(select(.\"is-native-fullscreen\" == false))[-1].index') && yabai -m window \$YABAI_WINDOW_ID --space \$index && yabai -m space --focus \$index"
