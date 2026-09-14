@@ -23,12 +23,6 @@ for display_index in $DISPLAYS; do
   sketchybar --subscribe yabai_layout.$display_index layout_change space_change
 done
 
-# Bracket for shared pill background
-sketchybar --add bracket yabai_layout_group '/yabai_layout\..*/'       \
-           --set yabai_layout_group background.color=0xbf000000        \
-                                    background.corner_radius=10        \
-                                    background.height=25
-
 # These items are removed and re-added above on every display change, which
 # lands them at the end of the bar and pushes the layout pill to the right of
 # anything added after it in sketchybarrc. Put them back on the left of the

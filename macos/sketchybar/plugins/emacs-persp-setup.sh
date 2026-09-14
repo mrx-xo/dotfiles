@@ -1,6 +1,6 @@
 #!/bin/bash
 # -*- mode: sh -*-
-# Create a pool of perspective slot items grouped in a pill
+# Create a pool of perspective slot items inside the shared left background
 # Each perspective name gets its own slot so positions stay fixed
 
 # Clean up old items
@@ -15,7 +15,7 @@ sketchybar --remove emacs_persp_group 2>/dev/null
 WHITE=0xFFFFFFFF
 DIM=0x60FFFFFF
 
-# Left edge spacer — buffer so highlight doesn't clip the outer pill
+# Left edge spacer for the perspective highlight
 sketchybar --add item emacs_persp_pad_l left \
            --set emacs_persp_pad_l \
              drawing=off \
@@ -51,16 +51,6 @@ sketchybar --add item emacs_persp_pad_r left \
              label.padding_right=2 \
              background.drawing=off \
              width=6
-
-# Bracket for shared pill background (includes spacers)
-sketchybar --add bracket emacs_persp_group \
-             emacs_persp_pad_l \
-             '/emacs_persp_slot\..*/' \
-             emacs_persp_pad_r \
-           --set emacs_persp_group \
-             background.color=0xbf000000 \
-             background.corner_radius=10 \
-             background.height=25
 
 # Event subscription on first slot
 sketchybar --set emacs_persp_slot.1 \
