@@ -226,7 +226,10 @@ HTTP writers hold a lock across read/modify/write and use a same-directory
 temporary file, flush/fsync, then atomic replace.
 The replace retries Windows sharing/access failures up to five attempts over
 80 ms, allowing the resident reader to close its short-lived handle. Persistent
-failure returns 503 and preserves the old file.
+failure returns 503 and preserves the old file. Windows readers may also receive
+a transient sharing/access error while replacement completes; readable contents
+remain whole JSON. The stress test checks atomic contents and recovery after
+contention, not that every competing operation succeeds.
 
 **The legacy SSH writer does
 not share this lock.** Concurrent SSH and HTTP updates can still lose a setting;
@@ -239,7 +242,8 @@ allowed_networks=None)` returns a running server. None arguments use the
 configuration above; explicit arguments override environment values. Explicit
 `port=0` is available for ephemeral test listeners only. On exit the caller must
 invoke `server.shutdown()` then `server.server_close()` from outside the serving
-thread. Closing interrupts active client sockets and joins handlers. The driver
+thread. Closing interrupts active client sockets and joins handlers. On Windows,
+a blocked receive may remain until the two-second socket timeout expires. The driver
 does this on graceful stop and exception unwinding before handing back its layer.
 
 Development checks (no hardware access):

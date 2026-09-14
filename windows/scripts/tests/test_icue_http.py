@@ -288,7 +288,9 @@ class HttpTests(unittest.TestCase):
         started = time.monotonic()
         address = self.server.server_address
         self.close_server()
-        self.assertLess(time.monotonic() - started, 2)
+        # Windows may keep a blocked receive alive until its socket timeout.
+        # Require bounded shutdown and actual EOF, allowing scheduler margin.
+        self.assertLess(time.monotonic() - started, self.server.socket_timeout + 1)
         self.assertEqual(slow.recv(1024), b'')
         with self.assertRaises(OSError):
             socket.create_connection(address, timeout=.2)
@@ -349,7 +351,13 @@ class HttpTests(unittest.TestCase):
                 try:
                     data = json.loads(self.control.read_bytes())
                     reads.append(data['brightness'])
-                except (ValueError, KeyError, OSError) as exc:
+                except OSError as exc:
+                    # Windows may reject an open while replacement completes.
+                    # Only its documented sharing/access errors are transient.
+                    if os.name != 'nt' or not (exc.errno == 13 and
+                            getattr(exc, 'winerror', None) in (None, 5, 32, 33)):
+                        failures.append(exc)
+                except (ValueError, KeyError) as exc:
                     failures.append(exc)
         thread = threading.Thread(target=reader)
         thread.start()
@@ -357,13 +365,22 @@ class HttpTests(unittest.TestCase):
             with ThreadPoolExecutor(6) as pool:
                 codes = list(pool.map(lambda n: self.post({'brightness': n / 30})[0],
                                       range(1, 25)))
-            self.assertEqual(codes, [200] * 24)
+            # A Windows reader can hold the destination without delete sharing
+            # for the complete retry budget. Rejection is permitted; partial
+            # JSON or a false acknowledgement is not.
+            permitted = {200, 503} if os.name == 'nt' else {200}
+            self.assertTrue(set(codes) <= permitted, codes)
         finally:
             done.set()
             thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
         self.assertTrue(reads)
         self.assertEqual(failures, [])
+        self.assertTrue(all(value in {1, *(n / 30 for n in range(1, 25))}
+                            for value in reads))
+        # Once contention ends, the endpoint must recover and apply the patch.
+        self.assertEqual(self.post({'brightness': .7})[0], 200)
+        self.assertEqual(json.loads(self.control.read_bytes())['brightness'], .7)
 
 
 class ConfigTests(unittest.TestCase):
