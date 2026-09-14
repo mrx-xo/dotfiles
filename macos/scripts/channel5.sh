@@ -30,6 +30,8 @@ token_file="${CHANNEL5_TOKEN_FILE:-$HOME/.config/gaia/ha-token.txt}"
 command -v node >/dev/null || { echo 'Node.js 22 or newer is required.' >&2; exit 1; }
 command -v npm >/dev/null || { echo 'npm is required.' >&2; exit 1; }
 cd "$app_dir"
+# Preparation can acquire runtime dependencies when the app checkout advances.
+if ! npm ls --depth=0 --silent >/dev/null 2>&1; then npm ci; fi
 
 briefing_run=''
 if [[ "$refresh" == false ]]; then
@@ -62,7 +64,6 @@ else
   echo 'Using the saved Nabu briefing.'
 fi
 
-if [[ ! -d node_modules/electron || ! -d node_modules/playwright ]]; then npm ci; fi
 echo 'Opening on the agent desktop. Start briefing or Listen begins audio.'
 if [[ "$inspector" == true ]]; then
   exec npm run preview -- --inspector --run "$briefing_run"
