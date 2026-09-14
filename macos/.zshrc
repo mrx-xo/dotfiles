@@ -265,9 +265,11 @@ alias hx-up='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profil
 alias hx-down='ssh homelab "cd ~/HeadlessX/infra/docker && docker compose --profile all down"'
 alias hx-status='ssh homelab "docker ps --filter name=headlessx --format \"{{.Names}}: {{.Status}}\" | grep . || echo \"(down)\""'
 
-# Morning-briefing visual show POC (multi-window demo on the focused display)
-alias nabu-poc='~/home-lab/services/briefing-show-poc/launch-mrx-poc.sh sergio'      # dad's briefing, Nabu voice
-alias pandora-poc='~/home-lab/services/briefing-show-poc/launch-mrx-poc.sh yvette'   # mom's briefing (Vikings!), Pandora voice
+# Channel 5: prepared Electron briefing and its inspector
+alias nabu-poc='~/.dotfiles/macos/scripts/channel5.sh'
+alias nabu-dev='~/.dotfiles/macos/scripts/channel5.sh --inspector'
+# Pandora's Vikings segment still uses the legacy Chrome demo.
+alias pandora-poc='~/home-lab/services/briefing-show-poc/launch-mrx-poc.sh yvette'
 
 
 # Fix for Emacs native compilation with libgccjit
