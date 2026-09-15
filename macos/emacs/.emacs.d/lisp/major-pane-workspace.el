@@ -232,11 +232,16 @@ The index lookup covers sessions indexed after the snapshot was taken."
        (directory-file-name (or (plist-get entry :cwd) "")))))
 
 (defun major-pane-workspace--agent-recall-rows-p ()
-  "Non-nil when agent-recall's browse row helpers are available."
+  "Non-nil when agent-recall's browse row helpers can be used.
+The index must be loaded too: agent-recall gets pulled in lazily by
+buffer hooks with `agent-recall--index' still nil, and
+`agent-recall--index-entry-for-file' errors on a nil index."
   (and (fboundp 'agent-recall--index-entry-for-file)
        (fboundp 'agent-recall--provider-icon)
        (fboundp 'agent-recall--display-timestamp)
-       (fboundp 'agent-recall--make-candidate)))
+       (fboundp 'agent-recall--make-candidate)
+       (boundp 'agent-recall--index)
+       (hash-table-p agent-recall--index)))
 
 (defun major-pane-workspace--open-marker (entry)
   "Return the open marker when ENTRY's session has a live buffer, else \"\"."
@@ -285,6 +290,11 @@ so its embark actions (o/r/R) and preview act on the row."
 (defun major-pane-workspace--candidates (snapshot)
   "Picker rows for SNAPSHOT: (CANDIDATE . ENTRY), in snapshot order.
 Rows are built with agent-recall's browse recipe when it is loaded."
+  ;; Load the index up front so rows whose transcript is already on
+  ;; record take the browse path; `major-pane-workspace--transcript-file'
+  ;; only ensures it when it has to look the transcript up itself.
+  (when (fboundp 'agent-recall--index-ensure)
+    (agent-recall--index-ensure))
   (let* ((entries (plist-get snapshot :convos))
          (rows (mapcar
                 (lambda (entry)
