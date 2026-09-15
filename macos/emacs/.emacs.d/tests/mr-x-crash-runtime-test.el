@@ -111,4 +111,23 @@
                                    store (concat "bundle-" (file-name-nondirectory run)))))
        (should-not mr-x/crash-runtime--last-error)))))
 
+(ert-deftest crash-runtime-capture-commits-only-when-installed-and-never-signals ()
+  (crash-runtime-test--fixture
+   (let ((session (lambda () '((:restore-key "frame-a" :window-tree nil)
+                               (:restore-key "frame-b" :window-tree nil)))))
+     ;; Before installation there is no run identity: nothing is written.
+     (should-not (mr-x/crash-runtime-capture session))
+     (should-not (file-exists-p (expand-file-name "captures" run)))
+     (mr-x/crash-runtime-start)
+     (let ((result (mr-x/crash-runtime-capture session)))
+       (should (eq 'committed (plist-get result :status)))
+       (should (equal '("frame-a" "frame-b")
+                      (plist-get (plist-get (mr-x/crash-capture-current run) :manifest) :frame-keys)))
+       (should (eq 'not-requested
+                   (plist-get (plist-get (mr-x/crash-capture-current run) :manifest) :placement-mode))))
+     ;; A provider failure is recorded, not signaled into the idle timer.
+     (should-not (mr-x/crash-runtime-capture (lambda () (error "fixture provider failure"))))
+     (should (string-match-p "fixture provider failure" mr-x/crash-runtime--last-error))
+     (should (mr-x/crash-capture-current run)))))
+
 (provide 'mr-x-crash-runtime-test)

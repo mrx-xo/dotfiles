@@ -5086,22 +5086,55 @@ Handlers in mr-x/--restore-buffer-from-spec must stay in sync with this."
         (setq w (window-next-sibling w)))
       (nreverse windows)))
 
+  (defun mr-x/--session-frame-eligible-p (frame)
+    "Whether FRAME is an ordinary visible top-level graphical editor frame.
+The daemon's bootstrap terminal frame, tty client frames, iconified
+frames, child frames (posframes and other popups), and minibuffer-only
+frames are excluded.  This one predicate decides both the session
+snapshot and the run-scoped crash capture, so they always agree."
+    (and (frame-live-p frame)
+         (eq (framep frame) 'ns)
+         (eq (frame-visible-p frame) t)
+         (null (frame-parameter frame 'parent-frame))
+         (not (eq (frame-parameter frame 'minibuffer) 'only))))
+
+  (defun mr-x/--session-eligible-frames ()
+    "Frames the session snapshot covers, in `frame-list' order."
+    (filtered-frame-list #'mr-x/--session-frame-eligible-p))
+
+  (defun mr-x/--session-frame-key (frame)
+    "Return FRAME's stable restore key, assigning one on first use.
+The key lives in a frame parameter so reconstruction can reapply it and
+yabai placement can join on it instead of on titles or creation order."
+    (or (frame-parameter frame 'mr-x/restore-key)
+        (let ((key (format "frame-%s"
+                           (substring (md5 (format "%s-%s-%s" (emacs-pid)
+                                                   (float-time) (random)))
+                                      0 12))))
+          (set-frame-parameter frame 'mr-x/restore-key key)
+          key)))
+
+  (defun mr-x/--session-frame-keys ()
+    "Restore keys of the currently eligible frames."
+    (mapcar #'mr-x/--session-frame-key (mr-x/--session-eligible-frames)))
+
+  (defun mr-x/--session-frames ()
+    "Serialize every eligible frame: restore key, geometry, and window tree."
+    (mapcar (lambda (f)
+              (list :restore-key (mr-x/--session-frame-key f)
+                    :left (frame-parameter f 'left)
+                    :top (frame-parameter f 'top)
+                    :width (frame-parameter f 'width)
+                    :height (frame-parameter f 'height)
+                    :fullscreen (frame-parameter f 'fullscreen)
+                    :window-tree (mr-x/--serialize-window-tree
+                                  (frame-root-window f))))
+            (mr-x/--session-eligible-frames)))
+
   (defun mr-x/save-session-state ()
     "Save buffer list, window configurations, and frame geometry for restore after daemon restart."
     (interactive)
-    (let* ((frames (filtered-frame-list (lambda (f)
-                                          (and (frame-visible-p f)
-                                               (not (string= "F1" (frame-parameter f 'name)))))))
-           (frame-data
-            (mapcar (lambda (f)
-                      (list :left (frame-parameter f 'left)
-                            :top (frame-parameter f 'top)
-                            :width (frame-parameter f 'width)
-                            :height (frame-parameter f 'height)
-                            :fullscreen (frame-parameter f 'fullscreen)
-                            :window-tree (mr-x/--serialize-window-tree
-                                          (frame-root-window f))))
-                    frames)))
+    (let ((frame-data (mr-x/--session-frames)))
       (with-temp-file mr-x/session-file
         (let ((print-length nil)
               (print-level nil))
@@ -5291,14 +5324,19 @@ markers or start timers.
 
   (defun mr-x/session-autosave ()
     "Silently snapshot session + yabai state; runs on idle.
-Skips when there are no visible client frames so a bare daemon
-doesn't clobber the last useful snapshot."
-    (when (filtered-frame-list
-           (lambda (f) (and (frame-visible-p f)
-                            (not (string= "F1" (frame-parameter f 'name))))))
+Skips when there are no eligible frames so a bare daemon doesn't
+clobber the last useful snapshot.  When this daemon was launched through
+the diagnostic helper, the same frames also commit a coherent capture in
+the run directory; placement stays frame-only there until exact-ID yabai
+capture lands, so the legacy yabai mirror below is still the only
+placement record."
+    (when (mr-x/--session-eligible-frames)
       (let ((inhibit-message t)
             (message-log-max nil))
-        (mr-x/save-session-state))
+        (mr-x/save-session-state)
+        (when (fboundp 'mr-x/crash-runtime-capture)
+          (mr-x/crash-runtime-capture #'mr-x/--session-frames nil
+                                      #'mr-x/--session-frame-keys)))
       (when (file-exists-p mr-x/--restart-restore-script)
         (let ((process-environment
                (cons (concat "YABAI_STATE=" mr-x/yabai-state-file)
