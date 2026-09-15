@@ -199,6 +199,26 @@ cross-device conversation-continuity package (resync/live/handoff).
   (add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
 #+end_src
 
+** Strudel music
+Edit Strudel in a normal JavaScript buffer.  Run ~M-x mr-x/strudel-play~ to
+start the background WebKit audio engine and evaluate the current buffer.
+A fresh audio session may display a one-time click-to-unlock prompt; its
+pane hides automatically after the click.
+~M-x mr-x/strudel-update~ sends unsaved edits; saving alone does not update
+the music.  ~M-x mr-x/strudel-stop~ stops playback, and
+~M-x mr-x/strudel-shutdown~ releases this session's bridge and audio buffer.
+~M-x mr-x/strudel-show-audio~ exposes the audio page for visuals or errors.
+
+Requires graphical Emacs with WebKit, Node, Bun, and ~npm install -g
+strudex@0.1.0~.  The runtime downloads Strudel JavaScript and samples on first
+use.  Implementation: ~lisp/strudel-control.el~.  Bridge logs are in
+~*Strudel bridge*~.  No keybindings or save hooks are installed.
+#+begin_src emacs-lisp
+  (dolist (command '(mr-x/strudel-play mr-x/strudel-update mr-x/strudel-stop
+                     mr-x/strudel-show-audio mr-x/strudel-shutdown))
+    (autoload command "strudel-control" nil t))
+#+end_src
+
 ** org-mcp
 MCP server helpers for logging milestones, ideas, and notes from Claude Code
 directly into org files via emacsclient.
