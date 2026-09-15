@@ -1764,13 +1764,23 @@ Uses mr-x/popup-prompt to let the user pick from remaining TODO siblings."
 
 
 
+   (defun my/org-roam-renew-copied-ids ()
+     "Give existing IDs in the copied journal subtree fresh identities."
+     (save-excursion
+       (org-map-entries
+        (lambda ()
+          (when (org-entry-get nil "ID")
+            (org-id-get-create t)))
+        nil 'tree)))
+
    (defun my/org-roam-copy-todo-to-today ()
      (interactive)
      (let ((org-refile-keep t) ;; Set this to nil to delete the original!
 	    (org-roam-dailies-capture-templates
 	     '(("t" "tasks" entry "%?"
 		:if-new (file+head+olp "%<%Y-%m-%d>.org" "#+title: %<%Y-%m-%d>\n" ("Tasks")))))
-	    (org-after-refile-insert-hook #'save-buffer)
+	    (org-after-refile-insert-hook
+             '(my/org-roam-renew-copied-ids save-buffer))
 	    today-file
 	    pos)
 
