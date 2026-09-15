@@ -95,9 +95,38 @@ class DiagnosticsTest(unittest.TestCase):
             def read(self, size=-1):
                 return super().read(1)
         result = self.module.collect(ByteReader("before界after\n".encode()),
-                                     self.module.RotatingLog(self.root), queue_size=100)
+                                     self.module.RotatingLog(self.root))
         self.assertTrue(result["complete"])
         self.assertEqual((self.root / "daemon-stderr.log").read_text(), "before界after\n")
+
+    def test_sustained_small_pipe_writes_survive_default_queue(self):
+        # A daemon writes stderr unbuffered, so the collector sees thousands
+        # of tiny pipe reads.  The writer must keep up with the default queue
+        # or a burst loses most of its evidence before rotation ever happens.
+        lines = "".join("%05d %s\n" % (i, "s" * 1017) for i in range(3072))
+        payload = (lines + "END-FIXTURE\n").encode()
+        read_fd, write_fd = os.pipe()
+
+        def produce():
+            for offset in range(0, len(payload), 64):
+                os.write(write_fd, payload[offset:offset + 64])
+            os.close(write_fd)
+
+        producer = threading.Thread(target=produce)
+        producer.start()
+        with os.fdopen(read_fd, "rb", buffering=0) as source:
+            result = self.module.collect(source, lambda: self.module.RotatingLog(self.root))
+        producer.join()
+        self.assertTrue(result["complete"], result)
+        current = (self.root / "daemon-stderr.log").read_bytes()
+        previous = (self.root / "daemon-stderr.log.1").read_bytes()
+        self.assertLessEqual(len(current), 2 * 1024 * 1024)
+        self.assertLessEqual(len(previous), 2 * 1024 * 1024)
+        self.assertTrue(current.endswith(b"END-FIXTURE\n"))
+        self.assertTrue(previous.startswith(b"[older stderr truncated]\n"))
+        for line in current.decode("utf-8").splitlines():
+            self.assertTrue(len(line) == 1023 or line == "END-FIXTURE", line[:24])
+        self.assertEqual(len(current), 1024 * 1024 + len(b"END-FIXTURE\n"))
 
     def test_symlink_log_never_touches_target(self):
         outside = self.root / "outside"
