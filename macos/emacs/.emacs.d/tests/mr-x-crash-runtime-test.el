@@ -3,6 +3,7 @@
 (require 'cl-lib)
 (require 'server)
 (require 'mr-x-crash-runtime)
+(require 'mr-x-crash-bundle)
 
 (defmacro crash-runtime-test--fixture (&rest body)
   (declare (indent 0) (debug t))
@@ -15,7 +16,7 @@
           (command-error-function (lambda (&rest _) 'delegated))
           (mr-x/crash-runtime--identity nil) (mr-x/crash-runtime--directory nil)
           (mr-x/crash-runtime--timer nil) (mr-x/crash-runtime--wrapper nil)
-          (mr-x/crash-runtime--previous nil)
+          (mr-x/crash-runtime--previous nil) (mr-x/crash-runtime--last-error nil)
           (parent (expand-file-name "var/crash-recovery/runs/" init)))
      (make-directory parent t)
      (let ((run (mr-x/crash-run-create parent "sandbox" init)))
@@ -94,5 +95,20 @@
      (should-not kill-emacs-hook)
      (mr-x/crash-runtime-start)
      (should mr-x/crash-runtime--identity))))
+
+(ert-deftest crash-runtime-start-bundles-prior-unclean-runs-of-this-daemon ()
+  (crash-runtime-test--fixture
+   (let ((earlier (mr-x/crash-run-create parent "sandbox" init)))
+     (mr-x/crash-run-initialized earlier 4242)
+     (mr-x/crash-diagnostics-messages earlier "earlier-run-tag\n")
+     (mr-x/crash-runtime-start)
+     (let ((store (expand-file-name "crash-state/" init)))
+       (should (equal (concat "bundle-" (file-name-nondirectory earlier))
+                      (mr-x/crash-bundle-active store)))
+       (should (file-exists-p (expand-file-name "processed.el" earlier)))
+       (should-not (file-exists-p (expand-file-name "processed.el" run)))
+       (should-not (file-exists-p (mr-x/crash-bundle-directory
+                                   store (concat "bundle-" (file-name-nondirectory run)))))
+       (should-not mr-x/crash-runtime--last-error)))))
 
 (provide 'mr-x-crash-runtime-test)
