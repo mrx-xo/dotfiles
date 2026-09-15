@@ -4607,6 +4607,10 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g b" '(magit-blame :wk "blame")
         "g p" '(magit-push-current :wk "push current")
         "g P" '(magit-pull-branch :wk "pull branch")
+        "g r" '(mr-x/pr-list :wk "review pull requests")
+        "g v" '(mr-x/pr-diff :wk "PR diff")
+        "g R" '(mr-x/pr-menu :wk "PR actions")
+        "g M" '(mr-x/pr-merge :wk "merge PR")
         "g f" '(magit-fetch :wk "fetch"))
 
       ;; Bind after agent-shell loads
@@ -6721,6 +6725,50 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     (add-to-list 'forge-alist
                  '("omphalos.io" "omphalos.io/api/v1" "omphalos.io"
                    forge-forgejo-repository)))
+
+  ;; Highlight source syntax in raw patches (including Forgejo review diffs),
+  ;; falling back to the hunk when full file/revision context is unavailable.
+  (setq diff-font-lock-syntax 'hunk-also)
+
+  ;; Gruvbox's inverse-video refinement makes large replacements neon.
+  ;; Keep word-change backgrounds subdued and let syntax supply text colors.
+  (custom-set-faces
+   '(diff-refine-added ((t (:foreground unspecified :background "#3d5c3d"
+                            :inverse-video nil))))
+   '(diff-refine-removed ((t (:foreground unspecified :background "#5c3030"
+                              :inverse-video nil)))))
+
+  ;; Native Forgejo reviews.  GNU maintains the source branches; give each
+  ;; branch its own Elpaca checkout because they share the same remote URL.
+  (use-package keymap-popup
+    :ensure (:repo ("https://git.savannah.gnu.org/git/elpa/gnu.git" . "keymap-popup")
+             :branch "externals/keymap-popup" :depth 1))
+
+  (use-package forgejo
+    :ensure (:repo ("https://git.savannah.gnu.org/git/elpa/gnu.git" . "forgejo")
+             :branch "externals/forgejo" :depth 1
+             :files (:defaults "lisp/*.el"))
+    :after forge
+    :demand t
+    :init
+    (setq forgejo-db-dir (expand-file-name "var/forgejo" user-emacs-directory))
+    :config
+    ;; Reuse Forge's configured hosts; credentials stay in auth-source.
+    (setq forgejo-hosts
+          (mapcar (lambda (entry) (list (concat "https://" (nth 2 entry))))
+                  (seq-filter (lambda (entry)
+                                (eq (nth 3 entry) 'forge-forgejo-repository))
+                              forge-alist)))
+    (require 'forgejo-vc)
+    (require 'forgejo-pull)
+    (require 'forgejo-review-navigation)
+    (require 'forgejo-merge)
+    (require 'pr-workflow)
+    ;; Let the package's review keys win over Evil's editing commands.
+    ;; Unassigned keys still fall through to Evil navigation.
+    (dolist (map '(forgejo-pull-list-mode-map forgejo-pull-view-mode-map
+                   forgejo-view-diff-map forgejo-review-thread-map))
+      (evil-make-overriding-map (symbol-value map) 'normal t)))
 
 #+end_src
 
