@@ -5587,7 +5587,9 @@ only sees the freshly restored frames."
 #+begin_src emacs-lisp
 
   (use-package link-hint
-    :ensure t)
+    :ensure t
+    :config
+    (require 'agent-shell-link-hint))
   
 #+end_src
 
@@ -6154,6 +6156,9 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
     (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
     (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
+    ;; Search the target text, then let the user choose an actual index entry.
+    (add-to-list 'embark-target-injection-hooks
+                 '(devdocs-lookup embark--allow-edit))
 
     ;; ? = rig lookup on any target; embark injects the target into the
     ;; consult search, so it opens pre-filled with the thing at point.
