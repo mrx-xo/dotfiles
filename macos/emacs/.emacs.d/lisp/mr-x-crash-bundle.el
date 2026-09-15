@@ -49,8 +49,10 @@
   "Run diagnostics copied byte for byte into a bundle when present.")
 
 (defun mr-x/crash-bundle--id-p (value)
-  "Whether VALUE is a bundle basename with no path components."
-  (and (stringp value) (string-match-p "\\`bundle-[[:alnum:]-]+\\'" value)))
+  "Whether VALUE is a bundle basename with no path components.
+Run names come from mkdtemp in either Emacs or Python, so the alphabet is
+letters, digits, underscore, and hyphen."
+  (and (stringp value) (string-match-p "\\`bundle-[[:alnum:]_-]+\\'" value)))
 
 (defun mr-x/crash-bundle-store (init-directory)
   "Return the private bundle store below INIT-DIRECTORY, creating it."
