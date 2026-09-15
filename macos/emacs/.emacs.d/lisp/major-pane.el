@@ -1,7 +1,8 @@
 ;;; major-pane.el --- Toggle agent-shell side panel -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Cmd+i to toggle agent-shell as a left side panel.
+;; Cmd+i to toggle agent-shell: above on tall frames, left on wide ones.
+;; `major-pane-set-placement' overrides placement per frame or restores auto.
 ;; C-u Cmd+i to toggle full-frame mode with layout restore.
 ;; When no agent-shell buffer exists, shows a launcher menu.
 ;; Includes a buffer picker (consult or hydra+posframe) for choosing
@@ -37,9 +38,17 @@
   :type 'float
   :group 'major-pane)
 
-(defcustom major-pane-direction 'left
-  "Side of the frame for the agent-shell panel."
-  :type '(choice (const left) (const right))
+(defcustom major-pane-height 0.35
+  "Height of an above/below agent-shell panel as a fraction of the frame."
+  :type 'float
+  :group 'major-pane)
+
+(defcustom major-pane-direction 'auto
+  "Default placement of the agent-shell panel.
+`auto' chooses above on frames taller than wide (in pixels), otherwise
+left.  `major-pane-set-placement' can override this for each frame."
+  :type '(choice (const auto) (const left) (const right)
+                 (const above) (const below))
   :group 'major-pane)
 
 (defcustom major-pane-modes '(agent-shell-mode)
@@ -351,9 +360,8 @@ dimmed buffer names next to labels)."
 
 (cl-defstruct (major-pane-state (:constructor major-pane--make-state))
   "The major-pane container.  Single source of truth for identity.
-Geometry (direction, width) lives in the `major-pane-direction' and
-`major-pane-width' defcustoms so users can `setq' them at any time
-and the next `major-pane--display' call picks up the change."
+Geometry lives in `major-pane-direction', `major-pane-width' and
+`major-pane-height', with a frame-local placement override."
   (mode          'hidden) ; hidden | side | full
   (conversations nil)     ; ordered list of live agent-shell buffers
   (active        nil)     ; buffer currently displayed in the major-pane
@@ -583,6 +591,160 @@ marked by a blue edge rail."
 
 ;;; Display
 
+(defun major-pane--effective-direction (&optional frame)
+  "Resolve FRAME's placement override or default to a concrete edge."
+  (let* ((frame (or frame (selected-frame)))
+         (placement (or (frame-parameter frame 'major-pane-placement)
+                        major-pane-direction)))
+    (if (eq placement 'auto)
+        (if (> (frame-pixel-height frame) (frame-pixel-width frame))
+            'above 'left)
+      placement)))
+
+(defun major-pane--geometry-alist (&optional opposite)
+  "Display geometry for this frame's pane, or its work area if OPPOSITE."
+  (let* ((direction (major-pane--effective-direction))
+         (horizontal (memq direction '(left right)))
+         (size (if horizontal major-pane-width major-pane-height)))
+    `((direction . ,(if opposite
+                        (cdr (assq direction '((left . right) (right . left)
+                                               (above . below) (below . above))))
+                      direction))
+      (window . root)
+      (,(if horizontal 'window-width 'window-height)
+       . ,(if opposite (- 1.0 size) size)))))
+
+(defun major-pane--create-window (buffer)
+  "Display BUFFER along the selected frame's configured edge."
+  (let* ((geometry (major-pane--geometry-alist))
+         (win (display-buffer-in-direction buffer geometry)))
+    (unless (window-live-p win)
+      (user-error "Not enough room for the major-pane"))
+    (set-window-parameter win 'major-pane t)
+    (set-window-parameter win 'major-pane-direction (alist-get 'direction geometry))
+    (set-window-dedicated-p win 'soft)
+    win))
+
+(defvar major-pane--placing nil
+  "Non-nil while changing pane geometry; prevents recursive relocation.")
+
+(defun major-pane--reposition (frame)
+  "Move FRAME's visible pane if its configured edge changed.
+Preserve the work area's windows, chat scroll position and focus.
+Full-frame views defer movement until their saved layout is restored."
+  (unless major-pane--placing
+    (when-let* ((win (or (get-buffer-window major-pane-launcher-buffer-name frame)
+                        (and (eq (major-pane-state-mode major-pane--state) 'side)
+                             (let ((pane (major-pane--pane-window)))
+                               (and pane (eq (window-frame pane) frame) pane)))))
+                (direction (major-pane--effective-direction frame)))
+      (unless (or (eq direction (window-parameter win 'major-pane-direction))
+                  (eq win (frame-root-window frame)))
+        (with-selected-frame frame
+          (let ((major-pane--placing t)
+                (configuration (current-window-configuration))
+                (buffer (window-buffer win))
+                (point (window-point win))
+                (start (window-start win))
+                (hscroll (window-hscroll win))
+                (focused (eq win (selected-window))))
+            (condition-case err
+                (progn
+                  (delete-window win)
+                  (let ((new (major-pane--create-window buffer)))
+                    (set-window-point new point)
+                    (set-window-start new start t)
+                    (set-window-hscroll new hscroll)
+                    (when focused (select-window new)))
+                  (major-pane--refresh-decorations))
+              (error
+               (set-window-configuration configuration)
+               (signal (car err) (cdr err))))))))))
+
+;;;###autoload
+(defun major-pane-set-placement (placement)
+  "Choose PLACEMENT for this frame: auto, left, right, above or below.
+Manual choices survive resizing and hide/show until `auto' is chosen.
+Move a visible pane immediately; hidden and full-frame panes use the
+choice when next shown as a split.  Overrides last for this frame's lifetime."
+  (interactive
+   (list (intern (completing-read
+                  "Pane placement: " '("auto" "left" "right" "above" "below")
+                  nil t nil nil
+                  (symbol-name (or (frame-parameter nil 'major-pane-placement)
+                                   major-pane-direction))))))
+  (unless (memq placement '(auto left right above below))
+    (user-error "Unknown pane placement: %s" placement))
+  (let ((previous (frame-parameter nil 'major-pane-placement)))
+    (set-frame-parameter nil 'major-pane-placement placement)
+    (condition-case err
+        (major-pane--reposition (selected-frame))
+      (error
+       (set-frame-parameter nil 'major-pane-placement previous)
+       (signal (car err) (cdr err)))))
+  (message "Pane placement: %s%s" placement
+           (if (eq placement 'auto)
+               (format " (%s)" (major-pane--effective-direction)) "")))
+
+(defun major-pane--frame-size-changed (frame)
+  "Reconsider automatic placement when FRAME changes pixel dimensions."
+  (let ((size (cons (frame-pixel-width frame) (frame-pixel-height frame))))
+    (unless (equal size (frame-parameter frame 'major-pane-frame-size))
+      (set-frame-parameter frame 'major-pane-frame-size size)
+      (condition-case err
+          (major-pane--reposition frame)
+        (error (message "Pane placement unchanged: %s" (error-message-string err)))))))
+
+(add-hook 'window-size-change-functions #'major-pane--frame-size-changed)
+
+(defun major-pane--set-conversation-buffer (window buffer)
+  "Show conversation BUFFER in WINDOW without losing pane protection.
+`set-window-buffer' clears soft dedication when it changes buffers,
+so every conversation swap must restore it before returning."
+  (set-window-buffer window buffer)
+  (set-window-parameter window 'major-pane t)
+  (set-window-dedicated-p window 'soft))
+
+;;;###autoload
+(defun major-pane-work-buffer-p (buffer-name _action)
+  "Match non-conversation BUFFER-NAME opened from the visible pane.
+Use after specific popup and conversation rules in `display-buffer-alist'."
+  (let ((buffer (get-buffer buffer-name)))
+    (and (not (eq 'hidden (major-pane-state-mode major-pane--state)))
+         (window-parameter (selected-window) 'major-pane)
+         (memq (window-buffer (selected-window))
+               (major-pane-state-conversations major-pane--state))
+         buffer
+         (not (memq buffer (major-pane-state-conversations major-pane--state)))
+         (not (major-pane--conversation-p buffer)))))
+
+;;;###autoload
+(defun major-pane-display-work-buffer-action (buffer alist)
+  "Display BUFFER in the work area beside the pane, using ALIST.
+Reuse an ordinary window on this frame, preferring one already showing
+BUFFER and then the most recently used.  If none exists, split beside
+the pane instead of relying on Emacs's vertical split preference."
+  (let* ((pane (selected-window))
+         (windows
+          (seq-filter (lambda (w)
+                        (not (or (window-parameter w 'major-pane)
+                                 (window-parameter w 'window-side)
+                                 (window-dedicated-p w))))
+                      (window-list nil 'nomini)))
+         (main (or (seq-find (lambda (w) (eq (window-buffer w) buffer))
+                            windows)
+                   (car (sort windows (lambda (a b)
+                                        (> (window-use-time a)
+                                           (window-use-time b))))))))
+    (if main
+        (with-selected-window main
+          (display-buffer-same-window
+           buffer (cons '(inhibit-same-window . nil) alist)))
+      (display-buffer-in-direction
+       buffer (append `((window . ,pane))
+                      (major-pane--geometry-alist t)
+                      alist)))))
+
 (defun major-pane--display (buffer)
   "Display BUFFER in the major-pane and return its window.
 Normally the pane lands on the selected frame (moving here if it
@@ -596,21 +758,7 @@ selected frame, the pane lands on the home frame instead."
 (defun major-pane--display-1 (buffer)
   "Display BUFFER in the major-pane on the selected frame; return its window."
   (major-pane--relocate-from-other-frame)
-  (let ((win (display-buffer buffer
-                             `((display-buffer-in-direction)
-                               (direction . ,major-pane-direction)
-                               ;; Split the frame root, not the selected
-                               ;; window: the pane always spans the whole
-                               ;; left edge of the frame.
-                               (window . root)
-                               (window-width . ,major-pane-width)))))
-    (set-window-parameter win 'major-pane t)
-    ;; Soft dedication: display-buffer won't hijack the pane for other
-    ;; buffers, but set-window-buffer (tab switching) still works, and
-    ;; switch-to-buffer can take over after a prompt (see
-    ;; `switch-to-buffer-in-dedicated-window').
-    (set-window-dedicated-p win 'soft)
-    win))
+  (major-pane--create-window buffer))
 
 ;;;###autoload
 (defun major-pane-display-buffer-action (buffer _alist)
@@ -641,12 +789,7 @@ Intended for `display-buffer-alist' (see Commentary):
                     ;; Called directly, not via `display-buffer', so the
                     ;; alist entry pointing back here cannot recurse.
                     ;; With a home frame set, the pane is created THERE.
-                    (let ((make (lambda ()
-                                  (display-buffer-in-direction
-                                   buffer
-                                   `((direction . ,major-pane-direction)
-                                     (window . root)
-                                     (window-width . ,major-pane-width))))))
+                    (let ((make (lambda () (major-pane--create-window buffer))))
                       (if (and home (not (eq home (selected-frame))))
                           (with-selected-frame home (funcall make))
                         (funcall make))))))
@@ -699,15 +842,17 @@ is missing and spawn its own."
 (defun major-pane--pane-window ()
   "Return the window marked as the major-pane on ANY frame, or nil.
 Self-heals: if the marker was lost (e.g. after `set-window-configuration'),
-re-marks the window showing the active conversation."
+re-marks the window showing the active conversation and restores protection."
   (when (not (eq 'hidden (major-pane-state-mode major-pane--state)))
-    (or (seq-find (lambda (w) (window-parameter w 'major-pane))
-                  (major-pane--all-windows))
-        (let* ((active (major-pane-state-active major-pane--state))
-               (win (when active (get-buffer-window active t))))
-          (when win
-            (set-window-parameter win 'major-pane t)
-            win)))))
+    (let ((win (or (seq-find (lambda (w) (window-parameter w 'major-pane))
+                             (major-pane--all-windows))
+                   (when-let ((active (major-pane-state-active major-pane--state)))
+                     (get-buffer-window active t)))))
+      (when (and win (memq (window-buffer win)
+                          (major-pane-state-conversations major-pane--state)))
+        (set-window-parameter win 'major-pane t)
+        (set-window-dedicated-p win 'soft))
+      win)))
 
 (defun major-pane--relocate-from-other-frame ()
   "Remove the pane window when it lives on a frame other than the selected one.
@@ -1124,7 +1269,7 @@ IS-ACTIVE selects the active/inactive face."
           (setf (major-pane-state-active major-pane--state) buf)
           (let ((win (major-pane--pane-window)))
             (when win
-              (set-window-buffer win buf)
+              (major-pane--set-conversation-buffer win buf)
               (select-window win))))))
     ;; Attention flags survive activation on purpose: passing through a
     ;; buffer isn't engaging with it.  `done' clears on insert-state
@@ -1627,7 +1772,7 @@ the pane first."
   (let ((win (major-pane--visible-window)))
     (setf (major-pane-state-active major-pane--state) buf)
     (if win
-        (progn (set-window-buffer win buf)
+        (progn (major-pane--set-conversation-buffer win buf)
                (select-window win))
       (select-window (major-pane--display buf)))))
 
@@ -1751,9 +1896,16 @@ only window, splits a main area off beside it."
                 (sort (window-list (selected-frame) 'nomini)
                       (lambda (a b) (> (window-use-time a)
                                        (window-use-time b)))))
-      (split-window (frame-root-window)
-                    nil
-                    (if (eq major-pane-direction 'left) 'right 'left))))
+      (let* ((geometry (major-pane--geometry-alist t))
+             (direction (alist-get 'direction geometry))
+             (horizontal (memq direction '(left right)))
+             (size (alist-get (if horizontal 'window-width 'window-height)
+                              geometry))
+             (root (frame-root-window))
+             (total (if horizontal (window-total-width root)
+                      (window-total-height root))))
+        ;; Negative SIZE assigns that many columns/lines to the new work area.
+        (split-window root (- (round (* total size))) direction))))
 
 (defun major-pane--do-eject (buf &optional new-frame)
   "Unregister BUF from the pane and display it in a main window.
@@ -1862,7 +2014,12 @@ background agent-shell sessions (e.g. a Quick Ask session) that
 should never show up as a switchable panel buffer."
   (interactive)
   (with-current-buffer (or buffer (current-buffer))
-    (setq-local major-pane--excluded t)))
+    (setq-local major-pane--excluded t)
+    ;; Session creation runs the mode hook before Quick Ask can exclude it.
+    ;; Remove any tab already registered by that hook as well as filtering
+    ;; future picker results.
+    (major-pane--unregister-conversation))
+  (major-pane--refresh-decorations))
 
 (defun major-pane--buffer-list ()
   "Return list of agent-shell buffers, excluding hidden ones.
@@ -2068,7 +2225,7 @@ Uses the configured picker style for the `swap-buffer' action."
            (major-pane--do-adopt buf)
          (setf (major-pane-state-active major-pane--state) buf)
          (if win
-             (set-window-buffer win buf)
+             (major-pane--set-conversation-buffer win buf)
            (major-pane--display buf))))
      'swap-buffer)))
 
@@ -2103,7 +2260,7 @@ in its main-area window, creating one when the buffer is buried."
     (setf (major-pane-state-active major-pane--state) buf)
     (let ((win (major-pane--visible-window)))
       (if win
-          (progn (set-window-buffer win buf)
+          (progn (major-pane--set-conversation-buffer win buf)
                  (major-pane--select-window win))
         (when (eq 'hidden (major-pane-state-mode major-pane--state))
           (setf (major-pane-state-mode major-pane--state) 'side))
@@ -2274,7 +2431,8 @@ the window that was active before the pane was shown."
             (progn
               (set-window-configuration wc)
               (setf (major-pane-state-saved-winconf major-pane--state) nil
-                    (major-pane-state-mode major-pane--state) 'side))
+                    (major-pane-state-mode major-pane--state) 'side)
+              (major-pane--reposition (selected-frame)))
           ;; Go full-frame
           (setf (major-pane-state-last-window major-pane--state) (selected-window))
           (setf (major-pane-state-saved-winconf major-pane--state)
@@ -2304,7 +2462,7 @@ the window that was active before the pane was shown."
         (when (and lw (window-live-p lw))
           (select-window lw)))
       (setf (major-pane-state-last-window major-pane--state) nil))
-     ;; Hidden: show it on the left
+     ;; Hidden: show it at this frame's configured edge.
      (t
       (setf (major-pane-state-last-window major-pane--state) (selected-window))
       (setf (major-pane-state-active major-pane--state) buf

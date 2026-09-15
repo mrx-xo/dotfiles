@@ -1432,6 +1432,7 @@ resumes from it."
   (should (eq (config-test--leader-key "& l") 'major-pane-set-label))
   (should (eq (config-test--leader-key "& b") 'major-pane-capture-buffer))
   (should (eq (config-test--leader-key "& h") 'major-pane-set-home-frame))
+  (should (eq (config-test--leader-key "& m") 'major-pane-set-placement))
   (should (eq (config-test--leader-key "& k") 'major-pane-close-conversation))
   (should (eq (config-test--leader-key "& K") 'major-pane-close-all-conversations))
   (should (eq (config-test--leader-key "& e") 'major-pane-eject-conversation))

@@ -2001,6 +2001,7 @@ silent context-only capture with no marker."
                    major-pane-prev-done-tab
                    major-pane-capture-buffer
                    major-pane-set-home-frame
+                   major-pane-set-placement
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
