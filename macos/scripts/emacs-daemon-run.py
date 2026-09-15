@@ -89,7 +89,12 @@ def create_run(parent, server, init_directory):
 
 
 class RotatingLog:
-    """One writer, 2 MiB current plus one previous segment, UTF-8 boundaries."""
+    """One writer, 2 MiB current plus one previous segment, UTF-8 boundaries.
+
+    The current segment is appended in place, so the writer stays ahead of a
+    daemon that writes stderr unbuffered.  Only rotation rewrites a file, and
+    that is the bounded previous segment.  Memory holds at most one segment.
+    """
     def __init__(self, directory, limit=2 * 1024 * 1024):
         if limit < 64:
             raise ValueError("Log limit too small")
@@ -98,8 +103,18 @@ class RotatingLog:
         ordinary(self.current)
         ordinary(self.previous)
         self.limit = limit
-        self.data = b""
+        self.data = bytearray()
+        self.stream = None
+        self._open()
+
+    def _open(self):
+        """Truncate the current segment privately and append to it in place."""
+        if self.stream is not None:
+            self.stream.close()
         atomic(self.current, "")
+        fd = os.open(str(self.current), os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+        self.stream = os.fdopen(fd, "ab", buffering=0)
+        self.data = bytearray()
 
     def write(self, text):
         pending = text.encode("utf-8")
@@ -108,19 +123,26 @@ class RotatingLog:
             part = pending[:size].decode("utf-8", errors="ignore").encode("utf-8")
             if not part:
                 marker = b"[older stderr truncated]\n"
-                tail = self.data[-(self.limit - len(marker)):].decode("utf-8", errors="ignore")
+                tail = bytes(self.data[-(self.limit - len(marker)):]).decode("utf-8", errors="ignore")
                 atomic(self.previous, marker.decode() + tail)
-                self.data = b""
+                self._open()
                 continue
+            self.stream.write(part)
             self.data += part
             pending = pending[len(part):]
-            atomic(self.current, self.data.decode("utf-8"))
 
 
-def collect(source, writer, finish_timeout=1.0, queue_size=16):
-    """Drain SOURCE despite failed/stalled WRITER or factory; report losses."""
-    chunks = queue.Queue(maxsize=queue_size)
+def collect(source, writer, finish_timeout=1.0, queue_bytes=8 * 1024 * 1024):
+    """Drain SOURCE despite failed/stalled WRITER or factory; report losses.
+
+    Text waiting for the writer is bounded by QUEUE_BYTES of input, so a slow
+    writer start or a stalled disk can neither grow memory nor block the pipe
+    reader.  Input beyond that bound is dropped and counted.
+    """
+    chunks = queue.Queue()
     finished = threading.Event()
+    lock = threading.Lock()
+    queued = [0]
     result = {"complete": True, "queue_dropped_bytes": 0, "writer_error": None,
               "encoding": "UTF-8; invalid input replaced"}
 
@@ -131,12 +153,24 @@ def collect(source, writer, finish_timeout=1.0, queue_size=16):
             result["writer_error"] = str(error)
         while not finished.is_set() or not chunks.empty():
             try:
-                text = chunks.get(timeout=0.05)
+                size, text = chunks.get(timeout=0.05)
             except queue.Empty:
                 continue
+            # Coalesce everything already queued into one write, so many
+            # small pipe reads cost one disk append rather than one each.
+            parts = [text]
+            while True:
+                try:
+                    more, text = chunks.get_nowait()
+                except queue.Empty:
+                    break
+                parts.append(text)
+                size += more
+            with lock:
+                queued[0] -= size
             if result["writer_error"] is None:
                 try:
-                    sink.write(text)
+                    sink.write("".join(parts))
                 except Exception as error:
                     result["writer_error"] = str(error)
 
@@ -146,10 +180,13 @@ def collect(source, writer, finish_timeout=1.0, queue_size=16):
 
     def enqueue(text):
         if text:
-            try:
-                chunks.put_nowait(text)
-            except queue.Full:
-                result["queue_dropped_bytes"] += len(text.encode("utf-8"))
+            size = len(text.encode("utf-8"))
+            with lock:
+                if queued[0] + size > queue_bytes:
+                    result["queue_dropped_bytes"] += size
+                    return
+                queued[0] += size
+            chunks.put((size, text))
 
     try:
         while True:
