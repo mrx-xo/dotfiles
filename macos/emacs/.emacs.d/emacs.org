@@ -3689,6 +3689,15 @@ inside display-buffer before major-pane may be loaded."
   ;; (major-pane-capture-buffer).
   (setq switch-to-buffer-obey-display-actions t)
 
+  ;; File links and ordinary buffer navigation from the pane reuse the
+  ;; work area, or create it beside a full-frame conversation.  Specific
+  ;; popup/conversation rules retain priority over this fallback.
+  (autoload 'major-pane-work-buffer-p "major-pane")
+  (autoload 'major-pane-display-work-buffer-action "major-pane")
+  (add-to-list 'display-buffer-alist
+               '(major-pane-work-buffer-p
+                 (major-pane-display-work-buffer-action)) t)
+
   ;; Fallback for code that reads this variable directly; the
   ;; display-buffer-alist entry above takes precedence when it matches.
   (setq agent-shell-display-action
@@ -4677,6 +4686,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "& p" '(major-pane-anchor-toggle :wk "Anchor tab left (blue rail)")
         "& b" '(major-pane-capture-buffer :wk "Capture buffer into pane")
         "& h" '(major-pane-set-home-frame :wk "Lock pane to this frame")
+        "& m" '(major-pane-set-placement :wk "Pane placement")
         "& k" '(major-pane-close-conversation :wk "Close conversation")
         "& K" '(major-pane-close-all-conversations :wk "Close all")
         "& e" '(major-pane-eject-conversation :wk "Eject (C-u: new frame)")
@@ -10337,6 +10347,7 @@ silent context-only capture with no marker."
                    major-pane-prev-done-tab
                    major-pane-capture-buffer
                    major-pane-set-home-frame
+                   major-pane-set-placement
                    major-pane-new-chat
                    major-pane-close-conversation
                    major-pane-close-all-conversations
