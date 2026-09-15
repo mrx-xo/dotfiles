@@ -92,7 +92,8 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 68fe3bd (in-chat model search appears on overflow, stays above results, and clears on reopen)
 # + local 84a8ad4 (UI tests: ACP_MOBILE_CHROME picks the browser; Chrome on the Mac is x64 under Rosetta and misses the DevTools wait)
 # + local 8af88bd (history loading is a 2px progress line under the header instead of the Loading chat pill)
-ACP_MOBILE_COMMIT="8af88bd44dc0d1556d61b4f9ae929cb3378b745d"
+# + local f344b48 (one busy line: generating and session fetches use the header progress line; thinking bar and Orrery glyph removed; leaving a chat clears generating)
+ACP_MOBILE_COMMIT="f344b486ab4c54f3c54707590e25b34366ab2afc"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
