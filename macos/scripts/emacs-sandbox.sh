@@ -65,7 +65,7 @@ kill_daemon() {
         # PID changes between the probe and this request cannot target a peer.
         timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" --eval "(when (and $IDENTITY (= (emacs-pid) $pid)) (kill-emacs))" >/dev/null 2>&1 || true
         for ((attempt=0; attempt<50; attempt++)); do
-            if ! ps -p "$pid" -o pid= >/dev/null 2>&1; then return 0; fi
+            if ! ps -p "$pid" -o pid= >/dev/null 2>&1; then echo "Sandbox stopped"; return 0; fi
             sleep 0.1
         done
         echo "Sandbox did not exit; preserving its files" >&2
@@ -73,12 +73,14 @@ kill_daemon() {
     else
         status=$?
         [[ "$status" == 1 ]] || return "$status"
+        # No responding sandbox socket.  A launch may still be in progress;
+        # the helper's lock, not this wrapper, decides whether one can start.
+        echo "Sandbox not running"
     fi
 }
 
 if [[ -n "$KILL_DAEMON" ]]; then
     kill_daemon
-    echo "Sandbox stopped"
     exit 0
 fi
 if [[ -n "$FRESH" || -n "$RESTART" ]]; then
@@ -141,7 +143,9 @@ if pid=$(daemon_pid); then
 else
     status=$?
     [[ "$status" == 1 ]] || exit "$status"
-    "$SCRIPT_DIR/emacs-daemon-run.sh" --server "$SOCKET_NAME" --init-directory "$SANDBOX_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
+    # Readiness only bounds the wait; a slow start (package builds on the
+    # Air) keeps running and a rerun attaches to it once it answers.
+    "$SCRIPT_DIR/emacs-daemon-run.sh" --server "$SOCKET_NAME" --init-directory "$SANDBOX_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" --timeout "${EMACS_START_TIMEOUT:-120}" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
 fi
 
 if [[ -n "$AUTO_TEST" ]]; then

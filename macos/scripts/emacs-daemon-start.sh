@@ -8,7 +8,7 @@ EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
 INIT_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
 RUNTIME_ARGS=()
 [[ -z "${EMACS_RUNTIME_DIRECTORY:-}" ]] || RUNTIME_ARGS=(--runtime-directory "$EMACS_RUNTIME_DIRECTORY")
-"$SCRIPT_DIR/emacs-daemon-run.sh" --server server --init-directory "$INIT_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
+"$SCRIPT_DIR/emacs-daemon-run.sh" --server server --init-directory "$INIT_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" --timeout "${EMACS_START_TIMEOUT:-120}" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
 if [[ -f /tmp/emacs-restore-session ]]; then
     echo "Restore flag found, skipping default frame"
 else
