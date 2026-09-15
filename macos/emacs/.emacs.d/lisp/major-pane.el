@@ -949,10 +949,47 @@ font); falls back to plain text when nerd-icons is unavailable."
   "Return the abbreviated form of MODE-NAME, or MODE-NAME itself."
   (or (cdr (assoc mode-name major-pane-short-mode-names)) mode-name))
 
+(defvar-local major-pane--banner-cache nil
+  "Memo for `major-pane--format-banner': a cons of (KEY . STRING).
+KEY is the `equal'-compared pair of inputs the banner derives from.")
+
 (defun major-pane--format-banner ()
-  "Return a banner: model + effort + permission mode + context + cost."
+  "Return a banner: model + effort + permission mode + context + cost.
+
+Memoized.  This is installed as a `:eval' in the pane window's
+`tab-line-format', so it runs on *every redisplay* of that window --
+including every keystroke while typing in the pane.  The banner is
+pure derived state: it reads only `:config-options' and `:usage' off
+`agent-shell--state', and everything shown (model, effort, mode,
+collab, fast badge, context, cost) is computed from those two.  They
+change a handful of times per session, not per keystroke.
+
+Measured on a live daemon (2026-09-15, 20 pane buffers): a full
+rebuild costs 0.04-0.06ms per call; a memo hit, including the
+`copy-tree' and `equal' check, 0.01ms.  Small, but it runs on every
+keystroke, and the other pane `:eval', `major-pane--render-tabs' on
+the header-line, is still unmemoized.
+
+The key is a `copy-tree' snapshot of the two values the body reads,
+compared with `equal'.  The copy matters: agent-shell updates both
+alists in place (`map-put!' in `agent-shell--save-usage' and
+`agent-shell--update-usage-from-notification', `setf' `map-elt' in
+`agent-shell--config-option-set-value'), so a key that merely held the
+live objects would compare `equal' to itself after every mutation and
+the banner would freeze.  Any real change misses the cache and
+re-renders.  There is no stale-banner window."
   (let* ((state (buffer-local-value 'agent-shell--state (current-buffer)))
-         (opts (alist-get :config-options state))
+         (key (cons (copy-tree (alist-get :config-options state))
+                    (copy-tree (alist-get :usage state)))))
+    (if (and major-pane--banner-cache
+             (equal (car major-pane--banner-cache) key))
+        (cdr major-pane--banner-cache)
+      (cdr (setq major-pane--banner-cache
+                 (cons key (major-pane--format-banner-1 state)))))))
+
+(defun major-pane--format-banner-1 (state)
+  "Build the banner string from STATE.  See `major-pane--format-banner'."
+  (let* ((opts (alist-get :config-options state))
          (model-opt (seq-find (lambda (o) (equal (alist-get :id o) "model")) opts))
          (model-val (major-pane--short-model-name
                      (or (alist-get :current-value model-opt) "?")))
