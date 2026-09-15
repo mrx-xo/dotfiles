@@ -137,6 +137,10 @@
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
 
+(dolist (command '(mr-x/strudel-play mr-x/strudel-update mr-x/strudel-stop
+                   mr-x/strudel-show-audio mr-x/strudel-shutdown))
+  (autoload command "strudel-control" nil t))
+
 ;; org-mcp is a local project under ~/roaming (synced via Syncthing); load it
 ;; only when present so a machine without ~/roaming yet doesn't abort all of init.
 (let ((org-mcp-dir "~/roaming/projects/MCP servers/org-mcp/src/elisp"))
