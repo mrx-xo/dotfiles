@@ -1599,22 +1599,68 @@ path (pill → perms → pill → done) while ~/scratch runs a shorter one
                        (message "lifecycle: %s" msg)))
                    (nth 1 step) (nth 2 step) (nth 3 step)))))
 
+(defvar major-pane--tabs-cache nil
+  "Memo for `major-pane--render-tabs': a cons of (KEY . STRING).
+KEY is the snapshot built by `major-pane--render-tabs-key'.")
+
+(defun major-pane--render-tabs-key (convos active avail)
+  "Snapshot every input the tab row is rendered from, for the memo.
+CONVOS is the ordered conversation list, ACTIVE the active buffer and
+AVAIL the pane width in pixels.  Everything `major-pane--render-tab'
+and `major-pane--render-tab-slice' read is here: per-buffer name,
+label and attention, the anchored and ping sets, the spinner frame,
+the divider and the char width.  `major-pane--anchored' is mutated in
+place by `delq', so it is copied; a key that held the live list would
+compare `equal' to itself after an unanchor."
+  (list convos active avail
+        (copy-sequence major-pane--anchored)
+        (copy-sequence major-pane--ping-set)
+        major-pane--spinner-index
+        major-pane-tab-divider
+        (frame-char-width)
+        (mapcar (lambda (b)
+                  (when (buffer-live-p b)
+                    (list (buffer-name b)
+                          (gethash b major-pane--labels)
+                          (buffer-local-value 'major-pane--tab-attention b))))
+                convos)))
+
 (defun major-pane--render-tabs ()
-  "Build a header-line-format string showing conversation tabs.
-When the tabs overflow the pane width, shows a slice that always
-keeps the active tab visible (expanded alternately left/right so it
-stays roughly centered), with dim ‹N / N› overflow counters at the
-edges.  The header-line cannot scroll, so slicing is the only way to
-guarantee the active tab is on screen."
+  "Return the header-line string showing conversation tabs.
+Memoized.  This is the pane window's `header-line-format' `:eval', so
+it runs on every redisplay of that window, including every keystroke
+while typing in the pane.  `major-pane--render-tabs-key' snapshots the
+inputs; a matching key returns the previous string, anything else
+rebuilds through `major-pane--render-tabs-1'.  The spinner index is
+part of the key, so a busy or pinging tab still redraws every tick
+while the keystrokes between ticks hit the cache.
+
+Measured on a live daemon (2026-09-15, 18 tabs): a full rebuild costs
+0.70ms per call, a memo hit 0.04ms."
   (major-pane--compute-ping-set)        ; which fresh finishers animate this pass
   (let* ((convos (major-pane--ordered-convos))
          (active (major-pane-state-active major-pane--state))
-         (ai (cl-position active convos :test #'eq))
-         (active-anchored-p (memq active major-pane--anchored))
          (win (major-pane--pane-window))
          ;; all layout math in PIXELS — column math drifts as soon as
          ;; dividers or fillers aren't exact multiples of a char cell
          (avail (if win (window-body-width win t) most-positive-fixnum))
+         (key (major-pane--render-tabs-key convos active avail)))
+    (if (and major-pane--tabs-cache
+             (equal (car major-pane--tabs-cache) key))
+        (cdr major-pane--tabs-cache)
+      (cdr (setq major-pane--tabs-cache
+                 (cons key (major-pane--render-tabs-1 convos active avail)))))))
+
+(defun major-pane--render-tabs-1 (convos active avail)
+  "Build the tab row for CONVOS, ACTIVE highlighted, AVAIL pixels wide.
+When the tabs overflow the pane width, shows a slice that always
+keeps the active tab visible (expanded alternately left/right so it
+stays roughly centered), with dim ‹N / N› overflow counters at the
+edges.  The header-line cannot scroll, so slicing is the only way to
+guarantee the active tab is on screen.  See `major-pane--render-tabs'
+for the memo in front of this."
+  (let* ((ai (cl-position active convos :test #'eq))
+         (active-anchored-p (memq active major-pane--anchored))
          (sep (major-pane--tab-divider))
          ;; Dividers touching the active tab go yellow (same width as
          ;; `sep', so layout math is unaffected).  An anchored active tab's

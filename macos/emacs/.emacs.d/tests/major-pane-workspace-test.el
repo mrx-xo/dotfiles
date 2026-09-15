@@ -227,16 +227,25 @@ not the one this process is writing."
 
 (ert-deftest major-pane-workspace-candidates-carry-transcript-payload ()
   "Rows carry the transcript path as the `agent-recall-file' text property
-so agent-recall's embark actions (o/r/R) work on them."
+so agent-recall's embark actions (o/r/R) work on them.
+Whether the real agent-recall is loaded depends on which tests ran
+before this one, so the index is pinned to an empty table and the
+path is compared by truename: the real `agent-recall--make-candidate'
+canonicalises it (/private/var on macOS), the plain recipe does not."
   (mpw-test--with-convos ()
     (let* ((file (make-temp-file "mpw-transcript-" nil ".md"))
            (snap (list :started "x" :saved "x"
                        :convos (list (list :session-id "sid-a" :cwd "/tmp/a/"
                                            :agent "claude-code" :label "alpha"
                                            :transcript file))))
-           (row (car (car (major-pane-workspace--candidates snap)))))
+           (agent-recall--index (make-hash-table :test #'equal))
+           (row (cl-letf (((symbol-function 'agent-recall--index-ensure)
+                           #'ignore))
+                  (car (car (major-pane-workspace--candidates snap))))))
       (unwind-protect
-          (should (equal (get-text-property 0 'agent-recall-file row) file))
+          (should (equal (file-truename
+                          (get-text-property 0 'agent-recall-file row))
+                         (file-truename file)))
         (delete-file file)))))
 
 (ert-deftest major-pane-workspace-select-opens-transcript-when-known ()
@@ -272,7 +281,9 @@ so agent-recall's embark actions (o/r/R) work on them."
   "Run BODY with the agent-recall formatting helpers stubbed in.
 The stubs mimic browse's row recipe without loading the real package."
   (declare (indent 0))
-  `(cl-letf (((symbol-function 'agent-recall--index-entry-for-file)
+  `(let ((agent-recall--index (make-hash-table :test #'equal)))
+     (cl-letf (((symbol-function 'agent-recall--index-ensure) #'ignore)
+              ((symbol-function 'agent-recall--index-entry-for-file)
               (lambda (_file) (list :project "proj-a"
                                     :timestamp "2026-09-06-15-10-46")))
              ((symbol-function 'agent-recall--provider-icon)
@@ -287,7 +298,31 @@ The stubs mimic browse's row recipe without loading the real package."
                             'agent-recall-origin-kind kind)))
              ((symbol-function 'agent-recall--disambiguate-candidates)
               #'identity))
-     ,@body))
+       ,@body)))
+
+(ert-deftest major-pane-workspace-candidates-survive-loaded-recall-without-index ()
+  "agent-recall loaded but its index never built must not break the picker.
+Buffer hooks pull agent-recall in lazily with `agent-recall--index' nil;
+`agent-recall--index-entry-for-file' errors on that, so such rows fall
+back to the plain recipe and still carry the transcript payload."
+  (mpw-test--with-convos ()
+    (let ((file (make-temp-file "mpw-transcript-" nil ".md")))
+      (unwind-protect
+          (mpw-test--with-fake-agent-recall
+            (let ((agent-recall--index nil))
+              (cl-letf (((symbol-function 'agent-recall--index-entry-for-file)
+                         (lambda (_file) (error "index is nil"))))
+                (let* ((snap (list :started "x" :saved "x"
+                                   :convos (list (list :session-id "sid-a"
+                                                       :cwd "/tmp/a/"
+                                                       :agent "claude-code"
+                                                       :label "alpha"
+                                                       :transcript file))))
+                       (row (car (car (major-pane-workspace--candidates snap)))))
+                  (should (string-match-p "alpha" row))
+                  (should (equal (get-text-property 0 'agent-recall-file row)
+                                 file))))))
+        (delete-file file)))))
 
 (ert-deftest major-pane-workspace-candidates-use-browse-recipe ()
   "With agent-recall present, rows look like browse rows: icon, project,
