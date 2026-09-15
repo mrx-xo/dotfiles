@@ -1,103 +1,97 @@
 #!/bin/bash
-# Launch isolated sandbox Emacs (daemon mode)
-# Your real Emacs session is completely untouched
-#
-# Usage:
-#   emacs-sandbox.sh          # Ensure daemon is running, spawn a frame
-#   emacs-sandbox.sh --restart # Kill daemon, restart, spawn a frame
-#   emacs-sandbox.sh --fresh  # Nuke sandbox, resync from main config, restart daemon
-#   emacs-sandbox.sh --test   # Spawn frame and auto-run test environment
-#   emacs-sandbox.sh --kill   # Stop the sandbox daemon
-
-SANDBOX_DIR="$HOME/.emacs-sandbox"
-EMACS="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
+# Named sandbox lifecycle; every shutdown rechecks daemon name, init path, PID.
+# --fresh preserves the previous sandbox beside the filtered replacement.
+set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SANDBOX_DIR="${SANDBOX_DIR:-$HOME/.emacs-sandbox}"
+SOURCE_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
+EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
+EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
 SOCKET_NAME="sandbox"
-AUTO_TEST=""
-KILL_DAEMON=""
-FRESH=""
-RESTART=""
-
-# Handle flags
+AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; DISPLAY_IDX=""
+RUNTIME_ARGS=()
+[[ -z "${EMACS_RUNTIME_DIRECTORY:-}" ]] || RUNTIME_ARGS=(--runtime-directory "$EMACS_RUNTIME_DIRECTORY")
 for arg in "$@"; do
-    case $arg in
-        --fresh)   FRESH="yes" ;;
-        --test)    AUTO_TEST="yes" ;;
-        --kill)    KILL_DAEMON="yes" ;;
-        --restart) RESTART="yes" ;;
+    case "$arg" in
+        --fresh) FRESH=yes ;;
+        --restart) RESTART=yes ;;
+        --kill) KILL_DAEMON=yes ;;
+        --test) AUTO_TEST=yes ;;
+        *) echo "Unknown sandbox option: $arg" >&2; exit 2 ;;
     esac
 done
+SANDBOX_DIR="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$SANDBOX_DIR")"
+# Reject control characters before embedding the path in a Lisp string.
+[[ "$SANDBOX_DIR" != *$'\n'* && "$SANDBOX_DIR" != *$'\r'* ]] || exit 2
+INIT_QUOTED=${SANDBOX_DIR//\\/\\\\}
+INIT_QUOTED=${INIT_QUOTED//\"/\\\"}
+IDENTITY="(and (equal (daemonp) \"sandbox\") (equal server-name \"sandbox\") (equal (file-truename user-emacs-directory) \"$INIT_QUOTED/\"))"
 
-# Check if sandbox daemon is running
-daemon_running() {
-    emacsclient --socket-name="$SOCKET_NAME" --eval "t" &>/dev/null
+daemon_pid() {
+    local result
+    if result=$(timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" --eval "(if $IDENTITY (emacs-pid) nil)" 2>/dev/null); then
+        if [[ "$result" =~ ^[0-9]+$ && "$result" != 0 ]]; then
+            printf '%s\n' "$result"
+        else
+            echo "Sandbox socket identity mismatch; refusing lifecycle action" >&2
+            return 2
+        fi
+    else
+        local status=$?
+        if [[ "$status" == 124 || "$status" == 137 ]]; then
+            echo "Sandbox socket unresponsive; refusing lifecycle action" >&2
+            return 3
+        fi
+        return 1
+    fi
 }
 
-# Save which display the sandbox window is on (match by PID)
 save_display() {
-    if daemon_running; then
-        local pid
-        pid=$(emacsclient --socket-name="$SOCKET_NAME" --eval "(emacs-pid)" 2>/dev/null | tr -d '"')
-        if [[ -n "$pid" ]]; then
-            yabai -m query --windows | jq -r \
-                ".[] | select(.app == \"Emacs\" and .pid == $pid) | .display" \
-                | head -1 > /tmp/emacs-sandbox-display
+    local pid
+    if pid=$(daemon_pid); then
+        if command -v yabai >/dev/null && command -v jq >/dev/null; then
+            DISPLAY_IDX=$(yabai -m query --windows | jq -r ".[] | select(.app == \"Emacs\" and .pid == $pid) | .display" | head -1) || true
         fi
+    else
+        local status=$?
+        [[ "$status" == 1 ]] || return "$status"
     fi
 }
 
-# Move the sandbox window back to its saved display (match by PID)
-restore_display() {
-    if [[ -f /tmp/emacs-sandbox-display ]]; then
-        DISPLAY_IDX=$(cat /tmp/emacs-sandbox-display)
-        if [[ -n "$DISPLAY_IDX" ]]; then
-            sleep 0.5
-            local pid
-            pid=$(emacsclient --socket-name="$SOCKET_NAME" --eval "(emacs-pid)" 2>/dev/null | tr -d '"')
-            if [[ -n "$pid" ]]; then
-                WID=$(yabai -m query --windows | jq -r \
-                    ".[] | select(.app == \"Emacs\" and .pid == $pid) | .id" | head -1)
-                [[ -n "$WID" ]] && yabai -m window "$WID" --display "$DISPLAY_IDX" && yabai -m window "$WID" --focus
-            fi
-        fi
-        rm /tmp/emacs-sandbox-display
-    fi
-}
-
-# Stop the daemon gracefully
 kill_daemon() {
-    if daemon_running; then
-        echo "Stopping sandbox daemon..."
-        emacsclient --socket-name="$SOCKET_NAME" --eval "(kill-emacs)" 2>/dev/null
-        sleep 0.3
+    local pid status attempt
+    if pid=$(daemon_pid); then
+        # The check and shutdown occur in one request; socket replacement or
+        # PID changes between the probe and this request cannot target a peer.
+        timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" --eval "(when (and $IDENTITY (= (emacs-pid) $pid)) (kill-emacs))" >/dev/null 2>&1 || true
+        for ((attempt=0; attempt<50; attempt++)); do
+            if ! ps -p "$pid" -o pid= >/dev/null 2>&1; then echo "Sandbox stopped"; return 0; fi
+            sleep 0.1
+        done
+        echo "Sandbox did not exit; preserving its files" >&2
+        return 1
+    else
+        status=$?
+        [[ "$status" == 1 ]] || return "$status"
+        # No responding sandbox socket.  A launch may still be in progress;
+        # the helper's lock, not this wrapper, decides whether one can start.
+        echo "Sandbox not running"
     fi
 }
 
-# --kill: just stop and exit
 if [[ -n "$KILL_DAEMON" ]]; then
     kill_daemon
-    echo "Sandbox daemon stopped."
     exit 0
 fi
-
-# --restart: kill daemon, then continue to restart + spawn
-if [[ -n "$RESTART" ]]; then
+if [[ -n "$FRESH" || -n "$RESTART" ]]; then
     save_display
     kill_daemon
 fi
 
-# --fresh: nuke everything and rebuild
-if [[ -n "$FRESH" ]]; then
-    echo "Nuking sandbox and resyncing from main config..."
-    save_display
-    kill_daemon
-    rm -rf "$SANDBOX_DIR"
-fi
-
-# Create sandbox dir if it doesn't exist
-if [[ ! -d "$SANDBOX_DIR" ]]; then
-    echo "Creating sandbox from current config..."
-    cp -r ~/.emacs.d "$SANDBOX_DIR"
-
+if [[ ! -d "$SANDBOX_DIR" || -n "$FRESH" ]]; then
+    COPY_ARGS=()
+    [[ -z "$FRESH" ]] || COPY_ARGS=(--replace)
+    python3 "$SCRIPT_DIR/emacs-sandbox-copy.py" "$SOURCE_DIR" "$SANDBOX_DIR" ${COPY_ARGS[@]+"${COPY_ARGS[@]}"} ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
     # 1. Enable title bar (comment out undecorated-round)
     sed -i '' "s/(add-to-list 'default-frame-alist '(undecorated-round . t))/;; SANDBOX: (add-to-list 'default-frame-alist '(undecorated-round . t))/" "$SANDBOX_DIR/early-init.el"
 
@@ -141,25 +135,30 @@ EOF
     echo ';; Sandbox tab-lab (major-pane styling playground)' >> "$SANDBOX_DIR/init.el"
     echo '(load (expand-file-name "sandbox/tab-lab.el" user-emacs-directory) t)' >> "$SANDBOX_DIR/init.el"
 
-    echo "Sandbox created with visual indicators."
+    echo "Sandbox configuration copied"
 fi
 
-# Start daemon if not already running
-if ! daemon_running; then
-    echo "Starting sandbox daemon..."
-    $EMACS --daemon="$SOCKET_NAME" --init-directory "$SANDBOX_DIR"
-    echo "Sandbox daemon started."
+if pid=$(daemon_pid); then
+    echo "Sandbox already running"
 else
-    echo "Sandbox daemon already running."
+    status=$?
+    [[ "$status" == 1 ]] || exit "$status"
+    # Readiness only bounds the wait; a slow start (package builds on the
+    # Air) keeps running and a rerun attaches to it once it answers.
+    "$SCRIPT_DIR/emacs-daemon-run.sh" --server "$SOCKET_NAME" --init-directory "$SANDBOX_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" --timeout "${EMACS_START_TIMEOUT:-120}" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
 fi
 
-# Spawn a frame
-echo "Spawning sandbox frame..."
 if [[ -n "$AUTO_TEST" ]]; then
-    emacsclient --socket-name="$SOCKET_NAME" -c -n \
-        --eval "(run-with-timer 1 nil #'mr-x/sandbox-test-env)"
+    timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n --eval "(run-with-timer 1 nil #'mr-x/sandbox-test-env)"
 else
-    emacsclient --socket-name="$SOCKET_NAME" -c -n
+    timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n
 fi
-
-restore_display
+if [[ "$DISPLAY_IDX" =~ ^[0-9]+$ ]]; then
+    if pid=$(daemon_pid); then
+        wid=$(yabai -m query --windows | jq -r ".[] | select(.app == \"Emacs\" and .pid == $pid) | .id" | head -1) || true
+        if [[ "${wid:-}" =~ ^[0-9]+$ ]]; then
+            yabai -m window "$wid" --display "$DISPLAY_IDX"
+            yabai -m window "$wid" --focus
+        fi
+    fi
+fi
