@@ -90,7 +90,9 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 733378a (New Chat: independent agent/model/permissions/effort, searchable pickers, editable presets, saved drafts and exact launch recovery; requires syzygy-launch.el)
 # + local 306c5dd (preset chips accept horizontal touch swipes; verified with a browser touch gesture)
 # + local 68fe3bd (in-chat model search appears on overflow, stays above results, and clears on reopen)
-ACP_MOBILE_COMMIT="68fe3bd0da36e478bd00aadf6b020dbd99c80259"
+# + local 84a8ad4 (UI tests: ACP_MOBILE_CHROME picks the browser; Chrome on the Mac is x64 under Rosetta and misses the DevTools wait)
+# + local 8af88bd (history loading is a 2px progress line under the header instead of the Loading chat pill)
+ACP_MOBILE_COMMIT="8af88bd44dc0d1556d61b4f9ae929cb3378b745d"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
