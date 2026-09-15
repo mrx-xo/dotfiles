@@ -1901,6 +1901,24 @@ running.  Fix: M-x elpaca-rebuild <pkg>, or delete the .elc."
   (should (boundp 'mr-x/clean-exit-file))
   (should (boundp 'mr-x/yabai-state-file)))
 
+(ert-deftest config-test-session-frames-get-stable-unique-restore-keys ()
+  "Each captured frame carries a restore key that is stable across calls.
+The key is stored as a frame parameter so reconstruction can reapply it."
+  (should (fboundp 'mr-x/--session-frame-key))
+  (let* ((frame (selected-frame))
+         (key (mr-x/--session-frame-key frame)))
+    (should (stringp key))
+    (should (string-match-p "\\`frame-[[:alnum:]]+\\'" key))
+    (should (equal key (mr-x/--session-frame-key frame)))
+    (should (equal key (frame-parameter frame 'mr-x/restore-key)))))
+
+(ert-deftest config-test-session-eligibility-excludes-terminal-and-child-frames ()
+  "Only visible top-level graphical frames are captured; batch has none."
+  (should (fboundp 'mr-x/--session-frame-eligible-p))
+  (should-not (mr-x/--session-frame-eligible-p (selected-frame)))
+  (should-not (mr-x/--session-eligible-frames))
+  (should-not (mr-x/--session-frames)))
+
 (ert-deftest config-test-crash-recovery-daemon-only ()
   "Batch runs must not write crash markers or start the autosave timer.
 If this fires in batch, the (daemonp) guard around the wiring was lost —
