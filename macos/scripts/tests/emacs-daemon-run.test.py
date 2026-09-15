@@ -176,7 +176,7 @@ sys.stderr.write("daemon-exit-fixture\\n")
         self.assertFalse(status["complete"])
         self.assertEqual(status["exit_code"], 0)
 
-    def readiness_fixture(self, stale=False):
+    def readiness_fixture(self, stale=False, uninitialized=False):
         emacs = self.fixture_program("emacs-fixture", '''import os,json,time,sys
 from pathlib import Path
 init=Path(sys.argv[3])
@@ -192,7 +192,9 @@ run=Path(json.loads((init/"ready.json").read_text())["run"])
 env=dict(os.environ, MR_X_EMACS_RUN_ID=run.name, MR_X_EMACS_RUN_DIRECTORY=str(run))
 ''' + ('env["MR_X_EMACS_RUN_ID"]="stale-run"\n' if stale else '') + '''
 setup='(setq server-name "fixture" user-emacs-directory '+json.dumps(str(init)+"/")+')'
-r=subprocess.run(["/opt/homebrew/opt/emacs-plus@30/bin/emacs","--batch","-Q","--eval",setup,"--eval","(prin1 "+sys.argv[-1]+")"],env=env)
+''' + ('' if uninitialized else '''setup+='(setq mr-x/crash-runtime--identity (list :run-id (getenv "MR_X_EMACS_RUN_ID") :pid (emacs-pid)))'
+''') + '''
+r=subprocess.run(["/opt/homebrew/opt/emacs-plus@30/bin/emacs","--batch","-Q","--eval","(progn "+setup+")","--eval","(prin1 "+sys.argv[-1]+")"],env=env)
 sys.exit(r.returncode)
 ''')
         result = self.launch(emacs, client, "0.6")
@@ -214,6 +216,11 @@ sys.exit(r.returncode)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["status"], "not-ready")
 
+    def test_readiness_waits_for_runtime_hook_installation(self):
+        result = self.readiness_fixture(uninitialized=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout)["status"], "not-ready")
+
     def test_failed_initialization_retains_early_stderr_and_identity(self):
         emacs = self.fixture_program("emacs-fixture", '''import os,sys
 from pathlib import Path
@@ -223,6 +230,9 @@ assert (run/"metadata.el").exists()
 assert (run/"daemon-stderr.log").exists()
 assert sys.argv[1] == "--fg-daemon=fixture"
 assert sys.argv[2] == "--init-directory"
+assert "mr-x-crash-runtime" in sys.argv
+assert "mr-x/crash-runtime-arm" in sys.argv
+assert Path(sys.argv[sys.argv.index("--directory")+1]) == Path(sys.argv[3])/"lisp"
 sys.stderr.write("early-start-fixture\\n")
 sys.exit(23)
 ''')
