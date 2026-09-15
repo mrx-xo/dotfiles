@@ -2002,7 +2002,13 @@ public dotfiles on purpose. nil when the file is missing or empty."
           ;; org-caldav-save-directory is owned by no-littering
           ;; (var/org/caldav/save), per machine, which is what the
           ;; one-machine rule needs.
-          org-caldav-debug-level 1))
+          org-caldav-debug-level 1
+          ;; No result window. The idle sync fires every 15 minutes and
+          ;; pops "*org caldav sync result*" over whatever is on screen,
+          ;; almost always to say "Nothing was done." The summary goes to
+          ;; the echo area instead (see the advice below); the buffer is
+          ;; still one M-x org-caldav-display-sync-results away.
+          org-caldav-show-sync-results nil))
 
   ;; Home Assistant completes a task by setting STATUS:COMPLETED and leaves
   ;; PERCENT-COMPLETE alone. org-caldav exports every TODO with
@@ -2017,9 +2023,28 @@ public dotfiles on purpose. nil when the file is missing or empty."
               (assq-delete-all 'percent-complete (copy-alist eventdata)))
       eventdata))
 
+  (defun mr-x/arca-caldav--summarize-sync (&rest _)
+    "Report the result of the last `org-caldav-sync' in the echo area.
+Replaces the pop-up result buffer suppressed by
+`org-caldav-show-sync-results'."
+    (let ((errors (length (org-caldav-sync-result-filter-errors)))
+          (ok (length (org-caldav-sync-result-filter-errors t))))
+      (message
+       (cond
+        ((and (zerop errors) (zerop ok))
+         "org-caldav: sync finished, nothing to do")
+        ((zerop errors)
+         (format "org-caldav: sync finished, %d item%s"
+                 ok (if (= ok 1) "" "s")))
+        (t
+         (format "org-caldav: sync finished, %d item%s, %d error%s (M-x org-caldav-display-sync-results)"
+                 ok (if (= ok 1) "" "s")
+                 errors (if (= errors 1) "" "s")))))))
+
   (with-eval-after-load 'org-caldav
     (advice-add 'org-caldav-convert-event-or-todo--todo
-                :filter-return #'mr-x/arca-caldav--completed-wins))
+                :filter-return #'mr-x/arca-caldav--completed-wins)
+    (advice-add 'org-caldav-sync :after #'mr-x/arca-caldav--summarize-sync))
 
   (defun mr-x/arca-caldav-sync (&optional interactive)
     "Run `org-caldav-sync', on MrX only.
