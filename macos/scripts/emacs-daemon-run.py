@@ -7,8 +7,8 @@ answers on that named socket.  A detached supervisor remains for the foreground
 daemon's lifetime; it owns a per-server flock, never signals any process, and
 drains stderr independently of disk writes.  Startup timeout preserves the
 still-running process and its evidence, and never retries launch automatically.
-The initialized daemon must call mr-x/crash-run-initialized to attach its PID;
-readiness itself does not update metadata.  Both entry points must share the
+The explicit runtime startup action installs hooks and attaches its PID before
+readiness succeeds.  Both entry points must share the
 same runtime directory for per-server exclusion (the default ignores TMPDIR).
 
 stderr-status.json is incomplete until a finished status explicitly says
@@ -191,8 +191,11 @@ def supervise(run, lock_fd):
     env = dict(os.environ, MR_X_EMACS_RUN_ID=run.name,
                MR_X_EMACS_RUN_DIRECTORY=str(run))
     try:
+        library = Path(spec["init_directory"]) / "lisp"
         child = subprocess.Popen([spec["emacs"], "--fg-daemon=" + spec["server"],
-                                  "--init-directory", spec["init_directory"]],
+                                  "--init-directory", spec["init_directory"],
+                                  "--directory", str(library), "--load", "mr-x-crash-runtime",
+                                  "--funcall", "mr-x/crash-runtime-arm"],
                                  env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                  bufsize=0)
@@ -251,7 +254,10 @@ def start(args):
         os.close(fd)
     expression = ('(if (and (equal (getenv "MR_X_EMACS_RUN_ID") %s) '
                   '(equal (getenv "MR_X_EMACS_RUN_DIRECTORY") %s) '
-                  '(equal server-name %s) (equal (file-truename user-emacs-directory) %s)) '
+                  '(equal server-name %s) (equal (file-truename user-emacs-directory) %s) '
+                  '(bound-and-true-p mr-x/crash-runtime--identity) '
+                  '(equal (plist-get mr-x/crash-runtime--identity :run-id) (getenv "MR_X_EMACS_RUN_ID")) '
+                  '(equal (plist-get mr-x/crash-runtime--identity :pid) (emacs-pid))) '
                   '(number-to-string (emacs-pid)) nil)') % (
                       lisp_string(run.name), lisp_string(run), lisp_string(args.server),
                       lisp_string(str(init) + os.sep))
