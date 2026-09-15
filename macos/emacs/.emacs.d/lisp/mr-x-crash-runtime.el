@@ -5,11 +5,13 @@
 ;; command-line action, which defers installation until emacs-startup-hook.
 ;; Emacs 30 sets server-name from daemonp only after command-line actions.
 ;; Validate the launch environment and metadata before installing anything.
-;; This connects diagnostics only; legacy capture/recovery remains separate
-;; until the transactional bundle and restore integration is complete.
+;; After installation it bundles prior unclean runs of this daemon into the
+;; immutable store; legacy capture/recovery remains separate until the frame
+;; and placement integration is complete.
 
 ;;; Code:
 (require 'mr-x-crash-diagnostics)
+(require 'mr-x-crash-bundle)
 (defvar server-name)
 (defvar mr-x/crash-runtime--identity nil)
 (defvar mr-x/crash-runtime--directory nil)
@@ -89,7 +91,14 @@ no-op; environment changes cannot redirect an already active logger."
                 (add-hook 'kill-emacs-hook #'mr-x/crash-runtime--clean t)
                 (setq mr-x/crash-runtime--identity identity complete t)
                 (mr-x/crash-runtime--snapshot))
-            (unless complete (mr-x/crash-runtime-stop)))))
+            (unless complete (mr-x/crash-runtime-stop)))
+          ;; Prior runs are processed only once this run is fully wired, and
+          ;; never this run: its own evidence is still being written.
+          (condition-case err
+              (mr-x/crash-bundle-process init server-name (plist-get identity :run-id))
+            ((error quit)
+             (setq mr-x/crash-runtime--last-error
+                   (truncate-string-to-width (error-message-string err) 512))))))
       mr-x/crash-runtime--identity)))
 
 (defun mr-x/crash-runtime-arm ()
