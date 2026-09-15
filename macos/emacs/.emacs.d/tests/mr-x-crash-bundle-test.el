@@ -292,5 +292,22 @@
        (should (equal (crash-bundle-test--digest (expand-file-name "command-errors.log" run))
                       (crash-bundle-test--digest (expand-file-name "command-errors.log" bundle))))))))
 
+(ert-deftest crash-bundle-accepts-run-names-with-underscores-from-the-launcher ()
+  ;; The Python launcher names runs with mkdtemp, whose alphabet includes "_".
+  (crash-bundle-test--fixture
+   (let ((run (expand-file-name "run-wq57_z1x" runs)))
+     (make-directory run)
+     (set-file-modes run #o700)
+     (mr-x/crash-capture--write
+      (expand-file-name "metadata.el" run)
+      (list :schema-version 1 :run-id "run-wq57_z1x" :server "sandbox" :init-directory init
+            :started-at (float-time) :pid 72384 :initialized-at (float-time)
+            :logs '("recent-messages.log" "command-errors.log" "daemon-stderr.log")))
+     (let ((result (mr-x/crash-bundle-process init "sandbox")))
+       (should-not (plist-get result :warnings))
+       (should (equal '("bundle-run-wq57_z1x") (plist-get result :bundled)))
+       (should (equal "bundle-run-wq57_z1x" (mr-x/crash-bundle-active store)))
+       (should (file-exists-p (expand-file-name "processed.el" run)))))))
+
 (provide 'mr-x-crash-bundle-test)
 ;;; mr-x-crash-bundle-test.el ends here
