@@ -1,6 +1,7 @@
 #!/bin/bash
 # Launch the prepared Nabu briefing in Electron. Aliases: nabu-poc, nabu-dev.
 # --inspector opens the console; --refresh prepares a new run first.
+# Creates the agent desktop when missing and reuses it on later launches.
 # Local configuration: ~/.config/channel5/launcher.env (shell assignments)
 # CHANNEL5_APP_DIR, CHANNEL5_HA_URL, CHANNEL5_TOKEN_FILE, CHANNEL5_DATA_DIR.
 # Machine/service addresses belong in that local file, not this public repo.
@@ -16,6 +17,7 @@ for arg in "$@"; do
       echo 'Usage: nabu-poc [--refresh] [--inspector]'
       echo '       nabu-dev [--refresh]'
       echo 'Reuses a valid saved briefing, otherwise prepares one. Playback starts on click.'
+      echo 'Creates the agent desktop if needed; opens the show there.'
       exit 0 ;;
     *) echo "Unknown option: $arg (use --help)" >&2; exit 2 ;;
   esac
@@ -29,6 +31,20 @@ token_file="${CHANNEL5_TOKEN_FILE:-$HOME/.config/gaia/ha-token.txt}"
 [[ -f "$app_dir/prepare.mjs" ]] || { echo "Electron briefing not found: $app_dir" >&2; exit 1; }
 command -v node >/dev/null || { echo 'Node.js 22 or newer is required.' >&2; exit 1; }
 command -v npm >/dev/null || { echo 'npm is required.' >&2; exit 1; }
+# Verify placement before spending time preparing narration.
+script_dir=$(dirname "$(readlink -f "$0")")
+"$script_dir/agent-space-ensure" || true
+if ! yabai -m query --spaces | node -e '
+  let input = "";
+  process.stdin.on("data", chunk => input += chunk);
+  process.stdin.on("end", () => {
+    try { process.exit(JSON.parse(input).some(space => space.label === "agent") ? 0 : 1); }
+    catch { process.exit(1); }
+  });
+'; then
+  echo 'Could not create the agent desktop. Check that yabai can create spaces, then retry.' >&2
+  exit 1
+fi
 cd "$app_dir"
 # Preparation can acquire runtime dependencies when the app checkout advances.
 if ! npm ls --depth=0 --silent >/dev/null 2>&1; then npm ci; fi
