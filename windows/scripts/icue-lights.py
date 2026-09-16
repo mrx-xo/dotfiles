@@ -16,6 +16,7 @@ Venv: ~/icue-scheduler/.venv (cuesdk). Setup: setup-icue-scheduler.ps1.
 import colorsys
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -149,8 +150,26 @@ def paint(sdk, layout, fn, t, brightness=1.0, overrides=None):
         sdk.set_led_colors(did, colors)
 
 
+def setup_logging(state_dir):
+    """Rotating engine.log next to status.json: the task runs through
+    run-hidden.vbs, so stderr goes nowhere and a wedge left no trace."""
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler(Path(state_dir) / "engine.log",
+                                  maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    return handler
+
+
 def main():
     STOP_FLAG.unlink(missing_ok=True)
+    try:
+        setup_logging(STATE_DIR)
+    except OSError:
+        pass  # a missing state dir must not keep the lights off
+    logging.info("engine starting (pid %s)", os.getpid())
     sdk = CueSdk()
     server = None
     try:
@@ -165,6 +184,7 @@ def main():
         status_ts = 0.0
         while not STOP_FLAG.exists():
             if not connected.wait(timeout=60):
+                logging.warning("iCUE SDK session not connected for 60s; waiting")
                 continue
             now = time.time()
             try:
@@ -197,6 +217,7 @@ def main():
                     paint(sdk, layout, lambda x, t: (0, 0, 0), now)
                     time.sleep(2)
             except Exception:
+                logging.exception("SDK tick failed; rebuilding layout")
                 layout = []  # iCUE restarting or device hotplug; rebuild next tick
                 time.sleep(5)
     finally:
