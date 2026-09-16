@@ -463,6 +463,19 @@ class DriverTests(unittest.TestCase):
         paint.assert_called_once()
         self.assertIn('HTTP API unavailable; lighting schedule continues', ' '.join(logs.output))
 
+    def test_engine_log_captures_sdk_failures(self):
+        driver = self.load_driver()
+        with tempfile.TemporaryDirectory() as directory:
+            handler = driver.setup_logging(Path(directory))
+            try:
+                driver.logging.getLogger().exception('SDK tick failed; rebuilding layout')
+                handler.flush()
+                text = (Path(directory) / 'engine.log').read_text()
+            finally:
+                driver.logging.getLogger().removeHandler(handler)
+                handler.close()
+        self.assertIn('SDK tick failed; rebuilding layout', text)
+
     def test_stop_closes_http_and_releases_layer(self):
         driver = self.load_driver()
         stop, server = Mock(), Mock()

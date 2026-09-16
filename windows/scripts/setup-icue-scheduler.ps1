@@ -29,6 +29,14 @@ uv pip install --python $python cuesdk
 schtasks /create /f /tn ICUELights /sc onlogon /it `
     /tr "wscript.exe `"$vbs`" `"$python`" `"$script`""
 
+# Watchdog: every 2 minutes, relaunch the engine if status.json stops being
+# rewritten (a wedge inside cuesdk never sees stop.flag) or the process is gone.
+# Actions land in ~\icue-scheduler\watchdog.log; the engine itself now logs to
+# engine.log there. Same hidden-console shape as the engine task.
+$watchdog = "$env:USERPROFILE\dotfiles\windows\scripts\icue_watchdog.py"
+schtasks /create /f /tn ICUELightsWatchdog /sc minute /mo 2 /it `
+    /tr "wscript.exe `"$vbs`" `"$python`" `"$watchdog`""
+
 Write-Host "Done. Start now with: schtasks /run /tn ICUELights"
 
 # Preserve the existing interactive logon task; firewall setup is a separate
