@@ -93,7 +93,8 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 84a8ad4 (UI tests: ACP_MOBILE_CHROME picks the browser; Chrome on the Mac is x64 under Rosetta and misses the DevTools wait)
 # + local 8af88bd (history loading is a 2px progress line under the header instead of the Loading chat pill)
 # + local f344b48 (one busy line: generating and session fetches use the header progress line; thinking bar and Orrery glyph removed; leaving a chat clears generating)
-ACP_MOBILE_COMMIT="f344b486ab4c54f3c54707590e25b34366ab2afc"
+# + local 72d6e3c (a run of quoted lines renders as one blockquote with inner markdown; fence bodies untouched, fences inside quotes render)
+ACP_MOBILE_COMMIT="72d6e3c53457497f2be4be60de2b04edd6ceaf72"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
