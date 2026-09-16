@@ -1890,16 +1890,54 @@ running.  Fix: M-x elpaca-rebuild <pkg>, or delete the .elc."
 ;; ═══════════════════════════════════════════════════════════════════════════
 
 (ert-deftest config-test-crash-recovery-defined ()
-  "Crash recovery commands and state variables exist."
+  "Crash review commands exist and the legacy checker is gone."
   (should (fboundp 'mr-x/crash-recovery))
   (should (fboundp 'mr-x/crash-restore))
   (should (fboundp 'mr-x/crash-open-log))
   (should (fboundp 'mr-x/crash-discard))
   (should (fboundp 'mr-x/crash-pending-p))
+  (should (fboundp 'mr-x/crash-pending-count))
   (should (fboundp 'mr-x/session-autosave))
-  (should (boundp 'mr-x/crash-state-dir))
-  (should (boundp 'mr-x/clean-exit-file))
-  (should (boundp 'mr-x/yabai-state-file)))
+  (should (fboundp 'mr-x/--crash-store))
+  (should (boundp 'mr-x/yabai-state-file))
+  (should-not (fboundp 'mr-x/--crash-check))
+  (should-not (fboundp 'mr-x/--write-clean-exit-marker))
+  (should-not (boundp 'mr-x/clean-exit-file))
+  (should-not (boundp 'mr-x/crash-state-dir)))
+
+(ert-deftest config-test-crash-review-reads-bundle-store-then-legacy ()
+  "SPC R reviews pending bundles first, the legacy flat snapshot last, and
+discard advances to the next one.  Runs in a throwaway init directory."
+  (let* ((user-emacs-directory (file-name-as-directory (make-temp-file "crash-review-" t)))
+         (runs (expand-file-name "var/crash-recovery/runs/" user-emacs-directory)))
+    (unwind-protect
+        (progn
+          (make-directory runs t)
+          (should-not (mr-x/crash-pending-p))
+          (should (= 0 (mr-x/crash-pending-count)))
+          (make-directory (mr-x/--crash-store) t)
+          (mr-x/crash-capture--write
+           (expand-file-name "session-state.el" (mr-x/--crash-store))
+           '((:width 80 :height 24 :window-tree (:type leaf :buffer "*scratch*"))))
+          (should (eq 'legacy (plist-get (mr-x/--crash-info) :kind)))
+          (should (= 1 (mr-x/crash-pending-count)))
+          (let ((run (mr-x/crash-run-create runs "sandbox" user-emacs-directory)))
+            (mr-x/crash-run-initialized run 4242)
+            (mr-x/crash-diagnostics--append run "fixture record REVIEW-TAG\n")
+            (mr-x/crash-bundle-process user-emacs-directory "sandbox"))
+          (let ((info (mr-x/--crash-info)))
+            (should (eq 'bundle (plist-get info :kind)))
+            (should (eq 'review-only (plist-get info :phase)))
+            (should (= 2 (mr-x/crash-pending-count)))
+            (should (string-match-p "REVIEW-TAG" (mr-x/--crash-section)))
+            (should (string-match-p "1 more pending" (mr-x/--crash-section))))
+          (cl-letf (((symbol-function 'mr-x/crash-recovery) #'ignore)
+                    ((symbol-function 'mr-x/--crash-clear-splash) #'ignore))
+            (mr-x/crash-discard)
+            (should (eq 'legacy (plist-get (mr-x/--crash-info) :kind)))
+            (mr-x/crash-discard)
+            (should-not (mr-x/crash-pending-p))))
+      (delete-directory user-emacs-directory t))))
 
 (ert-deftest config-test-session-frames-get-stable-unique-restore-keys ()
   "Each captured frame carries a restore key that is stable across calls.
@@ -1924,8 +1962,7 @@ The key is stored as a frame parameter so reconstruction can reapply it."
 If this fires in batch, the (daemonp) guard around the wiring was lost —
 which would make every test run pollute crash detection state."
   (unless (daemonp)
-    (should-not mr-x/session-autosave-timer)
-    (should-not (member #'mr-x/--write-clean-exit-marker kill-emacs-hook))))
+    (should-not mr-x/session-autosave-timer)))
 
 (ert-deftest config-test-lights-available ()
   "The lights dashboard command should be autoloaded."
