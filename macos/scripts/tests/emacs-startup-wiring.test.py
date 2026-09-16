@@ -114,6 +114,14 @@ sys.exit(1)
         self.assertEqual(len(backups),1)
         self.assertEqual((backups[0]/"old-evidence").read_text(),"preserved")
 
+    def test_no_emacs_script_matches_processes_by_name(self):
+        # Broad process matching is the failure class this repair removes:
+        # "emacs.*daemon" also matches the sandbox and any other Emacs.
+        for script in sorted(SCRIPTS.glob("emacs-*.sh")):
+            text = script.read_text()
+            for pattern in ("pkill", "pgrep", "killall"):
+                self.assertNotIn(pattern, text, "%s still uses %s" % (script.name, pattern))
+
 
 if __name__ == "__main__":
     unittest.main()
