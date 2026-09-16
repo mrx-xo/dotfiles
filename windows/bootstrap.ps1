@@ -202,6 +202,30 @@ if ((Test-Path $ahkExe) -and (Test-Path $obsSkateScript)) {
 }
 
 # ---------------------------------------------------------------------------
+# OBS: restore the Skate profile + scene collection from the repo snapshot
+# (obs\) if they're missing. Copy-if-missing so we never clobber a live config
+# OBS is actively rewriting. OBS must have run once to create its config dir.
+# The "Game Audio" device GUID is machine-specific — re-pick it in OBS on a new
+# box (see obs\README.md).
+# ---------------------------------------------------------------------------
+$obsRoot    = "$env:APPDATA\obs-studio"
+$obsProfile = "$obsRoot\basic\profiles\Skate"
+$obsScene   = "$obsRoot\basic\scenes\Skate.json"
+if (Test-Path $obsRoot) {
+    if (-not (Test-Path $obsProfile)) {
+        New-Item -ItemType Directory -Force -Path $obsProfile | Out-Null
+        Copy-Item "$repo\obs\profiles\Skate\*" $obsProfile -Force
+        Write-Host "Restored OBS Skate profile from repo snapshot" -ForegroundColor Green
+    }
+    if (-not (Test-Path $obsScene)) {
+        Copy-Item "$repo\obs\scenes\Skate.json" $obsScene -Force
+        Write-Host "Restored OBS Skate scene collection from repo snapshot" -ForegroundColor Green
+    }
+} else {
+    Write-Host "OBS config dir not found - launch OBS once, then re-run bootstrap to restore the Skate profile/scene." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
 # OBS: enable obs-websocket so the F10 save-replay hotkey can drive
 # SaveReplayBuffer (OBS's own raw-key hotkey didn't fire reliably; we trigger the
 # save over the websocket from scripts\obs-save-replay.ps1 instead). The config is

@@ -1,0 +1,16 @@
+{
+    "bf": 2,
+    "cqp": 18,
+    "gpu": 0,
+    "keyint_sec": 0,
+    "lookahead": false,
+    "max_bitrate": 0,
+    "bitrate": 0,
+    "multipass": "qres",
+    "preset2": "p6",
+    "profile": "high",
+    "psycho_aq": true,
+    "rate_control": "CQP",
+    "split_encode": "auto",
+    "tune": "hq"
+}
