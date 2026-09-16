@@ -87,14 +87,22 @@ save_scratch() {
 
 kill_daemon() {
     log "DAEMON" "Stopping Emacs daemon..."
-    $EMACSCLIENT -e '(kill-emacs)' 2>/dev/null
-    # Give it a moment to die gracefully
-    sleep 1
-    # Verify it's dead
-    if pgrep -f "emacs.*daemon" >/dev/null 2>&1; then
-        log "DAEMON" "Still alive, force killing..."
-        pkill -9 -f "emacs.*daemon" 2>/dev/null
-        sleep 1
+    # Only the daemon answering on the default socket is ever stopped.  Never
+    # match processes by name: "emacs.*daemon" also matches the sandbox.
+    if ! $EMACSCLIENT -e t >/dev/null 2>&1; then
+        log "DAEMON" "No daemon answering on the default socket"
+        return 0
+    fi
+    # kill-emacs never returns to the client; the dropped connection is expected.
+    $EMACSCLIENT -e '(kill-emacs)' >/dev/null 2>&1 || true
+    local attempt
+    for attempt in $(seq 1 100); do
+        $EMACSCLIENT -e t >/dev/null 2>&1 || break
+        sleep 0.1
+    done
+    if $EMACSCLIENT -e t >/dev/null 2>&1; then
+        log "DAEMON" "Still answers after 10s; refusing to kill by name"
+        return 1
     fi
     log "DAEMON" "Stopped"
 }
