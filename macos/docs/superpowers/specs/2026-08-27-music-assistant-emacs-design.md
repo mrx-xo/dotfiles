@@ -2,7 +2,13 @@
 
 Date: 2026-08-27
 Revalidated: 2026-09-02 against Music Assistant 2.9.13 / schema 31
-Status: Approved for implementation planning
+Status: V1 shipped and merged into main on 2026-09-03 (`b954f16`)
+Status reconciled: 2026-09-16
+
+This document records the V1 design. The canonical cross-system roadmap is
+`~/docs/music-roadmap.md` (indexed in `~/ATLAS.md`): it tracks shipped behavior,
+voice-routing unification, the local library, visual direction, and deferred
+features. Historical environment details below are not a fresh live audit.
 
 ## Summary
 
