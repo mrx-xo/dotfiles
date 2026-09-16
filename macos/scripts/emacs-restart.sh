@@ -45,7 +45,22 @@ $EMACSCLIENT -e '(progn
   t)' 2>/dev/null
 
 echo "Stopping Emacs daemon..."
-$EMACSCLIENT -e '(kill-emacs)' 2>/dev/null || pkill -f "emacs.*daemon" 2>/dev/null
+# Only the daemon answering on the default socket is ever stopped.  Never
+# match processes by name: "emacs.*daemon" also matches the sandbox.
+if $EMACSCLIENT -e t >/dev/null 2>&1; then
+    # kill-emacs never returns to the client; the dropped connection is expected.
+    $EMACSCLIENT -e '(kill-emacs)' >/dev/null 2>&1 || true
+    for _ in $(seq 1 100); do
+        $EMACSCLIENT -e t >/dev/null 2>&1 || break
+        sleep 0.1
+    done
+    if $EMACSCLIENT -e t >/dev/null 2>&1; then
+        echo "Daemon still answers after 10s; refusing to kill by name. Restart aborted."
+        exit 1
+    fi
+else
+    echo "No daemon answering on the default socket."
+fi
 
 # kill-emacs exits 0, and KeepAlive/SuccessfulExit=false only restarts
 # on non-zero exit — so launchd won't auto-restart. We must unload/load.

@@ -3847,9 +3847,11 @@ Falls back to a one-liner if fastfetch isn't installed."
         (when (and (fboundp 'mr-x/crash-pending-p)
                    (mr-x/crash-pending-p)
                    (null mr-x/fetch--extra))
-          (setq mr-x/fetch--extra
-                (propertize "⚠ last session ended uncleanly — SPC R to review"
-                            'face 'warning)))
+          (let ((n (mr-x/crash-pending-count)))
+            (setq mr-x/fetch--extra
+                  (propertize (format "%d crash report%s pending — SPC R to review"
+                                      n (if (= n 1) "" "s"))
+                              'face 'warning))))
         (if (executable-find "fastfetch")
             (progn
               (require 'ansi-color)
@@ -5111,13 +5113,8 @@ where make-frame would otherwise error with \"Unknown terminal type\"."
 
 
 
-  (defvar mr-x/crash-state-dir
-    (expand-file-name "crash-state/" user-emacs-directory)
-    "Directory holding state snapshotted after an unclean exit.")
-
-  (defvar mr-x/clean-exit-file
-    (expand-file-name "clean-exit" user-emacs-directory)
-    "Marker written on graceful shutdown; absent at startup means we crashed.")
+  (require 'mr-x-crash-bundle)
+  (require 'mr-x-crash-restore)
 
   (defvar mr-x/yabai-state-file
     (expand-file-name "yabai-state.json" user-emacs-directory)
@@ -5151,95 +5148,123 @@ placement record."
           (start-process "yabai-autosave" nil
                          mr-x/--restart-restore-script "save-yabai")))))
 
+  (defun mr-x/--crash-store ()
+    "The crash bundle store below `user-emacs-directory'."
+    (expand-file-name "crash-state/" user-emacs-directory))
+
+  (defun mr-x/--crash-legacy-p ()
+    "Whether the pre-bundle flat snapshot still waits in the store.
+It is read-only here: reviewable and discardable, never rewritten."
+    (file-exists-p (expand-file-name "session-state.el" (mr-x/--crash-store))))
+
+  (defun mr-x/--crash-active ()
+    "Active bundle ID, or nil.  Store trouble never breaks the splash."
+    (condition-case nil
+        (and (file-directory-p (expand-file-name "bundles" (mr-x/--crash-store)))
+             (mr-x/crash-bundle-active (mr-x/--crash-store)))
+      (error nil)))
+
   (defun mr-x/crash-pending-p ()
-    "Non-nil when an un-reviewed crash snapshot exists."
-    (file-exists-p (expand-file-name "session-state.el" mr-x/crash-state-dir)))
+    "Non-nil when a crash bundle or the legacy flat snapshot awaits review."
+    (or (mr-x/--crash-active) (mr-x/--crash-legacy-p)))
 
-  (defun mr-x/--write-clean-exit-marker ()
-    "Mark this shutdown as intentional (kill-emacs-hook)."
-    (ignore-errors
-      (write-region "" nil mr-x/clean-exit-file nil 'silent)))
-
-  (defun mr-x/--crash-check ()
-    "Detect an unclean previous exit and preserve its state.
-Runs once at daemon startup, before the autosave timer gets a
-chance to overwrite the pre-crash snapshot.  Copies session +
-yabai state into `mr-x/crash-state-dir' and snapshots the tail of
-the daemon stderr log plus the newest macOS crash report path."
-    (if (file-exists-p mr-x/clean-exit-file)
-        (delete-file mr-x/clean-exit-file)
-      (when (file-exists-p mr-x/session-file)
-        (make-directory mr-x/crash-state-dir t)
-        (copy-file mr-x/session-file
-                   (expand-file-name "session-state.el" mr-x/crash-state-dir)
-                   t t)
-        (when (file-exists-p mr-x/yabai-state-file)
-          (copy-file mr-x/yabai-state-file
-                     (expand-file-name "yabai-state.json" mr-x/crash-state-dir)
-                     t t))
-        (let ((log "/tmp/emacs-daemon.stderr.log")
-              (snap (expand-file-name "stderr.log" mr-x/crash-state-dir))
-              (ips (car (sort (file-expand-wildcards
-                               "~/Library/Logs/DiagnosticReports/Emacs-*.ips" t)
-                              #'file-newer-than-file-p))))
-          (with-temp-file snap
-            (insert (format ";; crash detected %s\n"
-                            (format-time-string "%Y-%m-%d %H:%M:%S")))
-            (insert (format ";; session state from %s\n"
-                            (format-time-string
-                             "%Y-%m-%d %H:%M:%S"
-                             (file-attribute-modification-time
-                              (file-attributes mr-x/session-file)))))
-            (when ips
-              (insert (format ";; macOS crash report: %s\n" ips)))
-            (insert "\n")
-            (when (file-readable-p log)
-              (insert (with-temp-buffer
-                        (insert-file-contents log)
-                        (goto-char (point-max))
-                        (forward-line -200)
-                        (buffer-substring (point) (point-max))))))))))
+  (defun mr-x/crash-pending-count ()
+    "How many recoveries await review: pending bundles plus a legacy snapshot."
+    (+ (condition-case nil
+           (if (file-directory-p (expand-file-name "bundles" (mr-x/--crash-store)))
+               (length (mr-x/crash-bundle-pending (mr-x/--crash-store)))
+             0)
+         (error 0))
+       (if (mr-x/--crash-legacy-p) 1 0)))
 
   (defun mr-x/--crash-info ()
-    "Plist describing the pending crash snapshot, or nil."
-    (when (mr-x/crash-pending-p)
-      (let* ((state (expand-file-name "session-state.el" mr-x/crash-state-dir))
-             (yabai (expand-file-name "yabai-state.json" mr-x/crash-state-dir))
-             (stderr (expand-file-name "stderr.log" mr-x/crash-state-dir))
-             ;; Dynamic shadow so the summary reads the crash copy.
-             (mr-x/session-file state))
-        (list :state state
-              :yabai (and (file-exists-p yabai) yabai)
-              :stderr (and (file-exists-p stderr) stderr)
-              :saved-at (format-time-string
-                         "%Y-%m-%d %H:%M"
-                         (file-attribute-modification-time
-                          (file-attributes state)))
-              :summary (mr-x/session-state-summary)))))
+    "Plist describing what `SPC R' reviews now, or nil.
+The newest pending bundle comes first; the legacy flat snapshot last."
+    (let ((store (mr-x/--crash-store)))
+      (cond
+       ((mr-x/--crash-active)
+        (let* ((id (mr-x/--crash-active))
+               (directory (mr-x/crash-bundle-directory store id))
+               (status (mr-x/crash-bundle-status directory))
+               (session (expand-file-name "session-state.el" directory))
+               (source (plist-get status :source-run)))
+          (list :kind 'bundle :id id :directory directory :status status
+                :phase (plist-get status :phase)
+                :session (and (file-exists-p session) session)
+                :report (expand-file-name "report.log" directory)
+                :saved-at (format-time-string "%Y-%m-%d %H:%M"
+                                              (or (plist-get source :started-at) 0))
+                :pid (plist-get source :pid)
+                :summary (if (file-exists-p session)
+                             ;; Dynamic shadow so the summary reads the bundle copy.
+                             (let ((mr-x/session-file session))
+                               (mr-x/session-state-summary))
+                           "no restorable session captured (diagnostics only)"))))
+       ((mr-x/--crash-legacy-p)
+        (let ((session (expand-file-name "session-state.el" store))
+              (stderr (expand-file-name "stderr.log" store)))
+          (list :kind 'legacy :session session :phase 'pending-frames
+                :report (and (file-exists-p stderr) stderr)
+                :saved-at (format-time-string
+                           "%Y-%m-%d %H:%M"
+                           (file-attribute-modification-time (file-attributes session)))
+                :summary (let ((mr-x/session-file session))
+                           (mr-x/session-state-summary))))))))
+
+  (defun mr-x/--crash-excerpt (info)
+    "Short diagnostic excerpt for the splash: the newest command error
+records of a bundle, or the tail of a legacy stderr snapshot."
+    (let ((report (plist-get info :report)))
+      (when (and report (file-exists-p report))
+        (with-temp-buffer
+          (insert-file-contents report)
+          (if (eq (plist-get info :kind) 'bundle)
+              (when (progn (goto-char (point-min))
+                           (search-forward "== latest command errors (tail) ==\n" nil t))
+                (let ((start (point))
+                      (end (if (search-forward "\n== recent messages" nil t)
+                               (match-beginning 0)
+                             (point-max))))
+                  (goto-char end)
+                  (forward-line -12)
+                  (string-trim (buffer-substring (max start (point)) end))))
+            (goto-char (point-max))
+            (skip-chars-backward "\n")
+            (forward-line -12)
+            (string-trim-right (buffer-substring (point) (point-max))))))))
 
   (defun mr-x/--crash-section ()
     "Propertized crash report block for the splash buffer."
     (let* ((info (mr-x/--crash-info))
-           (tail (when (plist-get info :stderr)
-                   (with-temp-buffer
-                     (insert-file-contents (plist-get info :stderr))
-                     (goto-char (point-max))
-                     (skip-chars-backward "\n")
-                     (forward-line -12)
-                     (string-trim-right
-                      (buffer-substring (point) (point-max)))))))
+           (phase (plist-get info :phase))
+           (excerpt (mr-x/--crash-excerpt info))
+           (last-error (plist-get (plist-get info :status) :last-error))
+           (more (1- (mr-x/crash-pending-count)))
+           (keys (concat (pcase phase
+                           ('pending-frames "[r] restore layout   ")
+                           ('cleanup-pending "[r] retry cleanup   ")
+                           ('pending-yabai "[r] placement pending, not implemented   ")
+                           (_ ""))
+                         "[d] full report   [x] discard   [q] quit")))
       (concat
        (propertize "── CRASH REPORT ─────────────────────────────────\n"
                    'face 'error)
-       (propertize (format "last session ended uncleanly · state saved %s\n"
-                           (plist-get info :saved-at))
+       (propertize (if (eq (plist-get info :kind) 'bundle)
+                       (format "%s · run started %s · pid %s · %s\n"
+                               (plist-get info :id) (plist-get info :saved-at)
+                               (or (plist-get info :pid) "unknown") phase)
+                     (format "legacy snapshot · state saved %s\n"
+                             (plist-get info :saved-at)))
                    'face 'warning)
        (plist-get info :summary) "\n"
-       (when (and tail (not (string-empty-p tail)))
-         (concat "\n" (propertize tail 'face 'shadow) "\n"))
+       (when (and excerpt (not (string-empty-p excerpt)))
+         (concat "\n" (propertize excerpt 'face 'shadow) "\n"))
+       (when last-error
+         (concat "\n" (propertize (format "last attempt: %s" last-error) 'face 'error) "\n"))
+       (when (> more 0)
+         (propertize (format "\n%d more pending after this one\n" more) 'face 'warning))
        "\n"
-       (propertize "[r] restore layout   [d] full log   [x] discard   [q] quit"
-                   'face 'success))))
+       (propertize keys 'face 'success))))
 
   (defvar mr-x/crash-review-map
     (let ((m (make-sparse-keymap)))
@@ -5270,7 +5295,7 @@ the daemon stderr log plus the newest macOS crash report path."
           (mr-x/fetch--layout)))))
 
   (defun mr-x/crash-recovery ()
-    "Review the last crash on the splash: debug tail + restore options."
+    "Review the newest pending crash on the splash: evidence + actions."
     (interactive)
     (if (not (mr-x/crash-pending-p))
         (message "No crash state to review")
@@ -5284,65 +5309,168 @@ the daemon stderr log plus the newest macOS crash report path."
           (insert "\n" mr-x/fetch--extra "\n")))
       (mr-x/--crash-review-bind)))
 
+  (defvar mr-x/--crash-restore-active nil
+    "Bundle ID whose recovery operation is running; one at a time.")
+
+  (defun mr-x/--crash-replay-tree (frame tree)
+    "Replay TREE into FRAME starting from its single live window."
+    (with-selected-frame frame
+      (delete-other-windows)
+      (mr-x/--restore-window-tree (frame-selected-window frame) tree)))
+
+  (defun mr-x/--crash-frames-with-keys (keys)
+    "Live frames whose restore key is one of KEYS."
+    (cl-remove-if-not (lambda (f) (member (frame-parameter f 'mr-x/restore-key) keys))
+                      (frame-list)))
+
+  (defun mr-x/--crash-after-consume (splash-frame)
+    "Show the next pending crash, or clear the splash and bury it."
+    (if (mr-x/crash-pending-p)
+        (mr-x/crash-recovery)
+      (mr-x/--crash-clear-splash)
+      (when (frame-live-p splash-frame)
+        (lower-frame splash-frame))))
+
+  (defun mr-x/--crash-restore-bundle (info)
+    "Drive the frame phase of recovery for the bundle described by INFO."
+    (let* ((store (mr-x/--crash-store))
+           (id (plist-get info :id))
+           (directory (plist-get info :directory))
+           (status (mr-x/crash-bundle-status directory))
+           (phase (plist-get status :phase))
+           (splash-frame (selected-frame)))
+      (when (equal mr-x/--crash-restore-active id)
+        (user-error "Recovery of %s is already running" id))
+      (pcase phase
+        ('cleanup-pending
+         ;; Retry cleanup only: reconstruction stays blocked until every
+         ;; leaked frame of the failed attempt is gone.
+         (dolist (f (mr-x/--crash-frames-with-keys (plist-get status :residual-resources)))
+           (ignore-errors (delete-frame f t)))
+         (let ((left (mapcar (lambda (f) (frame-parameter f 'mr-x/restore-key))
+                             (mr-x/--crash-frames-with-keys
+                              (plist-get status :residual-resources)))))
+           (if left
+               (mr-x/crash-bundle-transition directory 'cleanup-pending 'cleanup-pending
+                                             :residual-resources left)
+             (mr-x/crash-bundle-transition directory 'cleanup-pending 'pending-frames
+                                           :residual-resources nil))
+           (mr-x/crash-recovery)
+           (message (if left "Cleanup incomplete: %S still alive; r retries cleanup"
+                      "Cleanup complete; r now rebuilds the frames")
+                    left)))
+        ('restoring-frames
+         ;; A stale attempt: this daemon holds no operation, so reconcile by
+         ;; removing any frames that attempt left behind, then allow retry.
+         (let ((keys (mapcar (lambda (fd) (plist-get fd :restore-key))
+                             (mr-x/crash-capture--read (plist-get info :session)))))
+           (dolist (f (mr-x/--crash-frames-with-keys keys))
+             (ignore-errors (delete-frame f t)))
+           (mr-x/crash-bundle-transition directory 'restoring-frames 'pending-frames
+                                         :owner nil :last-error "interrupted attempt reconciled")
+           (mr-x/crash-recovery)
+           (message "Interrupted attempt reconciled; r retries the restore")))
+        ('pending-frames
+         (let ((session (mr-x/crash-capture--read (plist-get info :session)))
+               (owner (list :run-id (getenv "MR_X_EMACS_RUN_ID") :pid (emacs-pid))))
+           (mr-x/crash-bundle-transition directory 'pending-frames 'restoring-frames
+                                         :owner owner :attempt (1+ (plist-get status :attempt)))
+           (setq mr-x/--crash-restore-active id)
+           (let ((result (unwind-protect
+                             (mr-x/crash-restore-frames session #'mr-x/--crash-replay-tree)
+                           (setq mr-x/--crash-restore-active nil))))
+             (if (eq (plist-get result :status) 'restored)
+                 (progn
+                   (mr-x/crash-bundle-transition
+                    directory 'restoring-frames 'pending-yabai
+                    :restored-frames (mapcar (lambda (f) (list :restore-key (plist-get f :restore-key)
+                                                               :window-id nil))
+                                             (plist-get result :frames)))
+                   (if (plist-get status :yabai-required)
+                       (progn (mr-x/crash-recovery)
+                              (message "Frames restored; placement is not implemented yet, bundle stays pending-yabai"))
+                     (mr-x/crash-bundle-transition directory 'pending-yabai 'complete)
+                     (mr-x/crash-bundle-consume store id)
+                     (mr-x/--crash-after-consume splash-frame)
+                     (message "Session restored: %d frames" (length (plist-get result :frames)))))
+               (let ((leaked (plist-get result :leaked)))
+                 (mr-x/crash-bundle-transition
+                  directory 'restoring-frames (if leaked 'cleanup-pending 'pending-frames)
+                  :last-error (format "%S" (plist-get result :errors))
+                  :residual-resources leaked)
+                 (mr-x/crash-recovery)
+                 (message "Restore failed; evidence kept. %s"
+                          (if leaked "r retries cleanup of leaked frames"
+                            "r retries the restore")))))))
+        (_ (user-error "Bundle %s is %s; restore is not available (d to read, x to discard)"
+                       id phase)))))
+
+  (defun mr-x/--crash-restore-legacy (info)
+    "Rebuild frames from the legacy flat snapshot; no placement is attempted."
+    (let* ((splash-frame (selected-frame))
+           (session (mr-x/crash-restore-legacy-session
+                     (mr-x/crash-capture--read (plist-get info :session))))
+           (result (mr-x/crash-restore-frames session #'mr-x/--crash-replay-tree)))
+      (if (eq (plist-get result :status) 'restored)
+          (progn
+            (dolist (name '("session-state.el" "yabai-state.json" "stderr.log"))
+              (let ((file (expand-file-name name (mr-x/--crash-store))))
+                (when (file-exists-p file) (delete-file file))))
+            (mr-x/--crash-after-consume splash-frame)
+            (message "Legacy session restored: %d frames (no placement)"
+                     (length (plist-get result :frames))))
+        (message "Legacy restore failed; snapshot kept: %S" (plist-get result :errors)))))
+
   (defun mr-x/crash-restore ()
-    "Rebuild frames/layout from the crash snapshot; bury this frame.
-The window ids of Emacs frames alive right now (e.g. the splash)
-are passed to the yabai pass as exclusions so old→new pairing
-only sees the freshly restored frames."
+    "Rebuild the frames of the crash under review as one attempt.
+Frames are created with a nil `client' parameter so this works from the
+splash and through emacsclient alike.  On failure every frame this attempt
+made is deleted and the evidence stays; the review shows why."
     (interactive)
     (let ((info (mr-x/--crash-info)))
       (unless info (user-error "No crash state"))
-      (let* ((splash-frame (selected-frame))
-             (exclude (string-trim
-                       (shell-command-to-string
-                        "yabai -m query --windows 2>/dev/null | jq -r '[.[] | select(.app == \"Emacs\") | .id] | join(\",\")'")))
-             (result (let ((mr-x/session-file (plist-get info :state)))
-                       (mr-x/restore-session-state))))
-        (when (and (plist-get info :yabai)
-                   (file-exists-p mr-x/--restart-restore-script))
-          ;; Give the new NS windows a beat to register with yabai.
-          (run-at-time
-           1 nil
-           (lambda (env)
-             (let ((process-environment env))
-               (start-process "crash-restore-yabai" "*crash-yabai*"
-                              mr-x/--restart-restore-script "restore-yabai")))
-           (append (list (concat "YABAI_STATE=" (plist-get info :yabai))
-                         (concat "YABAI_EXCLUDE=" exclude))
-                   process-environment)))
-        ;; Consume the snapshot once the yabai pass has had time to read it.
-        (run-at-time 5 nil
-                     (lambda ()
-                       (when (file-directory-p mr-x/crash-state-dir)
-                         (delete-directory mr-x/crash-state-dir t))
-                       (mr-x/--crash-clear-splash)))
-        (lower-frame splash-frame)
-        (message "%s — splash buried" result))))
+      (if (eq (plist-get info :kind) 'bundle)
+          (mr-x/--crash-restore-bundle info)
+        (mr-x/--crash-restore-legacy info))))
 
   (defun mr-x/crash-open-log ()
-    "Open the full stderr snapshot from the crash."
+    "Open the full report of the crash under review, read-only."
     (interactive)
     (let ((info (mr-x/--crash-info)))
-      (if (and info (plist-get info :stderr))
-          (view-file (plist-get info :stderr))
-        (message "No stderr snapshot"))))
+      (unless (and info (plist-get info :report) (file-exists-p (plist-get info :report)))
+        (user-error "No report file for this crash"))
+      (view-file (plist-get info :report))))
 
   (defun mr-x/crash-discard ()
-    "Throw away the crash snapshot without restoring."
+    "Discard the crash under review, then show the next pending one."
     (interactive)
-    (when (file-directory-p mr-x/crash-state-dir)
-      (delete-directory mr-x/crash-state-dir t))
-    (mr-x/--crash-clear-splash)
-    (message "Crash state discarded"))
+    (let ((info (mr-x/--crash-info)))
+      (unless info (user-error "No crash state"))
+      (if (eq (plist-get info :kind) 'bundle)
+          (progn
+            (when (equal mr-x/--crash-restore-active (plist-get info :id))
+              (user-error "Recovery of %s is running" (plist-get info :id)))
+            (condition-case err
+                (mr-x/crash-bundle-discard (mr-x/--crash-store) (plist-get info :id))
+              (error (user-error "Cannot discard %s: %s" (plist-get info :id)
+                                 (error-message-string err)))))
+        ;; Only the flat files: bundles share this directory now.
+        (dolist (name '("session-state.el" "yabai-state.json" "stderr.log"))
+          (let ((file (expand-file-name name (mr-x/--crash-store))))
+            (when (file-exists-p file) (delete-file file)))))
+      (if (mr-x/crash-pending-p)
+          (mr-x/crash-recovery)
+        (mr-x/--crash-clear-splash))
+      (message "Crash state discarded")))
 
   (with-eval-after-load 'general
     (mr-x/leader-def
       "R" '(mr-x/crash-recovery :wk "crash recovery")))
 
-  ;; Daemon-only wiring: detect crashes, mark clean exits, keep state fresh.
+  ;; Daemon-only wiring: keep the session snapshot fresh.  Crash detection
+  ;; itself lives in the launcher path (mr-x-crash-runtime); a daemon started
+  ;; without the helper gets no run directory and therefore no bundles.
   (when (daemonp)
-    (add-hook 'kill-emacs-hook #'mr-x/--write-clean-exit-marker)
-    (mr-x/--crash-check)
     (setq mr-x/session-autosave-timer
           (run-with-idle-timer 30 t #'mr-x/session-autosave)))
 
