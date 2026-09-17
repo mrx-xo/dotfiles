@@ -1165,6 +1165,51 @@ explicit profile arg must win over the frame default."
     (should (eq markdown-live-preview-window-function
                 #'mr-x/markdown-xwidget-preview-file))))
 
+(ert-deftest config-test-markdown-xwidget-preview-replaces-source-window ()
+  "Opening a Markdown preview replaces its source without changing other windows."
+  (require 'markdown-xwidget)
+  (let ((source (generate-new-buffer " *markdown-source-test*"))
+        (preview (generate-new-buffer " *markdown-preview-test*"))
+        (neighbor (generate-new-buffer " *markdown-neighbor-test*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (switch-to-buffer source)
+          (let* ((source-window (selected-window))
+                 (neighbor-window (split-window-below))
+                 (markdown-live-preview-delete-export nil)
+                 (markdown-split-window-direction 'any)
+                 (markdown-live-preview-window-function
+                  (lambda (_file)
+                    (switch-to-buffer preview)
+                    preview)))
+            (set-window-buffer neighbor-window neighbor)
+            (set-window-dedicated-p neighbor-window 'soft)
+            (with-current-buffer preview
+              (setq major-mode 'xwidget-webkit-mode))
+            (with-current-buffer source
+              (setq-local markdown-xwidget-preview-mode t))
+            ;; Keep the real export/display lifecycle; only HTML generation
+            ;; and native WebKit rendering are unavailable in batch Emacs.
+            (cl-letf (((symbol-function 'markdown-live-preview-get-filename)
+                       (lambda () "/nonexistent/markdown-preview-test.html"))
+                      ((symbol-function 'markdown-export) #'identity))
+              (markdown-live-preview-mode 1))
+            (should (eq (window-buffer source-window) preview))
+            (should (eq (selected-window) source-window))
+            (should (= (length (window-list)) 2))
+            (should (eq (window-buffer neighbor-window) neighbor))
+            (should (eq (window-dedicated-p neighbor-window) 'soft))
+            (should (buffer-live-p source))
+            (should (eq (buffer-local-value
+                         'markdown-live-preview-source-buffer preview)
+                        source))))
+      (dolist (buffer (list preview source neighbor))
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer
+            (setq-local kill-buffer-hook nil))
+          (kill-buffer buffer))))))
+
 (ert-deftest config-test-org-todo-keywords-use-named-faces ()
   "Org TODO keywords must resolve to faces that frames can override."
   (should (equal org-modern-todo-faces mr-x/todo-faces))
