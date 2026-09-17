@@ -17,9 +17,14 @@ set -euo pipefail
 
 ORG="$HOME/.dotfiles/macos/emacs/.emacs.d/emacs.org"
 EMACS="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
+# Full path + explicit socket: a bare `emacsclient` is missing from any shell
+# without /opt/homebrew/bin (ssh, launchd), which used to read as "daemon not
+# running" and silently took the batch path.  The daemon is started with
+# --fg-daemon=server, so name the socket the same way emacs-daemon-start.sh does.
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient --socket-name=server"
 
-if emacsclient --eval t >/dev/null 2>&1; then
-  result=$(emacsclient --eval "(let ((buf (find-buffer-visiting \"$ORG\")))
+if $EMACSCLIENT --eval t >/dev/null 2>&1; then
+  result=$($EMACSCLIENT --eval "(let ((buf (find-buffer-visiting \"$ORG\")))
     (if (and buf (buffer-modified-p buf))
         :unsaved-buffer
       (with-current-buffer (or buf (find-file-noselect \"$ORG\"))
