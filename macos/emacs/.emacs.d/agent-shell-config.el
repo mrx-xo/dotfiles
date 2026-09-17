@@ -1239,6 +1239,7 @@ coming from the provider untouched."
       (defvar mr-x/agent-shell-local-commands
         '(("new" . mr-x/agent-shell-new-smart)
           ("clone" . mr-x/agent-shell-clone)
+          ("fork" . syzygy-fork)
           ("clear" . mr-x/agent-shell-clear-context))
         "Local slash commands. Keys are names (without /), values are functions.")
 
@@ -1413,6 +1414,19 @@ coming from the provider untouched."
       ;; resync lockdown (SPC c y), live 2-way sync (SPC c Y), and
       ;; cross-machine handoff resume (SPC c H).
       (require 'syzygy)
+
+      ;; Every fork goes through `syzygy-fork' (SPC c e, /fork), which
+      ;; picks clone, native fork or fork-then-resume per agent and chat
+      ;; state.  Remapping the upstream commands catches evil-collection's
+      ;; g F in the shell and the viewport, and the manager's menu, so no
+      ;; entry point reaches `agent-shell-fork' directly: claude-agent-acp
+      ;; 0.75 breaks under it (see the Fork section of syzygy-recall.el).
+      (with-eval-after-load 'agent-shell
+        (define-key agent-shell-mode-map [remap agent-shell-fork] #'syzygy-fork)
+        (define-key agent-shell-viewport-view-mode-map
+                    [remap agent-shell-viewport-fork] #'syzygy-fork)
+        (define-key agent-shell-viewport-edit-mode-map
+                    [remap agent-shell-viewport-fork] #'syzygy-fork))
 
       ;; Transcript appends fire on every streamed chunk — phone-driven
       ;; turns included — and agent-shell's write-region has no coding

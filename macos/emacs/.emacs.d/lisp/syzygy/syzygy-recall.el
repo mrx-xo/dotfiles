@@ -671,32 +671,54 @@ when the named buffer is not live."
            (pinned . ,(if pin t :false))
            (pins . ,(vconcat syzygy-orrery--pins)))))))))
 
-;;;; Phone fork
+;;;; Fork
 ;;
 ;; Fork = a new chat that shares this one's history and diverges from
-;; here.  The phone only needs the new buffer's name, and before
-;; offering the entry, whether the agent can fork at all: codex-acp
-;; 1.6.2 advertises resume, list, close and delete but not fork, so
-;; Codex chats probe as unsupported; claude-agent-acp forks.
+;; here.  One dispatcher, `syzygy-fork--run', serves the desk command
+;; `syzygy-fork' (which also shadows `agent-shell-fork', so evil's g F
+;; and the manager land here) and the phone's `syzygy-fork-json'.
 ;;
-;; Not `agent-shell-fork'.  claude-agent-acp 0.75.1 answers session/fork
-;; with the new id only: it forks the transcript on disk and registers
-;; no live session, so the buffer agent-shell builds from that reply has
-;; no models, no config options, and every prompt fails with "Session
-;; not found" (agent-shell falls back to session/set_model first, which
-;; the agent does not implement either).  Forking here means asking the
-;; source chat's own client for the id, then starting the new chat as a
-;; resume of that id, which is the path that loads a session properly.
+;; Three cases, decided in this order:
+;;
+;; 1. No turns yet.  Nothing to share, so fork is a clone: same agent,
+;;    model, mode and directory, no session/fork sent.  This also
+;;    sidesteps codex-acp, which only writes a thread's rollout after
+;;    the first turn and answers session/fork on an empty chat with
+;;    "no rollout found".
+;;
+;; 2. The agent's strategy in `syzygy-fork-strategies':
+;;    `resume' asks the source chat's own client for the forked id,
+;;    then starts the new chat as a resume of that id.  Both agents
+;;    need it, for different reasons, and unlisted agents take it too
+;;    since it only depends on session/load:
+;;    - claude-agent-acp 0.75: the fork reply is the bare id (transcript
+;;      forked on disk, no live session), so a chat built from it has
+;;      no models and no config options, and its first request
+;;      (agent-shell setting the model) fails with "Method not found:
+;;      session/set_model" (upstream issue claude-agent-acp#1110).
+;;    - codex-acp 1.11: the fork reply is a full live session, but the
+;;      agent unsubscribes from the new thread right after forking it,
+;;      so a chat built from the reply never hears back: the first
+;;      prompt hangs with no updates and no response (verified by raw
+;;      JSON-RPC, 2026-09-16).  session/load subscribes properly and
+;;      replays the parent history.
+;;    `native' hands agent-shell the id and lets it build the chat from
+;;    the fork reply.  For a future agent whose reply is a live session
+;;    that stays subscribed; verify with a prompt, not just the reply.
+;;
+;; 3. History but no session/fork advertised: refuse before sending.
 
 (declare-function agent-shell--state "agent-shell")
-(declare-function agent-shell--start "agent-shell"
-                  (&key config no-focus new-session session-strategy
-                        session-id fork-session-id outgoing-request-decorator))
+;; cl-defun with &key: the byte compiler cannot check that arity, so t.
+(declare-function agent-shell--start "agent-shell" t)
 (declare-function agent-shell--send-request "agent-shell"
                   (&key state client request buffer on-success on-failure sync))
 (declare-function agent-shell--resolve-path "agent-shell" (path))
 (declare-function agent-shell--mcp-servers "agent-shell")
 (declare-function agent-shell-cwd "agent-shell")
+(declare-function agent-shell--current-shell "agent-shell")
+(declare-function shell-maker-history "shell-maker")
+(declare-function mr-x/agent-shell--display-new "agent-shell-config" (shell-buffer))
 (declare-function acp-make-session-fork-request "acp"
                   (&key session-id cwd mcp-servers meta))
 (declare-function mr-x/agent-shell--clone-config "agent-shell-config" (source))
@@ -762,38 +784,118 @@ Blocks for the reply, up to `syzygy-fork-timeout' seconds."
         (`(ok . ,(and (pred stringp) id)) id)
         (`(ok . ,_) (error "Fork response missing sessionId"))
         (`(failed . ,acp-error)
-         (error "Fork failed: %s" (or (map-elt acp-error 'message) acp-error)))
+         (error "Fork failed: %s" (or (map-nested-elt acp-error '(data details))
+                                      (map-elt acp-error 'message)
+                                      acp-error)))
         (_ (error "Fork timed out after %s seconds" syzygy-fork-timeout))))))
 
 (defun syzygy-fork--start (source session-id)
   "Start a chat resuming SESSION-ID with SOURCE's agent, model and mode.
 The new chat is not displayed: a server eval has no window worth
 stealing, and the phone opens it by name."
-  (let ((default-directory (buffer-local-value 'default-directory source))
-        (config (if (fboundp 'mr-x/agent-shell--clone-config)
-                    (mr-x/agent-shell--clone-config source)
-                  (map-elt (buffer-local-value 'agent-shell--state source)
-                           :agent-config))))
-    (agent-shell--start :config config
+  (let ((default-directory (buffer-local-value 'default-directory source)))
+    (agent-shell--start :config (syzygy-fork--config source)
                         :session-id session-id
                         :new-session t
                         :no-focus t)))
 
+(defun syzygy-fork--label-next (label)
+  "Return LABEL with a fork suffix: \"x\" -> \"x fork\" -> \"x fork 2\" -> ..."
+  (cond
+   ((string-match "\\` *\\(.*?\\) fork \\([0-9]+\\)\\'" label)
+    (format "%s fork %d" (match-string 1 label)
+            (1+ (string-to-number (match-string 2 label)))))
+   ((string-suffix-p " fork" label) (concat label " 2"))
+   (t (concat label " fork"))))
+
 (defun syzygy-fork--label (source new)
-  "Carry SOURCE's pane label to NEW with a \" fork\" suffix, then sync it."
+  "Carry SOURCE's pane label to NEW with a fork suffix, then sync it.
+Forking a fork numbers the suffix rather than stacking \"fork fork\"."
   (when (boundp 'major-pane--labels)
     (when-let ((label (gethash source major-pane--labels)))
-      (puthash new (concat label " fork") major-pane--labels)))
+      (major-pane-set-buffer-label new (syzygy-fork--label-next label))))
   (when (fboundp 'mr-x/agent-spawn--send-when-ready)
     (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready new "" 60)))
 
+(defvar syzygy-fork-strategies
+  '((codex . resume)
+    (claude-code . resume))
+  "How each agent forks a chat that has history.
+Keys are agent config `:identifier' symbols.  `native' lets agent-shell
+build the chat from the session/fork reply; `resume' forks for the id
+and starts the chat as a resume of it.  Unlisted agents use `resume'.
+See the section comment for why neither shipped agent is `native'.")
+
+(defun syzygy-fork--strategy (source)
+  "Return the fork strategy symbol for SOURCE's agent."
+  (or (alist-get (map-nested-elt (buffer-local-value 'agent-shell--state source)
+                                 '(:agent-config :identifier))
+                 syzygy-fork-strategies)
+      'resume))
+
+(defun syzygy-fork--turns (source)
+  "Return how many prompts SOURCE has sent, 0 when that cannot be read."
+  (or (ignore-errors
+        (with-current-buffer source
+          (length (shell-maker-history))))
+      0))
+
+(defun syzygy-fork--config (source)
+  "Return SOURCE's agent config pinned to its live model and mode."
+  (if (fboundp 'mr-x/agent-shell--clone-config)
+      (mr-x/agent-shell--clone-config source)
+    (map-elt (buffer-local-value 'agent-shell--state source) :agent-config)))
+
+(defun syzygy-fork--clone (source)
+  "Start a fresh chat with SOURCE's agent, model, mode and directory."
+  (let ((default-directory (buffer-local-value 'default-directory source)))
+    (agent-shell--start :config (syzygy-fork--config source)
+                        :new-session t
+                        :no-focus t)))
+
+(defun syzygy-fork--native (source)
+  "Let agent-shell fork SOURCE's session and build the chat from the reply."
+  (let ((default-directory (buffer-local-value 'default-directory source)))
+    (agent-shell--start :config (syzygy-fork--config source)
+                        :session-strategy 'new
+                        :fork-session-id (syzygy-fork--session-id source)
+                        :new-session t
+                        :no-focus t)))
+
 (defun syzygy-fork--run (source)
-  "Fork SOURCE and return the new chat buffer."
+  "Fork SOURCE and return the new chat buffer.
+See the section comment for the three cases."
   (unless (syzygy-fork--session-id source)
     (error "No active session to fork"))
-  (let ((new (syzygy-fork--start source (syzygy-fork--request source))))
+  (let ((new (cond
+              ((zerop (syzygy-fork--turns source))
+               (syzygy-fork--clone source))
+              ((not (syzygy-fork--supported-p source))
+               (error "Agent does not support session forking"))
+              ((eq (syzygy-fork--strategy source) 'native)
+               (syzygy-fork--native source))
+              (t
+               (syzygy-fork--start source (syzygy-fork--request source))))))
     (syzygy-fork--label source new)
     new))
+
+;;;###autoload
+(defun syzygy-fork ()
+  "Fork the current chat into a new one and show it.
+Works from a shell or viewport buffer.  Shadows `agent-shell-fork'
+through a remap in the rig config, so every fork entry point takes
+the same path as the phone."
+  (interactive)
+  (let ((source (or (and (fboundp 'agent-shell--current-shell)
+                         (agent-shell--current-shell))
+                    (current-buffer))))
+    (unless (syzygy-fork--chat-buffer (buffer-name source))
+      (user-error "Not in an agent-shell chat"))
+    (let ((new (syzygy-fork--run source)))
+      (if (fboundp 'mr-x/agent-shell--display-new)
+          (with-current-buffer source
+            (mr-x/agent-shell--display-new new))
+        (pop-to-buffer new)))))
 
 (defun syzygy-fork-json (name-base64 &optional probe)
   "Fork the agent-shell chat named by NAME-BASE64 into a new chat.

@@ -4372,6 +4372,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c" '(:ignore t :wk "Agent Shell")
         "c c" '(mr-x/agent-shell-new-smart :wk "New chat (Claude, here)")
         "c n" '(mr-x/agent-shell-clone :wk "Clone shell (model + here)")
+        "c e" '(syzygy-fork :wk "Fork chat (history + here)")
         "c C" '(mr-x/agent-shell-preset-in-project :wk "New chat (preset + where)")
         "c x" '(mr-x/agent-shell-sol :wk "Sol one-shot")
         "c P" '(mr-x/agent-shell-start-preset :wk "Preset → new shell")

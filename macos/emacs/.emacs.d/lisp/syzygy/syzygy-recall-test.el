@@ -463,7 +463,8 @@ it, get returns nil for an unknown session."
           (puthash source "Lab" major-pane--labels)
           (should-not (fboundp 'mr-x/agent-spawn--send-when-ready))
           (should-not (fboundp 'mr-x/agent-shell--clone-config))
-          (cl-letf (((symbol-function 'syzygy-fork--request)
+          (cl-letf (((symbol-function 'syzygy-fork--turns) (lambda (_) 3))
+                    ((symbol-function 'syzygy-fork--request)
                      (lambda (buffer)
                        (should (eq buffer source))
                        (setq requested t)
@@ -504,7 +505,8 @@ it, get returns nil for an unknown session."
             (setq-local agent-shell--state
                         '((:supports-session-fork . t)
                           (:session . ((:id . "sess-1"))))))
-          (cl-letf (((symbol-function 'syzygy-fork--request)
+          (cl-letf (((symbol-function 'syzygy-fork--turns) (lambda (_) 3))
+                    ((symbol-function 'syzygy-fork--request)
                      (lambda (_) (error "Fork failed: nope")))
                     ((symbol-function 'agent-shell--start)
                      (lambda (&rest _) (ert-fail "Started a chat after a refusal"))))
@@ -544,4 +546,251 @@ it, get returns nil for an unknown session."
               (should (string-match-p "timed out" (error-message-string err))))
             (should-not (map-elt (buffer-local-value 'agent-shell--state source)
                                  :active-requests))))
+      (kill-buffer source))))
+
+;;;; Unified fork dispatcher
+
+(defun syzygy-fork-test--source (name turns identifier &optional unsupported)
+  "Make a fake agent-shell chat NAME with TURNS prompts by agent IDENTIFIER.
+UNSUPPORTED non-nil means the agent does not advertise session/fork."
+  (let ((buffer (generate-new-buffer name)))
+    (with-current-buffer buffer
+      (setq-local major-mode 'agent-shell-mode)
+      (setq-local default-directory "/tmp/")
+      (setq-local agent-shell--state
+                  `((:supports-session-fork . ,(not unsupported))
+                    (:agent-config . ((:name . "Fake")
+                                      (:identifier . ,identifier)))
+                    (:session . ((:id . "sess-1")))))
+      (setq-local syzygy-fork-test--turns turns))
+    buffer))
+
+(defvar-local syzygy-fork-test--turns 0)
+
+(defmacro syzygy-fork-test--with-fakes (&rest body)
+  "Run BODY with the turn count faked and every start path recorded."
+  (declare (indent 0))
+  `(cl-letf (((symbol-function 'syzygy-fork--turns)
+              (lambda (buffer)
+                (buffer-local-value 'syzygy-fork-test--turns buffer)))
+             ((symbol-function 'run-at-time) #'ignore))
+     ,@body))
+
+(ert-deftest syzygy-fork-run-empty-chat-clones ()
+  "A chat with no turns has no history to share: fork means clone."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-empty" 0 'codex))
+        (major-pane--labels (make-hash-table :test #'eq))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (puthash source "Lab" major-pane--labels)
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) (ert-fail "Forked an empty chat")))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (should (eq (syzygy-fork--run source) new))
+            (should-not (plist-member start-args :session-id))
+            (should-not (plist-member start-args :fork-session-id))
+            (should (equal (plist-get start-args :config)
+                           '((:name . "Fake") (:identifier . codex))))
+            (should (eq (plist-get start-args :new-session) t))
+            (should (eq (plist-get start-args :no-focus) t))
+            (should (equal (gethash new major-pane--labels) "Lab fork"))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-empty-chat-clones-without-fork-support ()
+  "Cloning needs no session/fork, so unsupported agents still get a copy."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-empty-nofork"
+                                          0 'other t))
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'agent-shell--start)
+                     (lambda (&rest _)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (should (eq (syzygy-fork--run source) new))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-native-strategy-uses-agent-shell-fork ()
+  "An agent whose fork reply is a live session lets agent-shell fork it."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-native"
+                                          3 'rich-agent))
+        (syzygy-fork-strategies '((rich-agent . native)))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) (ert-fail "Native strategy sent its own fork")))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (should (eq (syzygy-fork--run source) new))
+            (should (equal (plist-get start-args :fork-session-id) "sess-1"))
+            (should (eq (plist-get start-args :session-strategy) 'new))
+            (should-not (plist-member start-args :session-id))
+            (should (eq (plist-get start-args :new-session) t))
+            (should (eq (plist-get start-args :no-focus) t))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-resume-strategy-for-claude ()
+  "Claude's fork reply is a bare id: fork for the id, then resume it."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-resume"
+                                          3 'claude-code))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) "sess-2"))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (should (eq (syzygy-fork--run source) new))
+            (should (equal (plist-get start-args :session-id) "sess-2"))
+            (should-not (plist-member start-args :fork-session-id))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-unknown-agent-resumes ()
+  "An agent with no strategy entry takes the resume path, which only needs load."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-unknown"
+                                          3 'future-agent))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) "sess-2"))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (syzygy-fork--run source)
+            (should (equal (plist-get start-args :session-id) "sess-2"))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-unsupported-agent-with-history-errors ()
+  "History but no session/fork: refuse before sending anything."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-unsupported-hist"
+                                          3 'other t)))
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) (ert-fail "Sent a fork the agent cannot serve")))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest _) (ert-fail "Started a chat anyway"))))
+            (let ((err (should-error (syzygy-fork--run source))))
+              (should (equal (error-message-string err)
+                             "Agent does not support session forking")))))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-request-failure-surfaces-details ()
+  "The agent's details string beats the bare \"Internal error\"."
+  (let ((source (generate-new-buffer "syzygy-fork-test-details")))
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (setq-local major-mode 'agent-shell-mode)
+            (setq-local agent-shell--state
+                        (list '(:session . ((:id . "sess-1")))
+                              '(:client . ((:process . nil)))
+                              '(:active-requests . nil))))
+          (cl-letf (((symbol-function 'agent-shell--state)
+                     (lambda () agent-shell--state))
+                    ((symbol-function 'acp-make-session-fork-request)
+                     (lambda (&rest args) (cons 'fork-request args)))
+                    ((symbol-function 'agent-shell--resolve-path) #'identity)
+                    ((symbol-function 'agent-shell-cwd) (lambda () "/tmp/"))
+                    ((symbol-function 'agent-shell--mcp-servers) (lambda () nil))
+                    ((symbol-function 'agent-shell--send-request)
+                     (cl-function
+                      (lambda (&key on-failure &allow-other-keys)
+                        (funcall on-failure
+                                 '((code . -32603)
+                                   (message . "Internal error")
+                                   (data . ((details . "no rollout found for thread id sess-1"))))
+                                 nil)))))
+            (let ((err (should-error (syzygy-fork--request source))))
+              (should (equal (error-message-string err)
+                             "Fork failed: no rollout found for thread id sess-1")))))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-command-forks-current-chat-and-shows-it ()
+  "The desk command forks the chat at point and displays the new one."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-command" 3 'codex))
+        (shown nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) "sess-2"))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest _)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (buffer &rest _) (setq shown buffer))))
+            (with-current-buffer source
+              (syzygy-fork))
+            (should (eq shown new))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-command-rejects-non-chat-buffers ()
+  "Outside a chat there is nothing to fork."
+  (with-temp-buffer
+    (let ((err (should-error (syzygy-fork) :type 'user-error)))
+      (should (string-match-p "agent-shell" (error-message-string err))))))
+
+(ert-deftest syzygy-fork-run-codex-resumes ()
+  "codex-acp 1.11 unsubscribes the forked thread: a native fork hangs on
+its first prompt, so Codex forks for the id and resumes it."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-codex" 3 'codex))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) "sess-2"))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (syzygy-fork--run source)
+            (should (equal (plist-get start-args :session-id) "sess-2"))
+            (should-not (plist-member start-args :fork-session-id))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-label-does-not-stack ()
+  "Forking a fork numbers the label instead of appending fork again."
+  (let ((major-pane--labels (make-hash-table :test #'eq))
+        (source (generate-new-buffer "syzygy-fork-test-label-src"))
+        (new (generate-new-buffer "syzygy-fork-test-label-new")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'run-at-time) #'ignore))
+          (dolist (case '(("Lab" . "Lab fork")
+                          ("Lab fork" . "Lab fork 2")
+                          ("Lab fork 2" . "Lab fork 3")
+                          ("FORK" . "FORK fork")))
+            (puthash source (car case) major-pane--labels)
+            (syzygy-fork--label source new)
+            (should (equal (gethash new major-pane--labels) (cdr case)))))
+      (kill-buffer new)
       (kill-buffer source))))
