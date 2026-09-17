@@ -8,8 +8,6 @@ if [ -n "${BREW_BIN:-}" ]; then
     :
 elif [ -x /opt/homebrew/bin/brew ]; then
     BREW_BIN=/opt/homebrew/bin/brew
-elif [ -x /usr/local/bin/brew ]; then
-    BREW_BIN=/usr/local/bin/brew
 else
     BREW_BIN="$(command -v brew || true)"
 fi
