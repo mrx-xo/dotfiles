@@ -4210,7 +4210,8 @@ Falls back to a one-liner if fastfetch isn't installed."
         "d H" '(dired-omit-mode :wk "Dired Omit Mode")
         "d p" '(dired-preview-global-mode :wk "Toggle preview")
         "d f" '(dwim-shell-commands-macos-reveal-in-finder :wk "Reveal in Finder")
-        "d o" '(dwim-shell-commands-macos-open-with :wk "Open with..."))
+        "d o" '(dwim-shell-commands-macos-open-with :wk "Open with...")
+        "d L" '(mr-x/dired-localsend :wk "Add to LocalSend"))
 
       (mr-x/leader-def
         "o" '(:ignore t :wk "OS")
@@ -6102,6 +6103,32 @@ Auto-enables in Lisp modes. (Uses lispy under the hood; elpaca pulls it in.)
       :commands (dwim-shell-command dwim-shell-command-on-marked-files)
       :config
       (require 'dwim-shell-commands))
+
+    (defun mr-x/dired-localsend ()
+      "Add marked local Dired files, or the file at point, to LocalSend.
+Choose the receiving device in LocalSend.  Invoke its executable directly:
+the macOS Open With handoff can open the app without adding the files."
+      (interactive)
+      (unless (and (eq system-type 'darwin) (derived-mode-p 'dired-mode))
+        (user-error "Use this command in a local macOS Dired buffer"))
+      (when (file-remote-p default-directory)
+        (user-error "Copy remote files locally before adding them to LocalSend"))
+      (let ((files (dired-get-marked-files))
+            (executable
+             (seq-find #'file-executable-p
+                       (list "/Applications/LocalSend.app/Contents/MacOS/LocalSend"
+                             (expand-file-name
+                              "~/Applications/LocalSend.app/Contents/MacOS/LocalSend")))))
+        (unless executable
+          (user-error "LocalSend is not installed in Applications"))
+        (dolist (file files)
+          (unless (and (not (file-remote-p file)) (file-readable-p file))
+            (user-error "LocalSend needs a readable local file: %s" file)))
+        (prog1
+            (make-process :name "localsend" :buffer "*LocalSend handoff*"
+                          :command (cons executable files)
+                          :connection-type 'pipe :noquery t)
+          (message "Opening %d item(s) in LocalSend" (length files)))))
 
     (setq display-line-numbers-type 'visual)
     (dolist (mode '(text-mode-hook prog-mode-hook conf-mode-hook Info-mode-hook))
