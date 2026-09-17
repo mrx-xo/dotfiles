@@ -94,4 +94,16 @@ vim.keymap.set("n", "<leader>bd", "<cmd>bdelete<CR>")
 require("lazy").setup({
   -- your plugins go here as tables, e.g.:
    { "coder/claudecode.nvim", dependencies = { "folke/snacks.nvim" }, config = true },
+   {
+     "nvim-orgmode/orgmode",
+     event = "VeryLazy",
+     ft = { "org" },
+     config = function()
+       require("orgmode").setup({
+        org_agenda_files = "",
+        org_default_notes_file = "~/roaming/notes/refile.org",
+      })
+    end,
+
+   },
 })
