@@ -7690,6 +7690,21 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
               (mr-x/markdown-mermaid-launch-chrome xwidget mode index))
           (xwidget-webkit-callback xwidget event))))
 
+    (defun mr-x/markdown-xwidget-preview-buffer-p (buffer-name _action)
+      "Match WebKit previews belonging to an active Markdown preview."
+      (when-let* ((buffer (get-buffer buffer-name)))
+        (with-current-buffer buffer
+          (and (derived-mode-p 'xwidget-webkit-mode)
+               (buffer-live-p markdown-live-preview-source-buffer)
+               (buffer-local-value 'markdown-xwidget-preview-mode
+                                   markdown-live-preview-source-buffer)))))
+
+    ;; Markdown restores the renderer's temporary window layout before its
+    ;; final display-buffer call.  Apply placement at that final display too.
+    (add-to-list 'display-buffer-alist
+                 '(mr-x/markdown-xwidget-preview-buffer-p
+                   (display-buffer-same-window)))
+
     (defun mr-x/markdown-xwidget-preview-file (file)
       "Render FILE and fit its xwidget to the window displaying the preview."
       (mr-x/markdown-normalize-pandoc-mermaid-file file)
