@@ -144,9 +144,25 @@ restore_emacs() {
                  (string= "*scratch*" (buffer-name (window-buffer (frame-selected-window (car frames))))))
         (delete-frame (car frames))))' 2>/dev/null
 
-    local result
-    result=$($EMACSCLIENT -e '(mr-x/restore-session-state)' 2>/dev/null)
+    local result state attempt=0
+    result=$($EMACSCLIENT -e '(mr-x/restore-session-state)' 2>/dev/null) || return 1
     log "EMACS" "$result"
+    # Agent startup is asynchronous. Placement must wait for verified sessions.
+    while [ "$attempt" -lt 3000 ]; do
+        state=$($EMACSCLIENT -e '(plist-get mr-x/session-restore-result :status)' 2>/dev/null) || return 1
+        case "$state" in
+            restored) return 0 ;;
+            pending) sleep 0.2 ;;
+            *)
+                result=$($EMACSCLIENT -e 'mr-x/session-restore-result' 2>/dev/null)
+                log "EMACS" "Restore failed: $result"
+                return 1 ;;
+        esac
+        attempt=$((attempt + 1))
+    done
+    $EMACSCLIENT -e '(mr-x/cancel-session-restore)' >/dev/null 2>&1
+    log "EMACS" "Restore timed out; session evidence kept"
+    return 1
 }
 
 restore_yabai() {
@@ -219,7 +235,7 @@ case "${1:-full}" in
         save_emacs
         ;;
     restore)
-        restore_emacs
+        restore_emacs || exit 1
         sleep 1
         restore_yabai
         echo ""
@@ -246,7 +262,7 @@ case "${1:-full}" in
         echo ""
 
         # Restore everything
-        restore_emacs
+        restore_emacs || exit 1
         sleep 1
         restore_yabai
         echo ""

@@ -82,17 +82,20 @@ Upstream searched `agent-shell-agent-configs' directly, but entries
 there are lazy maker functions in current agent-shell — resolve via
 `agent-shell--resolve-config-designator' instead."
   (and agent-identifier
-       (agent-shell--resolve-config-designator agent-identifier)))
+       (agent-shell--resolve-config-designator
+        (if (stringp agent-identifier) (intern agent-identifier) agent-identifier))))
 
-(defun agent-shell-bookmark--resume (session-id project-path agent-identifier)
+(defun agent-shell-bookmark--resume (session-id project-path agent-identifier &optional no-focus)
   "Resume SESSION-ID in PROJECT-PATH using AGENT-IDENTIFIER's config.
 When agent-recall is available and has metadata for the session,
 restore its saved preferences (model, permission mode via config
 overrides; effort post-init) the same way `agent-recall--start-resume'
 does, honoring `agent-recall-resume-restore-preferences'."
+  (unless (fboundp 'agent-shell--resolve-config-designator) (require 'agent-shell))
   (require 'agent-recall nil t)
   (let* ((default-directory (or project-path default-directory))
          (config (or (agent-shell-bookmark--find-config agent-identifier)
+                     (and agent-identifier (error "Saved agent unavailable: %s" agent-identifier))
                      (agent-shell--resolve-preferred-config)
                      (agent-shell-select-config
                       :prompt "Resume with agent: ")))
@@ -102,7 +105,10 @@ does, honoring `agent-recall-resume-restore-preferences'."
          (config (if restore
                      (agent-recall--config-with-preferences config metadata)
                    config))
-         (shell-buffer (agent-shell-start :config config :session-id session-id)))
+         (shell-buffer (if no-focus
+                           (agent-shell--start :config config :session-id session-id
+                                               :new-session t :no-focus t)
+                         (agent-shell-start :config config :session-id session-id))))
     (when (and restore (buffer-live-p shell-buffer))
       (when-let ((effort (alist-get 'effort metadata)))
         (agent-recall--restore-thought-level shell-buffer effort))

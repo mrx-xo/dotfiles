@@ -5111,12 +5111,15 @@ Handlers in mr-x/--restore-buffer-from-spec must stay in sync with this."
       (cond
        ((eq major-mode 'vterm-mode)
         `(vterm :dir ,default-directory))
+       ((and (derived-mode-p 'agent-shell-mode) (eq (bound-and-true-p major-pane--excluded) t))
+        '(excluded-agent))
        ((derived-mode-p 'agent-shell-mode)
         (when (fboundp 'agent-shell--state)
           (let ((session-id (ignore-errors
                               (map-nested-elt (agent-shell--state) '(:session :id)))))
             (when session-id
-              `(agent-shell :session-id ,session-id :dir ,default-directory)))))
+              (append (list 'agent-shell :dir default-directory)
+                      (major-pane-workspace--entry buffer))))))
        ((eq major-mode 'project-dashboard-mode)
         (when (boundp 'project-dashboard--project-root)
           `(project-dashboard :project ,project-dashboard--project-root)))
@@ -5135,7 +5138,9 @@ Handlers in mr-x/--restore-buffer-from-spec must stay in sync with this."
               :restore-spec (mr-x/--buffer-restore-spec (window-buffer window))
               :point (window-point window)
               :start (window-start window)
-              :dedicated (window-dedicated-p window))
+              :dedicated (window-dedicated-p window)
+              :pane-mode (and (window-parameter window 'major-pane)
+                              (major-pane-state-mode major-pane--state)))
       ;; Internal node — has children
       (let* ((horizontal (window-left-child window))
              (children (window-child-windows-recursive
@@ -5205,14 +5210,13 @@ yabai placement can join on it instead of on titles or creation order."
             (mr-x/--session-eligible-frames)))
 
   (defun mr-x/save-session-state ()
-    "Save buffer list, window configurations, and frame geometry for restore after daemon restart."
+    "Save conversations and matching frame state through the shared capture path."
     (interactive)
-    (let ((frame-data (mr-x/--session-frames)))
-      (with-temp-file mr-x/session-file
-        (let ((print-length nil)
-              (print-level nil))
-          (prin1 frame-data (current-buffer))))
-      (message "Session saved: %d frames" (length frame-data))))
+    (when major-pane-workspace-inhibit-save (user-error "Workspace restoration is still running"))
+    (let ((entries (major-pane-workspace--collect)))
+      (mr-x/session-capture entries)
+      (major-pane-workspace--save-history entries)
+      (message "Session saved: %d frames" (length (car mr-x/session-capture-last)))))
 
   (defun mr-x/--collect-tree-buffers (tree)
     "Collect all buffer names from a serialized window TREE."
@@ -5240,26 +5244,29 @@ yabai placement can join on it instead of on titles or creation order."
 
   (defun mr-x/--restore-buffer-from-spec (spec)
     "Reconstruct a stateful buffer from SPEC. Returns the new buffer or nil.
-Errors are swallowed per-handler so one bad spec doesn't abort the whole restore."
+Signal handler errors so the frame transaction can roll back and keep evidence.
+Nil means no handler could reconstruct the buffer; the caller must reject it."
     (condition-case err
         (pcase (car spec)
           ('vterm
            (when (require 'vterm nil t)
              (let ((default-directory (or (plist-get (cdr spec) :dir)
                                           default-directory)))
-               (save-window-excursion (vterm)))))
+               (let ((buffer (save-window-excursion (vterm (generate-new-buffer-name "*restored-vterm*")))))
+                 (mr-x/crash-workspace-own-buffer buffer)))))
+          ('excluded-agent
+           (let* ((name "*Recovery: excluded background agent*")
+                  (existing (get-buffer name))
+                  (buffer (get-buffer-create name)))
+             (unless existing
+               (with-current-buffer buffer
+                 (insert "This window showed an excluded background agent. It was intentionally not restarted.\n")
+                 (special-mode))
+               (mr-x/crash-workspace-own-buffer buffer))
+             buffer))
           ('agent-shell
-           (when (and (fboundp 'agent-shell--start)
-                      (fboundp 'agent-shell--resolve-preferred-config))
-             (let* ((default-directory (or (plist-get (cdr spec) :dir)
-                                           default-directory))
-                    (config (agent-shell--resolve-preferred-config))
-                    (session-id (plist-get (cdr spec) :session-id)))
-               (when (and config session-id)
-                 (agent-shell--start :config config
-                                     :session-id session-id
-                                     :no-focus t
-                                     :new-session t)))))
+           (mr-x/crash-workspace-buffer (plist-get (cdr spec) :agent)
+                                        (plist-get (cdr spec) :session-id)))
           ('project-dashboard
            (when (fboundp 'project-dashboard-open)
              (save-window-excursion
@@ -5276,26 +5283,36 @@ Errors are swallowed per-handler so one bad spec doesn't abort the whole restore
            (dired-noselect (plist-get (cdr spec) :dir)))
           (_ nil))
       (error
-       (message "Restore handler failed for %S: %S" (car spec) err)
-       nil)))
+       (error "Restore handler failed for %S: %s"
+              (car spec) (error-message-string err)))))
 
   (defun mr-x/--restore-window-tree (window tree)
     "Restore TREE into WINDOW, splitting as needed.
-Each leaf tries restore strategies in order: file path -> restore-spec
-handler (vterm/agent-shell/dashboard/etc.) -> existing buffer by name ->
-*scratch* fallback. This ensures stateful buffers reconstruct themselves
-when possible rather than silently becoming scratch."
+Each leaf must resolve its saved file, restore-spec, or existing buffer name.
+File and handler failures signal rather than fall back to another buffer, so
+the frame transaction cannot consume a bundle after an incomplete restore."
     (if (eq (plist-get tree :type) 'leaf)
         (let* ((file (plist-get tree :file))
                (buf-name (plist-get tree :buffer))
                (spec (plist-get tree :restore-spec))
-               (buf (or (and file (file-exists-p file) (find-file-noselect file))
-                        (and spec (mr-x/--restore-buffer-from-spec spec))
-                        (get-buffer buf-name)
-                        (get-buffer-create "*scratch*"))))
+               (buf (cond
+                     (file
+                      (unless (file-exists-p file)
+                        (error "Cannot restore buffer %S: file missing: %s" buf-name file))
+                      (find-file-noselect file))
+                     (spec (mr-x/--restore-buffer-from-spec spec))
+                     (t (get-buffer buf-name)))))
+          (unless (buffer-live-p buf)
+            (error "Cannot restore buffer %S%s"
+                   buf-name (if spec (format ": handler %S returned no live buffer" (car spec))
+                              ": no saved file, restore handler, or live buffer")))
           (set-window-buffer window buf)
           (set-window-point window (or (plist-get tree :point) 1))
-          (set-window-start window (or (plist-get tree :start) 1)))
+          (set-window-start window (or (plist-get tree :start) 1))
+          (set-window-dedicated-p window (plist-get tree :dedicated))
+          (when (plist-get tree :pane-mode)
+            (set-window-parameter window 'major-pane t)
+            (set-window-parameter window 'mr-x/restored-pane-mode (plist-get tree :pane-mode))))
       ;; Split node
       (let* ((direction (plist-get tree :direction))
              (children-data (plist-get tree :children))
@@ -5319,48 +5336,46 @@ when possible rather than silently becoming scratch."
                  for child in children-data
                  do (mr-x/--restore-window-tree w child)))))
 
+  (defvar mr-x/session-restore-result nil)
+  (defvar mr-x/session-restore-operation nil)
+
   (defun mr-x/restore-session-state ()
-    "Restore frames, buffers, and window configurations from saved session state.
-Frames are created on the NS (macOS native) window system regardless of the
-caller's terminal — important because emacsclient -e runs in a TTY context
-where make-frame would otherwise error with \"Unknown terminal type\"."
+    "Asynchronously restore the saved frames with verified agent sessions.
+The legacy restart script polls `mr-x/session-restore-result' before placement."
     (interactive)
-    (if (not (file-exists-p mr-x/session-file))
-        (message "No session state file found")
-      (let ((frame-data (with-temp-buffer
-                          (insert-file-contents mr-x/session-file)
-                          (read (current-buffer))))
-            (errors nil))
-        (dolist (fd frame-data)
-          (condition-case err
-              (let ((frame (make-frame
-                            (list (cons 'window-system 'ns)
-                                  (cons 'left (plist-get fd :left))
-                                  (cons 'top (plist-get fd :top))
-                                  (cons 'width (plist-get fd :width))
-                                  (cons 'height (plist-get fd :height))
-                                  (cons 'fullscreen (plist-get fd :fullscreen))))))
-                (select-frame frame)
-                (mr-x/--restore-window-tree
-                 (frame-root-window frame)
-                 (plist-get fd :window-tree)))
-            (error
-             (push (format "Frame restore failed: %S" err) errors))))
-        (if errors
-            (format "Restored %d frames, %d errors: %s"
-                    (- (length frame-data) (length errors))
-                    (length errors)
-                    (string-join errors "; "))
-          (format "Session restored: %d frames" (length frame-data))))))
+    (unless (file-exists-p mr-x/session-file) (user-error "No session state file found"))
+    (when mr-x/crash-workspace-current (user-error "A workspace restore is already running"))
+    (let ((session (mr-x/crash-restore-legacy-session
+                    (mr-x/crash-capture--read mr-x/session-file))))
+      (setq mr-x/session-restore-result '(:status pending))
+      (condition-case err
+          (setq mr-x/session-restore-operation
+                (mr-x/crash-workspace-start
+                 (format "manual-restore-%s" (float-time)) nil session #'mr-x/--crash-replay-tree
+                 (lambda (result)
+                   (setq mr-x/session-restore-result result)
+                   (message "Session restore: %s" (plist-get result :status))
+                   (major-pane-workspace-request-save))))
+        ((error quit)
+         (setq mr-x/session-restore-result
+               (list :status 'failed :errors (list (error-message-string err))))))
+      (plist-get mr-x/session-restore-result :status)))
+
+  (defun mr-x/cancel-session-restore ()
+    "Cancel only the active manual session restore."
+    (interactive)
+    (when mr-x/session-restore-operation
+      (mr-x/crash-workspace-cancel mr-x/session-restore-operation)))
 
 #+end_src
 
 *** Crash Recovery
 
-Persistent-scratch, but for the whole session.  An idle timer keeps
-=session-state.el= (and yabai space assignments) fresh in the background
-and, when the daemon was launched through =emacs-daemon-run.sh=, commits
-the same frames as a coherent capture in that run's private directory.
+Workspace and layout events publish the current conversation list and frames.
+The legacy =session-state.el= mirror shares that collection; structural layout
+changes refresh its compatibility yabai mirror.  When launched through
+=emacs-daemon-run.sh=, the daemon commits conversations and frames atomically
+in its run directory.  No recurring snapshot timer is needed.
 Crash detection lives in the launcher path (=lisp/mr-x-crash-runtime.el=):
 each run has its own diagnostics and clean-exit marker, and the next
 start turns every unclean run into an immutable bundle under
@@ -5382,6 +5397,7 @@ daemon-only: batch runs (tests, tangling) must not start timers.
 
   (require 'mr-x-crash-bundle)
   (require 'mr-x-crash-restore)
+  (require 'mr-x-crash-workspace)
 
   (defvar mr-x/yabai-state-file
     (expand-file-name "yabai-state.json" user-emacs-directory)
@@ -5393,27 +5409,67 @@ daemon-only: batch runs (tests, tangling) must not start timers.
   (defconst mr-x/--restart-restore-script
     (expand-file-name "~/.dotfiles/macos/scripts/emacs-restart-restore.sh"))
 
+  (defvar mr-x/session-placement-last nil)
+
+  (defun mr-x/--session-layout-signature (frames)
+    "Return FRAMES without volatile cursor and scroll positions."
+    (cl-labels ((tree (node)
+                 (if (eq (plist-get node :type) 'leaf)
+                     (cl-loop for (key value) on node by #'cddr
+                              unless (memq key '(:point :start)) append (list key value))
+                   (plist-put (copy-sequence node) :children
+                              (mapcar #'tree (plist-get node :children))))))
+      (mapcar (lambda (frame)
+                (plist-put (copy-sequence frame) :window-tree
+                           (tree (plist-get frame :window-tree)))) frames)))
+
+  (defun mr-x/--session-save-legacy-placement (frames)
+    "Refresh the compatibility yabai mirror on structural layout changes.
+This remains separate from validated crash-bundle placement."
+    (let ((signature (mr-x/--session-layout-signature frames)))
+      (when (and (not noninteractive) frames
+                 (not (equal signature mr-x/session-placement-last))
+                 (not (get-process "yabai-autosave"))
+                 (file-exists-p mr-x/--restart-restore-script))
+        (let* ((process-environment
+                (cons (concat "YABAI_STATE=" mr-x/yabai-state-file) process-environment))
+               (process (start-process "yabai-autosave" nil mr-x/--restart-restore-script "save-yabai")))
+          (setq mr-x/session-placement-last signature)
+          (set-process-query-on-exit-flag process nil)
+          (set-process-sentinel
+           process (lambda (proc _event)
+                     (when (memq (process-status proc) '(exit signal))
+                       (unless (zerop (process-exit-status proc))
+                         (message "Legacy Space snapshot failed: exit %d" (process-exit-status proc)))
+                       (major-pane-workspace-request-save 0.25))))))))
+
+  (defvar mr-x/session-capture-last nil
+    "Last successfully published (frames workspace) pair in this daemon.")
+
+  (defun mr-x/session-capture (entries)
+    "Publish ENTRIES and one matching frame collection after a workspace event."
+    (let* ((frames (mr-x/--session-frames))
+           (pair (list frames entries)))
+      (unless (equal pair mr-x/session-capture-last)
+        (when (or frames entries mr-x/session-capture-last)
+          (when (bound-and-true-p mr-x/crash-runtime--identity)
+            (let ((result (mr-x/crash-runtime-capture
+                           (lambda () frames) nil #'mr-x/--session-frame-keys
+                           (lambda () entries))))
+              (unless (eq (plist-get result :status) 'committed)
+                (error "Crash capture was not committed: %s"
+                       (or mr-x/crash-runtime--last-error result)))))
+          ;; The legacy mirror and picker history use this collection too.
+          (make-directory (file-name-directory mr-x/session-file) t)
+          (mr-x/crash-capture--write mr-x/session-file frames)
+          (setq mr-x/session-capture-last (copy-tree pair))))
+      (mr-x/--session-save-legacy-placement frames)))
+
   (defun mr-x/session-autosave ()
-    "Silently snapshot session + yabai state; runs on idle.
-Skips when there are no eligible frames so a bare daemon doesn't
-clobber the last useful snapshot.  When this daemon was launched through
-the diagnostic helper, the same frames also commit a coherent capture in
-the run directory; placement stays frame-only there until exact-ID yabai
-capture lands, so the legacy yabai mirror below is still the only
-placement record."
-    (when (mr-x/--session-eligible-frames)
-      (let ((inhibit-message t)
-            (message-log-max nil))
-        (mr-x/save-session-state)
-        (when (fboundp 'mr-x/crash-runtime-capture)
-          (mr-x/crash-runtime-capture #'mr-x/--session-frames nil
-                                      #'mr-x/--session-frame-keys)))
-      (when (file-exists-p mr-x/--restart-restore-script)
-        (let ((process-environment
-               (cons (concat "YABAI_STATE=" mr-x/yabai-state-file)
-                     process-environment)))
-          (start-process "yabai-autosave" nil
-                         mr-x/--restart-restore-script "save-yabai")))))
+    "Explicitly flush the event-driven workspace capture."
+    (major-pane-workspace--flush))
+
+  (setq major-pane-workspace-capture-function #'mr-x/session-capture)
 
   (defun mr-x/--crash-store ()
     "The crash bundle store below `user-emacs-directory'."
@@ -5585,10 +5641,12 @@ records of a bundle, or the tail of a legacy stderr snapshot."
       (delete-other-windows)
       (mr-x/--restore-window-tree (frame-selected-window frame) tree)))
 
-  (defun mr-x/--crash-frames-with-keys (keys)
+  (defun mr-x/--crash-frames-with-keys (keys &optional owner)
     "Live frames whose restore key is one of KEYS."
-    (cl-remove-if-not (lambda (f) (member (frame-parameter f 'mr-x/restore-key) keys))
-                      (frame-list)))
+    (cl-remove-if-not
+     (lambda (f) (and (member (frame-parameter f 'mr-x/restore-key) keys)
+                      (or (null owner) (equal (frame-parameter f 'mr-x/recovery-owner) owner))))
+     (frame-list)))
 
   (defun mr-x/--crash-after-consume (splash-frame)
     "Show the next pending crash, or clear the splash and bury it."
@@ -5598,79 +5656,105 @@ records of a bundle, or the tail of a legacy stderr snapshot."
       (when (frame-live-p splash-frame)
         (lower-frame splash-frame))))
 
+  (defvar mr-x/--crash-restore-operation nil)
+
+  (defun mr-x/--crash-restore-missing (result)
+    "One line naming RESULT's conversations that did not resume, or nil."
+    (when-let ((failed (plist-get result :failed)))
+      (mapconcat (lambda (f)
+                   (format "%s (%s %s): %s"
+                           (or (plist-get f :label) "unlabeled") (plist-get f :agent)
+                           (plist-get f :session-id) (plist-get f :error)))
+                 failed "; ")))
+
+  (defun mr-x/--crash-restore-done (info splash-frame result)
+    "Publish the settled RESULT without consuming incomplete recovery evidence.
+Frames that came back stay up even when some conversations did not: those
+windows hold placeholders, the bundle returns to `pending-frames' with the
+missing conversations in :last-error, and nothing is consumed, so they can
+still be recovered from the evidence."
+    (let* ((directory (plist-get info :directory))
+           (status (mr-x/crash-bundle-status directory))
+           (leaked (append (plist-get result :leaked) (plist-get result :agent-leaks)))
+           (missing (mr-x/--crash-restore-missing result))
+           (restored-frames (mapcar (lambda (f) (list :restore-key (plist-get f :restore-key)
+                                                     :window-id nil))
+                                    (plist-get result :frames))))
+      (unwind-protect
+          (cond
+           ((not (eq (plist-get result :status) 'restored))
+            (mr-x/crash-bundle-transition
+             directory 'restoring-frames (if leaked 'cleanup-pending 'pending-frames)
+             :last-error (format "%S" (plist-get result :errors)) :residual-resources leaked)
+            (mr-x/crash-recovery)
+            (message "Recovery failed; evidence kept: %S" (plist-get result :errors)))
+           (missing
+            (mr-x/crash-bundle-transition
+             directory 'restoring-frames 'pending-frames
+             :restored-frames restored-frames
+             :last-error (format "Not resumed: %s" missing))
+            (when (frame-live-p splash-frame)
+              (lower-frame splash-frame))
+            (message "Workspace restored: %d frames; %d conversation(s) not resumed, evidence kept"
+                     (length (plist-get result :frames)) (length (plist-get result :failed))))
+           (t
+            (mr-x/crash-bundle-transition
+             directory 'restoring-frames 'pending-yabai :restored-frames restored-frames)
+            (if (plist-get status :yabai-required)
+                (message "Conversations and frames restored; Space placement remains pending")
+              (mr-x/crash-bundle-transition directory 'pending-yabai 'complete)
+              (mr-x/crash-bundle-consume (mr-x/--crash-store) (plist-get info :id))
+              (mr-x/--crash-after-consume splash-frame)
+              (message "Workspace restored: %d frames" (length (plist-get result :frames))))))
+        (setq mr-x/--crash-restore-active nil mr-x/--crash-restore-operation nil
+              major-pane-workspace-inhibit-save nil)
+        (major-pane-workspace-request-save))))
+
   (defun mr-x/--crash-restore-bundle (info)
-    "Drive the frame phase of recovery for the bundle described by INFO."
-    (let* ((store (mr-x/--crash-store))
-           (id (plist-get info :id))
-           (directory (plist-get info :directory))
+    "Restore verified conversations before replaying the bundle's frames."
+    (let* ((id (plist-get info :id)) (directory (plist-get info :directory))
            (status (mr-x/crash-bundle-status directory))
            (phase (plist-get status :phase))
+           (owner (cons id (plist-get status :attempt)))
            (splash-frame (selected-frame)))
-      (when (equal mr-x/--crash-restore-active id)
-        (user-error "Recovery of %s is already running" id))
+      (when (or mr-x/--crash-restore-active mr-x/crash-workspace-current)
+        (user-error "A workspace recovery is already running"))
       (pcase phase
-        ('cleanup-pending
-         ;; Retry cleanup only: reconstruction stays blocked until every
-         ;; leaked frame of the failed attempt is gone.
-         (dolist (f (mr-x/--crash-frames-with-keys (plist-get status :residual-resources)))
-           (ignore-errors (delete-frame f t)))
-         (let ((left (mapcar (lambda (f) (frame-parameter f 'mr-x/restore-key))
-                             (mr-x/--crash-frames-with-keys
-                              (plist-get status :residual-resources)))))
-           (if left
-               (mr-x/crash-bundle-transition directory 'cleanup-pending 'cleanup-pending
-                                             :residual-resources left)
-             (mr-x/crash-bundle-transition directory 'cleanup-pending 'pending-frames
-                                           :residual-resources nil))
-           (mr-x/crash-recovery)
-           (message (if left "Cleanup incomplete: %S still alive; r retries cleanup"
-                      "Cleanup complete; r now rebuilds the frames")
-                    left)))
-        ('restoring-frames
-         ;; A stale attempt: this daemon holds no operation, so reconcile by
-         ;; removing any frames that attempt left behind, then allow retry.
-         (let ((keys (mapcar (lambda (fd) (plist-get fd :restore-key))
-                             (mr-x/crash-capture--read (plist-get info :session)))))
-           (dolist (f (mr-x/--crash-frames-with-keys keys))
+        ((or 'cleanup-pending 'restoring-frames)
+         (let* ((keys (mapcar (lambda (fd) (plist-get fd :restore-key))
+                              (mr-x/crash-capture--read (plist-get info :session))))
+                (agent-leaks (mr-x/crash-workspace-cleanup owner)))
+           (dolist (f (mr-x/--crash-frames-with-keys keys owner))
              (ignore-errors (delete-frame f t)))
-           (mr-x/crash-bundle-transition directory 'restoring-frames 'pending-frames
-                                         :owner nil :last-error "interrupted attempt reconciled")
-           (mr-x/crash-recovery)
-           (message "Interrupted attempt reconciled; r retries the restore")))
+           (let ((left (append agent-leaks
+                               (mapcar (lambda (f) (frame-parameter f 'mr-x/restore-key))
+                                       (mr-x/--crash-frames-with-keys keys owner)))))
+             (mr-x/crash-bundle-transition
+              directory phase (if left 'cleanup-pending 'pending-frames)
+              :residual-resources left :last-error "Interrupted attempt cleanup")
+             (mr-x/crash-recovery)
+             (message (if left "Cleanup incomplete; retry cleanup" "Cleanup complete; retry recovery")))))
         ('pending-frames
-         (let ((session (mr-x/crash-capture--read (plist-get info :session)))
-               (owner (list :run-id (getenv "MR_X_EMACS_RUN_ID") :pid (emacs-pid))))
+         (let* ((data (mr-x/crash-workspace-read-bundle directory))
+                (session (car data)) (workspace (cadr data))
+                (attempt (1+ (plist-get status :attempt))))
+           ;; Fail before creating resources or changing status on bad evidence.
+           (mr-x/crash-workspace--entries workspace session)
            (mr-x/crash-bundle-transition directory 'pending-frames 'restoring-frames
-                                         :owner owner :attempt (1+ (plist-get status :attempt)))
-           (setq mr-x/--crash-restore-active id)
-           (let ((result (unwind-protect
-                             (mr-x/crash-restore-frames session #'mr-x/--crash-replay-tree)
-                           (setq mr-x/--crash-restore-active nil))))
-             (if (eq (plist-get result :status) 'restored)
-                 (progn
-                   (mr-x/crash-bundle-transition
-                    directory 'restoring-frames 'pending-yabai
-                    :restored-frames (mapcar (lambda (f) (list :restore-key (plist-get f :restore-key)
-                                                               :window-id nil))
-                                             (plist-get result :frames)))
-                   (if (plist-get status :yabai-required)
-                       (progn (mr-x/crash-recovery)
-                              (message "Frames restored; placement is not implemented yet, bundle stays pending-yabai"))
-                     (mr-x/crash-bundle-transition directory 'pending-yabai 'complete)
-                     (mr-x/crash-bundle-consume store id)
-                     (mr-x/--crash-after-consume splash-frame)
-                     (message "Session restored: %d frames" (length (plist-get result :frames)))))
-               (let ((leaked (plist-get result :leaked)))
-                 (mr-x/crash-bundle-transition
-                  directory 'restoring-frames (if leaked 'cleanup-pending 'pending-frames)
-                  :last-error (format "%S" (plist-get result :errors))
-                  :residual-resources leaked)
-                 (mr-x/crash-recovery)
-                 (message "Restore failed; evidence kept. %s"
-                          (if leaked "r retries cleanup of leaked frames"
-                            "r retries the restore")))))))
-        (_ (user-error "Bundle %s is %s; restore is not available (d to read, x to discard)"
-                       id phase)))))
+                                         :owner (list :run-id (getenv "MR_X_EMACS_RUN_ID") :pid (emacs-pid))
+                                         :attempt attempt)
+           (setq mr-x/--crash-restore-active id major-pane-workspace-inhibit-save t)
+           (condition-case err
+               (let ((operation
+                      (mr-x/crash-workspace-start
+                       (cons id attempt) workspace session #'mr-x/--crash-replay-tree
+                       (lambda (result) (mr-x/--crash-restore-done info splash-frame result)))))
+                 (when mr-x/--crash-restore-active
+                   (setq mr-x/--crash-restore-operation operation)))
+             ((error quit)
+              (mr-x/--crash-restore-done
+               info splash-frame (list :status 'failed :errors (list (error-message-string err))))))))
+        (_ (user-error "Bundle %s is %s; restore is not available" id phase)))))
 
   (defun mr-x/--crash-restore-legacy (info)
     "Rebuild frames from the legacy flat snapshot; no placement is attempted."
@@ -5738,8 +5822,9 @@ made is deleted and the evidence stays; the review shows why."
   ;; itself lives in the launcher path (mr-x-crash-runtime); a daemon started
   ;; without the helper gets no run directory and therefore no bundles.
   (when (daemonp)
-    (setq mr-x/session-autosave-timer
-          (run-with-idle-timer 30 t #'mr-x/session-autosave)))
+    (when (timerp mr-x/session-autosave-timer)
+      (cancel-timer mr-x/session-autosave-timer))
+    (setq mr-x/session-autosave-timer nil))
 
 #+end_src
 
@@ -10041,7 +10126,8 @@ coming from the provider untouched."
       ;; Major Pane Workspace - keeps a snapshot history of which convos
       ;; were open (session id, cwd, agent, label, order) so a restart
       ;; can list them and resume the one you want (SPC c / w, C-u for
-      ;; older snapshots).  See lisp/major-pane-workspace.el.
+      ;; older snapshots).  Saves follow lifecycle and layout events.
+      ;; See lisp/major-pane-workspace.el.
       (require 'major-pane-workspace)
       (major-pane-workspace-mode 1)
 
@@ -10119,7 +10205,7 @@ coming from the provider untouched."
               (when name
                 (when-let ((new-buf (get-buffer name)))
                   (unless (eq new-buf old-buf)
-                    (when label (puthash new-buf label major-pane--labels))
+                    (when label (major-pane-set-buffer-label new-buf label))
                     (when live (with-current-buffer new-buf
                                  (syzygy-live-mode 1)))))))))
         (advice-add 'agent-shell-restart :around
@@ -10138,8 +10224,8 @@ coming from the provider untouched."
           (let ((inhibit-quit t))
             (when-let ((buf (get-buffer buffer-name)))
               (if (string-empty-p label)
-                  (remhash buf major-pane--labels)
-                (puthash buf label major-pane--labels))
+                  (major-pane-set-buffer-label buf nil)
+                (major-pane-set-buffer-label buf label))
               (mr-x/agent-label-sync)
               t)))
 
@@ -10235,7 +10321,7 @@ still wins over the copied model + mode."
                          :config config
                          :new-session t :no-focus t)))
               (when label
-                (puthash buf label major-pane--labels))
+                (major-pane-set-buffer-label buf label))
               (when (nth 5 tuple)
                 (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                              buf (nth 5 tuple) 60))
@@ -10611,7 +10697,7 @@ silent context-only capture with no marker."
                     (when-let ((label (alist-get 'label metadata)))
                       (when (and (require 'major-pane nil t)
                                  (boundp 'major-pane--labels))
-                        (puthash shell-buffer label major-pane--labels))))))
+                        (major-pane-set-buffer-label shell-buffer label))))))
         ;; agent-recall registers its embark keymap (o/r/R on transcript
         ;; rows) only when `agent-recall-browse' runs, so in a fresh daemon
         ;; the consult-search and workspace pickers had no `r' until you had

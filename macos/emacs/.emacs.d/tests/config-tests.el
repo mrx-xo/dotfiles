@@ -1467,7 +1467,7 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
 resumes from it."
   (should (featurep 'major-pane-workspace))
   (should (bound-and-true-p major-pane-workspace-mode))
-  (should (memq #'major-pane-workspace-save kill-emacs-hook))
+  (should (memq #'major-pane-workspace--flush kill-emacs-hook))
   (should (eq (config-test--leader-key "c / w") 'major-pane-workspace-resume)))
 
 (ert-deftest config-test-leader-pane-keys ()

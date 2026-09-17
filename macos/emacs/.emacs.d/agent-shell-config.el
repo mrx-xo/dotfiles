@@ -1406,7 +1406,8 @@ coming from the provider untouched."
       ;; Major Pane Workspace - keeps a snapshot history of which convos
       ;; were open (session id, cwd, agent, label, order) so a restart
       ;; can list them and resume the one you want (SPC c / w, C-u for
-      ;; older snapshots).  See lisp/major-pane-workspace.el.
+      ;; older snapshots).  Saves follow lifecycle and layout events.
+      ;; See lisp/major-pane-workspace.el.
       (require 'major-pane-workspace)
       (major-pane-workspace-mode 1)
 
@@ -1484,7 +1485,7 @@ coming from the provider untouched."
               (when name
                 (when-let ((new-buf (get-buffer name)))
                   (unless (eq new-buf old-buf)
-                    (when label (puthash new-buf label major-pane--labels))
+                    (when label (major-pane-set-buffer-label new-buf label))
                     (when live (with-current-buffer new-buf
                                  (syzygy-live-mode 1)))))))))
         (advice-add 'agent-shell-restart :around
@@ -1503,8 +1504,8 @@ coming from the provider untouched."
           (let ((inhibit-quit t))
             (when-let ((buf (get-buffer buffer-name)))
               (if (string-empty-p label)
-                  (remhash buf major-pane--labels)
-                (puthash buf label major-pane--labels))
+                  (major-pane-set-buffer-label buf nil)
+                (major-pane-set-buffer-label buf label))
               (mr-x/agent-label-sync)
               t)))
 
@@ -1600,7 +1601,7 @@ still wins over the copied model + mode."
                          :config config
                          :new-session t :no-focus t)))
               (when label
-                (puthash buf label major-pane--labels))
+                (major-pane-set-buffer-label buf label))
               (when (nth 5 tuple)
                 (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                              buf (nth 5 tuple) 60))
@@ -1976,7 +1977,7 @@ silent context-only capture with no marker."
                     (when-let ((label (alist-get 'label metadata)))
                       (when (and (require 'major-pane nil t)
                                  (boundp 'major-pane--labels))
-                        (puthash shell-buffer label major-pane--labels))))))
+                        (major-pane-set-buffer-label shell-buffer label))))))
         ;; agent-recall registers its embark keymap (o/r/R on transcript
         ;; rows) only when `agent-recall-browse' runs, so in a fresh daemon
         ;; the consult-search and workspace pickers had no `r' until you had

@@ -261,7 +261,7 @@ is written to a sibling temporary directory and renamed into place once."
                                                       (expand-file-name name temporary))))
                   (when entry (push entry files))))
               (when capture
-                (dolist (name '("session-state.el" "yabai-state.json"))
+                (dolist (name '("session-state.el" "yabai-state.json" "workspace.el"))
                   (let ((entry (mr-x/crash-bundle--copy
                                 (expand-file-name name (plist-get capture :directory))
                                 (expand-file-name name temporary))))

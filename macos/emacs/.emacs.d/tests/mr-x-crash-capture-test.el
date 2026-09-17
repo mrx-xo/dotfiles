@@ -5,6 +5,39 @@
 (require 'json)
 (require 'mr-x-crash-capture)
 
+(ert-deftest crash-capture-workspace-is-atomic-and-hashed ()
+  (let ((run (make-temp-file "workspace-capture-" t))
+        (entries '((:session-id "sid" :agent codex :cwd "/tmp/" :label "test" :anchored t))))
+    (unwind-protect
+        (let* ((saved (mr-x/crash-capture-save
+                       run crash-capture-test--identity #'crash-capture-test--frames nil nil
+                       (lambda () entries)))
+               (file (expand-file-name "workspace.el" (plist-get saved :directory))))
+          (should (equal entries (mr-x/crash-capture--read file)))
+          (should (mr-x/crash-capture-current run))
+          (let ((before (mr-x/crash-capture--read (expand-file-name "capture-current.el" run))))
+            (should-error (mr-x/crash-capture-save
+                           run crash-capture-test--identity #'crash-capture-test--frames nil nil
+                           (lambda () (error "workspace unavailable"))))
+            (should (equal before (mr-x/crash-capture--read (expand-file-name "capture-current.el" run)))))
+          (mr-x/crash-capture--write file nil)
+          (should-error (mr-x/crash-capture-current run)))
+      (delete-directory run t))))
+
+(ert-deftest crash-capture-workspace-only-and-empty-workspace-are-distinct ()
+  (let ((run (make-temp-file "workspace-only-" t)))
+    (unwind-protect
+        (progn
+          (should (eq 'committed
+                      (plist-get (mr-x/crash-capture-save
+                                  run crash-capture-test--identity (lambda () nil) nil nil
+                                  (lambda () '((:session-id "sid" :agent codex :cwd "/tmp/")))) :status)))
+          (should (mr-x/crash-capture-current run))
+          (let ((saved (mr-x/crash-capture-save
+                        run crash-capture-test--identity #'crash-capture-test--frames nil nil (lambda () nil))))
+            (should (file-exists-p (expand-file-name "workspace.el" (plist-get saved :directory))))))
+      (delete-directory run t))))
+
 (defconst crash-capture-test--identity
   '(:run-id "test-run" :pid 123 :server "sandbox"
 	    :init-directory "/tmp/capture-test-init/"))
@@ -345,3 +378,14 @@
                                        :status))))))
 
 ;;; mr-x-crash-capture-test.el ends here
+
+(ert-deftest crash-capture-deliberately-empty-workspace-replaces-owned-generation ()
+  (crash-capture-test--with-run
+    (let ((entries '((:session-id "sid" :agent codex :cwd "/tmp/"))))
+      (mr-x/crash-capture-save run crash-capture-test--identity (lambda () nil) nil nil (lambda () entries))
+      (setq entries nil)
+      (should (eq 'committed (plist-get
+                             (mr-x/crash-capture-save run crash-capture-test--identity (lambda () nil) nil nil (lambda () entries)) :status)))
+      (let* ((saved (mr-x/crash-capture-current run))
+             (directory (plist-get saved :directory)))
+        (should-not (mr-x/crash-capture--read (expand-file-name "workspace.el" directory)))))))
