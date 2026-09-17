@@ -102,7 +102,7 @@ no-op; environment changes cannot redirect an already active logger."
       mr-x/crash-runtime--identity)))
 
 (defun mr-x/crash-runtime-capture (session-function &optional placement-function
-                                                    keys-function)
+                                                    keys-function workspace-function)
   "Commit one run-scoped capture when diagnostics are installed, else nil.
 The arguments are passed to `mr-x/crash-capture-save'.  Provider or storage
 failures are recorded in the last-error field and return nil; nothing
@@ -111,7 +111,7 @@ signals into the caller, which is normally an idle timer."
     (condition-case err
         (mr-x/crash-capture-save mr-x/crash-runtime--directory
                                  mr-x/crash-runtime--identity
-                                 session-function placement-function keys-function)
+                                 session-function placement-function keys-function workspace-function)
       ((error quit)
        (setq mr-x/crash-runtime--last-error
              (truncate-string-to-width (error-message-string err) 512))

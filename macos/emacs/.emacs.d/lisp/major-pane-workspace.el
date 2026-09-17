@@ -10,7 +10,7 @@
 ;;
 ;; - A snapshot is the ordered list of major-pane convos with their
 ;;   session id, cwd, agent, label and anchored flag.  It is written to
-;;   `major-pane-workspace-file' from an idle timer and from
+;;   `major-pane-workspace-file' on workspace changes and from
 ;;   `kill-emacs-hook', so crashes are covered, not only clean exits.
 ;; - The file holds a short history: one snapshot per Emacs process,
 ;;   newest first, capped at `major-pane-workspace-history-size'.  The
@@ -79,17 +79,13 @@ because this module loads before no-littering on a fresh boot."
   "How many snapshots (one per Emacs process) to keep."
   :type 'integer)
 
-(defcustom major-pane-workspace-idle-delay 15
-  "Seconds of idle time before the current convo set is written."
-  :type 'integer)
-
 (defvar major-pane-workspace--boot nil
   "Start timestamp of this Emacs process once it owns a snapshot entry.
 nil until the first save; afterwards saves replace the entry whose
 `:started' matches this value instead of pushing a new one.")
 
 (defvar major-pane-workspace--last-written nil
-  "Convo list from the last write, to skip no-op writes from the timer.")
+  "Convo list from the last write, to skip unchanged event batches.")
 
 ;;; Collect
 
@@ -115,16 +111,29 @@ nil until the first save; afterwards saves replace the entry whose
       (list :session-id sid
             :cwd (expand-file-name (buffer-local-value 'default-directory buffer))
             :agent (map-nested-elt state '(:agent-config :identifier))
+            :membership (if (eq (buffer-local-value 'major-pane--excluded buffer) 'ejected)
+                            'ejected 'pane)
             :label (gethash buffer major-pane--labels)
             :anchored (and (memq buffer major-pane--anchored) t)
             :buffer-name (buffer-name buffer)
             :transcript (major-pane-workspace--index-transcript sid)))))
 
 (defun major-pane-workspace--collect ()
-  "Snapshot entries for the pane's convos, in tab order."
-  (delq nil (mapcar #'major-pane-workspace--entry
-                    (cl-remove-if-not #'buffer-live-p
-                                      (major-pane--ordered-convos)))))
+  "Collect pane tabs followed by ejected user conversations."
+  (let ((buffers (append (major-pane--ordered-convos)
+                         (cl-remove-if-not
+                          (lambda (b)
+                            (and (local-variable-p 'agent-shell--state b)
+                                 (eq (buffer-local-value 'major-pane--excluded b) 'ejected)))
+                          (buffer-list)))))
+    (let (seen entries)
+      (dolist (buffer (cl-remove-if-not #'buffer-live-p (delete-dups buffers)))
+        (when-let ((entry (major-pane-workspace--entry buffer)))
+          (let ((key (cons (format "%s" (plist-get entry :agent)) (plist-get entry :session-id))))
+            (unless (member key seen)
+              (push key seen)
+              (push entry entries)))))
+      (nreverse entries))))
 
 ;;; File
 
@@ -157,12 +166,11 @@ nil until the first save; afterwards saves replace the entry whose
   "Timestamp string used for snapshot keys."
   (format-time-string "%F %T"))
 
-(defun major-pane-workspace-save ()
+(defun major-pane-workspace--save-history (convos)
   "Write the current convo set into this process's snapshot entry.
 The first call of a process pushes a new entry (unless the pane is
 empty, in which case nothing is written); later calls replace it."
-  (interactive)
-  (let ((convos (major-pane-workspace--collect)))
+  (progn
     (when (or convos major-pane-workspace--boot)
       (unless major-pane-workspace--boot
         (setq major-pane-workspace--boot (major-pane-workspace--now)))
@@ -178,34 +186,47 @@ empty, in which case nothing is written); later calls replace it."
          (seq-take snaps major-pane-workspace-history-size))
         (setq major-pane-workspace--last-written convos)))))
 
+(defun major-pane-workspace-save ()
+  "Save the current workspace and matching frame capture together."
+  (interactive)
+  (major-pane-workspace--flush))
+
 (defun major-pane-workspace--save-if-changed ()
-  "Idle-timer body: save when the convo set differs from the last write."
-  (unless (equal (major-pane-workspace--collect)
-                 major-pane-workspace--last-written)
-    (condition-case err
-        (major-pane-workspace-save)
-      (error (message "major-pane-workspace: save failed: %s"
-                      (error-message-string err))))))
+  "Compatibility entry point for an explicit workspace flush."
+  (major-pane-workspace--flush))
 
 ;;; Resume
 
-(defun major-pane-workspace--live-buffer (session-id)
+(defun major-pane-workspace--live-buffer (session-id &optional agent)
   "Return the live agent-shell buffer attached to SESSION-ID, or nil."
   (cl-find-if (lambda (buf)
                 (and (local-variable-p 'agent-shell--state buf)
+                     (or (null agent)
+                         (equal (format "%s" agent)
+                                (format "%s" (map-nested-elt (buffer-local-value 'agent-shell--state buf) '(:agent-config :identifier)))))
                      (equal (major-pane-workspace--buffer-session-id buf)
                             session-id)))
               (buffer-list)))
 
 (defun major-pane-workspace--resume-entry (entry)
-  "Show ENTRY's convo: switch to it when open, resume it otherwise."
-  (let ((live (major-pane-workspace--live-buffer (plist-get entry :session-id))))
-    (if live
-        (pop-to-buffer live)
-      (require 'agent-shell-bookmark)
-      (agent-shell-bookmark--resume (plist-get entry :session-id)
-                                    (plist-get entry :cwd)
-                                    (plist-get entry :agent)))))
+  "Resume ENTRY with exact identity checking, then restore its presentation."
+  (require 'syzygy-recall)
+  (syzygy-recall-resume-entry
+   entry
+   (lambda (result)
+     (if (not (eq (alist-get 'ok result) t))
+         (message "Workspace resume failed: %s" (alist-get 'error result))
+       (let ((buffer (get-buffer (alist-get 'bufferName result))))
+         (major-pane-set-buffer-label buffer (plist-get entry :label))
+         (with-current-buffer buffer
+           (setq-local major-pane--excluded
+                       (and (eq (plist-get entry :membership) 'ejected) 'ejected)))
+         (unless (eq (plist-get entry :membership) 'ejected)
+           (major-pane--register-conversation buffer)
+           (when (plist-get entry :anchored)
+             (setq major-pane--anchored (append (delq buffer major-pane--anchored) (list buffer)))))
+         (pop-to-buffer buffer)
+         (major-pane-workspace-request-save))))))
 
 (defun major-pane-workspace--transcript-file (entry)
   "Transcript path for ENTRY: the snapshot's, else agent-recall's index now.
@@ -370,29 +391,131 @@ of the snapshot in tab order.  With prefix OLDER, choose which snapshot
          (candidates (cons all-row (mapcar #'car rows)))
          (choice (major-pane-workspace--read-choice candidates snapshot)))
     (if (equal choice all-row)
-        (dolist (row rows)
-          (unless (major-pane-workspace--live-buffer
-                   (plist-get (cdr row) :session-id))
-            (major-pane-workspace--resume-entry (cdr row))))
+        (progn
+          (require 'mr-x-crash-workspace)
+          (mr-x/crash-workspace-start
+           (format "workspace-picker-%s" (float-time)) (mapcar #'cdr rows) nil #'ignore
+           (lambda (result)
+             (message "Workspace resume: %s" (plist-get result :status))
+             (major-pane-workspace-request-save))))
       (major-pane-workspace--select-entry (cdr (assoc choice rows))))))
 
-;;; Wiring
+ ;;; Wiring
 
 (defvar major-pane-workspace--timer nil)
+(defvar major-pane-workspace--timer-delay nil)
+(defvar major-pane-workspace-inhibit-save nil
+  "Non-nil while recovery is building an incomplete workspace.")
+(defvar major-pane-workspace-capture-function nil
+  "Optional function receiving the collected entries before history is saved.
+It must signal on capture failure so history cannot advertise an unsaved state.")
+(defvar major-pane-workspace-last-error nil)
+(defvar-local major-pane-workspace--subscription nil)
+
+(defun major-pane-workspace--flush ()
+  "Save one event batch, without waiting for user idle time."
+  (when (timerp major-pane-workspace--timer)
+    (cancel-timer major-pane-workspace--timer))
+  (setq major-pane-workspace--timer nil major-pane-workspace--timer-delay nil)
+  (unless major-pane-workspace-inhibit-save
+    (condition-case err
+        (let ((entries (major-pane-workspace--collect)))
+          (when major-pane-workspace-capture-function
+            (funcall major-pane-workspace-capture-function entries))
+          (when (or (not major-pane-workspace--boot)
+                    (not (equal entries major-pane-workspace--last-written)))
+            (major-pane-workspace--save-history entries))
+          (setq major-pane-workspace-last-error nil))
+      (error
+       (setq major-pane-workspace-last-error (error-message-string err))
+       (message "Workspace save failed: %s" major-pane-workspace-last-error)))))
+
+(defun major-pane-workspace-request-save (&optional delay)
+  "Queue a save after the current event; DELAY coalesces layout changes.
+The first event sets the deadline.  Further events never postpone it."
+  (when (and (not noninteractive) major-pane-workspace-mode (not major-pane-workspace-inhibit-save))
+    (setq delay (or delay 0))
+    (when (and major-pane-workspace--timer
+               (> (or major-pane-workspace--timer-delay 0) delay))
+      (cancel-timer major-pane-workspace--timer)
+      (setq major-pane-workspace--timer nil))
+    (unless major-pane-workspace--timer
+      (setq major-pane-workspace--timer-delay delay
+            major-pane-workspace--timer
+            (run-at-time delay nil #'major-pane-workspace--flush)))))
+
+(defun major-pane-workspace--changed (&rest _)
+  "Queue a workspace mutation."
+  (major-pane-workspace-request-save))
+
+(defun major-pane-workspace--buffer-changed (&rest _)
+  "Capture directory or buffer-name changes of a conversation."
+  (when (bound-and-true-p agent-shell--state)
+    (major-pane-workspace-request-save)))
+
+(defun major-pane-workspace--layout-changed (&rest _)
+  "Coalesce layout events for at most a quarter second."
+  (major-pane-workspace-request-save 0.25))
+
+(defun major-pane-workspace--watch-buffer ()
+  "Observe actual session initialization and successful buffer closure."
+  (add-hook 'kill-buffer-hook #'major-pane-workspace--changed nil t)
+  (when (and (derived-mode-p 'agent-shell-mode)
+             (fboundp 'agent-shell-subscribe-to)
+             (bound-and-true-p agent-shell--state)
+             (not major-pane-workspace--subscription))
+    (setq major-pane-workspace--subscription
+          (agent-shell-subscribe-to
+           :shell-buffer (current-buffer)
+           :on-event (lambda (event)
+                       (when (memq (map-elt event :event)
+                                   '(init-session init-finished session-title-changed))
+                         (major-pane-workspace-request-save))))))
+  ;; Covers enabling the mode after sessions already initialized.
+  (major-pane-workspace-request-save))
+
+(defconst major-pane-workspace--mutations
+  '(major-pane--register-conversation major-pane--unregister-conversation
+    major-pane-set-label major-pane-set-buffer-label major-pane-anchor-toggle
+    major-pane--do-eject major-pane--do-adopt major-pane-exclude-buffer))
 
 ;;;###autoload
 (define-minor-mode major-pane-workspace-mode
-  "Keep the workspace snapshot file current with the open convo set."
+  "Persist workspace changes through lifecycle events, with no polling timer."
   :global t
-  (when major-pane-workspace--timer
-    (cancel-timer major-pane-workspace--timer)
-    (setq major-pane-workspace--timer nil))
+  (when (timerp major-pane-workspace--timer)
+    (cancel-timer major-pane-workspace--timer))
+  (setq major-pane-workspace--timer nil major-pane-workspace--timer-delay nil)
   (remove-hook 'kill-emacs-hook #'major-pane-workspace-save)
+  (remove-hook 'kill-emacs-hook #'major-pane-workspace--flush)
+  (dolist (fn '(cd rename-buffer))
+    (advice-remove fn #'major-pane-workspace--buffer-changed)
+    (when major-pane-workspace-mode
+      (advice-add fn :after #'major-pane-workspace--buffer-changed)))
+  (dolist (fn major-pane-workspace--mutations)
+    (advice-remove fn #'major-pane-workspace--changed))
+  (dolist (pair '((agent-shell-mode-hook . major-pane-workspace--watch-buffer)
+                  (window-state-change-hook . major-pane-workspace--layout-changed)
+                  (window-size-change-functions . major-pane-workspace--layout-changed)
+                  (move-frame-functions . major-pane-workspace--layout-changed)
+                  (after-make-frame-functions . major-pane-workspace--layout-changed)
+                  (delete-frame-functions . major-pane-workspace--layout-changed)))
+    (remove-hook (car pair) (cdr pair))
+    (when major-pane-workspace-mode (add-hook (car pair) (cdr pair))))
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when major-pane-workspace--subscription
+        (when (fboundp 'agent-shell-unsubscribe)
+          (agent-shell-unsubscribe :subscription major-pane-workspace--subscription))
+        (setq major-pane-workspace--subscription nil))
+      (remove-hook 'kill-buffer-hook #'major-pane-workspace--changed t)
+      (when (and major-pane-workspace-mode (local-variable-p 'agent-shell--state))
+        (major-pane-workspace--watch-buffer))))
   (when major-pane-workspace-mode
-    (setq major-pane-workspace--timer
-          (run-with-idle-timer major-pane-workspace-idle-delay t
-                               #'major-pane-workspace--save-if-changed))
-    (add-hook 'kill-emacs-hook #'major-pane-workspace-save)))
+    (dolist (fn major-pane-workspace--mutations)
+      (advice-add fn :after #'major-pane-workspace--changed))
+    (add-hook 'kill-emacs-hook #'major-pane-workspace--flush)
+    (major-pane-workspace-request-save)))
 
 (provide 'major-pane-workspace)
 ;;; major-pane-workspace.el ends here

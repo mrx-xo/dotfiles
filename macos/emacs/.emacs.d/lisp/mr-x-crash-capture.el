@@ -139,6 +139,25 @@ Temporary files are beside PATH and are private before contents are written."
   (equal (sort (copy-sequence (mr-x/crash-capture--keys first)) #'string<)
          (sort (copy-sequence (mr-x/crash-capture--keys second)) #'string<)))
 
+(defun mr-x/crash-capture-workspace (entries)
+  "Validate workspace ENTRIES without loading any agent packages."
+  (unless (proper-list-p entries)
+    (mr-x/crash-capture--invalid "Workspace must be a list"))
+  (let (keys)
+    (dolist (entry entries)
+      (let ((id (plist-get entry :session-id)) (agent (plist-get entry :agent))
+            (cwd (plist-get entry :cwd)))
+        (unless (and (proper-list-p entry) (stringp id) (not (string-empty-p id))
+                     agent (or (symbolp agent) (and (stringp agent) (not (string-empty-p agent))))
+                     (stringp cwd) (file-name-absolute-p cwd) (not (file-remote-p cwd))
+                     (or (null (plist-get entry :label)) (stringp (plist-get entry :label)))
+                     (memq (plist-get entry :anchored) '(nil t)))
+          (mr-x/crash-capture--invalid "Workspace entry lacks a valid agent, session or directory"))
+        (let ((key (cons (format "%s" agent) id)))
+          (when (member key keys) (mr-x/crash-capture--invalid "Duplicate workspace session: %s" id))
+          (push key keys)))))
+  entries)
+
 (defun mr-x/crash-capture--placement (text identity keys)
   "Validate placement JSON TEXT against IDENTITY and eligible frame KEYS."
   (condition-case err
@@ -173,11 +192,18 @@ Temporary files are beside PATH and are private before contents are written."
          (manifest (mr-x/crash-capture--read (expand-file-name "manifest.el" directory)))
          (session (expand-file-name "session-state.el" directory))
          (placement (expand-file-name "yabai-state.json" directory))
+         (workspace (expand-file-name "workspace.el" directory))
+         (workspace-data
+          (when (plist-get manifest :workspace-sha256)
+            (unless (equal (plist-get manifest :workspace-sha256)
+                           (mr-x/crash-capture--digest workspace))
+              (mr-x/crash-capture--invalid "Workspace digest mismatch"))
+            (mr-x/crash-capture-workspace (mr-x/crash-capture--read workspace))))
          (source (mr-x/crash-capture--identity (plist-get manifest :source-run)))
          (keys (mr-x/crash-capture--keys (plist-get manifest :frame-keys))))
     (unless (and (equal (plist-get manifest :schema-version) 1)
                  (equal (plist-get manifest :capture-id) id)
-                 keys
+                 (or keys workspace-data (plist-get manifest :workspace-sha256))
                  (or (null identity)
                      (equal source (mr-x/crash-capture--identity identity)))
                  (equal (plist-get manifest :session-sha256)
@@ -185,6 +211,8 @@ Temporary files are beside PATH and are private before contents are written."
                  (equal keys (mr-x/crash-capture--session-keys
                               (mr-x/crash-capture--read session))))
       (mr-x/crash-capture--invalid "Capture manifest/session mismatch"))
+    (when (and (file-exists-p workspace) (not (plist-get manifest :workspace-sha256)))
+      (mr-x/crash-capture--invalid "Unhashed workspace in capture"))
     (pcase (plist-get manifest :placement-mode)
       ('required
        (unless (equal (plist-get manifest :placement-sha256)
@@ -228,7 +256,7 @@ warnings rather than disguising a successful pointer commit as a failed save."
     (nreverse warnings)))
 
 (defun mr-x/crash-capture-save (run-directory identity session-function
-                                              placement-function &optional keys-function)
+                                              placement-function &optional keys-function workspace-function)
   "Commit one coherent capture in existing local RUN-DIRECTORY for IDENTITY.
 IDENTITY must remain unchanged for the lifetime of RUN-DIRECTORY.  Allocate a
 new run directory after a daemon restart; never reuse one with a different PID.
@@ -236,6 +264,7 @@ SESSION-FUNCTION returns serialized frames with unique :restore-key fields.
 PLACEMENT-FUNCTION receives a copy of the frames and returns versioned JSON;
 nil explicitly requests frame-only capture.  Optional KEYS-FUNCTION returns
 the current eligible frame keys after capture, to detect eligibility changes.
+WORKSPACE-FUNCTION supplies the conversation list in the same atomic generation.
 
 Return a plist with :status `committed', :capture-id, and :directory.  An empty
 session or overlapping invocation returns :status `skipped' and :reason.  All
@@ -249,8 +278,10 @@ Post-commit pruning failures appear in :warnings; they do not undo a commit."
       (unwind-protect
           (let* ((old (mr-x/crash-capture-current root source))
                  (session (funcall session-function))
-                 (keys (mr-x/crash-capture--session-keys session)))
-            (if (null keys)
+                 (keys (mr-x/crash-capture--session-keys session))
+                 (workspace (when workspace-function
+                              (copy-tree (mr-x/crash-capture-workspace (funcall workspace-function))))))
+            (if (not (or keys workspace (and workspace-function old)))
                 '(:status skipped :reason empty)
               (setq session (copy-tree session))
               (set-file-modes root #o700)
@@ -267,6 +298,8 @@ Post-commit pruning failures appear in :warnings; they do not undo a commit."
                         (set-file-modes temporary #o700)
                         (mr-x/crash-capture--write
                          (expand-file-name "session-state.el" temporary) session)
+                        (when workspace-function
+                          (mr-x/crash-capture--write (expand-file-name "workspace.el" temporary) workspace))
                         (when placement-function
                           (mr-x/crash-capture--write
                            (expand-file-name "yabai-state.json" temporary)
@@ -283,6 +316,9 @@ Post-commit pruning failures appear in :warnings; they do not undo a commit."
                                :placement-mode (if placement-function 'required 'not-requested)
                                :session-sha256 (mr-x/crash-capture--digest
                                                 (expand-file-name "session-state.el" temporary))
+                               :workspace-sha256 (when workspace-function
+                                                   (mr-x/crash-capture--digest
+                                                    (expand-file-name "workspace.el" temporary)))
                                :placement-sha256 (when placement-function
                                                    (mr-x/crash-capture--digest
                                                     (expand-file-name "yabai-state.json" temporary)))))

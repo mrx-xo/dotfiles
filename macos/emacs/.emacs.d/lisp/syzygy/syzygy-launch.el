@@ -196,7 +196,7 @@ but settings could not be confirmed."
              (setf (alist-get :default-model-id config) (lambda () model)
                    (alist-get :default-session-mode-id config) (lambda () mode))
              (setq buffer (agent-shell--start :config config :new-session t :no-focus t))
-             (unless (string-empty-p name) (puthash buffer name major-pane--labels))
+             (unless (string-empty-p name) (major-pane-set-buffer-label buffer name))
              (syzygy-launch--configure buffer settings task)
              (when (fboundp 'mr-x/agent-label-sync)
                (with-current-buffer buffer (mr-x/agent-label-sync)))

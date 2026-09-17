@@ -16,6 +16,7 @@
 
 (require 'cl-lib)
 (require 'mr-x-crash-capture)
+(defvar mr-x/crash-restore-owner nil)
 
 (defun mr-x/crash-restore-legacy-session (session)
   "Return SESSION with generated restore keys for a flat legacy snapshot."
@@ -24,7 +25,9 @@
 
 (defun mr-x/crash-restore--parameters (record)
   "Frame parameters for RECORD: NS, no client, the key, then geometry."
-  (append (list (cons 'window-system 'ns)
+  (append (when mr-x/crash-restore-owner
+            (list (cons 'mr-x/recovery-owner mr-x/crash-restore-owner)))
+          (list (cons 'window-system 'ns)
                 (cons 'client nil)
                 (cons 'mr-x/restore-key (plist-get record :restore-key)))
           (cl-loop for field in '(left top width height fullscreen)

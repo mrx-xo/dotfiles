@@ -469,7 +469,7 @@ if it was last).  When no conversations remain, clear active."
       (setf (major-pane-state-conversations major-pane--state)
             (delq buf convos))
       (major-pane--remove-conversation-background buf)
-      (remhash buf major-pane--labels)
+      (major-pane-set-buffer-label buf nil)
       (setq major-pane--anchored (delq buf major-pane--anchored))
       (when (eq buf (major-pane-state-active major-pane--state))
         (let ((remaining (major-pane-state-conversations major-pane--state)))
@@ -500,7 +500,7 @@ buffer is marked ejected instead of registered (no label prompt)."
                                      (format "Label for %s (empty = none): "
                                              (buffer-name buf)))))
                          (unless (string-empty-p input)
-                           (puthash buf input major-pane--labels)))))))))
+                           (major-pane-set-buffer-label buf input)))))))))
 
 ;; Register on every mode in `major-pane-modes' — derived modes fire the
 ;; parent's hook too, so agent-shell derivatives are covered by the one
@@ -514,6 +514,12 @@ buffer is marked ejected instead of registered (no label prompt)."
   "Hash table mapping buffer objects to user-assigned display labels.
 Owned by this package; other packages (e.g. agent-shell-manager)
 should read/write this table for consistent labels everywhere.")
+
+(defun major-pane-set-buffer-label (buffer label)
+  "Set BUFFER's display LABEL, or clear it with nil or an empty string."
+  (if (or (null label) (equal label ""))
+      (remhash buffer major-pane--labels)
+    (puthash buffer label major-pane--labels)))
 
 (defun major-pane--display-name (buf)
   "Return display name for buffer BUF.
@@ -547,9 +553,9 @@ Empty input clears the label."
                      (format "Label for %s: " (buffer-name buf))
                      current-label)))
         (if (string-empty-p input)
-            (progn (remhash buf major-pane--labels)
+            (progn (major-pane-set-buffer-label buf nil)
                    (message "Label cleared for %s" (buffer-name buf)))
-          (puthash buf input major-pane--labels)
+          (major-pane-set-buffer-label buf input)
           (message "Labeled %s as \"%s\"" (buffer-name buf) input))))))
 
 ;;; Anchoring
@@ -2003,7 +2009,7 @@ deletes it."
       ;; (unregister clears it).
       (let ((label (gethash buf major-pane--labels)))
         (major-pane--unregister-conversation)
-        (when label (puthash buf label major-pane--labels)))
+        (when label (major-pane-set-buffer-label buf label)))
       (setq-local major-pane--excluded 'ejected)
       (major-pane--disable-pane-chrome))
     (when was-shown

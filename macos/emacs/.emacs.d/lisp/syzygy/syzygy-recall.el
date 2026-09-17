@@ -20,6 +20,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'syzygy-bridge)
+(require 'major-pane)
 
 (defvar agent-recall--index nil)
 (defvar agent-recall-resume-restore-preferences)
@@ -53,8 +54,16 @@ the phone can override an older durable agent-recall label immediately."
            (if (and label (not (string-empty-p label))) label "")
            labels))
 
-(defvar syzygy-recall-resume-timeout 30
-  "Seconds before a mobile-owned transcript resume is abandoned.")
+(defvar syzygy-recall-resume-timeout 45
+  "Seconds of agent silence before a transcript resume is abandoned.
+This is a stall watchdog, not a wall clock: every incoming ACP message
+(agent-shell stamps `:last-activity-time' on each one) restarts it.  A full
+replay of a 49MB Codex rollout took 76s with gaps of up to 12s between
+messages, so a flat deadline killed healthy resumes; silence this long means
+the agent is gone.  `syzygy-recall-resume-hard-timeout' still caps the total.")
+
+(defvar syzygy-recall-resume-hard-timeout 600
+  "Absolute cap in seconds on one transcript resume, however busy the agent.")
 
 (defvar syzygy-recall-resume-result-retention 60
   "Seconds to retain a completed resume result for status polling.")
@@ -65,6 +74,32 @@ the phone can override an older durable agent-recall label immediately."
 (defvar syzygy-recall--resume-sequence 0)
 (defvar syzygy-recall--starting-session-id nil)
 (defvar syzygy-recall--started-buffer nil)
+
+(defvar major-pane-launch-ejected)
+(defvar major-pane-prompt-label-on-start)
+(defvar syzygy-recall--starting-entry nil)
+(defvar syzygy-recall--independent-operation nil)
+(defvar-local syzygy-recall--entry-ready nil)
+(defvar-local syzygy-recall--entry-subscription nil)
+
+(defun syzygy-recall--watch-entry (buffer)
+  "Watch BUFFER's full initialization for an explicit workspace resume."
+  (with-current-buffer buffer
+    (unless syzygy-recall--entry-subscription
+      (setq syzygy-recall--entry-ready nil
+            syzygy-recall--entry-subscription
+            (agent-shell-subscribe-to
+             :shell-buffer buffer
+             :on-event
+             (lambda (event)
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (pcase (map-elt event :event)
+                     ('init-finished (setq syzygy-recall--entry-ready t))
+                     ('error
+                      (setq syzygy-recall--strict-resume-failure
+                            (or (map-nested-elt event '(:data :message))
+                                "Agent initialization failed"))))))))))))
 
 (defvar-local syzygy-recall--strict-resume-session-id nil
   "Archived session ID this buffer must resume without fallback.")
@@ -150,7 +185,9 @@ dynamic context is still available and before ACP bootstrapping can fall back."
     (when-let ((buffer (plist-get args :shell-buffer)))
       (setq syzygy-recall--started-buffer buffer)
       (syzygy-recall--arm-buffer buffer
-                                 syzygy-recall--starting-session-id))))
+                                 syzygy-recall--starting-session-id)
+      (when syzygy-recall--starting-entry
+        (syzygy-recall--watch-entry buffer)))))
 
 (defun syzygy-recall--guard-new-session (original &rest args)
   "Call ORIGINAL with ARGS unless this is a strict transcript resume.
@@ -180,19 +217,59 @@ conversation, so record a terminal failure before that request is sent."
       (syzygy-recall--settle-external-monitors-for-buffer buffer)
       nil)))
 
-(defun syzygy-recall--clear-strict-resume (buffer session-id)
+(defun syzygy-recall--clear-strict-resume (buffer session-id &optional except-token)
   "Clear SESSION-ID's strict resume state from BUFFER."
   (when (and (buffer-live-p buffer)
+             (not (let (other)
+                    (maphash (lambda (token operation)
+                               (when (and (not (equal token except-token))
+                                          (eq (plist-get operation :buffer) buffer)
+                                          (equal (plist-get operation :session-id) session-id)
+                                          (or (not (plist-get operation :result))
+                                              (plist-get operation :monitor-external)))
+                                 (setq other t)))
+                             syzygy-recall--resume-operations)
+                    other))
              (equal (buffer-local-value
                      'syzygy-recall--strict-resume-session-id buffer)
                     session-id))
     (with-current-buffer buffer
+      (when syzygy-recall--entry-subscription
+        (agent-shell-unsubscribe :subscription syzygy-recall--entry-subscription)
+        (setq syzygy-recall--entry-subscription nil))
       (setq syzygy-recall--strict-resume-session-id nil
             syzygy-recall--strict-resume-failure nil))))
 
-(defun syzygy-recall--kill-failed-resume (buffer)
-  "Kill BUFFER without prompting after a failed mobile resume."
+(defun syzygy-recall--activity-time (buffer)
+  "Return BUFFER's last ACP activity as a float, or nil when unknown."
   (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when-let* ((state (and (boundp 'agent-shell--state) agent-shell--state))
+                  (time (condition-case nil
+                            (map-elt state :last-activity-time)
+                          (error nil))))
+        (float-time time)))))
+
+(defun syzygy-recall--shutdown-buffer-agent (buffer)
+  "Stop the ACP agent behind BUFFER, whether or not agent-shell finished setup.
+agent-shell's own `kill-buffer-hook' cleanup only exists once the shell
+finished initializing; a resume abandoned mid-bootstrap left the
+acp-multiplex and agent processes running with no buffer to own them."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when-let* ((state (and (boundp 'agent-shell--state) agent-shell--state))
+                  (client (condition-case nil (map-elt state :client) (error nil))))
+        (when (fboundp 'acp-shutdown)
+          (condition-case nil (acp-shutdown :client client) (error nil)))
+        (let ((process (condition-case nil (map-elt client :process) (error nil))))
+          (when (process-live-p process)
+            (delete-process process)))))))
+
+(defun syzygy-recall--kill-failed-resume (buffer)
+  "Kill BUFFER without prompting after a failed mobile resume.
+The agent process goes first so nothing outlives the buffer."
+  (when (buffer-live-p buffer)
+    (syzygy-recall--shutdown-buffer-agent buffer)
     (with-current-buffer buffer
       (let ((kill-buffer-query-functions nil))
         (kill-buffer buffer)))))
@@ -298,21 +375,19 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
     (setq operation (plist-put operation :result result))
     (setq operation (plist-put operation :monitor-external monitor-external))
     (setq operation (syzygy-recall--cancel-operation-timer operation))
-    ;; Mac-side callers (see `syzygy-recall-resume-strict') have no poll
-    ;; loop; hand them the settled result exactly once.
-    (when-let ((on-finish (plist-get operation :on-finish)))
-      (setq operation (plist-put operation :on-finish nil))
-      (funcall on-finish result))
     (if monitor-external
         (setq operation
               (syzygy-recall--install-external-lifecycle token operation))
       (setq operation (syzygy-recall--unsubscribe-operation operation))
-      (syzygy-recall--clear-strict-resume buffer session-id)
+      (syzygy-recall--clear-strict-resume buffer session-id token)
       (when (and owned (not (eq (alist-get 'ok result) t)))
         (syzygy-recall--kill-failed-resume buffer))
       (run-at-time syzygy-recall-resume-result-retention nil
                    #'syzygy-recall--forget-operation token))
-    (puthash token operation syzygy-recall--resume-operations)
+    (let ((on-finish (plist-get operation :on-finish)))
+      (setq operation (plist-put operation :on-finish nil))
+      (puthash token operation syzygy-recall--resume-operations)
+      (when on-finish (funcall on-finish result)))
     result))
 
 (defun syzygy-recall--release-external-monitor (token operation)
@@ -321,7 +396,7 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
         (session-id (plist-get operation :session-id)))
     (setq operation (syzygy-recall--cancel-operation-timer operation))
     (setq operation (syzygy-recall--unsubscribe-operation operation))
-    (syzygy-recall--clear-strict-resume buffer session-id)
+    (syzygy-recall--clear-strict-resume buffer session-id token)
     (setq operation (plist-put operation :monitor-external nil))
     (puthash token operation syzygy-recall--resume-operations)
     (run-at-time syzygy-recall-resume-result-retention nil
@@ -370,7 +445,14 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
       (let* ((buffer (plist-get operation :buffer))
              (session-id (plist-get operation :session-id))
              (active-id (syzygy-recall--buffer-session-id buffer))
-             (failure (syzygy-recall--buffer-resume-failure buffer)))
+             (failure (syzygy-recall--buffer-resume-failure buffer))
+             (activity (syzygy-recall--activity-time buffer)))
+        ;; Any ACP traffic since the last tick restarts the stall clock.
+        (when (and activity (not (equal activity (plist-get operation :activity))))
+          (setq operation (plist-put operation :activity activity))
+          (setq operation (plist-put operation :stall-deadline
+                                     (+ (float-time) syzygy-recall-resume-timeout)))
+          (puthash token operation syzygy-recall--resume-operations))
         (cond
          ((not (buffer-live-p buffer))
           (syzygy-recall--finish-operation
@@ -380,24 +462,34 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
          (failure
           (syzygy-recall--finish-operation
            token operation (syzygy-recall--failed-result failure)))
-         (active-id
-          (if (and (equal active-id session-id)
-                   (syzygy-recall--buffer-resume-capable-p buffer))
-              (syzygy-recall--finish-operation
-               token operation
-               (syzygy-recall--ready-result
-                buffer session-id (plist-get operation :existing)))
-            (syzygy-recall--finish-operation
-             token operation
-             (syzygy-recall--failed-result
-              (if (syzygy-recall--buffer-resume-capable-p buffer)
-                  "The recorded session could not be restored."
-                "The agent does not support session resume.")))))
-         ((>= (float-time) (plist-get operation :deadline))
+         ((and active-id
+               (or (not (equal active-id session-id))
+                   (not (syzygy-recall--buffer-resume-capable-p buffer))
+                   (and (plist-get operation :agent)
+                        (not (syzygy-recall--entry-agent-p
+                              buffer (plist-get operation :agent))))))
+          (syzygy-recall--finish-operation
+           token operation (syzygy-recall--failed-result "The saved agent/session did not resume.")))
+         ((and active-id
+               (or (not (plist-get operation :require-ready))
+                   (and (buffer-local-value 'syzygy-recall--entry-ready buffer)
+                        (syzygy-recall--entry-initialized-p buffer))))
+          (syzygy-recall--finish-operation
+           token operation (syzygy-recall--ready-result
+                            buffer session-id (plist-get operation :existing))))
+         ((>= (float-time) (plist-get operation :hard-deadline))
           (syzygy-recall--finish-operation
            token operation
            (syzygy-recall--failed-result
-            "Timed out waiting for the recorded session to resume.")
+            (format "The recorded session did not finish resuming within %ss."
+                    syzygy-recall-resume-hard-timeout))
+           (not (plist-get operation :owned))))
+         ((>= (float-time) (plist-get operation :stall-deadline))
+          (syzygy-recall--finish-operation
+           token operation
+           (syzygy-recall--failed-result
+            (format "The agent went silent for %ss while resuming the recorded session."
+                    syzygy-recall-resume-timeout))
            (not (plist-get operation :owned))))
          (t (syzygy-recall--pending-result token operation)))))))
 
@@ -414,17 +506,22 @@ pre-existing buffer eventually settles; Syzygy never kills that buffer."
 (defun syzygy-recall--register-operation (buffer session-id owned existing)
   "Register BUFFER restoring SESSION-ID and return a pending result.
 OWNED means this request created BUFFER.  EXISTING means it attached to one."
-  (if-let ((pending (syzygy-recall--pending-operation buffer session-id)))
+  (if-let ((pending (and (not syzygy-recall--independent-operation)
+                        (syzygy-recall--pending-operation buffer session-id))))
       (or (plist-get (cdr pending) :result)
           (syzygy-recall--pending-result (car pending) (cdr pending)))
-    (syzygy-recall--arm-buffer buffer session-id)
+    (unless (equal (buffer-local-value 'syzygy-recall--strict-resume-session-id buffer) session-id)
+      (syzygy-recall--arm-buffer buffer session-id))
     (let* ((token (syzygy-recall--resume-token))
            (operation (list :buffer buffer
                             :session-id session-id
                             :owned owned
                             :existing existing
-                            :deadline (+ (float-time)
-                                         syzygy-recall-resume-timeout))))
+                            :activity (syzygy-recall--activity-time buffer)
+                            :stall-deadline (+ (float-time)
+                                               syzygy-recall-resume-timeout)
+                            :hard-deadline (+ (float-time)
+                                              syzygy-recall-resume-hard-timeout))))
       (puthash token operation syzygy-recall--resume-operations)
       (let ((timer (run-at-time 0.1 0.1
                                 #'syzygy-recall--operation-tick token)))
@@ -493,6 +590,105 @@ OWNED means this request created BUFFER.  EXISTING means it attached to one."
              (t
               (syzygy-recall--register-operation
                buffer session-id t nil))))))))))
+
+(defun syzygy-recall--entry-agent-p (buffer agent)
+  "Whether BUFFER belongs to AGENT, accepting string or symbol identifiers."
+  (and (buffer-live-p buffer)
+       (equal (format "%s" agent)
+              (format "%s" (map-nested-elt
+                             (buffer-local-value 'agent-shell--state buffer)
+                             '(:agent-config :identifier))))))
+
+(defun syzygy-recall--entry-initialized-p (buffer)
+  "Whether BUFFER has a live client and completed agent-shell's init pipeline.
+This also recognizes sessions established before this module was loaded."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let* ((state agent-shell--state)
+             (process (map-nested-elt state '(:client :process))))
+        (and (processp process) (process-live-p process)
+             (map-elt state :initialized)
+             (map-nested-elt state '(:session :id))
+             (or (not (map-elt state :needs-authentication)) (map-elt state :authenticated))
+             (cl-every
+              (lambda (pair)
+                (let ((fn (map-nested-elt state (list :agent-config (car pair)))))
+                  (or (null fn) (not (funcall fn)) (map-elt state (cdr pair)))))
+              '((:default-model-id . :set-model) (:default-session-mode-id . :set-session-mode)))
+             (not (cl-some (lambda (request)
+                             (member (map-elt request :method)
+                                     '("initialize" "authenticate" "session/new" "session/load"
+                                       "session/resume" "session/fork" "session/set_model" "session/set_mode")))
+                           (map-elt state :active-requests))))))))
+
+(defun syzygy-recall-resume-entry (entry on-finish)
+  "Resume explicit workspace ENTRY and deliver its verified result to ON-FINISH.
+Return a ready or pending result.  Pending results carry an operation token
+for cancellation.  Never display a window or consult a transcript index to
+infer identity.  Only buffers created by this operation are owned by it."
+  (require 'agent-shell-bookmark)
+  (let* ((sid (plist-get entry :session-id)) (agent (plist-get entry :agent))
+         (cwd (plist-get entry :cwd))
+         (existing
+          (cl-find-if
+           (lambda (b)
+             (and (local-variable-p 'agent-shell--state b)
+                  (syzygy-recall--entry-agent-p b agent)
+                  (or (equal (syzygy-recall--buffer-session-id b) sid)
+                      (equal (map-elt (buffer-local-value 'agent-shell--state b)
+                                      :resume-session-id) sid))))
+           (buffer-list))))
+    (unless (and agent (stringp sid) (not (string-empty-p sid))
+                 (stringp cwd) (or existing (and (file-directory-p cwd) (not (file-remote-p cwd)))))
+      (error "Saved conversation has no valid provider, session or local directory"))
+    (if (and existing (equal (syzygy-recall--buffer-session-id existing) sid)
+             (syzygy-recall--entry-initialized-p existing)
+             (not (syzygy-recall--pending-operation existing sid)))
+        (let ((result (syzygy-recall--ready-result existing sid t)))
+          (funcall on-finish result)
+          result)
+      (let* ((syzygy-recall--starting-session-id sid)
+             (syzygy-recall--starting-entry entry)
+             (syzygy-recall--independent-operation (and existing t))
+             (agent-recall-resume-restore-preferences
+              (if (eq (bound-and-true-p agent-recall-resume-restore-preferences) 'ask)
+                  t (bound-and-true-p agent-recall-resume-restore-preferences)))
+             (syzygy-recall--started-buffer nil)
+             (buffer existing))
+        (condition-case err
+            (progn
+              (unless buffer
+                (let ((major-pane-launch-ejected t)
+                      (major-pane-prompt-label-on-start nil))
+                  (setq buffer (agent-shell-bookmark--resume sid cwd agent t))))
+              (unless (buffer-live-p buffer) (error "Resume returned no live buffer"))
+              (syzygy-recall--watch-entry buffer)
+              (let* ((result (syzygy-recall--register-operation buffer sid (not existing) (and existing t)))
+                     (token (alist-get 'operation result))
+                     (operation (gethash token syzygy-recall--resume-operations)))
+                (unless operation (error "Resume operation unavailable"))
+                (let ((previous (plist-get operation :on-finish)))
+                  (setq operation (plist-put operation :on-finish
+                                            (if previous
+                                                (lambda (r) (funcall previous r) (funcall on-finish r))
+                                              on-finish))))
+                (setq operation (plist-put operation :agent agent))
+                (setq operation (plist-put operation :require-ready t))
+                (puthash token operation syzygy-recall--resume-operations)
+                result))
+          ((error quit)
+           (when (and (not existing) (buffer-live-p syzygy-recall--started-buffer))
+             (syzygy-recall--clear-strict-resume syzygy-recall--started-buffer sid)
+             (syzygy-recall--kill-failed-resume syzygy-recall--started-buffer))
+           (signal (car err) (cdr err))))))))
+
+(defun syzygy-recall-cancel-resume (token)
+  "Cancel pending operation TOKEN, preserving any pre-existing buffer."
+  (when-let ((operation (gethash token syzygy-recall--resume-operations)))
+    (unless (plist-get operation :result)
+      (syzygy-recall--finish-operation
+       token operation (syzygy-recall--failed-result "Resume cancelled")
+       (not (plist-get operation :owned))))))
 
 (defun syzygy-recall-resume-json (file-base64)
   "Resume the indexed transcript named by base64 FILE-BASE64.
