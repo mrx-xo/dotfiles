@@ -8390,6 +8390,9 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
 #+begin_src emacs-lisp
   ;; Modern TypeScript setup with tree-sitter and LSP
 
+  ;; CommonJS files need the same JavaScript highlighting in buffers and diffs.
+  (add-to-list 'auto-mode-alist '("\\.cjs\\'" . js-ts-mode))
+
   ;; Use built-in tree-sitter modes for TypeScript/TSX (Emacs 29+)
   ;; These provide better syntax highlighting and structural editing
   (use-package typescript-ts-mode
