@@ -6708,12 +6708,14 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :init
     (setq forgejo-db-dir (expand-file-name "var/forgejo" user-emacs-directory))
     :config
-    ;; Reuse Forge's configured hosts; credentials stay in auth-source.
-    (setq forgejo-hosts
-          (mapcar (lambda (entry) (list (concat "https://" (nth 2 entry))))
-                  (seq-filter (lambda (entry)
-                                (eq (nth 3 entry) 'forge-forgejo-repository))
-                              forge-alist)))
+    ;; Forgejo instances we talk to; credentials stay in auth-source.
+    ;; Deliberately explicit rather than derived from `forge-alist'.
+    ;; `:after forge' puts this block on forge's after-load hook, which was
+    ;; registered before Forge's own `:config' ran, so a snapshot of
+    ;; `forge-alist' taken here only ever saw the built-in defaults and left
+    ;; omphalos.io unconfigured.
+    (setq forgejo-hosts '(("https://omphalos.io")
+                          ("https://codeberg.org")))
     (require 'forgejo-vc)
     (require 'forgejo-pull)
     (require 'forgejo-review-navigation)
