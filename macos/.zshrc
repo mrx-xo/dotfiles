@@ -11,7 +11,13 @@ autoload -U colors && colors
 colors
 # PATH=~/.console-ninja/.bin:$PATH
 
-eval "$(/opt/homebrew/bin/brew shellenv)"
+# .zshenv already ran brew shellenv for every shell, but in a login shell
+# /etc/zprofile's path_helper then moves /usr/local/bin (the old Intel brew)
+# back in front.  Re-front the arm64 brew; typeset -U drops the duplicate
+# entries instead of stacking them.
+[[ -n "$HOMEBREW_PREFIX" ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
+typeset -U path
+path=(/opt/homebrew/bin /opt/homebrew/sbin $path)
 # Terminal Config
 
 # node is managed by nvm
@@ -301,7 +307,7 @@ alias upshow="upload-media \$1 shows"
 # Revert to 0.0.0.0 if you need it on the plain LAN or on localhost without tailscale.
 export OLLAMA_HOST=100.84.72.38
 
-. "$HOME/.local/bin/env"
+[[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
 
 # opencode
 export PATH="$HOME/.opencode/bin:$PATH"
