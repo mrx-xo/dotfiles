@@ -149,6 +149,8 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(devdocs-code-block ((t (:background "#3c3836" :extend t))))
+ '(diff-refine-added ((t (:foreground unspecified :background "#3d5c3d" :inverse-video nil))))
+ '(diff-refine-removed ((t (:foreground unspecified :background "#5c3030" :inverse-video nil))))
  '(ediff-current-diff-A ((t (:background "#3b2626"))))
  '(ediff-current-diff-B ((t (:background "#2e3b2e"))))
  '(ediff-current-diff-C ((t (:background "#3b3520"))))
