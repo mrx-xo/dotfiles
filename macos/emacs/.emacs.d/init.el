@@ -4007,7 +4007,8 @@ Falls back to a one-liner if fastfetch isn't installed."
         "d H" '(dired-omit-mode :wk "Dired Omit Mode")
         "d p" '(dired-preview-global-mode :wk "Toggle preview")
         "d f" '(dwim-shell-commands-macos-reveal-in-finder :wk "Reveal in Finder")
-        "d o" '(dwim-shell-commands-macos-open-with :wk "Open with..."))
+        "d o" '(dwim-shell-commands-macos-open-with :wk "Open with...")
+        "d L" '(mr-x/dired-localsend :wk "Add to LocalSend"))
 
       (mr-x/leader-def
         "o" '(:ignore t :wk "OS")
@@ -5738,75 +5739,101 @@ from the old one. The change is persisted with `bookmark-save'."
 
 
 
-  (use-package dired
-  :ensure nil  
-  :commands (dired dired-jump)
-  :after evil
-  :config
-  (setq dired-kill-when-opening-new-dired-buffer t)
-  (setq insert-directory-program "gls")
-  (setq dired-use-ls-dired t)
-  (setq dired-listing-switches "-al --group-directories-first")
-  (evil-define-key 'normal dired-mode-map
-    "h" 'dired-up-directory
-    "l" 'dired-find-file)
+    (use-package dired
+    :ensure nil  
+    :commands (dired dired-jump)
+    :after evil
+    :config
+    (setq dired-kill-when-opening-new-dired-buffer t)
+    (setq insert-directory-program "gls")
+    (setq dired-use-ls-dired t)
+    (setq dired-listing-switches "-al --group-directories-first")
+    (evil-define-key 'normal dired-mode-map
+      "h" 'dired-up-directory
+      "l" 'dired-find-file)
 
-  ;; Bind Y in dired-mode-hook so it always wins over evil-collection
-  (add-hook 'dired-mode-hook
-    (lambda ()
-      (evil-local-set-key 'normal "Y"
-        (lambda () (interactive) (dired-copy-filename-as-kill 0)))))
+    ;; Bind Y in dired-mode-hook so it always wins over evil-collection
+    (add-hook 'dired-mode-hook
+      (lambda ()
+        (evil-local-set-key 'normal "Y"
+          (lambda () (interactive) (dired-copy-filename-as-kill 0)))))
 
-  (defun mr-x/dired-setup ()
-    (dired-hide-details-mode 1)
-    (display-line-numbers-mode 1)
-    ;; Show dotfiles in git repos, hide them elsewhere.
-    ;; Remote: skip the .git walk — locate-dominating-file stats every
-    ;; parent dir, each one a TRAMP round trip.
-    (unless (file-remote-p default-directory)
-      (unless (locate-dominating-file default-directory ".git")
-        (dired-omit-mode 1))))
-  (add-hook 'dired-mode-hook #'mr-x/dired-setup))
-
-(use-package dired-x
-  :ensure nil 
-  :after dired
-  :config
-  (setq dired-omit-files (rx (seq bol "."))))
-
-(add-hook 'dired-mode-hook
-	    (lambda () (setq-local dired-omit-verbose t)))
-(setq dired-omit-verbose nil)
-
-
-
-  (use-package all-the-icons-dired
-    :ensure t
-    :init
-    ;; Icons stat each file — over TRAMP that's a round trip per entry.
-    (defun mr-x/all-the-icons-dired-maybe ()
+    (defun mr-x/dired-setup ()
+      (dired-hide-details-mode 1)
+      (display-line-numbers-mode 1)
+      ;; Show dotfiles in git repos, hide them elsewhere.
+      ;; Remote: skip the .git walk — locate-dominating-file stats every
+      ;; parent dir, each one a TRAMP round trip.
       (unless (file-remote-p default-directory)
-        (all-the-icons-dired-mode 1)))
-    :hook (dired-mode . mr-x/all-the-icons-dired-maybe))
+        (unless (locate-dominating-file default-directory ".git")
+          (dired-omit-mode 1))))
+    (add-hook 'dired-mode-hook #'mr-x/dired-setup))
 
-  (use-package dired-preview
-    :ensure t
+  (use-package dired-x
+    :ensure nil 
+    :after dired
     :config
-    (setq dired-preview-delay 0.2)
-    (setq dired-preview-display-action-alist
-          '((display-buffer-in-side-window)
-            (side . right)
-            (window-width . 0.5))))
+    (setq dired-omit-files (rx (seq bol "."))))
 
-  (use-package dwim-shell-command
-    :ensure t
-    :commands (dwim-shell-command dwim-shell-command-on-marked-files)
-    :config
-    (require 'dwim-shell-commands))
+  (add-hook 'dired-mode-hook
+  	    (lambda () (setq-local dired-omit-verbose t)))
+  (setq dired-omit-verbose nil)
 
-  (setq display-line-numbers-type 'visual)
-  (dolist (mode '(text-mode-hook prog-mode-hook conf-mode-hook Info-mode-hook))
-    (add-hook mode (lambda () (display-line-numbers-mode 1))))
+
+
+    (use-package all-the-icons-dired
+      :ensure t
+      :init
+      ;; Icons stat each file — over TRAMP that's a round trip per entry.
+      (defun mr-x/all-the-icons-dired-maybe ()
+        (unless (file-remote-p default-directory)
+          (all-the-icons-dired-mode 1)))
+      :hook (dired-mode . mr-x/all-the-icons-dired-maybe))
+
+    (use-package dired-preview
+      :ensure t
+      :config
+      (setq dired-preview-delay 0.2)
+      (setq dired-preview-display-action-alist
+            '((display-buffer-in-side-window)
+              (side . right)
+              (window-width . 0.5))))
+
+    (use-package dwim-shell-command
+      :ensure t
+      :commands (dwim-shell-command dwim-shell-command-on-marked-files)
+      :config
+      (require 'dwim-shell-commands))
+
+    (defun mr-x/dired-localsend ()
+      "Add marked local Dired files, or the file at point, to LocalSend.
+Choose the receiving device in LocalSend.  Invoke its executable directly:
+the macOS Open With handoff can open the app without adding the files."
+      (interactive)
+      (unless (and (eq system-type 'darwin) (derived-mode-p 'dired-mode))
+        (user-error "Use this command in a local macOS Dired buffer"))
+      (when (file-remote-p default-directory)
+        (user-error "Copy remote files locally before adding them to LocalSend"))
+      (let ((files (dired-get-marked-files))
+            (executable
+             (seq-find #'file-executable-p
+                       (list "/Applications/LocalSend.app/Contents/MacOS/LocalSend"
+                             (expand-file-name
+                              "~/Applications/LocalSend.app/Contents/MacOS/LocalSend")))))
+        (unless executable
+          (user-error "LocalSend is not installed in Applications"))
+        (dolist (file files)
+          (unless (and (not (file-remote-p file)) (file-readable-p file))
+            (user-error "LocalSend needs a readable local file: %s" file)))
+        (prog1
+            (make-process :name "localsend" :buffer "*LocalSend handoff*"
+                          :command (cons executable files)
+                          :connection-type 'pipe :noquery t)
+          (message "Opening %d item(s) in LocalSend" (length files)))))
+
+    (setq display-line-numbers-type 'visual)
+    (dolist (mode '(text-mode-hook prog-mode-hook conf-mode-hook Info-mode-hook))
+      (add-hook mode (lambda () (display-line-numbers-mode 1))))
 
   (use-package tramp
     :ensure nil
