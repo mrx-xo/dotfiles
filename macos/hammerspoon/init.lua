@@ -1,5 +1,8 @@
 require("hs.ipc")
 
+bookmarkPopup = dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/bookmark-popup.lua")
+bookmarkPopup:start()
+
 -- Function to show a centered pill-style HUD with the layout name
 
 -- HUD text + background objects

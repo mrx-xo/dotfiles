@@ -5723,6 +5723,8 @@ from the old one. The change is persisted with `bookmark-save'."
       "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
 
 
+(require 'mr-x-bookmark-popup)
+
 
 (use-package lispyville
   :ensure t
