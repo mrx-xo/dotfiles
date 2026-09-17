@@ -6011,6 +6011,18 @@ from the old one. The change is persisted with `bookmark-save'."
       "m u" '(bmkp-url-target-set :wk "set URL bookmark")))
 
 #+end_src
+*** Bookmark popup from any app
+
+=Cmd+Ctrl+B= invokes =mr-x/bookmark-popup= through Hammerspoon.
+The floating picker uses the running daemon's named bookmarks and current
+completion setup.  Choosing a bookmark closes the picker and runs its normal
+handler; cancelling returns to the invoking app.  The sandbox is not required.
+The matching yabai scratchpad rule keeps its window out of the tiling hook.
+
+#+begin_src emacs-lisp
+  (require 'mr-x-bookmark-popup)
+#+end_src
+
 *** Balanced Parens (lispyville)
 
 Structural paren editing for Lisp that plays nice with evil. The =operators=

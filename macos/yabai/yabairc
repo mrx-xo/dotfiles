@@ -70,6 +70,9 @@ yabai -m rule --add app="Emacs" native-fullscreen=off
 yabai -m rule --add app="Emacs" title="SCRATCHPAD" scratchpad="scratch" grid="6:6:1:1:4:4" manage=off
 yabai -m rule --add app="Emacs" title="SCRATCHPAD-ORG" scratchpad="scratch-org" grid="6:6:1:2:4:3" manage=off
 
+# The scratchpad marker also exempts this picker from the window_created hook.
+yabai -m rule --add label=emacs-bookmark-picker app="^Emacs$" title="^Emacs Bookmark Picker$" scratchpad="emacs-bookmark-picker" manage=off
+
 # Additional scratchpad apps
 yabai -m rule --add app="Messages" scratchpad="imessage" grid="6:6:1:1:4:4" manage=off
 yabai -m rule --add app="Discord" scratchpad="discord" grid="6:6:0:0:3:6" manage=off
