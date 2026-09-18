@@ -15,6 +15,7 @@ brew "gawk"
 brew "grep"
 brew "make"
 brew "tree"
+brew "tlrc"                      # tldr client: practical examples, not full man pages
 brew "wget"
 brew "ripgrep"
 brew "fzf"
