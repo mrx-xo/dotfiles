@@ -4189,6 +4189,7 @@ Falls back to a one-liner if fastfetch isn't installed."
                 t)))
 
 
+        ". n" '(calliope-notes-send-newest :wk "newest drawing -> chat")
       (defun mr-x/test-environment ()
         "Spawn agent-shell on left, dired ~/roaming/sandbox on right."
         (interactive)
@@ -5302,6 +5303,11 @@ the frame transaction cannot consume a bundle after an incomplete restore."
                       (find-file-noselect file))
                      (spec (mr-x/--restore-buffer-from-spec spec))
                      (t (get-buffer buf-name)))))
+  ;; Drawings come the other way: BOOX Notes exports sync into
+  ;; ~/calliope/notes and `calliope-notes-send-newest' (SPC . n) drops the
+  ;; latest one into an agent-shell chat.  lisp/calliope-notes.el.
+  (require 'calliope-notes)
+
           (unless (buffer-live-p buf)
             (error "Cannot restore buffer %S%s"
                    buf-name (if spec (format ": handler %S returned no live buffer" (car spec))
