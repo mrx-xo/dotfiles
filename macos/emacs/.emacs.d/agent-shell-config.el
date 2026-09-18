@@ -351,19 +351,6 @@ with a bare \"1. \" and would otherwise match the list-item regex."
           (advice-add 'agent-shell-markdown-replace-markup :after
                       #'mr-x/agent-shell-tint-list-items))
 
-        ;; Colored headings in agent responses. markdown-overlays fontifies
-        ;; "#" headings with org-level-N faces, which the theme keeps
-        ;; monochrome for org files — remap them buffer-locally to gruvbox
-        ;; accents so agent-shell sections actually stand out.
-        (defun mr-x/agent-shell-colorize-headings ()
-          "Remap org-level faces to gruvbox accents in agent-shell buffers."
-          (face-remap-add-relative 'org-level-1 '(:foreground "#fe8019" :weight bold :height 1.15))
-          (face-remap-add-relative 'org-level-2 '(:foreground "#fabd2f" :weight bold :height 1.05))
-          (face-remap-add-relative 'org-level-3 '(:foreground "#8ec07c" :weight bold))
-          (face-remap-add-relative 'org-level-4 '(:foreground "#83a598" :weight bold)))
-
-        (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-colorize-headings)
-
         ;; ADHD-skill response vocabulary — the i-have-adhd skill (plus the
         ;; contract in ~/.claude/CLAUDE.md) makes the model open certain
         ;; lines with fixed prefixes.  Style just the prefix so the eye can

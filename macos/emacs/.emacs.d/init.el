@@ -317,11 +317,11 @@ during daemon init the selected frame is non-graphic)."
   	(setq org-todo-keyword-faces mr-x/todo-faces)
 
   	(custom-set-faces
-  	 '(org-level-1 ((t (:foreground "#c8c8c8"))))
-  	 '(org-level-2 ((t (:foreground "#a8a8a8"))))
-  	 '(org-level-3 ((t (:foreground "#909090"))))
-  	 '(org-level-4 ((t (:foreground "#787878"))))
-  	 '(org-level-5 ((t (:foreground "#606060"))))
+  	 '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+  	 '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+  	 '(org-level-3 ((t (:foreground "#8ec07c"))))
+  	 '(org-level-4 ((t (:foreground "#83a598"))))
+  	 '(org-level-5 ((t (:foreground "#d3869b"))))
   	 '(org-level-6 ((t (:foreground "#505050"))))
   	 '(org-level-7 ((t (:foreground "#404040"))))))
 
