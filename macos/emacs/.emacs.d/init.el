@@ -4673,6 +4673,355 @@ TASK-ID is the ID shown when Claude runs a background command."
         ;; Balance windows
         (balance-windows))
 
+      (defface mr-x/tldr-title
+        '((t :inherit outline-1 :weight bold :height 1.2))
+        "Face for the command name at the top of a `*tldr*' buffer.")
+
+      (defface mr-x/tldr-heading
+        '((t :inherit outline-2 :weight bold))
+        "Face for section headings in a `*tldr*' buffer.")
+
+      (defface mr-x/tldr-description
+        '((t :inherit default))
+        "Face for prose in a `*tldr*' buffer.  Plain text: the colour goes
+      to commands, flags, and placeholders.")
+
+      (defface mr-x/tldr-command
+        '((t :inherit font-lock-string-face))
+        "Face for runnable command text in a `*tldr*' buffer.")
+
+      (defface mr-x/tldr-placeholder
+        '((t :inherit font-lock-variable-name-face :slant italic))
+        "Face for the parts of a command you substitute.")
+
+      (defface mr-x/tldr-flag
+        '((t :inherit font-lock-constant-face :weight bold))
+        "Face for command-line flags in a `*tldr*' buffer.")
+
+      (defface mr-x/tldr-code
+        '((t :inherit mr-x/tldr-flag))
+        "Face for inline `code' spans inside prose.")
+
+      (defconst mr-x/tldr--palette
+        '((mr-x/tldr-title       . ansi-color-magenta)
+          (mr-x/tldr-heading     . ansi-color-magenta)
+          (mr-x/tldr-command     . ansi-color-cyan)
+          (mr-x/tldr-placeholder . ansi-color-red)
+          (mr-x/tldr-flag        . ansi-color-yellow)
+          (mr-x/tldr-code        . ansi-color-yellow))
+        "Which ANSI colour each tldr face borrows.
+This is the palette `tldr' itself uses in a terminal, so the buffer looks
+the same as the command-line output.")
+
+      (defun mr-x/tldr--sync-faces ()
+        "Point the tldr faces at the current theme's ANSI colours.
+Only the foreground is taken: the `ansi-color-*' faces also carry a
+background, and inheriting them whole paints text over itself."
+        (require 'ansi-color)
+        (pcase-dolist (`(,face . ,ansi) mr-x/tldr--palette)
+          (set-face-foreground face (face-foreground ansi nil t))))
+
+      (defvar mr-x/tldr-man-width 76
+        "Column width used when rendering a man page into a `*tldr*' buffer.")
+
+      (defvar-local mr-x/tldr--command nil
+        "The shell command this `*tldr*' buffer describes.")
+
+      (defvar-local mr-x/tldr--man-shown nil
+        "Non-nil once the full manual has been appended to this buffer.")
+
+      ;;; Sources
+
+      (defun mr-x/tldr--page (command)
+        "Return the raw tldr markdown for COMMAND, or nil when there is no page."
+        (let ((out (with-output-to-string
+                     (with-current-buffer standard-output
+                       (call-process "tldr" nil (list t nil) nil
+                                     "--raw" "--quiet" command)))))
+          (and (string-match-p "[^ \t\n]" out) out)))
+
+      (defun mr-x/tldr--man (command)
+        "Return COMMAND's man page as plain text, or nil when there is none."
+        (let ((out (with-output-to-string
+                     (with-current-buffer standard-output
+                       (call-process-shell-command
+                        (format "MANWIDTH=%d man %s 2>/dev/null | col -bx"
+                                mr-x/tldr-man-width (shell-quote-argument command))
+                        nil t)))))
+          (and (string-match-p "[^ \t\n]" out) out)))
+
+      (defun mr-x/tldr--man-section (man name)
+        "Return the lines of section NAME in MAN as a list of strings."
+        (when man
+          (let ((in nil) (acc nil))
+            (dolist (line (split-string man "\n") (nreverse acc))
+              (cond ((equal line name) (setq in t))
+                    ((and in (string-match-p "\\`[A-Z][A-Z0-9 ]*\\'" line)) (setq in nil))
+                    (in (push line acc)))))))
+
+      ;;; Flags
+
+      (defconst mr-x/tldr--option-re
+        (concat "\\`\\( \\{2,8\\}\\)"
+                "\\(-\\{1,2\\}[A-Za-z0-9][^ \t,=]*"
+                "\\(?:[ ]?[,|][ ]?-\\{1,2\\}[A-Za-z0-9][^ \t,=]*\\)*\\)")
+        "Matches an option-definition line in a man page.
+      Group 1 is the indent, group 2 the comma-separated flag cluster.  The
+      indent is capped so that indented example blocks are not mistaken for
+      option entries.")
+
+      (defun mr-x/tldr--first-sentence (text)
+        "Return the first sentence of TEXT, whitespace collapsed and length capped."
+        (let* ((flat (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
+               (end (and (string-match "\\. \\|\\.\\'" flat) (match-end 0))))
+          (string-trim (substring flat 0 (min (or end (length flat)) 220)))))
+
+      (defun mr-x/tldr--man-flags (man)
+        "Return an alist of (FLAG . DESCRIPTION) parsed out of MAN."
+        (let ((lines (and man (split-string man "\n")))
+              (alist nil))
+          (while lines
+            (let ((line (pop lines)))
+              (when (string-match mr-x/tldr--option-re line)
+                (let* ((indent (length (match-string 1 line)))
+                       (cluster (match-string 2 line))
+                       (rest (string-trim (substring line (match-end 2))))
+                       (desc rest))
+                  ;; man wraps a description over several lines, indented further
+                  ;; than the flag itself.  Gather the whole paragraph so the text
+                  ;; does not stop mid-sentence.
+                  (let ((look lines) (parts (if (string-empty-p desc) nil (list desc))))
+                    (when (string-empty-p desc)
+                      (while (and look (string-empty-p (string-trim (car look))))
+                        (pop look)))
+                    (catch 'done
+                      (while look
+                        (let ((next (car look)))
+                          (when (string-empty-p (string-trim next)) (throw 'done nil))
+                          (unless (and (string-match "\\`\\( +\\)" next)
+                                       (> (length (match-string 1 next)) indent))
+                            (throw 'done nil))
+                          (push (string-trim next) parts)
+                          (pop look))))
+                    (setq desc (mr-x/tldr--first-sentence
+                                (mapconcat #'identity (nreverse parts) " "))))
+                  (dolist (flag (split-string cluster "[ ,|]+" t))
+                    (unless (assoc flag alist)
+                      (push (cons flag desc) alist)))))))
+          (nreverse alist)))
+
+      (defun mr-x/tldr--example-flags (raw)
+        "Return the flags used by RAW's examples as a list of (SHORT . LONG).
+      Either half may be nil.  tldr writes a flag as `{{[-s|--long]}}'; when
+      that pairs a bundled cluster with a list of long options, the two are
+      zipped back into one entry per flag."
+        (let ((found nil))
+          (dolist (line (split-string raw "\n"))
+            (when (string-match "\\``\\(.*\\)`\\'" line)
+              (let ((command (match-string 1 line))
+                    (start 0))
+                ;; Flags written as tldr option placeholders.
+                (while (string-match "{{\\[\\(-[^]|]+\\)|\\(--[^]]+\\)\\]}}" command start)
+                  (setq start (match-end 0))
+                  (let ((short (match-string 1 command))
+                        (long (match-string 2 command)))
+                    (if (string-match-p " " long)
+                        (let ((shorts (cdr (string-to-list short)))
+                              (longs (split-string long " " t)))
+                          (while (and shorts longs)
+                            (push (cons (string ?- (pop shorts)) (pop longs)) found)))
+                      (push (cons short long) found))))
+                ;; Bare flags, outside any placeholder.
+                (dolist (token (split-string
+                                (replace-regexp-in-string "{{.*?}}" " " command) " " t))
+                  (cond ((string-match-p "\\`--[A-Za-z][A-Za-z0-9-]*\\'" token)
+                         (push (cons nil token) found))
+                        ((string-match-p "\\`-[A-Za-z0-9]\\'" token)
+                         (push (cons token nil) found)))))))
+          (delete-dups (nreverse found))))
+
+      ;;; Rendering
+
+      (defun mr-x/tldr--ins (text face)
+        (insert (propertize text 'face face)))
+
+      (defun mr-x/tldr--heading (text)
+        (mr-x/tldr--ins (concat text "\n") 'mr-x/tldr-heading))
+
+      (defun mr-x/tldr--prose (text face)
+        "Insert TEXT in FACE, giving any `code' span the code face instead."
+        (let ((start 0))
+          (while (string-match "`\\([^`]+\\)`" text start)
+            (mr-x/tldr--ins (substring text start (match-beginning 0)) face)
+            (mr-x/tldr--ins (match-string 1 text) 'mr-x/tldr-code)
+            (setq start (match-end 0)))
+          (mr-x/tldr--ins (substring text start) face)))
+
+      (defun mr-x/tldr--insert-command (command)
+        "Insert COMMAND, highlighting its flags and substitution points."
+        (let ((start 0) (len (length command)))
+          (while (< start len)
+            (if (string-match "{{\\(.*?\\)}}" command start)
+                ;; Read everything out of the match data up front: the inner
+                ;; `string-match' below overwrites it, and reading `match-end'
+                ;; afterwards would move point backwards and loop forever.
+                (let ((before (substring command start (match-beginning 0)))
+                      (inner (match-string 1 command))
+                      (next (match-end 0)))
+                  (mr-x/tldr--ins before 'mr-x/tldr-command)
+                  (if (string-match "\\`\\[\\(-[^]|]+\\)|\\(--[^]]+\\)\\]\\'" inner)
+                      (mr-x/tldr--ins (match-string 1 inner) 'mr-x/tldr-flag)
+                    (mr-x/tldr--ins inner 'mr-x/tldr-placeholder))
+                  (setq start next))
+              (mr-x/tldr--ins (substring command start) 'mr-x/tldr-command)
+              (setq start len)))
+          (insert "\n")))
+
+      (defun mr-x/tldr--insert-header (raw)
+        "Insert the command name and one-line description parsed from RAW."
+        (dolist (line (split-string raw "\n"))
+          (cond
+           ((string-match "\\`# +\\(.*\\)" line)
+            (insert "\n  ")
+            (mr-x/tldr--ins (concat (match-string 1 line) "\n\n") 'mr-x/tldr-title))
+           ((string-match "\\`> +\\(.*\\)" line)
+            ;; The "More information" line is a URL; the man page supersedes it.
+            (unless (string-prefix-p "More information" (match-string 1 line))
+              (insert "  ")
+              (mr-x/tldr--prose (match-string 1 line) 'mr-x/tldr-description)
+              (insert "\n"))))))
+
+      (defun mr-x/tldr--insert-examples (raw)
+        "Insert the EXAMPLES section parsed from RAW."
+        (let ((examples nil) (label nil))
+          (dolist (line (split-string raw "\n"))
+            (cond
+             ((string-match "\\`- +\\(.*?\\):?\\'" line)
+              (setq label (match-string 1 line)))
+             ((string-match "\\``\\(.*\\)`\\'" line)
+              (push (cons label (match-string 1 line)) examples))))
+          (when examples
+            (insert "\n")
+            (mr-x/tldr--heading "EXAMPLES")
+            (dolist (example (nreverse examples))
+              (insert "\n  ")
+              (mr-x/tldr--prose (concat (car example) ":") 'mr-x/tldr-description)
+              (insert "\n\n    ")
+              (mr-x/tldr--insert-command (cdr example))))))
+
+      (defun mr-x/tldr--insert-synopsis (man)
+        (let ((lines (seq-remove (lambda (l) (string-empty-p (string-trim l)))
+                                 (mr-x/tldr--man-section man "SYNOPSIS"))))
+          (when lines
+            (insert "\n")
+            (mr-x/tldr--heading "SYNOPSIS")
+            (dolist (line lines)
+              (insert "  ")
+              (mr-x/tldr--insert-command (string-trim-left line))))))
+
+      (defun mr-x/tldr--insert-flags (raw man)
+        "Insert a FLAGS section: the flags RAW's examples use, explained from MAN."
+        (let ((used (mr-x/tldr--example-flags raw))
+              (known (mr-x/tldr--man-flags man)))
+          (when used
+            (insert "\n")
+            (mr-x/tldr--heading "FLAGS")
+            (dolist (pair used)
+              (let* ((short (car pair))
+                     (long (cdr pair))
+                     (label (mapconcat #'identity (delq nil (list short long)) ", "))
+                     (desc (or (cdr (assoc short known)) (cdr (assoc long known)))))
+                (mr-x/tldr--ins (concat "  " label) 'mr-x/tldr-flag)
+                (if desc
+                    (progn
+                      (insert (make-string (max 1 (- 24 (length label))) ?\s))
+                      (mr-x/tldr--ins (concat desc "\n") 'mr-x/tldr-description))
+                  (insert "\n")))))))
+
+      (defun mr-x/tldr--insert-man (man)
+        "Insert MAN, restyled with this buffer's own faces rather than Man-mode's."
+        (dolist (line (split-string man "\n"))
+          (cond
+           ;; Running header and footer, e.g. "WC(1) ... WC(1)".
+           ((string-match-p "\\`[A-Za-z0-9_.-]+([0-9n][A-Za-z]*)" line) nil)
+           ((string-match-p "\\`[A-Z][A-Z0-9 ]*\\'" line)
+            ;; man already leaves a blank line above each heading.
+            (unless (eq (char-before (1- (point))) ?\n) (insert "\n"))
+            (mr-x/tldr--heading line))
+           (t
+            (let ((text (if (string-match "\\`     " line) (substring line 3) line)))
+              (if (string-match mr-x/tldr--option-re text)
+                  (progn
+                    (mr-x/tldr--ins (substring text 0 (match-end 2)) 'mr-x/tldr-flag)
+                    (mr-x/tldr--ins (concat (substring text (match-end 2)) "\n")
+                                    'mr-x/tldr-description))
+                (mr-x/tldr--ins (concat text "\n") 'mr-x/tldr-description)))))))
+
+      ;;; Commands
+
+      (defun mr-x/tldr-show-man ()
+        "Append the full manual for this buffer's command, below the tldr page."
+        (interactive)
+        (cond
+         (mr-x/tldr--man-shown
+          (goto-char mr-x/tldr--man-shown)
+          (when (get-buffer-window (current-buffer)) (recenter 0))
+          (message "Manual already shown"))
+         ((not mr-x/tldr--command) (user-error "No command in this buffer"))
+         (t
+          (let ((man (mr-x/tldr--man mr-x/tldr--command))
+                (inhibit-read-only t))
+            (unless man (user-error "No man page for %s" mr-x/tldr--command))
+            (goto-char (point-max))
+            (insert "\n")
+            (let ((start (point)))
+              (mr-x/tldr--heading "MANUAL")
+              (mr-x/tldr--insert-man man)
+              (setq mr-x/tldr--man-shown start)
+              (goto-char start)
+              (when (get-buffer-window (current-buffer)) (recenter 0)))))))
+
+      (defvar mr-x/tldr-mode-map
+        (let ((map (make-sparse-keymap)))
+          (define-key map (kbd "m") #'mr-x/tldr-show-man)
+          map)
+        "Keymap for `mr-x/tldr-mode'.")
+
+      (define-derived-mode mr-x/tldr-mode special-mode "tldr"
+        "Major mode for the `*tldr*' buffer.")
+
+      (with-eval-after-load 'evil
+        (evil-define-key 'normal mr-x/tldr-mode-map (kbd "m") #'mr-x/tldr-show-man))
+
+      (defun mr-x/tldr (command)
+        "Show practical examples for the shell COMMAND.
+      Completes over every tldr page.  `m' appends the full man page below."
+        (interactive
+         (list (completing-read "tldr: " (process-lines "tldr" "--list")
+                                nil t nil nil (thing-at-point 'symbol t))))
+        (let ((raw (mr-x/tldr--page command))
+              (man (mr-x/tldr--man command)))
+          (unless (or raw man)
+            (user-error "No tldr page and no man page for %s" command))
+          (mr-x/tldr--sync-faces)
+          (with-current-buffer (get-buffer-create "*tldr*")
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (if raw
+                  (progn (mr-x/tldr--insert-header raw)
+                         (mr-x/tldr--insert-synopsis man)
+                         (mr-x/tldr--insert-examples raw)
+                         (mr-x/tldr--insert-flags raw man))
+                (mr-x/tldr--ins (concat command "\n") 'mr-x/tldr-title)
+                (mr-x/tldr--ins "No tldr page; showing the manual.\n"
+                                'mr-x/tldr-description))
+              (mr-x/tldr-mode)
+              (setq mr-x/tldr--command command
+                    mr-x/tldr--man-shown nil)
+              (unless raw (mr-x/tldr-show-man))
+              (goto-char (point-min)))
+            (pop-to-buffer (current-buffer)))))
+
       (mr-x/leader-def
         "t" '(mr-x/sandbox-test-env :wk "Test environment")
         "?" '(:ignore t :wk "lookup")
@@ -4680,6 +5029,8 @@ TASK-ID is the ID shown when Claude runs a background command."
         "? e" '(mr-x/elisp-lookup :wk "Elisp")
         "? d" '(osx-dictionary-search-word-at-point :wk "Dictionary (at point)")
         "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
+        "? t" '(mr-x/tldr :wk "tldr (examples)")
+        "? m" '(consult-man :wk "Man (search all pages)")
         "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
 
