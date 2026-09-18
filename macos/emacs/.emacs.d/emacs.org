@@ -405,11 +405,11 @@ during daemon init the selected frame is non-graphic)."
   	(setq org-todo-keyword-faces mr-x/todo-faces)
 
   	(custom-set-faces
-  	 '(org-level-1 ((t (:foreground "#c8c8c8"))))
-  	 '(org-level-2 ((t (:foreground "#a8a8a8"))))
-  	 '(org-level-3 ((t (:foreground "#909090"))))
-  	 '(org-level-4 ((t (:foreground "#787878"))))
-  	 '(org-level-5 ((t (:foreground "#606060"))))
+  	 '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+  	 '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+  	 '(org-level-3 ((t (:foreground "#8ec07c"))))
+  	 '(org-level-4 ((t (:foreground "#83a598"))))
+  	 '(org-level-5 ((t (:foreground "#d3869b"))))
   	 '(org-level-6 ((t (:foreground "#505050"))))
   	 '(org-level-7 ((t (:foreground "#404040"))))))
 
@@ -9070,19 +9070,6 @@ with a bare \"1. \" and would otherwise match the list-item regex."
                       (goto-char blk-end)))))))
           (advice-add 'agent-shell-markdown-replace-markup :after
                       #'mr-x/agent-shell-tint-list-items))
-
-        ;; Colored headings in agent responses. markdown-overlays fontifies
-        ;; "#" headings with org-level-N faces, which the theme keeps
-        ;; monochrome for org files — remap them buffer-locally to gruvbox
-        ;; accents so agent-shell sections actually stand out.
-        (defun mr-x/agent-shell-colorize-headings ()
-          "Remap org-level faces to gruvbox accents in agent-shell buffers."
-          (face-remap-add-relative 'org-level-1 '(:foreground "#fe8019" :weight bold :height 1.15))
-          (face-remap-add-relative 'org-level-2 '(:foreground "#fabd2f" :weight bold :height 1.05))
-          (face-remap-add-relative 'org-level-3 '(:foreground "#8ec07c" :weight bold))
-          (face-remap-add-relative 'org-level-4 '(:foreground "#83a598" :weight bold)))
-
-        (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-colorize-headings)
 
         ;; ADHD-skill response vocabulary — the i-have-adhd skill (plus the
         ;; contract in ~/.claude/CLAUDE.md) makes the model open certain
