@@ -3744,6 +3744,60 @@ inside display-buffer before major-pane may be loaded."
   ;; (major-pane-capture-buffer).
   (setq switch-to-buffer-obey-display-actions t)
 
+  ;; Killing or burying a buffer must never hand a main window a pane
+  ;; conversation.  `switch-to-prev-buffer' (used by kill-buffer,
+  ;; bury-buffer and quit-window to pick the replacement) walks the
+  ;; window's history, and the conversation is usually in it, so the
+  ;; same buffer ended up on screen twice.  Skip two kinds of buffer:
+  ;; anything already visible on some frame, and -- for every window
+  ;; but the pane itself -- any pane conversation, on screen or not.
+  ;; A FUNCTION value matters here: the symbol values (`this',
+  ;; `visible') fall back to the first skipped buffer when nothing else
+  ;; is left, which is exactly the duplicate we are avoiding.
+  (defun mr-x/prev-buffer-skip-p (window buffer _bury-or-kill)
+    "Non-nil when BUFFER must not replace what WINDOW shows.
+Rejects buffers visible on any frame and, unless WINDOW is the
+major-pane, every pane conversation whether displayed or not."
+    (or (get-buffer-window buffer 'visible)
+        (and (not (window-parameter window 'major-pane))
+             (if (fboundp 'major-pane--conversation-p)
+                 (major-pane--conversation-p buffer)
+               (mr-x/agent-pane-buffer-p (buffer-name buffer) nil)))))
+
+  (setq switch-to-prev-buffer-skip #'mr-x/prev-buffer-skip-p)
+
+  ;; The function form has a hole: when every candidate is skipped,
+  ;; `switch-to-prev-buffer' still returns non-nil (its NEW-BUFFER
+  ;; variable holds the last rejected candidate), so
+  ;; `replace-buffer-in-windows' believes the window was handled and
+  ;; leaves the dying buffer in it.  kill-buffer's C safety net then
+  ;; shows whatever buffer comes first, visible or not.  Catch that
+  ;; case before the C code does: collapse the split when the window is
+  ;; not the last one on its frame, otherwise show a scratch buffer
+  ;; that is not already on screen.
+  (defun mr-x/hidden-scratch-buffer ()
+    "Return `*scratch*', or a fresh scratch buffer if that one is on screen.
+Checks every frame, since the caller may be acting on a frame that is
+not visible yet."
+    (let ((scratch (get-scratch-buffer-create)))
+      (if (get-buffer-window scratch t)
+          (with-current-buffer (generate-new-buffer "*scratch*")
+            (funcall initial-major-mode)
+            (current-buffer))
+        scratch)))
+
+  (defun mr-x/replace-buffer-in-windows-no-duplicates (&optional buffer-or-name)
+    "After `replace-buffer-in-windows', fix windows still on BUFFER-OR-NAME."
+    (let ((buffer (window-normalize-buffer buffer-or-name)))
+      (dolist (window (get-buffer-window-list buffer 'nomini t))
+        (if (eq (window-deletable-p window) t)
+            (delete-window window)
+          (set-window-dedicated-p window nil)
+          (set-window-buffer window (mr-x/hidden-scratch-buffer))))))
+
+  (advice-add 'replace-buffer-in-windows :after
+              #'mr-x/replace-buffer-in-windows-no-duplicates)
+
   ;; File links and ordinary buffer navigation from the pane reuse the
   ;; work area, or create it beside a full-frame conversation.  Specific
   ;; popup/conversation rules retain priority over this fallback.
