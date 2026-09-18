@@ -251,10 +251,9 @@ order — e.g. \" ❝2 📄1\"."
 
 ;;; --- Input preview ---
 ;; A display-only bar above the current input line showing which refs are
-;; queued, BEFORE you send.  With one ref and a leading `[ref 1]:' marker,
-;; the overlay replaces that marker with the pill at the prompt and puts the
-;; actual input on the next line.  Otherwise it lives in a `before-string'
-;; above the prompt.  Neither form changes the text shell-maker sends.
+;; queued, BEFORE you send.  It lives in a `before-string' above the
+;; prompt and never changes the text shell-maker sends.  One ref is laid
+;; out exactly like many: bar above, hued `[ref N]' markers below.
 ;; (The header-line is unavailable: agent-shell owns it for its config bar.)
 
 (defvar-local agent-shell-refs--preview-overlay nil
@@ -296,41 +295,20 @@ preview sits on whatever line you're about to type into."
     (when (re-search-backward comint-prompt-regexp nil t)
       (line-beginning-position))))
 
-(defun agent-shell-refs--input-prompt-end ()
-  "Position immediately after the current input prompt, or nil."
-  (save-excursion
-    (goto-char (point-max))
-    (when (re-search-backward comint-prompt-regexp nil t)
-      (match-end 0))))
-
 (defun agent-shell-refs--update-input-preview ()
   "Refresh the queued-refs preview overlay at the current input."
   (when (overlayp agent-shell-refs--preview-overlay)
     (delete-overlay agent-shell-refs--preview-overlay)
     (setq agent-shell-refs--preview-overlay nil))
-  (let* ((prompt-end (and agent-shell-refs--list
-                          (agent-shell-refs--input-prompt-end)))
-         (marker-end
-          (and (= (length agent-shell-refs--list) 1)
-               prompt-end
-               (save-excursion
-                 (goto-char prompt-end)
-                 (when (looking-at "\n\\[ref 1\\]:\n\n")
-                   (match-end 0)))))
-         (line-start (and prompt-end
-                          (agent-shell-refs--input-line-start))))
+  ;; One ref gets the same treatment as many: the chip bar above the
+  ;; prompt and a hued `[ref 1]' marker below it.  The hue, not the
+  ;; count, is what ties a marker to its chip.
+  (let ((line-start (and agent-shell-refs--list
+                         (agent-shell-refs--input-line-start))))
     (when line-start
-      (let ((ov (if marker-end
-                    (make-overlay prompt-end marker-end nil t nil)
-                  (make-overlay line-start line-start))))
-        (if marker-end
-            (progn
-              (overlay-put ov 'display
-                           (concat (agent-shell-refs--preview-bar-string)
-                                   "\n   "))
-              (overlay-put ov 'evaporate t))
-          (overlay-put ov 'before-string
-                       (concat (agent-shell-refs--preview-bar-string) "\n")))
+      (let ((ov (make-overlay line-start line-start)))
+        (overlay-put ov 'before-string
+                     (concat (agent-shell-refs--preview-bar-string) "\n"))
         (overlay-put ov 'agent-shell-refs-preview t)
         (setq agent-shell-refs--preview-overlay ov)))))
 
@@ -400,22 +378,33 @@ in the preview chips."
     (agent-shell-refs--update-input-preview)))
 
 (defface agent-shell-refs-marker-face
-  '((t :inherit agent-shell-refs-pill-face :foreground "#fe8019"))
+  '((t :inherit agent-shell-refs-pill-face))
   "Face for `[ref N]' reply markers typed at the prompt.
-Gruvbox orange so the marker reads distinctly from the yellow folded
-pills that replace the sent context block."
+The chip shape comes from the pill face; the colour comes from the
+ref's hue (see `agent-shell-refs--hue'), applied on the display string."
   :group 'agent-shell)
 
+(defvar agent-shell-refs-marker-icon-height 0.85
+  "Height of the marker icon relative to the chip text.
+The outline bubble is a heavy glyph; slightly smaller reads as the
+lighter twin of the filled bubble in the chips above the prompt.")
+
+(defun agent-shell-refs--marker-icon (hue)
+  "The reply-marker icon in HUE: the outline twin of the chip bubble."
+  (if (and (require 'nerd-icons nil t) (fboundp 'nerd-icons-mdicon))
+      (nerd-icons-mdicon "nf-md-comment_quote_outline"
+                         :face (list :foreground hue)
+                         :height agent-shell-refs-marker-icon-height)
+    (propertize "❞" 'face (list :foreground hue))))
+
 (defun agent-shell-refs--marker-display (n)
-  "Display string for marker N: the ref's type icon plus its number.
-Looks the type up in the pending queue; once the queue has been sent
-\(and cleared) it falls back to the generic quote icon."
-  (let* ((refs (and (boundp 'agent-shell-refs--list) agent-shell-refs--list))
-         (len (length refs))
-         ;; queue is newest-first; capture-order N lives at index len-N
-         (ref (and (<= 1 n len) (nth (- len n) refs)))
-         (type (if ref (agent-shell-refs--ref-type ref) 'quote)))
-    (concat (agent-shell-refs--type-icon type) " " (number-to-string n))))
+  "Display string for marker N: an outline bubble in ref N's hue, no digit.
+The colour is what ties the marker to its chip above the prompt, so the
+number is redundant on screen.  It stays in the literal `[ref N]' text."
+  (let* ((hue (agent-shell-refs--hue n))
+         (s (concat " " (agent-shell-refs--marker-icon hue) " ")))
+    (add-face-text-property 0 (length s) (list :foreground hue) t s)
+    s))
 
 (defun agent-shell-refs--marker-facespec ()
   "Font-lock facespec for the `[ref N]' match just made.
@@ -484,11 +473,30 @@ Fully specified so it overrides the bold green `comint-highlight-input'
 the input text carries underneath."
   :group 'agent-shell)
 
-(defun agent-shell-refs--pill-icon ()
-  "Speech-bubble icon for pills; plain fallback without nerd-icons."
-  (if (require 'nerd-icons nil t)
-      (nerd-icons-mdicon "nf-md-comment_quote")
-    "❝"))
+(defvar agent-shell-refs-hues
+  '("#fabd2f" "#8ec07c" "#d3869b" "#83a598")
+  "Foreground hues for refs, in capture order, cycling past the end.
+Ref N wears hue N on its queued chip, its folded sent pill, and its
+`[ref N]' reply marker, so the colour alone links a reply to its ref.
+Gruvbox yellow, aqua, purple, blue: four the eye keeps apart on the
+dark chip background; the fifth ref wraps back to yellow.")
+
+(defun agent-shell-refs--hue (n)
+  "Hue for ref N (1-based), cycling through `agent-shell-refs-hues'."
+  (nth (mod (1- n) (length agent-shell-refs-hues)) agent-shell-refs-hues))
+
+(defun agent-shell-refs--pill-icon (&optional hue)
+  "Speech-bubble icon for pills in HUE; plain fallback without nerd-icons."
+  (let ((face (and hue (list :foreground hue))))
+    (if (require 'nerd-icons nil t)
+        (nerd-icons-mdicon "nf-md-comment_quote" :face face)
+      (if face (propertize "❝" 'face face) "❝"))))
+
+(defun agent-shell-refs--hue-string (s hue)
+  "Colour pill string S with HUE ahead of the pill face, return S."
+  (when hue
+    (add-face-text-property 0 (length s) (list :foreground hue) nil s))
+  s)
 
 (defun agent-shell-refs--mirror-face-props (s)
   "Copy each `face' span of string S onto `font-lock-face', return S.
@@ -514,10 +522,16 @@ Lives in an overlay `before-string', so only mouse-1 can reach it."
                                'agent-shell-refs))
                 (force-window-update (overlay-buffer ov)))))
     (define-key map [mouse-1] cmd)
-    (let ((s (concat " " (agent-shell-refs--pill-icon) " "
-                     (agent-shell-refs--truncate
-                      ref agent-shell-refs-pill-snippet-length)
-                     " ▸ ")))
+    ;; "N · text" is the numbered send header; N picks the hue so the
+    ;; sent pill matches the queued chip and the reply marker
+    (let* ((hue (and (string-match "\\`\\([0-9]+\\) · " ref)
+                     (agent-shell-refs--hue
+                      (string-to-number (match-string 1 ref)))))
+           (s (concat " " (agent-shell-refs--pill-icon hue) " "
+                      (agent-shell-refs--truncate
+                       ref agent-shell-refs-pill-snippet-length)
+                      " ▸ ")))
+      (agent-shell-refs--hue-string s hue)
       ;; append: icon keeps its nerd-font family, pill colors fill the rest
       (add-face-text-property 0 (length s) 'agent-shell-refs-pill-face t s)
       (agent-shell-refs--mirror-face-props s)
@@ -533,12 +547,14 @@ Mirrors `agent-shell-refs--pill' visually so a ref looks identical
 before and after send; carries no keymap since there's nothing to
 toggle until it's been sent.  INDEX is the number `[ref N]' markers
 and `agent-shell-refs-insert-marker' address."
-  (let ((s (concat " " (agent-shell-refs--pill-icon)
-                   (format " %d · " index)
-                   (agent-shell-refs--truncate
-                    (agent-shell-refs--ref-text ref)
-                    agent-shell-refs-pill-snippet-length)
-                   " ▸ ")))
+  (let* ((hue (agent-shell-refs--hue index))
+         (s (concat " " (agent-shell-refs--pill-icon hue)
+                    (format " %d · " index)
+                    (agent-shell-refs--truncate
+                     (agent-shell-refs--ref-text ref)
+                     agent-shell-refs-pill-snippet-length)
+                    " ▸ ")))
+    (agent-shell-refs--hue-string s hue)
     (add-face-text-property 0 (length s) 'agent-shell-refs-pill-face t s)
     s))
 
@@ -609,30 +625,13 @@ the `face' property on input regions."
                   (setq pos (+ chunk-end 2))))
               ;; closing tag + trailing blank line
               (hide body-end block-end)
-              ;; With one ref, a leading `[ref 1]:' is redundant beside the
-              ;; numbered pill.  Keep the literal marker in the buffer for the
-              ;; model, but fold it into the pill and start the prompt below.
-              ;; Multiple refs retain their explicit markers so the visual
-              ;; mapping between each marker and its reply stays unambiguous.
-              (let ((marker-end
-                     (and (= (length pills) 1)
-                          (save-excursion
-                            (goto-char block-end)
-                            (when (looking-at "\n\\[ref 1\\]:\n\n")
-                              (match-end 0))))))
-                (when marker-end
-                  (dolist (ov (overlays-in block-end marker-end))
-                    (when (overlay-get ov 'agent-shell-refs-coalesced-marker)
-                      (delete-overlay ov)))
-                  (let ((marker-ov (hide block-end marker-end)))
-                    (overlay-put marker-ov
-                                 'agent-shell-refs-coalesced-marker t)))
-                ;; Pill row visually replaces the opening tag line.  A merged
-                ;; marker supplies one newline plus a small hanging indent for
-                ;; the actual prompt text.
-                (overlay-put tag-ov 'display
-                             (concat (mapconcat #'identity (nreverse pills) " ")
-                                     (if marker-end "\n   " "\n"))))
+              ;; Pill row visually replaces the opening tag line.  Any
+              ;; `[ref N]:' markers after the block stay visible as hued
+              ;; chips (font-lock), one ref or many, so the colour maps
+              ;; each reply to its pill.
+              (overlay-put tag-ov 'display
+                           (concat (mapconcat #'identity (nreverse pills) " ")
+                                   "\n"))
               t)))))))
 
 (defun agent-shell-refs--block-covered-p (beg end)
