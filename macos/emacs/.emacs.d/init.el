@@ -2781,6 +2781,13 @@ Delegates to syzygy-live's own indicator."
         (when (fboundp 'syzygy-live--modeline-indicator)
           (syzygy-live--modeline-indicator)))
 
+      (doom-modeline-def-segment syzygy-park
+        "Parking sign + count while questions are parked on this chat
+\(SPC c u p); click or SPC c u a asks them in a fork.  Delegates to
+syzygy-park's own indicator."
+        (when (fboundp 'syzygy-park--modeline-indicator)
+          (syzygy-park--modeline-indicator)))
+
       ;; Modal indicator: the evil state as a plain, slightly enlarged
       ;; letter (n/i/v/r/o/m/e) colored by the state face — no icon, no
       ;; box, always renders regardless of font.  `doom-modeline--evil'
@@ -2855,7 +2862,7 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
           indent-info buffer-encoding major-mode process vcs check time))
 
       (doom-modeline-def-modeline 'agent-shell-minimal
-        '(bar modals buffer-info syzygy-live agent-shell-refs agent-shell-inbox)
+        '(bar modals buffer-info syzygy-live syzygy-park agent-shell-refs agent-shell-inbox)
         '())
 
       (with-eval-after-load 'nerd-icons
@@ -3663,6 +3670,8 @@ not visible yet."
             ;; Agent shell manager
             "\\*Agent-Shell Buffers\\*"
             agent-shell-manager-mode
+            ;; Parked questions list (SPC c u l)
+            syzygy-park-list-mode
             "\\*Async Shell Command\\*"
             ;; DevDocs
             devdocs-mode))
@@ -4428,6 +4437,14 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c c" '(mr-x/agent-shell-new-smart :wk "New chat (Claude, here)")
         "c n" '(mr-x/agent-shell-clone :wk "Clone shell (model + here)")
         "c e" '(syzygy-fork :wk "Fork chat (history + here)")
+        ;; Park: a side question goes on the chat (mode line shows a
+        ;; parking sign + count) instead of into the thread.  List pops
+        ;; them in a popper buffer; ask flushes them all as one numbered
+        ;; prompt in a single fork, C-u asks them here.
+        "c u" '(:ignore t :wk "Park")
+        "c u p" '(syzygy-park :wk "Park question (ask later)")
+        "c u l" '(syzygy-park-list :wk "List parked")
+        "c u a" '(syzygy-park-ask :wk "Ask parked (fork; C-u: here)")
         "c C" '(mr-x/agent-shell-preset-in-project :wk "New chat (preset + where)")
         "c x" '(mr-x/agent-shell-sol :wk "Sol one-shot")
         "c P" '(mr-x/agent-shell-start-preset :wk "Preset → new shell")

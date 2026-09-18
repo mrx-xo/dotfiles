@@ -27,6 +27,9 @@
 ;; - syzygy-mermaid.el — export the rig's Mermaid config so the phone's
 ;;                       diagrams match the xwidget preview
 ;;                       (/api/mermaid-config)
+;; - syzygy-park.el    — park a side question on a chat (SPC c u p),
+;;                       list them in a popup (SPC c u l), ask every
+;;                       parked one later in a single fork (SPC c u a)
 ;;
 ;; The non-elisp half lives in ~/.dotfiles/macos/syzygy/: the
 ;; acp-multiplex/acp-mobile build pin, the acp-mobile launchd agent,
@@ -49,6 +52,7 @@
 (require 'syzygy-launch)
 (require 'syzygy-projects)
 (require 'syzygy-mermaid)
+(require 'syzygy-park)
 
 (provide 'syzygy)
 ;;; syzygy.el ends here
