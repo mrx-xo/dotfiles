@@ -14,6 +14,40 @@
   "Last advertised choices for each agent in this daemon.")
 (defvar syzygy-launch--timeout 20
   "Maximum seconds to confirm a new session's settings.")
+(defvar syzygy-launch--cli-models (make-hash-table :test #'equal)
+  "Model choices read from an agent's CLI, keyed by agent id.
+Filled once per daemon for agents that expose a model list without a
+session. Clear an entry to re-read it.")
+(defvar agent-shell-opencode-acp-command)
+
+(defun syzygy-launch--opencode-cli-output ()
+  "Return the stdout of `opencode models', or nil when it fails."
+  ;; The ACP command may be wrapped (acp-multiplex ... opencode acp), so
+  ;; take the opencode binary itself, wherever it sits in that list.
+  (let ((program (or (and (boundp 'agent-shell-opencode-acp-command)
+                          (seq-find (lambda (arg)
+                                      (and (stringp arg)
+                                           (equal (file-name-nondirectory arg) "opencode")))
+                                    agent-shell-opencode-acp-command))
+                     (executable-find "opencode")
+                     (expand-file-name "~/.opencode/bin/opencode"))))
+    (when (and program (file-executable-p program))
+      (with-temp-buffer
+        (when (eq 0 (ignore-errors
+                      (call-process program nil (list (current-buffer) nil) nil "models")))
+          (buffer-string))))))
+
+(defun syzygy-launch--cli-model-choices (id)
+  "Return CLI-advertised model choices for agent ID, or nil.
+Only OpenCode lists its models from the command line. The result is a
+vector of choices cached in `syzygy-launch--cli-models'."
+  (when (equal id "opencode")
+    (or (gethash id syzygy-launch--cli-models)
+        (when-let* ((output (syzygy-launch--opencode-cli-output))
+                    (ids (seq-filter (lambda (line) (string-match-p "\\`[^ \t]+/[^ \t]+\\'" line))
+                                     (split-string output "\n" t "[ \t\r]+")))
+                    (choices (vconcat (mapcar (lambda (m) (syzygy-launch--choice m m "")) ids))))
+          (puthash id choices syzygy-launch--cli-models)))))
 
 (defun syzygy-launch--config-id (config)
   "Return the phone identifier for trusted CONFIG."
@@ -80,7 +114,10 @@
    (lambda (entry)
      (let* ((id (car entry)) (config (cdr entry))
             (cached (gethash id syzygy-launch--capabilities))
-            (options (copy-tree (or cached '((models . []) (modes . []) (efforts . [])))))
+            (cli (and (not cached) (syzygy-launch--cli-model-choices id)))
+            (options (copy-tree (or cached
+                                    (and cli `((models . ,cli) (modes . []) (efforts . [])))
+                                    '((models . []) (modes . []) (efforts . [])))))
             (tuples (seq-filter (lambda (p) (equal id (syzygy-presets--agent (nth 4 p))))
                                 (and (boundp 'mr-x/agent-shell-presets) mr-x/agent-shell-presets))))
        ;; Presets can contain adapter aliases absent from the advertised list.
@@ -101,7 +138,7 @@
            (name . ,(if (equal id "claude") "Claude Code"
                       (or (map-elt config :mode-line-name) id)))
            ,@options
-           (source . ,(if cached "advertised" "presets"))
+           (source . ,(cond (cached "advertised") (cli "cli") (t "presets")))
            (defaults . ((model . ,(if (syzygy-launch--known (alist-get 'models options) model)
                                      model ""))
                         (mode . ,(if (syzygy-launch--known (alist-get 'modes options) mode)
