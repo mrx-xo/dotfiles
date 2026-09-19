@@ -96,7 +96,11 @@ ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
 # + local f344b48 (one busy line: generating and session fetches use the header progress line; thinking bar and Orrery glyph removed; leaving a chat clears generating)
 # + local 72d6e3c (a run of quoted lines renders as one blockquote with inner markdown; fence bodies untouched, fences inside quotes render)
 # + local cb8eaaa (model pickers fold by provider: New Chat and in-chat lists group ids by everything before the last slash, selected group opens first, search keeps headers; single-group lists stay flat)
-ACP_MOBILE_COMMIT="cb8eaaae258bddee754e4f72b73833c101a8ba2e"
+# + local ae10547 (diff review parser: git diff output into files, hunks and independently numbered lines; 2 MiB bounded reads cut on a line boundary)
+# + local a494545 (GET /api/diff-review: repository scope diffs index vs HEAD, tree vs index, untracked vs /dev/null; turn scope is an immutable snapshot the bridge captures around each phone prompt through a temporary index and object directory)
+# + local 3a9c82e (phone diff review view: This turn and Before commit tabs, wrapping reader with one number column and persistent Hide numbers, change navigation, THIS TURN card and Before commit row)
+# + local 0d798a2 (browser tests for the diff review at 393 and 320 wide; review overlay at body root above the history dock)
+ACP_MOBILE_COMMIT="0d798a225a07bb110cbf5afda1d3c797f5f33848"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
