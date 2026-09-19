@@ -48,11 +48,13 @@
   (let ((mr-x/agent-shell-presets
          '((?O "OpenCode Luna Build" "openai/gpt-5.6-luna" "build"
                agent-shell-opencode-make-agent-config)))
-        (syzygy-launch--capabilities (make-hash-table :test #'equal)))
+        (syzygy-launch--capabilities (make-hash-table :test #'equal))
+        (syzygy-launch--cli-models (make-hash-table :test #'equal)))
     (cl-letf (((symbol-function 'buffer-list) (lambda () nil))
               ((symbol-function 'agent-shell--resolve-preferred-config) (lambda () nil))
               ((symbol-function 'agent-shell-opencode-make-agent-config)
-               (lambda () '((:identifier . opencode) (:mode-line-name . "OpenCode")))))
+               (lambda () '((:identifier . opencode) (:mode-line-name . "OpenCode"))))
+              ((symbol-function 'syzygy-launch--opencode-cli-output) (lambda () nil)))
       (let* ((reply (syzygy-launch-test--decode (syzygy-launch-options-json)))
              (agents (alist-get 'agents reply))
              (presets (syzygy-launch-test--decode (syzygy-presets-json))))
@@ -72,6 +74,52 @@
           (should (syzygy-launch--validate
                    '((agent . "opencode") (model . "openai/gpt-5.6-sol") (mode . "plan"))
                    warm)))))))
+
+(ert-deftest syzygy-launch-opencode-cli-fills-models-when-no-chat-is-live ()
+  "Without a live OpenCode chat, the catalogue lists the CLI's models."
+  (let ((mr-x/agent-shell-presets
+         '((?O "OpenCode Luna Build" "openai/gpt-5.6-luna" "build"
+               agent-shell-opencode-make-agent-config)))
+        (syzygy-launch--capabilities (make-hash-table :test #'equal))
+        (syzygy-launch--cli-models (make-hash-table :test #'equal))
+        (calls 0))
+    (cl-letf (((symbol-function 'buffer-list) (lambda () nil))
+              ((symbol-function 'agent-shell--resolve-preferred-config) (lambda () nil))
+              ((symbol-function 'agent-shell-opencode-make-agent-config)
+               (lambda () '((:identifier . opencode) (:mode-line-name . "OpenCode"))))
+              ((symbol-function 'syzygy-launch--opencode-cli-output)
+               (lambda () (cl-incf calls) "google/gemini-2.5-flash\nopenai/gpt-5.6-luna\n\n")))
+      (let* ((agent (car (syzygy-launch--catalog)))
+             (ids (mapcar (lambda (m) (alist-get 'id m)) (alist-get 'models agent))))
+        (should (equal (alist-get 'source agent) "cli"))
+        (should (equal ids '("google/gemini-2.5-flash" "openai/gpt-5.6-luna")))
+        ;; The preset's model is already advertised, so it is not appended twice.
+        (should (= (length ids) 2))
+        (should (equal (alist-get 'id (aref (alist-get 'modes agent) 0)) "build"))
+        ;; One subprocess per daemon, not one per catalogue build.
+        (syzygy-launch--catalog)
+        (should (= calls 1))
+        ;; A live session's advertised list still wins over the CLI.
+        (puthash "opencode" '((models . [((id . "live/only"))]) (modes . []) (efforts . []))
+                 syzygy-launch--capabilities)
+        (let ((warm (car (syzygy-launch--catalog))))
+          (should (equal (alist-get 'source warm) "advertised"))
+          (should (equal (alist-get 'id (aref (alist-get 'models warm) 0)) "live/only")))))))
+
+(ert-deftest syzygy-launch-opencode-cli-failure-falls-back-to-presets ()
+  (let ((mr-x/agent-shell-presets
+         '((?O "OpenCode Luna Build" "openai/gpt-5.6-luna" "build"
+               agent-shell-opencode-make-agent-config)))
+        (syzygy-launch--capabilities (make-hash-table :test #'equal))
+        (syzygy-launch--cli-models (make-hash-table :test #'equal)))
+    (cl-letf (((symbol-function 'buffer-list) (lambda () nil))
+              ((symbol-function 'agent-shell--resolve-preferred-config) (lambda () nil))
+              ((symbol-function 'agent-shell-opencode-make-agent-config)
+               (lambda () '((:identifier . opencode) (:mode-line-name . "OpenCode"))))
+              ((symbol-function 'syzygy-launch--opencode-cli-output) (lambda () nil)))
+      (let ((agent (car (syzygy-launch--catalog))))
+        (should (equal (alist-get 'source agent) "presets"))
+        (should (equal (alist-get 'id (aref (alist-get 'models agent) 0)) "openai/gpt-5.6-luna"))))))
 
 (ert-deftest syzygy-launch-validation-rejects-incompatible-settings ()
   (should (fboundp 'syzygy-launch--validate))

@@ -94,7 +94,8 @@ ACP_MULTIPLEX_COMMIT="0173b232ac1319e6f14e3159e4e3e9df76eb0fbd"
 # + local 8af88bd (history loading is a 2px progress line under the header instead of the Loading chat pill)
 # + local f344b48 (one busy line: generating and session fetches use the header progress line; thinking bar and Orrery glyph removed; leaving a chat clears generating)
 # + local 72d6e3c (a run of quoted lines renders as one blockquote with inner markdown; fence bodies untouched, fences inside quotes render)
-ACP_MOBILE_COMMIT="72d6e3c53457497f2be4be60de2b04edd6ceaf72"
+# + local cb8eaaa (model pickers fold by provider: New Chat and in-chat lists group ids by everything before the last slash, selected group opens first, search keeps headers; single-group lists stay flat)
+ACP_MOBILE_COMMIT="cb8eaaae258bddee754e4f72b73833c101a8ba2e"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
