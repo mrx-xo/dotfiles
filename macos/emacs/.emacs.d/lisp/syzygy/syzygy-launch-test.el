@@ -19,6 +19,30 @@
     (efforts . [((id . "high") (name . "High"))])
     (defaults . ((model . "sol") (mode . "agent") (effort . "")))))
 
+(ert-deftest syzygy-launch-skips-buffers-without-shell-state ()
+  "A scratch buffer in agent mode must not hide healthy launch choices."
+  (with-temp-buffer
+    (let ((broken (current-buffer))
+          (mr-x/agent-shell-presets nil)
+          (syzygy-launch--capabilities (make-hash-table :test #'equal)))
+      (with-temp-buffer
+        (let ((healthy (current-buffer)))
+          (cl-letf (((symbol-function 'buffer-list) (lambda () (list broken healthy)))
+                    ((symbol-function 'derived-mode-p) (lambda (&rest _) t))
+                    ((symbol-function 'agent-shell--resolve-preferred-config) (lambda () nil))
+                    ((symbol-function 'agent-shell--state)
+                     (lambda ()
+                       (if (eq (current-buffer) broken)
+                           (error "No shell state available")
+                         '((:session . ((:id . "ready")))
+                           (:agent-config . ((:identifier . codex) (:mode-line-name . "Codex")))))))
+                    ((symbol-function 'syzygy-launch--state-options)
+                     (lambda (_) '((models . [((id . "sol"))]) (modes . []) (efforts . [])))))
+            (let ((agents (alist-get 'agents
+                                    (syzygy-launch-test--decode (syzygy-launch-options-json)))))
+              (should (equal (mapcar (lambda (a) (alist-get 'id a)) agents) '("codex")))
+              (should (equal (alist-get 'id (car (alist-get 'models (car agents)))) "sol")))))))))
+
 (ert-deftest syzygy-launch-opencode-preset-works-without-a-live-chat ()
   "A cold daemon can offer and validate OpenCode through its rig preset."
   (let ((mr-x/agent-shell-presets

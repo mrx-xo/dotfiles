@@ -35,7 +35,7 @@
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer
         (when (derived-mode-p 'agent-shell-mode)
-          (when-let* ((config (map-elt (agent-shell--state) :agent-config)))
+          (when-let* ((config (map-elt (ignore-errors (agent-shell--state)) :agent-config)))
             (let ((id (syzygy-launch--config-id config)))
               (unless (assoc id result) (push (cons id config) result)))))))
     (cl-delete-duplicates (nreverse result) :key #'car :test #'equal)))
@@ -72,7 +72,7 @@
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (when (derived-mode-p 'agent-shell-mode)
-        (let ((state (agent-shell--state)))
+        (let ((state (ignore-errors (agent-shell--state))))
           (when (map-nested-elt state '(:session :id))
             (puthash (syzygy-launch--config-id (map-elt state :agent-config))
                      (syzygy-launch--state-options state) syzygy-launch--capabilities))))))
