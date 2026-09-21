@@ -74,5 +74,62 @@
   (should (equal (voicelog--day-key (voicelog-test--row 'ts "garbage")) ""))
   (should (equal (voicelog--time-label (voicelog-test--row 'ts nil)) "")))
 
+;;; filtering
+
+(defconst voicelog-test--rows
+  (list
+   (voicelog-test--row 'ts "2026-09-18T14:53:43+00:00" 'run_id "r1"
+                       'pipeline "Marx Assist" 'heard "Good morning." 'said "Good morning."
+                       'satellite "assist_satellite.pollux")
+   (voicelog-test--row 'ts "2026-09-18T13:00:00+00:00" 'run_id "r2"
+                       'pipeline "Yvette Assist" 'heard "What is the weather" 'said "Sunny."
+                       'satellite nil)
+   (voicelog-test--row 'ts "2026-09-17T20:00:00+00:00" 'run_id "r3"
+                       'pipeline "Sergio Assist" 'heard "Play the dog song" 'said nil
+                       'satellite "assist_satellite.kronos")
+   (voicelog-test--row 'ts "2026-09-17T19:00:00+00:00" 'run_id "r4"
+                       'pipeline "Sergio Assist" 'heard nil 'said nil
+                       'satellite "assist_satellite.kronos")
+   (voicelog-test--row 'ts "2026-09-01T19:00:00+00:00" 'run_id "r5"
+                       'pipeline "Sergio Assist" 'heard "Old one" 'said "Old reply"))
+  "Five rows: r4 is wake-only, r5 predates the satellite key.")
+
+(defun voicelog-test--ids (rows)
+  (mapcar (lambda (r) (alist-get 'run_id r)) rows))
+
+(ert-deftest voicelog-visible-drops-wake-only ()
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows))
+                 '("r1" "r2" "r3" "r5"))))
+
+(ert-deftest voicelog-visible-persona ()
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :persona 'nabu))
+                 '("r3" "r5"))))
+
+(ert-deftest voicelog-visible-today ()
+  (should (equal (voicelog-test--ids
+                  (voicelog--visible-rows voicelog-test--rows :today t
+                                          :today-key "2026-09-18" :zone voicelog-test--zone))
+                 '("r1" "r2"))))
+
+(ert-deftest voicelog-visible-query-case-insensitive ()
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :query "DOG"))
+                 '("r3")))
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :query "sunny"))
+                 '("r2")))
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :query ""))
+                 '("r1" "r2" "r3" "r5"))))
+
+(ert-deftest voicelog-visible-origin ()
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :origin 'satellite))
+                 '("r1" "r3")))
+  (should (equal (voicelog-test--ids (voicelog--visible-rows voicelog-test--rows :origin 'phone))
+                 '("r2"))))
+
+(ert-deftest voicelog-visible-combined ()
+  (should (equal (voicelog-test--ids
+                  (voicelog--visible-rows voicelog-test--rows :persona 'nabu :query "dog"
+                                          :origin 'satellite))
+                 '("r3"))))
+
 (provide 'voicelog-test)
 ;;; voicelog-test.el ends here

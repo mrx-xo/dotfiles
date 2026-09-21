@@ -122,5 +122,38 @@ more sentence enders."
   (let ((time (voicelog--time row)))
     (if time (format-time-string "%-I:%M %p" time zone) "")))
 
+;;;; Filtering (pure)
+
+(defun voicelog--nonblank-p (s)
+  (and (stringp s) (not (string-empty-p s))))
+
+(cl-defun voicelog--visible-rows (rows &key persona query today origin today-key zone)
+  "Rows of ROWS that pass the active filters, in the same order.
+Wake-only rows (neither heard nor said) never show. PERSONA is nil or
+a persona key. QUERY is a case-insensitive substring over heard and
+said. TODAY keeps rows whose local day equals TODAY-KEY. ORIGIN is
+nil, `satellite', or `phone'; rows written before the satellite key
+existed match neither."
+  (let ((today-key (or today-key (format-time-string "%Y-%m-%d" nil zone)))
+        (needle (and (voicelog--nonblank-p query) (downcase query))))
+    (cl-remove-if-not
+     (lambda (row)
+       (let ((heard (alist-get 'heard row))
+             (said (alist-get 'said row)))
+         (and (or (voicelog--nonblank-p heard) (voicelog--nonblank-p said))
+              (or (null persona)
+                  (eq persona (plist-get (voicelog--persona (alist-get 'pipeline row)) :key)))
+              (or (not today) (equal today-key (voicelog--day-key row zone)))
+              (or (null needle)
+                  (string-search needle
+                                 (downcase (concat (or heard "") " " (or said "")))))
+              (pcase origin
+                ('nil t)
+                ('satellite (let ((s (alist-get 'satellite row)))
+                              (and (stringp s) (string-prefix-p "assist_satellite." s))))
+                ('phone (let ((cell (assq 'satellite row)))
+                          (and cell (null (cdr cell)))))))))
+     rows)))
+
 (provide 'voicelog)
 ;;; voicelog.el ends here
