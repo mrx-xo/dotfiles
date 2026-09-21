@@ -13,6 +13,7 @@
 ;;
 ;;   j / k     next / previous card       gg / G  top / bottom
 ;;   TAB       fold or unfold a card      S-TAB   cycle the whole buffer
+;;   zM / zR   fold / unfold every card
 ;;   a n p m   all / Nabu / Pandora / Andromeda
 ;;   /         search heard + said        t       toggle today
 ;;   s         cycle origin: any, satellite, phone
@@ -384,6 +385,9 @@ ZONE overrides the local time zone, for tests."
     (define-key map "l" #'voicelog-toggle-live)
     (define-key map "?" #'voicelog-help)
     (define-key map "q" #'voicelog-quit)
+    ;; Evil binds zM / zR only in normal state; this buffer lives in motion.
+    (define-key map "zM" #'outline-hide-body)
+    (define-key map "zR" #'outline-show-all)
     map)
   "Keymap for `voicelog-mode'.")
 
