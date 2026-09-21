@@ -35,7 +35,7 @@ end
 function M:start()
   if self.hotkey then self.hotkey:delete() end
   self.hotkey = hs.hotkey.bind(
-    {"cmd", "ctrl"}, "B", "Emacs bookmarks", function() self:launch() end)
+    {"cmd", "ctrl"}, "B", function() self:launch() end)
 end
 
 return M
