@@ -335,6 +335,18 @@ a regression here would silently bring that back."
                          (list (expand-file-name "~/.opencode/bin/opencode") "acp"))))
   (should (file-executable-p (expand-file-name "~/.opencode/bin/opencode"))))
 
+(ert-deftest config-test-opencode-glm-flash-preset ()
+  "The rig exposes pinned GLM Flash through OpenCode's bypass agent.
+The agent is defined in ~/.config/opencode/opencode.json with every
+permission set to allow, the OpenCode analogue of bypassPermissions."
+  (let ((preset (assq ?g mr-x/agent-shell-presets)))
+    (should preset)
+    (should (equal (cdr preset)
+                   '("OpenCode GLM Flash · Bypass"
+                     "openrouter/z-ai/glm-5.3-flash"
+                     "bypass"
+                     agent-shell-opencode-make-agent-config)))))
+
 (ert-deftest config-test-agent-shell-clone-reuses-current-model-in-fresh-session ()
   "Clone starts a fresh shell with the source provider, model, and directory."
   (let* ((source-config
