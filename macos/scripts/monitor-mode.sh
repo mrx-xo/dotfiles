@@ -8,6 +8,12 @@
 #   monitor-mode.sh rsplit          # center -> VENGEANCE, right -> MrX
 #   monitor-mode.sh work            # center -> MrX, right -> work laptop
 #
+# Escape hatch (ignores the state files; use when state got funky):
+#   monitor-mode.sh reset           # reconnect + DDC both -> MrX, state = mac
+#
+# Drift check (Hammerspoon runs it after every display change):
+#   monitor-mode.sh check           # notify if an away display re-enumerated
+#
 # Per-display (mix & match freely; 3/4 = yabai display numbers):
 #   monitor-mode.sh center|3 mac|pc
 #   monitor-mode.sh right|4  mac|pc|work
@@ -54,6 +60,7 @@ STATE_DIR="$HOME/.local/state/monitor-mode"
 mkdir -p "$STATE_DIR"
 
 LAYOUT="$STATE_DIR/layout.json"
+BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to mac this invocation
 
@@ -167,8 +174,15 @@ set_display() {  # set_display <center|right> <mac|pc|work>
   # Already there? Skip the connect/disconnect dance — this is what makes
   # the v3 preset keys idempotent (mash freely). Trusts the state file for
   # right (manual OSD changes there can lie; press another preset to reset).
+  # The Mac-side connection must match too: a dock replug re-enumerates a
+  # display BetterDisplay had dropped, so an away target that is visible
+  # again falls through and gets disconnected (2026-09-21).
   if [ "$cur" = "$2" ]; then
-    if [ "$2" != mac ] || ddc_visible "$1"; then return 0; fi
+    if [ "$2" = mac ]; then
+      ddc_visible "$1" && return 0
+    else
+      ddc_visible "$1" || return 0
+    fi
   fi
   if ! ddc_visible "$1"; then
     bd_connect "$1" on
@@ -190,6 +204,41 @@ set_display() {  # set_display <center|right> <mac|pc|work>
   done
   notify "FAILED: $1 -> $2 (DDC error x3)"
   return 1
+}
+
+force_mac() {  # force_mac <center|right>: ignore state, put it on the Mac
+  # The reset path. Skips no step: reconnect if dropped, DDC to the Mac
+  # input, record mac. State is written even when DDC fails so the next
+  # preset does the full dance instead of trusting a stale file.
+  local try
+  echo mac > "$STATE_DIR/$1"
+  if ! ddc_visible "$1"; then
+    bd_connect "$1" on
+    wait_ddc "$1" || { notify "reset: $1 never re-enumerated"; return 1; }
+  fi
+  RESTORE_PENDING="$RESTORE_PENDING $(uuid_for "$1")"
+  for try in 1 2 3; do
+    m1ddc display "$(uuid_for "$1")" set input "$HDMI_20" > /dev/null 2>&1 && return 0
+    sleep 0.4
+  done
+  notify "reset: $1 -> MrX failed (DDC error x3)"
+  return 1
+}
+
+check_drift() {  # notify when an away display is enumerated Mac-side again
+  # A dock replug re-enumerates displays BetterDisplay had dropped. This
+  # never switches anything (the right state file can lie); it only tells
+  # the user which key puts it back. Skipped while a preset is mid-flight,
+  # since a flip connects the display before it disconnects it.
+  [ -e "$BUSY" ] && return 0
+  local d cur key
+  for d in center right; do
+    cur=$(current_machine "$d")
+    [ "$cur" != mac ] && ddc_visible "$d" || continue
+    case "$cur" in pc) key="ctrl+alt+$([ "$d" = center ] && echo 3 || echo 4)" ;;
+                   *)  key="ctrl+alt+w" ;; esac
+    notify "$d monitor is back on the Mac but state says $cur. Press $key, or ctrl+alt+0 to reset."
+  done
 }
 
 current_machine() {  # current_machine <center|right> -> mac|pc|work
@@ -251,6 +300,11 @@ sync_windows() {
 }
 
 case "${1:-}" in
+  status|check|"") ;;
+  *) touch "$BUSY"; trap 'rm -f "$BUSY"' EXIT ;;
+esac
+
+case "${1:-}" in
   game)
     set_display center pc; set_display right pc
     notify "Center + Right -> VENGEANCE"
@@ -295,6 +349,15 @@ case "${1:-}" in
     sync_windows
     maybe_restore
     ;;
+  reset)
+    force_mac center || true; force_mac right || true
+    notify "Reset: Center + Right -> MrX (state cleared)"
+    sync_windows
+    maybe_restore
+    ;;
+  check)
+    check_drift
+    ;;
   status)
     for d in center right; do
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
@@ -302,7 +365,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
