@@ -34,4 +34,43 @@
                           (link-hint--collect 3 7 'link-hint-agent-shell))
                    '("/tmp/first")))))
 
+(ert-deftest agent-shell-mermaid-link-hint-discovers-diagram-labels ()
+  "Mermaid labels, but not ordinary code labels, must be SPC f targets."
+  (with-temp-buffer
+    (setq major-mode 'agent-shell-mode)
+    (insert "Diagram: ")
+    (insert (propertize "mermaid"
+                        'mr-x/agent-shell-mermaid-source
+                        "flowchart LR\n  A --> B"))
+    (insert "\nCode: python")
+    (should (memq 'link-hint-agent-shell-mermaid link-hint-types))
+    (let ((links (reverse
+                  (link-hint--collect
+                   (point-min) (point-max) 'link-hint-agent-shell-mermaid))))
+      (should (equal (mapcar (lambda (link) (plist-get link :pos)) links)
+                     '(10)))
+      (should (equal (mapcar (lambda (link) (plist-get link :args)) links)
+                     '("flowchart LR\n  A --> B"))))))
+
+(ert-deftest agent-shell-mermaid-link-hint-discovers-existing-rendered-blocks ()
+  "Mermaid blocks rendered before label tagging must remain SPC f targets."
+  (with-temp-buffer
+    (setq major-mode 'agent-shell-mode)
+    (insert "Before\n")
+    (insert (propertize "mermaid"
+                        'keymap (make-sparse-keymap)
+                        'agent-shell-markdown-source ""))
+    (insert "\n")
+    (insert (propertize "flowchart TD\n  Old --> Open"
+                        'agent-shell-markdown-source-block-body t
+                        'agent-shell-markdown-source
+                        "```mermaid\nflowchart TD\n  Old --> Open\n```"))
+    (let ((links (reverse
+                  (link-hint--collect
+                   (point-min) (point-max) 'link-hint-agent-shell-mermaid))))
+      (should (equal (mapcar (lambda (link) (plist-get link :pos)) links)
+                     '(8)))
+      (should (equal (mapcar (lambda (link) (plist-get link :args)) links)
+                     '("flowchart TD\n  Old --> Open"))))))
+
 ;;; agent-shell-link-hint-test.el ends here

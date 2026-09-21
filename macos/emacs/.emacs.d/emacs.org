@@ -8458,6 +8458,42 @@ markdown-xwidget discover `<code class=\"mermaid\">...'."
                     "\n});\n</script>")
           header-html)))
 
+    (defun mr-x/markdown-mermaid-export-source (source)
+      "Export Mermaid SOURCE as a standalone themed inspector page."
+      (when (string-empty-p (string-trim source))
+        (user-error "Mermaid source is empty"))
+      (make-directory mr-x/markdown-preview-directory t)
+      (let* ((digest (substring (secure-hash 'sha256 source) 0 16))
+             (output
+              (expand-file-name
+               (format "agent-shell-mermaid-%s.html" digest)
+               mr-x/markdown-preview-directory))
+             (github-theme
+              (markdown-xwidget-github-css-path markdown-xwidget-github-theme))
+             (code-block-theme
+              (markdown-xwidget-highlightjs-css-path
+               markdown-xwidget-code-block-theme)))
+        (with-temp-buffer
+          (markdown-mode)
+          (insert "```mermaid\n" source)
+          (unless (string-suffix-p "\n" source)
+            (insert "\n"))
+          (insert "```\n")
+          (setq-local markdown-css-paths
+                      (list github-theme code-block-theme
+                            mr-x/markdown-gruvbox-css-file))
+          (setq-local markdown-command
+                      (or markdown-xwidget-command markdown-command))
+          ;; `markdown-standalone' switches to its output buffer before it
+          ;; reads this variable, so keep the header dynamically bound rather
+          ;; than buffer-local to this synthetic source buffer.
+          (let ((markdown-xhtml-header-content
+                 (mr-x/markdown-preview-header-html)))
+            ;; Avoid making `markdown-export' save this buffer as source.
+            (set-buffer-modified-p nil)
+            (markdown-export output)))
+        (mr-x/markdown-normalize-pandoc-mermaid-file output)))
+
     (defun mr-x/agent-recall-transcript-p ()
       "Return non-nil if current buffer is an agent-shell transcript.
 Matches by path via agent-recall when available, otherwise sniffs the
@@ -8531,11 +8567,10 @@ and that flag are killed, so the main browser is never touched."
               (sleep-for 0.1))))
         killed))
 
-    (defun mr-x/markdown-mermaid-launch-chrome (xwidget mode index)
-      "Open diagram INDEX from XWIDGET in Chrome according to MODE.
+    (defun mr-x/markdown-mermaid-launch-chrome-uri (uri mode index)
+      "Open diagram INDEX from URI in Chrome according to MODE.
 MODE is `tab' for a normal browser tab or `app' for a dedicated window."
-      (let* ((uri (xwidget-webkit-uri xwidget))
-             (base-uri (replace-regexp-in-string "[?#].*\\'" "" uri))
+      (let* ((base-uri (replace-regexp-in-string "[?#].*\\'" "" uri))
              (target (format "%s#mr-x-mermaid-view=%d" base-uri index)))
         (pcase mode
           ('tab
@@ -8556,6 +8591,18 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
               "--no-first-run" "--no-default-browser-check"
               (concat "--app=" target))))
           (_ (user-error "Unsupported Mermaid Chrome mode: %S" mode)))))
+
+    (defun mr-x/markdown-mermaid-launch-chrome (xwidget mode index)
+      "Open diagram INDEX from XWIDGET in Chrome according to MODE."
+      (mr-x/markdown-mermaid-launch-chrome-uri
+       (xwidget-webkit-uri xwidget) mode index))
+
+    (defun mr-x/markdown-mermaid-pop-out (source)
+      "Export Mermaid SOURCE and open it directly in the app-window viewer."
+      (let ((output (mr-x/markdown-mermaid-export-source source)))
+        (mr-x/markdown-mermaid-launch-chrome-uri
+         (concat "file://" (expand-file-name output)) 'app 0)
+        output))
 
     (defun mr-x/markdown-xwidget-callback (xwidget event)
       "Handle Mermaid viewer actions from XWIDGET, delegating other EVENTs."
@@ -9455,6 +9502,19 @@ no longer carry the upstream label face, so they never match twice."
                     (let* ((lang (string-trim
                                   (string-replace
                                    "⧉" "" (buffer-substring-no-properties pos next))))
+                           (mermaid-source
+                            (when (string-equal (downcase lang) "mermaid")
+                              (when-let* ((body-start
+                                           (text-property-any
+                                            next (point-max)
+                                            'agent-shell-markdown-source-block-body t))
+                                          (body-end
+                                           (next-single-property-change
+                                            body-start
+                                            'agent-shell-markdown-source-block-body
+                                            nil (point-max))))
+                                (buffer-substring-no-properties
+                                 body-start body-end))))
                            (props (text-properties-at pos))
                            (new (concat
                                  (mr-x/agent-shell-code-block-icon lang) " "
@@ -9475,6 +9535,9 @@ no longer carry the upstream label face, so they never match twice."
                       (cl-loop for (p v) on props by #'cddr
                                unless (memq p '(face mouse-face cursor-sensor-functions))
                                do (put-text-property pos next p v))
+                      (when mermaid-source
+                        (put-text-property
+                         pos next 'mr-x/agent-shell-mermaid-source mermaid-source))
                       (put-text-property pos next 'mouse-face 'mr-x/agent-shell-label-hover)
                       ;; blend the label into the block panel: append the
                       ;; panel face so icon/name colors win but its bg and

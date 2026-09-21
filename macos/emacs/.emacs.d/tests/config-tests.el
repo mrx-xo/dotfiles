@@ -1040,6 +1040,49 @@ explicit profile arg must win over the frame default."
     (should (string-match-p "mr-x-mermaid-chrome=tab:" header))
     (should (string-match-p "mr-x-mermaid-view=" header))))
 
+(ert-deftest config-test-markdown-mermaid-exports-one-diagram-page ()
+  "An agent fence must export through the rig's themed Mermaid preview."
+  (require 'markdown-xwidget)
+  (let ((directory (make-temp-file "agent-mermaid-export-" t))
+        output)
+    (unwind-protect
+        (let ((mr-x/markdown-preview-directory directory))
+          (setq output
+                (mr-x/markdown-mermaid-export-source
+                 "flowchart LR\n  A --> B"))
+          (should (file-exists-p output))
+          (should (equal (file-name-directory output)
+                         (file-name-as-directory directory)))
+          (with-temp-buffer
+            (insert-file-contents output)
+            (should (search-forward
+                     "<code class=\"mermaid\">flowchart LR" nil t))
+            (should (search-forward "A --&gt; B" nil t))
+            (goto-char (point-min))
+            (should (search-forward
+                     "id=\"mr-x-mermaid-viewer-script\"" nil t))))
+      (delete-directory directory t))))
+
+(ert-deftest config-test-agent-shell-mermaid-pop-out-launches-app-viewer ()
+  "A selected agent diagram must open directly in app-window inspector mode."
+  (require 'markdown-xwidget)
+  (let ((directory (make-temp-file "agent-mermaid-pop-out-" t))
+        launch
+        output)
+    (unwind-protect
+        (let ((mr-x/markdown-preview-directory directory))
+          (cl-letf (((symbol-function 'mr-x/markdown-mermaid-launch-chrome-uri)
+                     (lambda (uri mode index)
+                       (setq launch (list uri mode index))
+                       'chrome-process)))
+            (setq output
+                  (mr-x/markdown-mermaid-pop-out
+                   "flowchart TD\n  Start --> Finish")))
+          (should (file-exists-p output))
+          (should (equal launch
+                         (list (concat "file://" output) 'app 0))))
+      (delete-directory directory t))))
+
 (ert-deftest config-test-markdown-mermaid-launches-both-chrome-modes ()
   "Chrome tab and app-window actions must launch distinct macOS commands."
   (require 'markdown-xwidget)
@@ -1533,30 +1576,23 @@ resumes from it."
                                  'agent-shell-markdown--highlight-code)))
     (ert-skip "agent-shell-markdown not loadable in batch")))
 
-(ert-deftest config-test-agent-shell-command-at-point-empty ()
-  "A blank line is a user error, not an empty paste."
-  (with-temp-buffer
-    (insert "\n\n")
-    (goto-char (point-min))
-    (should-error (mr-x/agent-shell-command-at-point) :type 'user-error)))
-
-(ert-deftest config-test-agent-shell-command-at-point-region ()
-  "An active region wins over block and line."
-  (with-temp-buffer
-    (insert "echo a\necho b\necho c")
-    (transient-mark-mode 1)
-    (goto-char (point-min))
-    (push-mark (line-end-position 2) t t)
-    (goto-char (point-min))
-    (should (equal (mr-x/agent-shell-command-at-point) "echo a\necho b"))))
-
-(ert-deftest config-test-agent-shell-command-at-point-line ()
-  "Outside any block, fall back to the trimmed current line."
-  (with-temp-buffer
-    (insert "one\n   $ ls -la   \nthree")
-    (goto-char (point-min))
-    (forward-line 1)
-    (should (equal (mr-x/agent-shell-command-at-point) "ls -la"))))
+(ert-deftest config-test-agent-shell-mermaid-label-carries-source ()
+  "Rendered Mermaid labels must expose their source only to SPC f."
+  (require 'agent-shell-markdown)
+  (let ((rendered
+         (agent-shell-markdown-convert
+          (concat "```mermaid\nflowchart LR\n  A --> B\n```\n\n"
+                  "```python\nprint('plain code')\n```"))))
+    (with-temp-buffer
+      (insert rendered)
+      (goto-char (point-min))
+      (search-forward "mermaid")
+      (should (equal (get-text-property
+                      (1- (point)) 'mr-x/agent-shell-mermaid-source)
+                     "flowchart LR\n  A --> B"))
+      (search-forward "python")
+      (should-not (get-text-property
+                   (1- (point)) 'mr-x/agent-shell-mermaid-source)))))
 
 (ert-deftest config-test-agent-shell-command-at-point-block ()
   "Inside a rendered fenced block, pick the whole body and drop `$ ' prompts."
@@ -1570,6 +1606,31 @@ resumes from it."
     (search-forward "--init")
     (should (equal (mr-x/agent-shell-command-at-point)
                    "brew install foo\nfoo --init"))))
+
+(ert-deftest config-test-agent-shell-command-at-point-line ()
+  "Outside any block, fall back to the trimmed current line."
+  (with-temp-buffer
+    (insert "one\n   $ ls -la   \nthree")
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (mr-x/agent-shell-command-at-point) "ls -la"))))
+
+(ert-deftest config-test-agent-shell-command-at-point-region ()
+  "An active region wins over block and line."
+  (with-temp-buffer
+    (insert "echo a\necho b\necho c")
+    (transient-mark-mode 1)
+    (goto-char (point-min))
+    (push-mark (line-end-position 2) t t)
+    (goto-char (point-min))
+    (should (equal (mr-x/agent-shell-command-at-point) "echo a\necho b"))))
+
+(ert-deftest config-test-agent-shell-command-at-point-empty ()
+  "A blank line is a user error, not an empty paste."
+  (with-temp-buffer
+    (insert "\n\n")
+    (goto-char (point-min))
+    (should-error (mr-x/agent-shell-command-at-point) :type 'user-error)))
 
 (ert-deftest config-test-evil-collection-exclusions ()
   "Modes we manually bind must be excluded from evil-collection."
