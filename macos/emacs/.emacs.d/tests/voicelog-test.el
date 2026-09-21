@@ -283,5 +283,96 @@
     (voicelog--render)
     (should (equal (save-excursion (voicelog--card-run-at-point)) "r2"))))
 
+;;; fetch and poll
+
+(defun voicelog-test--response-buffer (status body)
+  "A buffer shaped like a `url-retrieve' response with STATUS and BODY."
+  (let ((buf (generate-new-buffer " *voicelog-http-test*")))
+    (with-current-buffer buf
+      (set-buffer-multibyte nil)
+      (insert (format "HTTP/1.1 %d OK\r\nContent-Type: application/json\r\n\r\n" status))
+      (insert (encode-coding-string body 'utf-8))
+      (setq-local url-http-response-status status))
+    buf))
+
+(ert-deftest voicelog-parse-response-ok ()
+  (with-current-buffer (voicelog-test--response-buffer
+                        200 "[{\"ts\":\"2026-09-18T14:00:00+00:00\",\"run_id\":\"a\",\"pipeline\":\"Marx Assist\",\"heard\":\"héllo\",\"said\":null,\"satellite\":null}]")
+    (let ((rows (voicelog--parse-response)))
+      (should (= (length rows) 1))
+      (should (equal (alist-get 'heard (car rows)) "héllo"))
+      (should (null (alist-get 'said (car rows))))
+      (should (assq 'satellite (car rows)))
+      (should (null (cdr (assq 'satellite (car rows))))))))
+
+(ert-deftest voicelog-parse-response-http-error ()
+  (with-current-buffer (voicelog-test--response-buffer 502 "bad gateway")
+    (should-error (voicelog--parse-response))))
+
+(ert-deftest voicelog-parse-response-bad-json ()
+  (with-current-buffer (voicelog-test--response-buffer 200 "<html>")
+    (should-error (voicelog--parse-response))))
+
+(ert-deftest voicelog-on-rows-renders-and-clears-stale ()
+  (with-temp-buffer
+    (voicelog-mode)
+    (setq voicelog--zone voicelog-test--zone voicelog--stale t voicelog--inflight-since 1.0)
+    (voicelog--on-rows (current-buffer) voicelog-test--rows)
+    (should-not voicelog--stale)
+    (should (null voicelog--inflight-since))
+    (should (equal voicelog--newest-run "r1"))
+    (should (string-search "ANDROMEDA" (buffer-string)))))
+
+(ert-deftest voicelog-on-failure-keeps-rows-marks-stale ()
+  (with-temp-buffer
+    (voicelog-mode)
+    (setq voicelog--zone voicelog-test--zone)
+    (voicelog--on-rows (current-buffer) voicelog-test--rows)
+    (voicelog--on-failure (current-buffer) "boom")
+    (should voicelog--stale)
+    (should (string-search "ANDROMEDA" (buffer-string)))
+    (should (string-search "stale" header-line-format))))
+
+(ert-deftest voicelog-on-failure-first-time-shows-error-state ()
+  (with-temp-buffer
+    (voicelog-mode)
+    (voicelog--on-failure (current-buffer) "boom")
+    (should (string-search "Can't reach the voice log." (buffer-string)))
+    (should (string-search voicelog-url (buffer-string)))))
+
+(ert-deftest voicelog-poll-skips-without-window ()
+  (let ((fetched nil))
+    (cl-letf (((symbol-function 'voicelog--fetch) (lambda (_b) (setq fetched t))))
+      (with-temp-buffer
+        (voicelog-mode)
+        (voicelog--poll (current-buffer))
+        (should-not fetched)))))
+
+(ert-deftest voicelog-poll-fetches-when-visible-and-live ()
+  (let ((fetched nil))
+    (cl-letf (((symbol-function 'voicelog--fetch) (lambda (_b) (setq fetched t)))
+              ((symbol-function 'get-buffer-window) (lambda (&rest _) (selected-window))))
+      (with-temp-buffer
+        (voicelog-mode)
+        (voicelog--poll (current-buffer))
+        (should fetched)
+        (setq fetched nil voicelog--live nil)
+        (voicelog--poll (current-buffer))
+        (should-not fetched)))))
+
+(ert-deftest voicelog-poll-inflight-timeout-marks-stale ()
+  (let ((fetched 0))
+    (cl-letf (((symbol-function 'voicelog--fetch) (lambda (_b) (cl-incf fetched)))
+              ((symbol-function 'get-buffer-window) (lambda (&rest _) (selected-window))))
+      (with-temp-buffer
+        (voicelog-mode)
+        (setq voicelog--inflight-since (- (float-time) 1))
+        (voicelog--poll (current-buffer))
+        (should (= fetched 0))
+        (setq voicelog--inflight-since (- (float-time) voicelog-timeout-seconds 1))
+        (voicelog--poll (current-buffer))
+        (should (= fetched 1))
+        (should voicelog--stale)))))
+
 (provide 'voicelog-test)
 ;;; voicelog-test.el ends here

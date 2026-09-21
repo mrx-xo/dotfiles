@@ -359,17 +359,6 @@ ZONE overrides the local time zone, for tests."
                            ('nil 'satellite) ('satellite 'phone) (_ nil)))
   (voicelog--render))
 
-(defun voicelog-refresh ()
-  "Fetch now. Replaced in Task 5."
-  (interactive)
-  (voicelog--render))
-
-(defun voicelog-toggle-live ()
-  "Toggle polling. Replaced in Task 5."
-  (interactive)
-  (setq voicelog--live (not voicelog--live))
-  (voicelog--render))
-
 (defun voicelog-help ()
   "Show the keys."
   (interactive)
@@ -423,6 +412,120 @@ ZONE overrides the local time zone, for tests."
 (with-eval-after-load 'evil
   (evil-set-initial-state 'voicelog-mode 'motion)
   (evil-make-overriding-map voicelog-mode-map))
+
+;;;; Fetch
+
+(defvar url-http-response-status)
+
+(defun voicelog--parse-response ()
+  "Parse the `url-retrieve' response in the current buffer into rows.
+Signals on a non-200 status or bad JSON."
+  (let ((status (and (boundp 'url-http-response-status) url-http-response-status)))
+    (unless (eq status 200)
+      (error "HTTP %s" (or status "no status")))
+    (goto-char (point-min))
+    (unless (re-search-forward "\r?\n\r?\n" nil t)
+      (error "no response body"))
+    (let ((body (decode-coding-string (buffer-substring-no-properties (point) (point-max))
+                                      'utf-8)))
+      (let ((rows (json-parse-string body :object-type 'alist :array-type 'list
+                                     :null-object nil :false-object nil)))
+        (unless (listp rows) (error "not a JSON array"))
+        rows))))
+
+(defun voicelog--on-rows (buffer rows)
+  "Store ROWS in BUFFER and re-render when the newest run changed."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq voicelog--inflight-since nil
+            voicelog--stale nil
+            voicelog--first-failure nil)
+      (let ((newest (and rows (alist-get 'run_id (car rows)))))
+        (setq voicelog--rows rows)
+        (unless (and voicelog--newest-run (equal newest voicelog--newest-run)
+                     (not (string-empty-p (buffer-string))))
+          (voicelog--render))
+        ;; Header status may still need to flip live/stale even when rows did not change.
+        (setq header-line-format (voicelog--header (length (voicelog--visible))))))))
+
+(defun voicelog--on-failure (buffer err)
+  "Mark BUFFER stale after a failed fetch described by ERR, keeping old rows."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq voicelog--inflight-since nil
+            voicelog--stale t)
+      (unless voicelog--rows
+        (setq voicelog--first-failure (format "%s" err)))
+      (voicelog--render)
+      (message "voicelog: %s" err))))
+
+(defun voicelog--on-response (status buffer)
+  "`url-retrieve' callback: hand rows or the error to BUFFER."
+  (let ((response (current-buffer))
+        (err (plist-get status :error))
+        rows)
+    (unwind-protect
+        (if err
+            (setq err (format "%S" err))
+          (condition-case e
+              (setq rows (voicelog--parse-response))
+            (error (setq err (error-message-string e)))))
+      (kill-buffer response))
+    (if err
+        (voicelog--on-failure buffer err)
+      (voicelog--on-rows buffer rows))))
+
+(defun voicelog--fetch (buffer)
+  "Start an async fetch of `voicelog-url' for BUFFER."
+  (with-current-buffer buffer
+    (setq voicelog--inflight-since (float-time)))
+  (let ((url-show-status nil))
+    (condition-case e
+        (url-retrieve voicelog-url #'voicelog--on-response (list buffer) t t)
+      (error (voicelog--on-failure buffer (error-message-string e))))))
+
+(defun voicelog--poll (buffer)
+  "Timer body: fetch when BUFFER is visible, live, and not mid-fetch."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and voicelog--live (get-buffer-window buffer t))
+        (cond
+         ((null voicelog--inflight-since)
+          (voicelog--fetch buffer))
+         ((> (- (float-time) voicelog--inflight-since) voicelog-timeout-seconds)
+          (setq voicelog--stale t)
+          (voicelog--fetch buffer)))))))
+
+(defun voicelog-refresh ()
+  "Fetch now."
+  (interactive)
+  (setq voicelog--inflight-since nil)
+  (voicelog--fetch (current-buffer)))
+
+(defun voicelog-toggle-live ()
+  "Toggle polling; the header shows paused while off."
+  (interactive)
+  (setq voicelog--live (not voicelog--live))
+  (setq header-line-format (voicelog--header (length (voicelog--visible))))
+  (when voicelog--live (voicelog--poll (current-buffer))))
+
+;;;###autoload
+(defun voicelog ()
+  "Open the house voice log."
+  (interactive)
+  (let ((existing (get-buffer voicelog--buffer)))
+    (if existing
+        (progn (pop-to-buffer existing)
+               (voicelog--poll existing))
+      (with-current-buffer (get-buffer-create voicelog--buffer)
+        (voicelog-mode)
+        (let ((inhibit-read-only t))
+          (insert "\n  " (propertize "Loading the transcript…" 'face 'voicelog-dim) "\n"))
+        (pop-to-buffer (current-buffer))
+        (voicelog--fetch (current-buffer))
+        (setq voicelog--timer
+              (run-at-time voicelog-poll-seconds voicelog-poll-seconds
+                           #'voicelog--poll (current-buffer)))))))
 
 (provide 'voicelog)
 ;;; voicelog.el ends here
