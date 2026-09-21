@@ -14,7 +14,7 @@ echo "$(date '+%F %T') gate: '$cmd'" >> "$HOME/.local/state/monitor-mode/voice.l
 case "$cmd" in
   displays\ sleep) exec pmset displaysleepnow ;;
   displays\ wake)  exec caffeinate -u -t 1 ;;
-  game|mac|split|rsplit|work|status)   set -- $cmd ;;
+  game|mac|split|rsplit|work|reset|status) set -- $cmd ;;
   center\ mac|center\ pc|center\ work) set -- $cmd ;;
   right\ mac|right\ pc|right\ work)    set -- $cmd ;;
   3\ mac|3\ pc|3\ work)                set -- $cmd ;;  # 3 = center (yabai number)

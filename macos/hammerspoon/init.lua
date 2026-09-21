@@ -118,12 +118,17 @@ layoutWatcher:start()
 -- on reconnect/wake, so on any display change re-apply the saved
 -- displayplacer profile for the current display set (no-op when in sync).
 -- Debounce past monitor-mode's 4-10s re-enumeration churn.
+-- Same debounce also runs monitor-mode's drift check: a dock replug
+-- re-enumerates a display BetterDisplay had dropped, and the check only
+-- notifies which key puts it back (never switches inputs itself).
 local displayLayoutScript = os.getenv("HOME") .. "/.dotfiles/macos/scripts/display-layout.sh"
+local monitorModeScript = os.getenv("HOME") .. "/.dotfiles/macos/scripts/monitor-mode.sh"
 local displayLayoutTimer = nil
 displayLayoutWatcher = hs.screen.watcher.new(function()
   if displayLayoutTimer then displayLayoutTimer:stop() end
   displayLayoutTimer = hs.timer.doAfter(4, function()
     hs.task.new(displayLayoutScript, nil, { "apply" }):start()
+    hs.task.new(monitorModeScript, nil, { "check" }):start()
   end)
 end)
 displayLayoutWatcher:start()
