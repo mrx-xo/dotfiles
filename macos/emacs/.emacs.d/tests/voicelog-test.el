@@ -184,5 +184,104 @@
 (ert-deftest voicelog-render-empty-list ()
   (should (equal (voicelog--render-rows nil) "")))
 
+;;; mode and render
+
+(defmacro voicelog-test--with-buffer (rows &rest body)
+  "Run BODY in a fresh `voicelog-mode' buffer holding ROWS, rendered."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (voicelog-mode)
+     (setq voicelog--rows ,rows)
+     (setq voicelog--zone voicelog-test--zone)
+     (voicelog--render)
+     ,@body))
+
+(ert-deftest voicelog-mode-outline-levels ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (goto-char (point-min))
+    (should (outline-on-heading-p t))
+    (should (= (funcall outline-level) 1))
+    (forward-line 2)
+    (should (outline-on-heading-p t))
+    (should (= (funcall outline-level) 2))
+    (forward-line 1)
+    (should-not (outline-on-heading-p t))))
+
+(ert-deftest voicelog-mode-next-previous-card ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (goto-char (point-min))
+    (voicelog-next-card)
+    (should (equal (get-text-property (point) 'voicelog-run) "r1"))
+    (voicelog-next-card)
+    (should (equal (get-text-property (point) 'voicelog-run) "r2"))
+    ;; r3 is under a new day divider; j skips the divider.
+    (voicelog-next-card)
+    (should (equal (get-text-property (point) 'voicelog-run) "r3"))
+    (voicelog-previous-card)
+    (should (equal (get-text-property (point) 'voicelog-run) "r2"))))
+
+(ert-deftest voicelog-mode-next-card-at-end-stays ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (goto-char (point-max))
+    (voicelog-previous-card)
+    (let ((pos (point)))
+      (should (equal (get-text-property pos 'voicelog-run) "r5"))
+      (voicelog-next-card)
+      (should (= (point) pos)))))
+
+(ert-deftest voicelog-mode-persona-filter-rerenders ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (voicelog-persona-nabu)
+    (should-not (string-search "ANDROMEDA" (buffer-string)))
+    (should (string-search "NABU" (buffer-string)))
+    (should (string-search "Nabu" header-line-format))
+    (voicelog-persona-all)
+    (should (string-search "ANDROMEDA" (buffer-string)))))
+
+(ert-deftest voicelog-mode-origin-cycles ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (should (null voicelog--origin))
+    (voicelog-cycle-origin)
+    (should (eq voicelog--origin 'satellite))
+    (should-not (string-search "PANDORA" (buffer-string)))
+    (voicelog-cycle-origin)
+    (should (eq voicelog--origin 'phone))
+    (should (string-search "PANDORA" (buffer-string)))
+    (should-not (string-search "NABU" (buffer-string)))
+    (voicelog-cycle-origin)
+    (should (null voicelog--origin))))
+
+(ert-deftest voicelog-mode-empty-state ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (setq voicelog--query "zzzz-nothing")
+    (voicelog--render)
+    (should (string-search "Nothing matches." (buffer-string)))
+    (should (string-search "the house has been quiet here" (buffer-string)))))
+
+(ert-deftest voicelog-mode-header-counts-and-status ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (should (string-search "4 exchanges · live" header-line-format))
+    (setq voicelog--stale t)
+    (voicelog--render)
+    (should (string-search "stale" header-line-format))
+    (setq voicelog--stale nil voicelog--live nil)
+    (voicelog--render)
+    (should (string-search "paused" header-line-format))))
+
+(ert-deftest voicelog-mode-render-keeps-point-on-card ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (goto-char (point-min))
+    (voicelog-next-card)
+    (voicelog-next-card)
+    (forward-line 1)                      ; inside r2's card, on the heard line
+    ;; Prepend a new row: r2 moves down, point must follow it.
+    (setq voicelog--rows
+          (cons (voicelog-test--row 'ts "2026-09-18T15:00:00+00:00" 'run_id "r0"
+                                    'pipeline "Marx Assist" 'heard "new" 'said "new"
+                                    'satellite "assist_satellite.pollux")
+                voicelog--rows))
+    (voicelog--render)
+    (should (equal (save-excursion (voicelog--card-run-at-point)) "r2"))))
+
 (provide 'voicelog-test)
 ;;; voicelog-test.el ends here
