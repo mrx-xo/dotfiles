@@ -302,6 +302,19 @@ no longer carry the upstream label face, so they never match twice."
                     (let* ((lang (string-trim
                                   (string-replace
                                    "⧉" "" (buffer-substring-no-properties pos next))))
+                           (mermaid-source
+                            (when (string-equal (downcase lang) "mermaid")
+                              (when-let* ((body-start
+                                           (text-property-any
+                                            next (point-max)
+                                            'agent-shell-markdown-source-block-body t))
+                                          (body-end
+                                           (next-single-property-change
+                                            body-start
+                                            'agent-shell-markdown-source-block-body
+                                            nil (point-max))))
+                                (buffer-substring-no-properties
+                                 body-start body-end))))
                            (props (text-properties-at pos))
                            (new (concat
                                  (mr-x/agent-shell-code-block-icon lang) " "
@@ -322,6 +335,9 @@ no longer carry the upstream label face, so they never match twice."
                       (cl-loop for (p v) on props by #'cddr
                                unless (memq p '(face mouse-face cursor-sensor-functions))
                                do (put-text-property pos next p v))
+                      (when mermaid-source
+                        (put-text-property
+                         pos next 'mr-x/agent-shell-mermaid-source mermaid-source))
                       (put-text-property pos next 'mouse-face 'mr-x/agent-shell-label-hover)
                       ;; blend the label into the block panel: append the
                       ;; panel face so icon/name colors win but its bg and
