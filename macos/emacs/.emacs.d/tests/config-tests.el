@@ -1521,6 +1521,44 @@ resumes from it."
                                  'agent-shell-markdown--highlight-code)))
     (ert-skip "agent-shell-markdown not loadable in batch")))
 
+(ert-deftest config-test-agent-shell-command-at-point-empty ()
+  "A blank line is a user error, not an empty paste."
+  (with-temp-buffer
+    (insert "\n\n")
+    (goto-char (point-min))
+    (should-error (mr-x/agent-shell-command-at-point) :type 'user-error)))
+
+(ert-deftest config-test-agent-shell-command-at-point-region ()
+  "An active region wins over block and line."
+  (with-temp-buffer
+    (insert "echo a\necho b\necho c")
+    (transient-mark-mode 1)
+    (goto-char (point-min))
+    (push-mark (line-end-position 2) t t)
+    (goto-char (point-min))
+    (should (equal (mr-x/agent-shell-command-at-point) "echo a\necho b"))))
+
+(ert-deftest config-test-agent-shell-command-at-point-line ()
+  "Outside any block, fall back to the trimmed current line."
+  (with-temp-buffer
+    (insert "one\n   $ ls -la   \nthree")
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (mr-x/agent-shell-command-at-point) "ls -la"))))
+
+(ert-deftest config-test-agent-shell-command-at-point-block ()
+  "Inside a rendered fenced block, pick the whole body and drop `$ ' prompts."
+  (require 'agent-shell-markdown)
+  (with-temp-buffer
+    (insert "before\n"
+            (agent-shell-markdown-convert
+             "```bash\n$ brew install foo\n$ foo --init\n```")
+            "\nafter")
+    (goto-char (point-min))
+    (search-forward "--init")
+    (should (equal (mr-x/agent-shell-command-at-point)
+                   "brew install foo\nfoo --init"))))
+
 (ert-deftest config-test-evil-collection-exclusions ()
   "Modes we manually bind must be excluded from evil-collection."
   (should-not (memq 'vterm evil-collection-mode-list)))

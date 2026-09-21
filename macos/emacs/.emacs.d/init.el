@@ -4466,6 +4466,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c f" '(mr-x/agent-send-file :wk "Send file")
         "c F" '(mr-x/agent-send-other-file :wk "Send other file")
         "c d" '(agent-shell-send-dwim :wk "Send DWIM (region/error)")
+        "c !" '(mr-x/agent-shell-block-to-vterm :wk "Block -> vterm (RET to run)")
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
