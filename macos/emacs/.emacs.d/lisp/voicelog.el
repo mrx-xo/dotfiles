@@ -215,5 +215,214 @@ ZONE overrides the local time zone, for tests."
         (voicelog--insert-card row zone)))
     (buffer-string)))
 
+;;;; Buffer state
+
+(defconst voicelog--buffer "*voicelog*")
+
+(defvar-local voicelog--rows nil "Last good rows, newest first.")
+(defvar-local voicelog--persona nil "nil, or a persona key.")
+(defvar-local voicelog--query nil "Search term, or nil.")
+(defvar-local voicelog--today nil "Non-nil: only today's rows.")
+(defvar-local voicelog--origin nil "nil, `satellite', or `phone'.")
+(defvar-local voicelog--live t "Non-nil: polling is on.")
+(defvar-local voicelog--stale nil "Non-nil: the last fetch failed.")
+(defvar-local voicelog--timer nil "The poll timer.")
+(defvar-local voicelog--newest-run nil "Run id of the newest row at last render.")
+(defvar-local voicelog--inflight-since nil "float-time of the pending fetch, or nil.")
+(defvar-local voicelog--first-failure nil "Error text when no fetch has ever succeeded.")
+(defvar-local voicelog--zone nil "Time zone override, nil for local. Tests set it.")
+
+;;;; Header
+
+(defun voicelog--persona-label (key)
+  (pcase key ('nabu "Nabu") ('pandora "Pandora") ('andromeda "Andromeda") (_ nil)))
+
+(defun voicelog--filter-summary ()
+  "The active filters as \" · Pandora · today · \"dog\" · satellite\"."
+  (mapconcat (lambda (s) (concat " · " s))
+             (delq nil (list (voicelog--persona-label voicelog--persona)
+                             (and voicelog--today "today")
+                             (and (voicelog--nonblank-p voicelog--query)
+                                  (format "\"%s\"" voicelog--query))
+                             (and voicelog--origin (symbol-name voicelog--origin))))
+             ""))
+
+(defun voicelog--header (n)
+  (concat (propertize "  VOICE LOG" 'face 'bold)
+          (propertize (format "   %d exchange%s · %s" n (if (= n 1) "" "s")
+                              (cond (voicelog--stale "stale")
+                                    ((not voicelog--live) "paused")
+                                    (t "live")))
+                      'face 'voicelog-muted)
+          (propertize (voicelog--filter-summary) 'face 'voicelog-dim)))
+
+;;;; Render into the buffer
+
+(defun voicelog--card-run-at-point ()
+  "Run id of the card point is in, or nil on a divider or blank line."
+  (save-excursion
+    (beginning-of-line)
+    (while (and (not (bobp))
+                (not (get-text-property (point) 'voicelog-run))
+                (not (looking-at voicelog--day-regexp))
+                (not (looking-at "^$")))
+      (forward-line -1))
+    (get-text-property (point) 'voicelog-run)))
+
+(defun voicelog--find-run (run)
+  "Position of the cue line for RUN, or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (let (pos)
+      (while (and (not pos) (not (eobp)))
+        (when (equal (get-text-property (point) 'voicelog-run) run)
+          (setq pos (point)))
+        (forward-line 1))
+      pos)))
+
+(defun voicelog--visible ()
+  (voicelog--visible-rows voicelog--rows
+                          :persona voicelog--persona :query voicelog--query
+                          :today voicelog--today :origin voicelog--origin
+                          :zone voicelog--zone))
+
+(defun voicelog--render ()
+  "Redraw the current buffer from state, keeping point and window start."
+  (let* ((run (voicelog--card-run-at-point))
+         (line (line-number-at-pos))
+         (win (get-buffer-window (current-buffer)))
+         (start (and win (window-start win)))
+         (visible (voicelog--visible))
+         (inhibit-read-only t))
+    (erase-buffer)
+    (cond
+     ((and (null voicelog--rows) voicelog--first-failure)
+      (insert "\n  " (propertize "Can't reach the voice log." 'face 'voicelog-muted)
+              "\n  " (propertize voicelog-url 'face 'voicelog-dim)
+              "\n  " (propertize voicelog--first-failure 'face 'voicelog-dim) "\n"))
+     ((null visible)
+      (insert "\n  " (propertize "Nothing matches." 'face 'voicelog-muted)
+              "\n  " (propertize "the house has been quiet here" 'face 'voicelog-dim) "\n"))
+     (t (insert (voicelog--render-rows visible voicelog--zone))))
+    (setq header-line-format (voicelog--header (length visible)))
+    (setq voicelog--newest-run (and voicelog--rows (alist-get 'run_id (car voicelog--rows))))
+    (goto-char (point-min))
+    (let ((pos (and run (voicelog--find-run run))))
+      (if pos (goto-char pos) (forward-line (1- line))))
+    (when (and win start (<= start (point-max)))
+      (set-window-start win start))))
+
+;;;; Commands
+
+(defun voicelog--outline-level ()
+  (if (looking-at voicelog--bar) 2 1))
+
+(defun voicelog--move-card (n)
+  "Move N cards forward (negative: back), skipping day dividers."
+  (let ((start (point)))
+    (outline-next-visible-heading n)
+    (while (and (outline-on-heading-p t) (= (voicelog--outline-level) 1)
+                (not (if (> n 0) (eobp) (bobp))))
+      (outline-next-visible-heading n))
+    (unless (and (outline-on-heading-p t) (= (voicelog--outline-level) 2))
+      (goto-char start)
+      (message "voicelog: %s card" (if (> n 0) "last" "first")))))
+
+(defun voicelog-next-card () (interactive) (voicelog--move-card 1))
+(defun voicelog-previous-card () (interactive) (voicelog--move-card -1))
+
+(defun voicelog--set-persona (key)
+  (setq voicelog--persona key)
+  (voicelog--render))
+
+(defun voicelog-persona-all () "Show every persona." (interactive) (voicelog--set-persona nil))
+(defun voicelog-persona-nabu () "Only Nabu." (interactive) (voicelog--set-persona 'nabu))
+(defun voicelog-persona-pandora () "Only Pandora." (interactive) (voicelog--set-persona 'pandora))
+(defun voicelog-persona-andromeda () "Only Andromeda." (interactive) (voicelog--set-persona 'andromeda))
+
+(defun voicelog-search (term)
+  "Filter on TERM over heard and said. Empty clears."
+  (interactive (list (read-string "search what was said: " voicelog--query)))
+  (setq voicelog--query (and (voicelog--nonblank-p term) term))
+  (voicelog--render))
+
+(defun voicelog-toggle-today ()
+  "Toggle the today filter."
+  (interactive)
+  (setq voicelog--today (not voicelog--today))
+  (voicelog--render))
+
+(defun voicelog-cycle-origin ()
+  "Cycle origin: any, satellite, phone."
+  (interactive)
+  (setq voicelog--origin (pcase voicelog--origin
+                           ('nil 'satellite) ('satellite 'phone) (_ nil)))
+  (voicelog--render))
+
+(defun voicelog-refresh ()
+  "Fetch now. Replaced in Task 5."
+  (interactive)
+  (voicelog--render))
+
+(defun voicelog-toggle-live ()
+  "Toggle polling. Replaced in Task 5."
+  (interactive)
+  (setq voicelog--live (not voicelog--live))
+  (voicelog--render))
+
+(defun voicelog-help ()
+  "Show the keys."
+  (interactive)
+  (message "j/k cards  TAB fold  S-TAB cycle  a/n/p/m persona  / search  t today  s origin  r refresh  l live  q quit"))
+
+(defun voicelog-quit ()
+  "Bury the voicelog buffer."
+  (interactive)
+  (quit-window))
+
+(defvar voicelog-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "j" #'voicelog-next-card)
+    (define-key map "k" #'voicelog-previous-card)
+    (define-key map "a" #'voicelog-persona-all)
+    (define-key map "n" #'voicelog-persona-nabu)
+    (define-key map "p" #'voicelog-persona-pandora)
+    (define-key map "m" #'voicelog-persona-andromeda)
+    (define-key map "/" #'voicelog-search)
+    (define-key map "t" #'voicelog-toggle-today)
+    (define-key map "s" #'voicelog-cycle-origin)
+    (define-key map "r" #'voicelog-refresh)
+    (define-key map "l" #'voicelog-toggle-live)
+    (define-key map "?" #'voicelog-help)
+    (define-key map "q" #'voicelog-quit)
+    map)
+  "Keymap for `voicelog-mode'.")
+
+(define-derived-mode voicelog-mode special-mode "voicelog"
+  "The house voice log: browser cards, org navigation."
+  (setq-local truncate-lines nil)
+  (setq-local word-wrap t)
+  (setq-local cursor-type 'bar)
+  (setq-local outline-regexp (concat voicelog--day-regexp "\\|" voicelog--cue-regexp))
+  (setq-local outline-level #'voicelog--outline-level)
+  (setq-local outline-minor-mode-cycle t)
+  (setq-local outline-minor-mode-highlight nil)
+  (outline-minor-mode 1)
+  (setq header-line-format (voicelog--header 0))
+  (add-hook 'kill-buffer-hook #'voicelog--cleanup nil t))
+
+(defun voicelog--cleanup ()
+  "Cancel the poll timer."
+  (when voicelog--timer
+    (cancel-timer voicelog--timer)
+    (setq voicelog--timer nil)))
+
+(declare-function evil-set-initial-state "evil-core")
+(declare-function evil-make-overriding-map "evil-core")
+
+(with-eval-after-load 'evil
+  (evil-set-initial-state 'voicelog-mode 'motion)
+  (evil-make-overriding-map voicelog-mode-map))
+
 (provide 'voicelog)
 ;;; voicelog.el ends here
