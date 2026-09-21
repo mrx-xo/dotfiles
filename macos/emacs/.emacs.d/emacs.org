@@ -4669,6 +4669,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c f" '(mr-x/agent-send-file :wk "Send file")
         "c F" '(mr-x/agent-send-other-file :wk "Send other file")
         "c d" '(agent-shell-send-dwim :wk "Send DWIM (region/error)")
+        "c !" '(mr-x/agent-shell-block-to-vterm :wk "Block -> vterm (RET to run)")
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
@@ -9250,6 +9251,66 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
 
         (evil-define-key 'normal agent-shell-mode-map (kbd "s-<backspace>") #'mr-x/agent-shell-clear-prompt)
         (evil-define-key 'insert agent-shell-mode-map (kbd "s-<backspace>") #'mr-x/agent-shell-clear-prompt)
+
+        ;; Fenced block -> vterm, no Enter.  The agent says "run this",
+        ;; you hit SPC c ! on the block, then RET in the terminal.  The
+        ;; text goes in as a bracketed paste so a multi-line block sits
+        ;; on the prompt as one unit instead of running line by line.
+        (defun mr-x/agent-shell-command-at-point ()
+          "Return the shell text under point: region, fenced block body, or line.
+A leading `$ ' prompt is dropped from every line.  Signals a
+`user-error' when the result is blank."
+          (let* ((raw (cond
+                       ((use-region-p)
+                        (buffer-substring-no-properties
+                         (region-beginning) (region-end)))
+                       ;; The body tag skips the char after the last
+                       ;; line, so an end-of-line point also looks back.
+                       ((and (fboundp 'agent-shell-markdown-source-block-at-point)
+                             (or (agent-shell-markdown-source-block-at-point)
+                                 (and (> (point) (point-min))
+                                      (agent-shell-markdown-source-block-at-point
+                                       (1- (point)))))))
+                       (t (buffer-substring-no-properties
+                           (line-beginning-position) (line-end-position)))))
+                 (lines (mapcar (lambda (line)
+                                  (string-trim
+                                   (replace-regexp-in-string
+                                    "\\`[ \t]*\\$ " "" line)))
+                                (split-string raw "\n")))
+                 (text (string-trim (string-join lines "\n"))))
+            (when (string-empty-p text)
+              (user-error "No command at point"))
+            text))
+
+        (defun mr-x/agent-shell-block-to-vterm ()
+          "Paste the command at point into a vterm and go there, without running it.
+Targets a vterm already showing in this frame, else the most recently
+used live vterm, else a fresh multi-vterm popup in this chat's
+directory.  Press RET there to run."
+          (interactive)
+          (let* ((text (mr-x/agent-shell-command-at-point))
+                 (dir default-directory)
+                 (live (seq-filter (lambda (b)
+                                     (with-current-buffer b
+                                       (and (derived-mode-p 'vterm-mode)
+                                            (get-buffer-process b))))
+                                   (buffer-list)))
+                 (buf (or (seq-find (lambda (b) (get-buffer-window b)) live)
+                          (car live))))
+            (when (and (fboundp 'evil-visual-state-p) (evil-visual-state-p))
+              (evil-exit-visual-state))
+            (if buf
+                (pop-to-buffer buf)
+              (let ((default-directory dir))
+                (mr-x/vterm-popup))
+              (setq buf (current-buffer)))
+            (with-current-buffer buf
+              (vterm-send-string text t))
+            (when (fboundp 'evil-insert-state)
+              (evil-insert-state))
+            (message "Pasted %d line(s), RET to run"
+                     (length (split-string text "\n")))))
 
       ;; Global CMD+backspace - kill to beginning of line
       (defun mr-x/kill-to-line-beginning ()
