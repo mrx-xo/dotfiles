@@ -131,5 +131,58 @@
                                           :origin 'satellite))
                  '("r3"))))
 
+;;; rendering
+
+(ert-deftest voicelog-render-two-rows-text ()
+  (let* ((rows (list (nth 0 voicelog-test--rows) (nth 2 voicelog-test--rows)))
+         (text (voicelog--render-rows rows voicelog-test--zone))
+         (lines (split-string text "\n")))
+    (should (equal (nth 0 lines)
+                   (concat "FRIDAY, SEPTEMBER 18  " (make-string 40 ?─))))
+    (should (equal (nth 1 lines) ""))
+    (should (equal (nth 2 lines) "┃ ANDROMEDA  Marcos  pollux    9:53 AM"))
+    (should (equal (nth 3 lines) "┃ “Good morning.”"))
+    (should (equal (nth 4 lines) "┃ ↪ Good morning."))
+    (should (equal (nth 5 lines) ""))
+    (should (equal (nth 6 lines)
+                   (concat "THURSDAY, SEPTEMBER 17  " (make-string 40 ?─))))
+    (should (equal (nth 8 lines) "┃ NABU  Dad  kronos    3:00 PM"))
+    (should (equal (nth 9 lines) "┃ “Play the dog song”"))
+    (should (equal (nth 10 lines) "┃ ↪ no reply"))))
+
+(ert-deftest voicelog-render-faces-and-run-property ()
+  (let ((text (voicelog--render-rows (list (nth 0 voicelog-test--rows)) voicelog-test--zone)))
+    (with-temp-buffer
+      (insert text)
+      (goto-char (point-min))
+      (forward-line 2)
+      (should (voicelog--cue-line-p))
+      (should (equal (get-text-property (point) 'voicelog-run) "r1"))
+      (search-forward "ANDROMEDA")
+      (should (eq (get-text-property (1- (point)) 'face) 'voicelog-andromeda))
+      (search-forward "Marcos")
+      (should (eq (get-text-property (1- (point)) 'face) 'voicelog-dim))
+      (forward-line 1)
+      (should-not (voicelog--cue-line-p))
+      (search-forward "Good morning.”")
+      (should (eq (get-text-property (- (point) 2) 'face) 'voicelog-heard)))))
+
+(ert-deftest voicelog-render-overheard-flag ()
+  (let* ((row (voicelog-test--row 'ts "2026-09-18T14:00:00+00:00" 'run_id "r9"
+                                  'pipeline "Yvette Assist"
+                                  'heard "One. Two. Three. Four." 'said "ok"
+                                  'satellite "assist_satellite.rhea"))
+         (text (voicelog--render-rows (list row) voicelog-test--zone)))
+    (should (string-search "┃ PANDORA  Mom  rhea  overheard?    9:00 AM" text))))
+
+(ert-deftest voicelog-render-unknown-pipeline-no-who ()
+  (let* ((row (voicelog-test--row 'ts "2026-09-18T14:00:00+00:00" 'run_id "r8"
+                                  'pipeline "Guest Assist" 'heard "hi" 'said "hello"))
+         (text (voicelog--render-rows (list row) voicelog-test--zone)))
+    (should (string-search "┃ Guest  ?    9:00 AM" text))))
+
+(ert-deftest voicelog-render-empty-list ()
+  (should (equal (voicelog--render-rows nil) "")))
+
 (provide 'voicelog-test)
 ;;; voicelog-test.el ends here

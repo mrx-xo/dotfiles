@@ -155,5 +155,65 @@ existed match neither."
                           (and cell (null (cdr cell)))))))))
      rows)))
 
+;;;; Rendering (pure)
+
+(defconst voicelog--bar "┃ "
+  "Left bar every card line starts with.")
+
+(defconst voicelog--cue-regexp "┃ [^“↪]"
+  "A card's first line: the bar, then something that is not a quote or reply.")
+
+(defconst voicelog--day-regexp "[A-Z]+, [A-Z]+ [0-9]+  ─"
+  "A day divider line.")
+
+(defun voicelog--cue-line-p ()
+  "Non-nil when the current line is a card cue line."
+  (save-excursion
+    (beginning-of-line)
+    (looking-at voicelog--cue-regexp)))
+
+(defun voicelog--insert-day (row zone)
+  (insert (propertize (concat (upcase (voicelog--day-label row zone)) "  ")
+                      'face 'voicelog-day)
+          (propertize (make-string 40 ?─) 'face 'voicelog-rule)
+          "\n\n"))
+
+(defun voicelog--insert-card (row zone)
+  (let* ((p (voicelog--persona (alist-get 'pipeline row)))
+         (face (plist-get p :face))
+         (heard (alist-get 'heard row))
+         (said (alist-get 'said row))
+         (bar (propertize voicelog--bar 'face face))
+         (beg (point)))
+    (insert bar (propertize (plist-get p :name) 'face face))
+    (when (plist-get p :who)
+      (insert "  " (propertize (plist-get p :who) 'face 'voicelog-dim)))
+    (insert "  " (propertize (voicelog--origin row) 'face 'voicelog-dim))
+    (when (voicelog--overheard-p heard)
+      (insert "  " (propertize "overheard?" 'face 'voicelog-ember)))
+    (insert "    " (propertize (voicelog--time-label row zone) 'face 'voicelog-dim))
+    (add-text-properties beg (point) (list 'voicelog-run (alist-get 'run_id row)))
+    (insert "\n")
+    (when (voicelog--nonblank-p heard)
+      (insert bar (propertize (concat "“" heard "”") 'face 'voicelog-heard) "\n"))
+    (insert bar (propertize "↪ " 'face face))
+    (if (voicelog--nonblank-p said)
+        (insert (propertize said 'face 'voicelog-muted))
+      (insert (propertize "no reply" 'face '(voicelog-dim italic))))
+    (insert "\n\n")))
+
+(defun voicelog--render-rows (rows &optional zone)
+  "Return the buffer text for ROWS: day dividers and one card per row.
+ZONE overrides the local time zone, for tests."
+  (with-temp-buffer
+    (let (last-day)
+      (dolist (row rows)
+        (let ((day (voicelog--day-key row zone)))
+          (unless (equal day last-day)
+            (setq last-day day)
+            (voicelog--insert-day row zone)))
+        (voicelog--insert-card row zone)))
+    (buffer-string)))
+
 (provide 'voicelog)
 ;;; voicelog.el ends here
