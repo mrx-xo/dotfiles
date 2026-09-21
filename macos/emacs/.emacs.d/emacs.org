@@ -12208,6 +12208,21 @@ Package in =lisp/lights.el=; =?= inside shows every keybind.
         "L" '(lights :wk "lights"))))
 #+end_src
 
+** Voicelog
+The house voice log (=voicelog.andrade-lab.com=) as an Emacs buffer:
+browser-style cards, org-style folding and =j= / =k= card motion, live
+refresh every 15 s while visible. Package in =lisp/voicelog.el=; =?= inside
+shows every key.
+#+begin_src emacs-lisp
+  (use-package voicelog
+    :ensure nil
+    :commands (voicelog)
+    :init
+    (with-eval-after-load 'general
+      (mr-x/leader-def
+        "V" '(voicelog :wk "voice log"))))
+#+end_src
+
 ** Monitor Mode
 Emacs front-end for =monitor-mode.sh= (the =mon= shell alias): point the desk
 monitors at MrX or VENGEANCE over DDC. Async — the script polls up to ~15s

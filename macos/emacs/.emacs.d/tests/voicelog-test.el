@@ -207,6 +207,17 @@
     (forward-line 1)
     (should-not (outline-on-heading-p t))))
 
+(ert-deftest voicelog-mode-fold-all-keys ()
+  (should (eq (lookup-key voicelog-mode-map "zM") #'outline-hide-body))
+  (should (eq (lookup-key voicelog-mode-map "zR") #'outline-show-all))
+  (voicelog-test--with-buffer voicelog-test--rows
+    (outline-hide-body)
+    (goto-char (point-min))
+    (forward-line 3)                      ; r1's heard line
+    (should (invisible-p (point)))
+    (outline-show-all)
+    (should-not (invisible-p (point)))))
+
 (ert-deftest voicelog-mode-next-previous-card ()
   (voicelog-test--with-buffer voicelog-test--rows
     (goto-char (point-min))

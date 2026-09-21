@@ -8936,6 +8936,14 @@ Appends to the current year's transaction file."
     (mr-x/leader-def
       "L" '(lights :wk "lights"))))
 
+(use-package voicelog
+  :ensure nil
+  :commands (voicelog)
+  :init
+  (with-eval-after-load 'general
+    (mr-x/leader-def
+      "V" '(voicelog :wk "voice log"))))
+
 (defconst mr-x/mon-script "~/.dotfiles/macos/scripts/monitor-mode.sh")
 
 (defun mr-x/mon--run (&rest args)
