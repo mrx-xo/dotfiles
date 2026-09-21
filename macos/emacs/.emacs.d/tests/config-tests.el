@@ -1402,6 +1402,18 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (let ((leader-map (config-test--leader-map)))
     (and leader-map (lookup-key leader-map (kbd keys)))))
 
+(ert-deftest config-test-link-hint-always-labels-single-target ()
+  "SPC f must show an Avy label even when only one link is visible."
+  (should (eq (config-test--leader-key "f")
+              'mr-x/link-hint-open-link))
+  (let ((observed 'not-called))
+    (cl-letf (((symbol-function 'link-hint-open-link)
+               (lambda ()
+                 (interactive)
+                 (setq observed avy-single-candidate-jump))))
+      (call-interactively #'mr-x/link-hint-open-link))
+    (should (null observed))))
+
 (ert-deftest config-test-leader-agent-shell-subtree ()
   "SPC c subtree: core agent-shell commands must resolve correctly."
   (should (eq (config-test--leader-key "c c") 'mr-x/agent-shell-new-smart))
