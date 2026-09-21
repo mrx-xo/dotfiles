@@ -11,7 +11,7 @@
 ;;
 ;; M-x voicelog  (or SPC V)
 ;;
-;;   j / k     next / previous card       gg / G  top / bottom
+;;   C-j / C-k next / previous card       j / k / gg / G  evil motions as usual
 ;;   TAB       fold or unfold a card      S-TAB   cycle the whole buffer
 ;;   zM / zR   fold / unfold every card
 ;;   a n p m   all / Nabu / Pandora / Andromeda
@@ -363,7 +363,7 @@ ZONE overrides the local time zone, for tests."
 (defun voicelog-help ()
   "Show the keys."
   (interactive)
-  (message "j/k cards  TAB fold  S-TAB cycle  a/n/p/m persona  / search  t today  s origin  r refresh  l live  q quit"))
+  (message "C-j/C-k cards  TAB fold  S-TAB cycle  a/n/p/m persona  / search  t today  s origin  r refresh  l live  q quit"))
 
 (defun voicelog-quit ()
   "Bury the voicelog buffer."
@@ -372,8 +372,9 @@ ZONE overrides the local time zone, for tests."
 
 (defvar voicelog-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "j" #'voicelog-next-card)
-    (define-key map "k" #'voicelog-previous-card)
+    ;; j / k stay evil line motions; cards move on C-j / C-k.
+    (define-key map (kbd "C-j") #'voicelog-next-card)
+    (define-key map (kbd "C-k") #'voicelog-previous-card)
     (define-key map "a" #'voicelog-persona-all)
     (define-key map "n" #'voicelog-persona-nabu)
     (define-key map "p" #'voicelog-persona-pandora)
