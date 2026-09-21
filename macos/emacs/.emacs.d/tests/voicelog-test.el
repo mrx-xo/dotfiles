@@ -207,6 +207,12 @@
     (forward-line 1)
     (should-not (outline-on-heading-p t))))
 
+(ert-deftest voicelog-mode-card-keys-leave-jk-alone ()
+  (should (eq (lookup-key voicelog-mode-map (kbd "C-j")) #'voicelog-next-card))
+  (should (eq (lookup-key voicelog-mode-map (kbd "C-k")) #'voicelog-previous-card))
+  (should-not (lookup-key voicelog-mode-map "j"))
+  (should-not (lookup-key voicelog-mode-map "k")))
+
 (ert-deftest voicelog-mode-fold-all-keys ()
   (should (eq (lookup-key voicelog-mode-map "zM") #'outline-hide-body))
   (should (eq (lookup-key voicelog-mode-map "zR") #'outline-show-all))

@@ -12210,8 +12210,8 @@ Package in =lisp/lights.el=; =?= inside shows every keybind.
 
 ** Voicelog
 The house voice log (=voicelog.andrade-lab.com=) as an Emacs buffer:
-browser-style cards, org-style folding and =j= / =k= card motion, live
-refresh every 15 s while visible. Package in =lisp/voicelog.el=; =?= inside
+browser-style cards, org-style folding, =C-j= / =C-k= card motion (plain
+=j= / =k= stay evil line motions), live refresh every 15 s while visible. Package in =lisp/voicelog.el=; =?= inside
 shows every key.
 #+begin_src emacs-lisp
   (use-package voicelog
