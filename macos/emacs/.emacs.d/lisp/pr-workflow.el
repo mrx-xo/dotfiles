@@ -12,6 +12,7 @@
 (require 'forgejo-vc)
 (require 'forgejo-review)
 (require 'forgejo-merge)
+(require 'forgejo-review-ediff)
 
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
@@ -236,6 +237,8 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
     ("r" "PR list" mr-x/pr-list)
     ("v" "PR details" mr-x/pr-view)
     ("d" "Full diff" mr-x/pr-diff)
+    ("e" "Compare this file (Ediff)" mr-x/forgejo-diff-ediff
+     :if mr-x/forgejo-ediff-available-p)
     ("g" "Refresh" mr-x/pr-refresh)]
    ["Review"
     ("c" "Comment" mr-x/pr-comment)
