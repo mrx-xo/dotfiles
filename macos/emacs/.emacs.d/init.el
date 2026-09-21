@@ -3964,6 +3964,12 @@ Falls back to a one-liner if fastfetch isn't installed."
         :prefix "SPC"
         :global-prefix "C-SPC"))
 
+    (defun mr-x/link-hint-open-link ()
+      "Select a visible link with an Avy label, even when only one exists."
+      (interactive)
+      (let ((avy-single-candidate-jump nil))
+        (call-interactively #'link-hint-open-link)))
+
     (with-eval-after-load 'general
       (mr-x/leader-def
         "a" '(:ignore t :wk "agenda")
@@ -3982,8 +3988,9 @@ Falls back to a one-liner if fastfetch isn't installed."
         ". g g" '(mr-x/calliope-goto-top :wk "top")
         ". G" '(mr-x/calliope-goto-bottom :wk "bottom")
         ". m" '(mr-x/calliope-mirror :wk "mirror (scrcpy)")
+        ". n" '(calliope-notes-send-newest :wk "newest drawing -> chat")
         ;; "m" 'mu4e
-        "f" 'link-hint-open-link
+        "f" '(mr-x/link-hint-open-link :wk "open link")
         "p" 'projectile-command-map
         "w" '(:keymap evil-window-map :package evil :wk "window")
         "h" 'winner-undo
@@ -4045,7 +4052,6 @@ Falls back to a one-liner if fastfetch isn't installed."
                 t)))
 
 
-        ". n" '(calliope-notes-send-newest :wk "newest drawing -> chat")
       (defun mr-x/test-environment ()
         "Spawn agent-shell on left, dired ~/roaming/sandbox on right."
         (interactive)
@@ -5110,6 +5116,11 @@ background, and inheriting them whole paints text over itself."
 
 
 
+  ;; Drawings come the other way: BOOX Notes exports sync into
+  ;; ~/calliope/notes and `calliope-notes-send-newest' (SPC . n) drops the
+  ;; latest one into an agent-shell chat.  lisp/calliope-notes.el.
+  (require 'calliope-notes)
+
   (defvar mr-x/calliope-launch-script
     (expand-file-name "~/.dotfiles/macos/scripts/calliope-wake.sh")
     "Path to the launcher that (re)starts emx on CALLIOPE (`... emx').")
@@ -5496,11 +5507,6 @@ the frame transaction cannot consume a bundle after an incomplete restore."
             (set-window-parameter window 'major-pane t)
             (set-window-parameter window 'mr-x/restored-pane-mode (plist-get tree :pane-mode))))
       ;; Split node
-  ;; Drawings come the other way: BOOX Notes exports sync into
-  ;; ~/calliope/notes and `calliope-notes-send-newest' (SPC . n) drops the
-  ;; latest one into an agent-shell chat.  lisp/calliope-notes.el.
-  (require 'calliope-notes)
-
       (let* ((direction (plist-get tree :direction))
              (children-data (plist-get tree :children))
              (sizes (plist-get tree :sizes))
