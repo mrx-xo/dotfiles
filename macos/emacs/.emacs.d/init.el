@@ -3506,14 +3506,10 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; the auto-inserted one instead of doubling.  Also handles [] {} "" ``.
   (electric-pair-mode 1)
 
-  ;; DISABLED — this was swallowing echo-area messages too aggressively.
-  ;; ;; Suppress echo-area messages while the minibuffer is active so they don't
-  ;; ;; clobber what you're typing.  Messages still go to *Messages*.
-  ;; (defun mr-x/suppress-message-in-minibuffer (message)
-  ;;   "Swallow MESSAGE display when the minibuffer is in use."
-  ;;   (when (minibufferp (window-buffer (minibuffer-window)))
-  ;;     t))
-  ;; (add-to-list 'set-message-functions #'mr-x/suppress-message-in-minibuffer)
+  ;; Keep background notifications out of active prompts (including the
+  ;; bookmark popup), without suppressing ordinary idle echo-area messages.
+  ;; Messages still go to *Messages* while a prompt is active.
+  (require 'minibuffer-message-guard)
 
   (use-package highlight
     :ensure t)
