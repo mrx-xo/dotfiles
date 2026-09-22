@@ -18,7 +18,17 @@
   (when (fboundp 'elpaca-wait)
     (elpaca-wait)))
 
+(let* ((test-directory (file-name-directory (or load-file-name buffer-file-name)))
+       (dashboard-directory
+        (expand-file-name "../lisp/project-dashboard" test-directory)))
+  (add-to-list 'load-path dashboard-directory))
+
 (require 'project-dashboard)
+
+(load (expand-file-name
+       "../lisp/project-dashboard/project-dashboard-art.el"
+       (file-name-directory (or load-file-name buffer-file-name)))
+      nil nil t)
 
 (ert-deftest project-dashboard-test-recent-conversation-ages-are-relative ()
   "Conversation ages younger than fourteen days should read naturally."
