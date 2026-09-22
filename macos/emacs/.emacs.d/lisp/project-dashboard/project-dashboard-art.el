@@ -240,6 +240,20 @@ Returns nil if INDEX is out of bounds."
   :type '(repeat string)
   :group 'project-dashboard-art)
 
+(defcustom project-dashboard-art-codex-home
+  (let ((home (expand-file-name "~/.codex-b")))
+    (when (file-directory-p home) home))
+  "CODEX_HOME for the codex backend, or nil for codex's default login.
+Each CODEX_HOME holds its own ChatGPT login, so this selects which
+account's quota the generation spends."
+  :type '(choice (const :tag "Default login" nil) directory)
+  :group 'project-dashboard-art)
+
+(defcustom project-dashboard-art-timeout 300
+  "Seconds a backend process may run before `timeout' kills it."
+  :type 'integer
+  :group 'project-dashboard-art)
+
 (defvar project-dashboard-art-cache-directory
   (if (fboundp 'no-littering-expand-var-file-name)
       (no-littering-expand-var-file-name "project-dashboard/art/")
@@ -346,18 +360,31 @@ WIDTH and HEIGHT default to `project-dashboard-art-width' and
           subject project-name project-dashboard-art-height
           project-dashboard-art-width project-dashboard-art-height))
 
+(defun project-dashboard-art--backend-command (backend prompt &optional output-file)
+  "Return the argv for BACKEND rendering PROMPT.
+OUTPUT-FILE receives codex's last message and is ignored for claude."
+  (let ((timeout (number-to-string project-dashboard-art-timeout)))
+    (if (eq backend 'codex)
+        (list "timeout" timeout "codex" "exec"
+              "--skip-git-repo-check" "-s" "read-only"
+              "--output-last-message" output-file prompt)
+      (list "timeout" timeout "claude" "-p" "--model"
+            "claude-sonnet-5" prompt))))
+
 (defun project-dashboard-art--run-backend (backend prompt callback)
   "Run BACKEND asynchronously with PROMPT, then call CALLBACK with its output.
 CALLBACK receives nil when the process fails or produces no output."
   (let* ((codex-p (eq backend 'codex))
          (output-file (when codex-p (make-temp-file "project-dashboard-art-")))
          (buffer (generate-new-buffer " *project-dashboard-art*"))
-         (command (if codex-p
-                      (list "timeout" "180" "codex" "exec"
-                            "--skip-git-repo-check" "-s" "read-only"
-                            "--output-last-message" output-file prompt)
-                    (list "timeout" "120" "claude" "-p" "--model"
-                          "claude-sonnet-5" prompt))))
+         (command (project-dashboard-art--backend-command
+                   backend prompt output-file))
+         (process-environment
+          (if (and codex-p project-dashboard-art-codex-home)
+              (cons (concat "CODEX_HOME="
+                            (expand-file-name project-dashboard-art-codex-home))
+                    process-environment)
+            process-environment)))
     (condition-case err
         (let ((process
                (make-process

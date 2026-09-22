@@ -89,6 +89,27 @@
         (should (equal result project-dashboard-art-cat))
         (should-not (project-dashboard-art-cache-read "failure"))))))
 
+(ert-deftest project-dashboard-art-test-backend-command ()
+  "Backend argv should carry the timeout, the CLI, and the prompt."
+  (let ((project-dashboard-art-timeout 42))
+    (should (equal (project-dashboard-art--backend-command 'codex "p" "/tmp/o")
+                   '("timeout" "42" "codex" "exec" "--skip-git-repo-check"
+                     "-s" "read-only" "--output-last-message" "/tmp/o" "p")))
+    (should (equal (project-dashboard-art--backend-command 'claude "p")
+                   '("timeout" "42" "claude" "-p" "--model"
+                     "claude-sonnet-5" "p")))))
+
+(ert-deftest project-dashboard-art-test-codex-home-in-environment ()
+  "The codex backend should export CODEX_HOME when a home is configured."
+  (let ((project-dashboard-art-codex-home "/tmp/codex-home")
+        seen)
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest _)
+                 (setq seen (copy-sequence process-environment))
+                 (signal 'error '("stop")))))
+      (project-dashboard-art--run-backend 'codex "p" #'ignore))
+    (should (member "CODEX_HOME=/tmp/codex-home" seen))))
+
 (ert-deftest project-dashboard-art-test-random-varies ()
   "Random selection should return more than one collection entry."
   (let (indices)
