@@ -347,6 +347,60 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
                      "bypass"
                      agent-shell-opencode-make-agent-config)))))
 
+(ert-deftest config-test-preset-prompt-lists-every-key-by-vendor ()
+  "The preset picker shows one row per vendor and every preset key."
+  (let ((prompt (mr-x/agent-shell--preset-prompt "Preset: ")))
+    (dolist (preset mr-x/agent-shell-presets)
+      (should (string-match-p (concat "\\(^\\| \\)" (regexp-quote (string (car preset))) " ")
+                              prompt)))
+    (should (string-suffix-p "Preset: " prompt))
+    (should (= (1+ (length (seq-uniq (mapcar #'mr-x/agent-shell--preset-vendor
+                                              mr-x/agent-shell-presets))))
+               (length (split-string prompt "\n"))))
+    (should (string-match-p "asks account" prompt)))
+  (should (eq (mr-x/agent-shell--preset-vendor (assq ?f mr-x/agent-shell-presets)) 'claude))
+  (should (eq (mr-x/agent-shell--preset-vendor (assq ?a mr-x/agent-shell-presets)) 'codex))
+  (should (eq (mr-x/agent-shell--preset-vendor (assq ?g mr-x/agent-shell-presets)) 'opencode))
+  (should (eq (mr-x/agent-shell--preset-vendor (assq ?d mr-x/agent-shell-presets)) 'deepseek))
+  (should (equal (mr-x/agent-shell--preset-mode-word "bypassPermissions") "bypass"))
+  (should (equal (mr-x/agent-shell--preset-mode-word "agent-full-access") "full")))
+
+(ert-deftest config-test-codex-account-main-leaves-config-alone ()
+  "The first Codex account has no CODEX_HOME and must not copy the config."
+  (require 'agent-shell-openai)
+  (let ((config (agent-shell-openai-make-codex-config)))
+    (should (eq (mr-x/agent-shell--config-for-codex-account
+                 config (car mr-x/agent-shell-codex-accounts))
+                config))))
+
+(ert-deftest config-test-codex-account-b-sets-codex-home ()
+  "Account B runs codex-acp with CODEX_HOME=~/.codex-b and a named buffer."
+  (require 'agent-shell-openai)
+  (let* ((seen nil)
+         (account (assoc "B" mr-x/agent-shell-codex-accounts))
+         (config (mr-x/agent-shell--config-for-codex-account
+                  (agent-shell-openai-make-codex-config) account)))
+    (should (equal (alist-get :buffer-name config) "Codex B"))
+    (should (equal (alist-get :mode-line-name config) "Codex B"))
+    (cl-letf (((symbol-function 'agent-shell--make-acp-client)
+               (lambda (&rest args) (setq seen args) 'client)))
+      (should (eq (funcall (alist-get :client-maker config) (current-buffer))
+                  'client)))
+    (should (member (concat "CODEX_HOME=" (expand-file-name "~/.codex-b"))
+                    (plist-get seen :environment-variables)))
+    (should (equal (plist-get seen :command)
+                   (car agent-shell-openai-codex-acp-command)))))
+
+(ert-deftest config-test-codex-account-prompt-only-for-codex-presets ()
+  "Only Codex presets ask for an account; RET picks the first, 2 the second."
+  (should (mr-x/agent-shell--codex-preset-p (assq ?c mr-x/agent-shell-presets)))
+  (should-not (mr-x/agent-shell--codex-preset-p (assq ?f mr-x/agent-shell-presets)))
+  (should-not (assq ?B mr-x/agent-shell-presets))
+  (cl-letf (((symbol-function 'read-char-choice) (lambda (&rest _) ?\r)))
+    (should (equal (car (mr-x/agent-shell--read-codex-account)) "main")))
+  (cl-letf (((symbol-function 'read-char-choice) (lambda (&rest _) ?2)))
+    (should (equal (car (mr-x/agent-shell--read-codex-account)) "B"))))
+
 (ert-deftest config-test-agent-shell-clone-reuses-current-model-in-fresh-session ()
   "Clone starts a fresh shell with the source provider, model, and directory."
   (let* ((source-config
