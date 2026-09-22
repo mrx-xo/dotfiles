@@ -213,6 +213,52 @@
   (should-not (lookup-key voicelog-mode-map "j"))
   (should-not (lookup-key voicelog-mode-map "k")))
 
+(ert-deftest voicelog-mode-no-single-letter-bindings ()
+  "Every printable single key is left to evil; only the menu and card keys exist.
+The special-mode parent is detached first: its g / h / ? sit below evil."
+  (let ((own (copy-keymap voicelog-mode-map)))
+    (set-keymap-parent own nil)
+    (dolist (k '("a" "n" "p" "m" "/" "t" "s" "r" "l" "?" "h" "g" "o" "u" "c" "y" "w"))
+      (should-not (lookup-key own k))))
+  (should (eq (lookup-key voicelog-mode-map (kbd "C-c f")) #'voicelog-menu))
+  (should (get 'voicelog-menu 'transient--prefix)))
+
+(ert-deftest voicelog-visible-ranges ()
+  (let ((args (list :today-key "2026-09-18" :zone voicelog-test--zone)))
+    (should (equal (voicelog-test--ids (apply #'voicelog--visible-rows voicelog-test--rows
+                                              :range 'yesterday args))
+                   '("r3")))
+    (should (equal (voicelog-test--ids (apply #'voicelog--visible-rows voicelog-test--rows
+                                              :range 'week args))
+                   '("r1" "r2" "r3")))
+    (should (equal (voicelog-test--ids (apply #'voicelog--visible-rows voicelog-test--rows
+                                              :range 'month args))
+                   '("r1" "r2" "r3" "r5")))
+    ;; r5 is 2026-09-01: 17 days back, outside a week, inside a month.
+    (should (equal (voicelog-test--ids (apply #'voicelog--visible-rows voicelog-test--rows
+                                              :range 'today args))
+                   '("r1" "r2")))))
+
+(ert-deftest voicelog-visible-overheard-and-unanswered ()
+  (let* ((long (voicelog-test--row 'ts "2026-09-18T12:00:00+00:00" 'run_id "r7"
+                                   'pipeline "Yvette Assist"
+                                   'heard "One. Two. Three. Four." 'said "ok"))
+         (rows (append voicelog-test--rows (list long))))
+    (should (equal (voicelog-test--ids (voicelog--visible-rows rows :overheard t)) '("r7")))
+    (should (equal (voicelog-test--ids (voicelog--visible-rows rows :unanswered t)) '("r3")))))
+
+(ert-deftest voicelog-mode-range-and-flags-in-header ()
+  (voicelog-test--with-buffer voicelog-test--rows
+    (voicelog-range-yesterday)
+    (should (string-search "· yesterday" header-line-format))
+    (voicelog-toggle-unanswered)
+    (should (string-search "· unanswered" header-line-format))
+    (voicelog-toggle-overheard)
+    (should (string-search "· overheard" header-line-format))
+    (voicelog-clear-filters)
+    (should (equal (substring-no-properties header-line-format)
+                   "  VOICE LOG   4 exchanges · live"))))
+
 (ert-deftest voicelog-mode-fold-all-keys ()
   (should (eq (lookup-key voicelog-mode-map "zM") #'outline-hide-body))
   (should (eq (lookup-key voicelog-mode-map "zR") #'outline-show-all))
