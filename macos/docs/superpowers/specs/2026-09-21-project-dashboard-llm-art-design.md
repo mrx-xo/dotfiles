@@ -1,7 +1,7 @@
 # Project Dashboard LLM Art Design
 
 Date: 2026-09-21
-Status: Designed, not built. Source TODO is `[#C]` in `~/roaming/notes/homelab.org`.
+Status: Shipped 2026-09-21 (e4bcf50, built by Sol on codex B). Source TODO is `[#C]` in `~/roaming/notes/homelab.org`.
 
 **Goal:** Replace the hand-pasted ASCII collection in
 `macos/emacs/.emacs.d/lisp/project-dashboard/project-dashboard-art.el` with a
