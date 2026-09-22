@@ -4438,13 +4438,72 @@ prepended, so they shadow any inherited ANTHROPIC_* values."
                      :context-buffer buffer))))
           config))
 
+      ;; Codex accounts.  codex-acp spawns the real `codex app-server' with
+      ;; its own environment passed through, and Codex keeps its login in
+      ;; $CODEX_HOME/auth.json, so pointing CODEX_HOME at another directory
+      ;; runs a Codex preset on another ChatGPT login.  ~/.codex-b symlinks
+      ;; config.toml, hooks.json, AGENTS.md, skills and plugins back to
+      ;; ~/.codex, so only the account differs.  Log one in once with
+      ;;   CODEX_HOME=~/.codex-b codex login
+      ;; Every Codex preset asks which account to use at spawn time (RET =
+      ;; the first entry).  The phone spawn path stays on the first entry.
+      (defvar mr-x/agent-shell-codex-accounts
+        '(("main" . nil)
+          ("B" . "~/.codex-b"))
+        "Codex accounts as (NAME . CODEX-HOME).
+A nil home means Codex's default ~/.codex.  The first entry is the
+default and the only one the phone spawn path uses.")
+
+      (defun mr-x/agent-shell--codex-preset-p (preset)
+        "Whether PRESET (a `mr-x/agent-shell-presets' tuple) spawns Codex."
+        (eq (nth 4 preset) 'agent-shell-openai-make-codex-config))
+
+      (defun mr-x/agent-shell--read-codex-account ()
+        "Ask which of `mr-x/agent-shell-codex-accounts' to use; RET = the first."
+        (let* ((accounts mr-x/agent-shell-codex-accounts)
+               (prompt (concat (propertize "Account" 'face 'bold) "  "
+                               (string-join
+                                (seq-map-indexed (lambda (pair i)
+                                                   (concat (propertize (number-to-string (1+ i))
+                                                                       'face 'bold)
+                                                           " " (car pair)))
+                                                 accounts)
+                                "   ")
+                               (propertize "   RET = " 'face 'shadow)
+                               (propertize (car (car accounts)) 'face 'shadow)
+                               ": "))
+               (keys (number-sequence ?1 (+ ?0 (length accounts))))
+               (char (read-char-choice prompt (cons ?\r keys))))
+          (if (eq char ?\r) (car accounts) (nth (- char ?1) accounts))))
+
+      (defun mr-x/agent-shell--config-for-codex-account (config account)
+        "Return CONFIG pointed at Codex ACCOUNT, a (NAME . CODEX-HOME) pair.
+An account without a home returns CONFIG untouched.  Any other gets a
+copy whose client-maker prepends CODEX_HOME so the child `codex
+app-server' reads that home, and whose buffer carries the account name."
+        (if (null (cdr account))
+            config
+          (let ((config (copy-alist config))
+                (home (expand-file-name (cdr account)))
+                (name (concat "Codex " (car account))))
+            (setf (alist-get :mode-line-name config) name)
+            (setf (alist-get :buffer-name config) name)
+            (setf (alist-get :client-maker config)
+                  (lambda (buffer)
+                    (agent-shell--make-acp-client
+                     :command (car agent-shell-openai-codex-acp-command)
+                     :command-params (cdr agent-shell-openai-codex-acp-command)
+                     :environment-variables
+                     (append (list (concat "CODEX_HOME=" home) "OPENAI_API_KEY=")
+                             agent-shell-openai-codex-environment)
+                     :context-buffer buffer)))
+            config)))
+
       (defvar mr-x/agent-shell-presets
         '((?f "Fable 5.1 · Bypass" "fable[1m]"           "bypassPermissions")
-          (?F "Fable 5 · Bypass"   "claude-fable-5[1m]" "bypassPermissions")
           (?o "Opus · Bypass"      "opus[1m]"            "bypassPermissions")
           (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
           (?p "Opus · Plan"     "default"            "plan")
-          (?h "Haiku · Auto"    "haiku"              "auto")
           (?a "Astra · Full"    "gpt-6-astra"        "agent-full-access"
               agent-shell-openai-make-codex-config "high")
           (?c "Sol · Full"      "gpt-5.6-sol"        "agent-full-access"
@@ -4495,17 +4554,92 @@ original is left untouched."
           (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
           config))
 
+      ;; ── Preset picker rendering ──────────────────────────
+      ;; One row per vendor, keys bold, vendor in its palette hue, mode word
+      ;; colored by how much rope it gives the agent.  Rows come from each
+      ;; preset's config constructor, so a new preset lands in its row on
+      ;; its own.  The question sits on the last line where the cursor is.
+      (defvar mr-x/agent-shell--preset-vendors
+        '((claude   "Claude"   orange)
+          (codex    "Codex"    green)
+          (opencode "OpenCode" lime)
+          (deepseek "DeepSeek" gold)
+          (other    "Other"    cream))
+        "Preset rows: (VENDOR LABEL PALETTE-COLOR), in display order.")
+
+      (defun mr-x/agent-shell--preset-vendor (preset)
+        "Vendor symbol for PRESET, from its config constructor (nil = Claude)."
+        (pcase (nth 4 preset)
+          ('nil 'claude)
+          ('agent-shell-openai-make-codex-config 'codex)
+          ('agent-shell-opencode-make-agent-config 'opencode)
+          ('mr-x/agent-shell-make-deepseek-config 'deepseek)
+          (_ 'other)))
+
+      (defun mr-x/agent-shell--preset-mode-word (mode-id)
+        "Short lowercase word for session MODE-ID."
+        (pcase mode-id
+          ((or "bypassPermissions" "bypass") "bypass")
+          ("agent-full-access" "full")
+          ("acceptEdits" "accept")
+          (_ (downcase mode-id))))
+
+      (defun mr-x/agent-shell--preset-mode-color (word)
+        "Palette color name for a mode WORD: red for no guardrails, down to mint."
+        (pcase word
+          ((or "bypass" "full") 'red)
+          ((or "accept" "auto") 'gold)
+          ("build" 'lime)
+          (_ 'mint)))
+
+      (defun mr-x/agent-shell--preset-entry (preset vendor-label)
+        "Render one PRESET as \"k Model mode\", dropping VENDOR-LABEL from the model."
+        (let* ((label (nth 1 preset))
+               (model (string-trim (replace-regexp-in-string " · .*\\'" "" label)))
+               (model (if (and (string-prefix-p vendor-label model)
+                               (> (length model) (length vendor-label)))
+                          (string-trim (substring model (length vendor-label)))
+                        model))
+               (word (mr-x/agent-shell--preset-mode-word (nth 3 preset))))
+          (concat (propertize (string (nth 0 preset)) 'face 'bold)
+                  " " model " "
+                  (propertize word 'face
+                              `(:foreground ,(mr-x/color
+                                              (mr-x/agent-shell--preset-mode-color word)))))))
+
+      (defun mr-x/agent-shell--preset-prompt (question)
+        "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
+        (let* ((width (apply #'max (mapcar (lambda (v) (length (nth 1 v)))
+                                           mr-x/agent-shell--preset-vendors)))
+               (rows
+                (delq nil
+                      (mapcar
+                       (lambda (vendor)
+                         (let ((presets (seq-filter
+                                         (lambda (p) (eq (mr-x/agent-shell--preset-vendor p)
+                                                         (car vendor)))
+                                         mr-x/agent-shell-presets)))
+                           (when presets
+                             (concat
+                              (propertize (format (format "%%-%ds" width) (nth 1 vendor))
+                                          'face `(:foreground ,(mr-x/color (nth 2 vendor))
+                                                  :weight bold))
+                              "  "
+                              (mapconcat (lambda (p) (mr-x/agent-shell--preset-entry p (nth 1 vendor)))
+                                         presets "   ")
+                              (when (and (eq (car vendor) 'codex)
+                                         (> (length mr-x/agent-shell-codex-accounts) 1))
+                                (propertize "   asks account" 'face 'shadow))))))
+                       mr-x/agent-shell--preset-vendors))))
+          (concat (string-join rows "\n") "\n" question)))
+
       (defun mr-x/agent-shell--read-preset (&optional char)
         "Return a preset tuple from `mr-x/agent-shell-presets'.
 Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
 if it matches no preset."
         (let ((char (or char
                         (read-char-choice
-                         (concat "Preset  "
-                                 (mapconcat (lambda (p)
-                                              (format "[%c] %s" (nth 0 p) (nth 1 p)))
-                                            mr-x/agent-shell-presets "   ")
-                                 ": ")
+                         (mr-x/agent-shell--preset-prompt "Preset: ")
                          (mapcar #'car mr-x/agent-shell-presets)))))
           (or (assq char mr-x/agent-shell-presets)
               (user-error "No preset for %c" char))))
@@ -4515,8 +4649,13 @@ if it matches no preset."
 tuple).  Honours the current `default-directory' as the shell's cwd, so
 callers can `let'-bind it to launch the preset in another project."
         (require 'agent-shell)
-        (let* ((config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
+        (let* ((account (when (mr-x/agent-shell--codex-preset-p preset)
+                          (mr-x/agent-shell--read-codex-account)))
+               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
                                                       (nth 4 preset)))
+               (config (if account
+                           (mr-x/agent-shell--config-for-codex-account config account)
+                         config))
                (shell-buffer (agent-shell--start :config config
                                                  :no-focus t
                                                  :new-session t)))
@@ -4524,7 +4663,8 @@ callers can `let'-bind it to launch the preset in another project."
           (when (nth 5 preset)
             (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                          shell-buffer (nth 5 preset) 60))
-          (message "Agent preset: %s" (nth 1 preset))))
+          (message "Agent preset: %s%s" (nth 1 preset)
+                   (if (cdr account) (format " (%s)" (car account)) ""))))
 
       (defun mr-x/agent-shell-start-preset (&optional char)
         "Start a fresh agent shell from a launch preset.
@@ -4566,11 +4706,7 @@ Returns a preset tuple from `mr-x/agent-shell-presets', or nil for the
 default config."
         (let* ((chars (mapcar #'car mr-x/agent-shell-presets))
                (char (read-char-choice
-                      (concat "Preset (RET = Claude default)  "
-                              (mapconcat (lambda (p)
-                                           (format "[%c] %s" (nth 0 p) (nth 1 p)))
-                                         mr-x/agent-shell-presets "   ")
-                              ": ")
+                      (mr-x/agent-shell--preset-prompt "Preset (RET = Claude default): ")
                       (append chars (list ?\r ?\n ?\s)))))
           (unless (memq char '(?\r ?\n ?\s))
             (or (assq char mr-x/agent-shell-presets)
