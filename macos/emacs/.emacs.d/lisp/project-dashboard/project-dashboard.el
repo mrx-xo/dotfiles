@@ -602,12 +602,23 @@ tags renderer can be reused: (:name :pending :in-progress :done)."
          (separator-color (plist-get style :separator-color))
          (art-index (plist-get style :art-index)))
     (insert "\n")
-    ;; Render ASCII art (use cached art, specific index, or pick random)
+    ;; Render ASCII art without ever waiting for generation.
     (unless project-dashboard--current-art
-      (setq project-dashboard--current-art
-            (if art-index
-                (project-dashboard-art-by-index art-index)
-              (project-dashboard-art-random))))
+      (if art-index
+          (setq project-dashboard--current-art
+                (project-dashboard-art-by-index art-index))
+        (let ((cached (project-dashboard-art-cache-read project-name)))
+          (setq project-dashboard--current-art
+                (or cached (project-dashboard-art-random)))
+          (unless cached
+            (let ((dashboard-buffer (current-buffer)))
+              (project-dashboard-art-generate
+               project-name
+               (lambda (art)
+                 (when (buffer-live-p dashboard-buffer)
+                   (with-current-buffer dashboard-buffer
+                     (setq project-dashboard--current-art art)
+                     (project-dashboard--render))))))))))
     (let ((art-start (point)))
       (dolist (line project-dashboard--current-art)
         (insert (propertize (format "%s\n" line)
