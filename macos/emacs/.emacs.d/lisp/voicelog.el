@@ -11,14 +11,14 @@
 ;;
 ;; M-x voicelog  (or SPC V)
 ;;
-;;   C-j / C-k next / previous card       j / k / gg / G  evil motions as usual
-;;   TAB       fold or unfold a card      S-TAB   cycle the whole buffer
-;;   zM / zR   fold / unfold every card
-;;   a n p m   all / Nabu / Pandora / Andromeda
-;;   /         search heard + said        t       toggle today
-;;   s         cycle origin: any, satellite, phone
-;;   r         refresh now                l       toggle live polling
-;;   ?         keys                       q       quit
+;; Evil motions are untouched: j k h l gg G / n ? all mean what they
+;; always mean.  The mode adds only:
+;;
+;;   C-j / C-k   next / previous card
+;;   TAB         fold or unfold a card     S-TAB   cycle the whole buffer
+;;   zM / zR     fold / unfold every card
+;;   C-c f       the menu: who, when, where, what, refresh, live, quit
+;;   q           quit
 ;;
 ;; Data comes from the homelab's voice-log-web `/api/log' endpoint.
 
@@ -30,6 +30,7 @@
 (require 'outline)
 (require 'url)
 (require 'json)
+(require 'transient)
 
 (defgroup voicelog nil
   "Emacs reader for the house voice log."
@@ -128,15 +129,40 @@ more sentence enders."
 (defun voicelog--nonblank-p (s)
   (and (stringp s) (not (string-empty-p s))))
 
-(cl-defun voicelog--visible-rows (rows &key persona query today origin today-key zone)
+(defconst voicelog--ranges
+  '((today . "today") (yesterday . "yesterday")
+    (week . "last 7 days") (month . "last 30 days"))
+  "Time-frame keys and their header labels.")
+
+(defun voicelog--days-before (day-key n zone)
+  "The YYYY-MM-DD string N days before DAY-KEY in ZONE."
+  (let* ((d (iso8601-parse-date day-key))
+         (noon (encode-time (list 0 0 12 (decoded-time-day d) (decoded-time-month d)
+                                  (decoded-time-year d) nil -1 zone))))
+    (format-time-string "%Y-%m-%d" (time-subtract noon (* n 86400)) zone)))
+
+(defun voicelog--range-bounds (range today-key zone)
+  "Inclusive (SINCE . UNTIL) day keys for RANGE, or nil for all time."
+  (pcase range
+    ('today (cons today-key today-key))
+    ('yesterday (let ((y (voicelog--days-before today-key 1 zone))) (cons y y)))
+    ('week (cons (voicelog--days-before today-key 6 zone) today-key))
+    ('month (cons (voicelog--days-before today-key 29 zone) today-key))
+    (_ nil)))
+
+(cl-defun voicelog--visible-rows (rows &key persona query today range origin
+                                       overheard unanswered today-key zone)
   "Rows of ROWS that pass the active filters, in the same order.
 Wake-only rows (neither heard nor said) never show. PERSONA is nil or
 a persona key. QUERY is a case-insensitive substring over heard and
-said. TODAY keeps rows whose local day equals TODAY-KEY. ORIGIN is
-nil, `satellite', or `phone'; rows written before the satellite key
-existed match neither."
-  (let ((today-key (or today-key (format-time-string "%Y-%m-%d" nil zone)))
-        (needle (and (voicelog--nonblank-p query) (downcase query))))
+said. RANGE is nil, `today', `yesterday', `week', or `month', measured
+back from TODAY-KEY; TODAY is the old spelling of RANGE `today'.
+ORIGIN is nil, `satellite', or `phone'; rows written before the
+satellite key existed match neither. OVERHEARD keeps only rows the
+overheard heuristic flags; UNANSWERED keeps only rows with no reply."
+  (let* ((today-key (or today-key (format-time-string "%Y-%m-%d" nil zone)))
+         (bounds (voicelog--range-bounds (or range (and today 'today)) today-key zone))
+         (needle (and (voicelog--nonblank-p query) (downcase query))))
     (cl-remove-if-not
      (lambda (row)
        (let ((heard (alist-get 'heard row))
@@ -144,10 +170,14 @@ existed match neither."
          (and (or (voicelog--nonblank-p heard) (voicelog--nonblank-p said))
               (or (null persona)
                   (eq persona (plist-get (voicelog--persona (alist-get 'pipeline row)) :key)))
-              (or (not today) (equal today-key (voicelog--day-key row zone)))
+              (or (null bounds)
+                  (let ((k (voicelog--day-key row zone)))
+                    (and (not (string< k (car bounds))) (not (string> k (cdr bounds))))))
               (or (null needle)
                   (string-search needle
                                  (downcase (concat (or heard "") " " (or said "")))))
+              (or (not overheard) (voicelog--overheard-p heard))
+              (or (not unanswered) (not (voicelog--nonblank-p said)))
               (pcase origin
                 ('nil t)
                 ('satellite (let ((s (alist-get 'satellite row)))
@@ -223,8 +253,10 @@ ZONE overrides the local time zone, for tests."
 (defvar-local voicelog--rows nil "Last good rows, newest first.")
 (defvar-local voicelog--persona nil "nil, or a persona key.")
 (defvar-local voicelog--query nil "Search term, or nil.")
-(defvar-local voicelog--today nil "Non-nil: only today's rows.")
+(defvar-local voicelog--range nil "nil, `today', `yesterday', `week', or `month'.")
 (defvar-local voicelog--origin nil "nil, `satellite', or `phone'.")
+(defvar-local voicelog--overheard nil "Non-nil: only rows flagged overheard?.")
+(defvar-local voicelog--unanswered nil "Non-nil: only rows with no reply.")
 (defvar-local voicelog--live t "Non-nil: polling is on.")
 (defvar-local voicelog--stale nil "Non-nil: the last fetch failed.")
 (defvar-local voicelog--timer nil "The poll timer.")
@@ -239,13 +271,15 @@ ZONE overrides the local time zone, for tests."
   (pcase key ('nabu "Nabu") ('pandora "Pandora") ('andromeda "Andromeda") (_ nil)))
 
 (defun voicelog--filter-summary ()
-  "The active filters as \" · Pandora · today · \"dog\" · satellite\"."
+  "The active filters as \" · Pandora · yesterday · \"dog\" · satellite\"."
   (mapconcat (lambda (s) (concat " · " s))
              (delq nil (list (voicelog--persona-label voicelog--persona)
-                             (and voicelog--today "today")
+                             (alist-get voicelog--range voicelog--ranges)
                              (and (voicelog--nonblank-p voicelog--query)
                                   (format "\"%s\"" voicelog--query))
-                             (and voicelog--origin (symbol-name voicelog--origin))))
+                             (and voicelog--origin (symbol-name voicelog--origin))
+                             (and voicelog--overheard "overheard")
+                             (and voicelog--unanswered "unanswered")))
              ""))
 
 (defun voicelog--header (n)
@@ -284,7 +318,8 @@ ZONE overrides the local time zone, for tests."
 (defun voicelog--visible ()
   (voicelog--visible-rows voicelog--rows
                           :persona voicelog--persona :query voicelog--query
-                          :today voicelog--today :origin voicelog--origin
+                          :range voicelog--range :origin voicelog--origin
+                          :overheard voicelog--overheard :unanswered voicelog--unanswered
                           :zone voicelog--zone))
 
 (defun voicelog--render ()
@@ -341,52 +376,118 @@ ZONE overrides the local time zone, for tests."
 (defun voicelog-persona-pandora () "Only Pandora." (interactive) (voicelog--set-persona 'pandora))
 (defun voicelog-persona-andromeda () "Only Andromeda." (interactive) (voicelog--set-persona 'andromeda))
 
+(defun voicelog--set-range (range)
+  (setq voicelog--range range)
+  (voicelog--render))
+
+(defun voicelog-range-all () "All time." (interactive) (voicelog--set-range nil))
+(defun voicelog-range-today () "Only today." (interactive) (voicelog--set-range 'today))
+(defun voicelog-range-yesterday () "Only yesterday." (interactive) (voicelog--set-range 'yesterday))
+(defun voicelog-range-week () "The last 7 days." (interactive) (voicelog--set-range 'week))
+(defun voicelog-range-month () "The last 30 days." (interactive) (voicelog--set-range 'month))
+
+(defun voicelog-toggle-today ()
+  "Toggle between today and all time."
+  (interactive)
+  (voicelog--set-range (if (eq voicelog--range 'today) nil 'today)))
+
+(defun voicelog--set-origin (origin)
+  (setq voicelog--origin origin)
+  (voicelog--render))
+
+(defun voicelog-origin-any () "Any origin." (interactive) (voicelog--set-origin nil))
+(defun voicelog-origin-satellite () "Only satellites." (interactive) (voicelog--set-origin 'satellite))
+(defun voicelog-origin-phone () "Only phones and browsers." (interactive) (voicelog--set-origin 'phone))
+
+(defun voicelog-cycle-origin ()
+  "Cycle origin: any, satellite, phone."
+  (interactive)
+  (voicelog--set-origin (pcase voicelog--origin
+                          ('nil 'satellite) ('satellite 'phone) (_ nil))))
+
 (defun voicelog-search (term)
   "Filter on TERM over heard and said. Empty clears."
   (interactive (list (read-string "search what was said: " voicelog--query)))
   (setq voicelog--query (and (voicelog--nonblank-p term) term))
   (voicelog--render))
 
-(defun voicelog-toggle-today ()
-  "Toggle the today filter."
+(defun voicelog-toggle-overheard ()
+  "Toggle: only rows the overheard heuristic flags."
   (interactive)
-  (setq voicelog--today (not voicelog--today))
+  (setq voicelog--overheard (not voicelog--overheard))
   (voicelog--render))
 
-(defun voicelog-cycle-origin ()
-  "Cycle origin: any, satellite, phone."
+(defun voicelog-toggle-unanswered ()
+  "Toggle: only rows where the assistant said nothing."
   (interactive)
-  (setq voicelog--origin (pcase voicelog--origin
-                           ('nil 'satellite) ('satellite 'phone) (_ nil)))
+  (setq voicelog--unanswered (not voicelog--unanswered))
   (voicelog--render))
 
-(defun voicelog-help ()
-  "Show the keys."
+(defun voicelog-clear-filters ()
+  "Drop every filter."
   (interactive)
-  (message "C-j/C-k cards  TAB fold  S-TAB cycle  a/n/p/m persona  / search  t today  s origin  r refresh  l live  q quit"))
+  (setq voicelog--persona nil voicelog--query nil voicelog--range nil
+        voicelog--origin nil voicelog--overheard nil voicelog--unanswered nil)
+  (voicelog--render))
 
 (defun voicelog-quit ()
   "Bury the voicelog buffer."
   (interactive)
   (quit-window))
 
+;;;; Menu
+
+(defun voicelog--menu-description ()
+  "Transient heading: the same words as the header line."
+  (with-current-buffer (if (and (boundp 'transient--original-buffer)
+                                (buffer-live-p transient--original-buffer))
+                           transient--original-buffer
+                         (current-buffer))
+    (string-trim (substring-no-properties (voicelog--header (length (voicelog--visible)))))))
+
+(transient-define-prefix voicelog-menu ()
+  "Filters and actions for the voice log. Filters stay open so they combine."
+  [:description voicelog--menu-description
+   ["Who"
+    ("a" "everyone" voicelog-persona-all :transient t)
+    ("n" "Nabu" voicelog-persona-nabu :transient t)
+    ("p" "Pandora" voicelog-persona-pandora :transient t)
+    ("m" "Andromeda" voicelog-persona-andromeda :transient t)]
+   ["When"
+    ("t" "today" voicelog-range-today :transient t)
+    ("y" "yesterday" voicelog-range-yesterday :transient t)
+    ("w" "last 7 days" voicelog-range-week :transient t)
+    ("M" "last 30 days" voicelog-range-month :transient t)
+    ("T" "all time" voicelog-range-all :transient t)]
+   ["Where"
+    ("s" "satellites" voicelog-origin-satellite :transient t)
+    ("P" "phones" voicelog-origin-phone :transient t)
+    ("S" "anywhere" voicelog-origin-any :transient t)]
+   ["What"
+    ("/" "search" voicelog-search :transient t)
+    ("o" "overheard only" voicelog-toggle-overheard :transient t)
+    ("u" "unanswered only" voicelog-toggle-unanswered :transient t)
+    ("c" "clear filters" voicelog-clear-filters :transient t)]
+   ["Buffer"
+    ("r" "refresh" voicelog-refresh :transient t)
+    ("l" "live on / off" voicelog-toggle-live :transient t)
+    ("q" "quit" voicelog-quit)]])
+
+(defun voicelog-help ()
+  "Open the menu."
+  (interactive)
+  (voicelog-menu))
+
+;;;; Mode
+
 (defvar voicelog-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; j / k stay evil line motions; cards move on C-j / C-k.
+    ;; No single letters: evil motions keep every one of them.
     (define-key map (kbd "C-j") #'voicelog-next-card)
     (define-key map (kbd "C-k") #'voicelog-previous-card)
-    (define-key map "a" #'voicelog-persona-all)
-    (define-key map "n" #'voicelog-persona-nabu)
-    (define-key map "p" #'voicelog-persona-pandora)
-    (define-key map "m" #'voicelog-persona-andromeda)
-    (define-key map "/" #'voicelog-search)
-    (define-key map "t" #'voicelog-toggle-today)
-    (define-key map "s" #'voicelog-cycle-origin)
-    (define-key map "r" #'voicelog-refresh)
-    (define-key map "l" #'voicelog-toggle-live)
-    (define-key map "?" #'voicelog-help)
-    (define-key map "q" #'voicelog-quit)
-    ;; Evil binds zM / zR only in normal state; this buffer lives in motion.
+    (define-key map (kbd "C-c f") #'voicelog-menu)
+    (define-key map (kbd "C-c C-c") #'voicelog-menu)
+    (define-key map (kbd "C-c r") #'voicelog-refresh)
     (define-key map "zM" #'outline-hide-body)
     (define-key map "zR" #'outline-show-all)
     map)
@@ -412,11 +513,22 @@ ZONE overrides the local time zone, for tests."
     (setq voicelog--timer nil)))
 
 (declare-function evil-set-initial-state "evil-core")
-(declare-function evil-make-overriding-map "evil-core")
+(declare-function evil-define-key* "evil-core")
 
 (with-eval-after-load 'evil
+  ;; Motion state, and only these keys layered on top of it.  The mode
+  ;; map is deliberately NOT an overriding map, so special-mode's own
+  ;; g / h / SPC / ? bindings never shadow evil either.
   (evil-set-initial-state 'voicelog-mode 'motion)
-  (evil-make-overriding-map voicelog-mode-map))
+  (evil-define-key* 'motion voicelog-mode-map
+    (kbd "C-j") #'voicelog-next-card
+    (kbd "C-k") #'voicelog-previous-card
+    (kbd "C-c f") #'voicelog-menu
+    (kbd "C-c C-c") #'voicelog-menu
+    (kbd "C-c r") #'voicelog-refresh
+    "zM" #'outline-hide-body
+    "zR" #'outline-show-all
+    "q" #'voicelog-quit))
 
 ;;;; Fetch
 
