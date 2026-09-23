@@ -25,7 +25,7 @@ done
 
 config="${CHANNEL5_CONFIG:-$HOME/.config/channel5/launcher.env}"
 if [[ -f "$config" ]]; then source "$config"; fi
-app_dir="${CHANNEL5_APP_DIR:-$HOME/home-lab-worktrees/main/services/briefing-show-electron}"
+app_dir="${CHANNEL5_APP_DIR:-$HOME/channel5}"
 data_dir="${CHANNEL5_DATA_DIR:-$HOME/.local/share/channel5/briefings}"
 token_file="${CHANNEL5_TOKEN_FILE:-$HOME/.config/gaia/ha-token.txt}"
 [[ -f "$app_dir/prepare.mjs" ]] || { echo "Electron briefing not found: $app_dir" >&2; exit 1; }
