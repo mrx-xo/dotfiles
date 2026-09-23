@@ -86,5 +86,14 @@
                (regexp-quote "unparseable-timestamp  Conversation title")
                (buffer-string))))))
 
+(ert-deftest project-dashboard-test-agent-shell-function-runs-in-project-root ()
+  "The `a' action calls `project-dashboard-agent-shell-function' with
+`default-directory' bound to the project root."
+  (let* ((seen nil)
+         (project-dashboard-agent-shell-function
+          (lambda () (setq seen default-directory))))
+    (project-dashboard--start-agent-shell "/tmp/")
+    (should (equal seen "/tmp/"))))
+
 (provide 'project-dashboard-test)
 ;;; project-dashboard-test.el ends here
