@@ -52,6 +52,15 @@ indexed transcripts for the project."
   :type 'integer
   :group 'project-dashboard)
 
+(defcustom project-dashboard-agent-shell-function #'agent-shell-new-shell
+  "Command that starts a new agent shell for a project.
+Called with no arguments and `default-directory' bound to the project
+root, both by the `a' key in a dashboard and by the Embark `a' action on
+a project candidate.  Point it at a preset picker to be asked which
+model and permission mode to launch with."
+  :type 'function
+  :group 'project-dashboard)
+
 (defcustom project-dashboard-task-source 'auto
   "Which task system drives the dashboard's task sections.
 `auto' uses org when the project has files declared in
@@ -1189,13 +1198,18 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
 
 ;;; Action Functions
 
-(defun project-dashboard-open-agent-shell ()
-  "Open a new agent-shell conversation for the current project."
-  (interactive)
-  (let ((default-directory project-dashboard--project-root))
-    (if (fboundp 'agent-shell-new-shell)
-        (agent-shell-new-shell)
+(defun project-dashboard--start-agent-shell (directory)
+  "Start an agent shell in DIRECTORY via `project-dashboard-agent-shell-function'."
+  (let ((default-directory directory))
+    (if (functionp project-dashboard-agent-shell-function)
+        (funcall project-dashboard-agent-shell-function)
       (message "agent-shell not available"))))
+
+(defun project-dashboard-open-agent-shell ()
+  "Open a new agent-shell conversation for the current project.
+Runs `project-dashboard-agent-shell-function' in the project root."
+  (interactive)
+  (project-dashboard--start-agent-shell project-dashboard--project-root))
 
 (defun project-dashboard-open-dired ()
   "Open dired at project root."
@@ -1863,11 +1877,11 @@ Opens the project dashboard for the selected project."
       (vterm t))))
 
 (defun project-dashboard--action-agent-shell (name)
-  "Open a new agent-shell conversation in project NAME."
+  "Open a new agent-shell conversation in project NAME.
+Runs `project-dashboard-agent-shell-function' in the project root."
   (interactive "sProject: ")
   (when-let ((path (project-dashboard--resolve-path name)))
-    (let ((default-directory path))
-      (agent-shell-new-shell))))
+    (project-dashboard--start-agent-shell path)))
 
 (defun project-dashboard--action-find-file (name)
   "Find file in project NAME."

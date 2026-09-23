@@ -7786,6 +7786,9 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
           (compile (cdr (assoc name cmds))))
       (user-error "No project commands here (set mr-x/project-commands in .dir-locals.el)")))
 
+    ;; `a' in a dashboard (and the Embark `a' action) asks for a launch
+    ;; preset, same as SPC c P, instead of a bare default shell.
+    (setq project-dashboard-agent-shell-function #'mr-x/agent-shell-start-preset)
   (with-eval-after-load 'projectile
     (define-key projectile-command-map (kbd "RET") #'mr-x/project-command))
 
