@@ -1594,6 +1594,24 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
   (should (eq (config-test--leader-key "g g") 'magit-status))
   (should (eq (config-test--leader-key "g G") 'mr-x/magit-status-side-window)))
 
+(ert-deftest config-test-leader-pr-commands ()
+  "PR entry points must work before Magit has been opened."
+  (dolist (binding '(("g r" . mr-x/pr-list)
+                     ("g v" . mr-x/pr-diff)
+                     ("g R" . mr-x/pr-menu)
+                     ("g M" . mr-x/pr-merge)))
+    (should (eq (config-test--leader-key (car binding)) (cdr binding)))
+    (should (commandp (cdr binding))))
+  (should (commandp 'mr-x/pr-review-session))
+  (should (commandp 'mr-x/review-git-range))
+  ;; Exercise the autoload through command dispatch without opening a popup.
+  (require 'transient)
+  (let (opened)
+    (cl-letf (((symbol-function 'transient-setup)
+               (lambda (prefix &rest _) (setq opened prefix))))
+      (call-interactively (config-test--leader-key "g R")))
+    (should (eq opened 'mr-x/pr-menu))))
+
 (ert-deftest config-test-major-pane-workspace-loaded ()
   "The open-convo snapshot module is loaded, its mode is on, and SPC c / w
 resumes from it."
