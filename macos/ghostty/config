@@ -12,3 +12,7 @@ cursor-style-blink = false
 macos-option-as-alt = true
 confirm-close-surface = false
 clipboard-paste-protection = false
+
+# Tab switching: cmd+opt+left/right like Chrome
+keybind = cmd+opt+left=previous_tab
+keybind = cmd+opt+right=next_tab
