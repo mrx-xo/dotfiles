@@ -13,6 +13,9 @@
 (require 'forgejo-review)
 (require 'forgejo-merge)
 (require 'forgejo-review-ediff)
+(require 'review-source)
+(require 'review-session)
+(require 'review-panel)
 
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
@@ -231,12 +234,36 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
       ('github (mr-x/pr--github-merge c))
       ('forgejo (mr-x/pr--visit c) (mr-x/forgejo-merge-pr)))))
 
+(defun mr-x/pr-review-session ()
+  "Review the Forgejo PR patch in this buffer one file at a time."
+  (interactive)
+  (unless (mr-x/forgejo-ediff-available-p)
+    (user-error "Open a Forgejo PR diff first (SPC g R d)"))
+  (let* ((files (review-source-forgejo-patch-files))
+         (source (review-source-forgejo-pr forgejo-repo--host forgejo-repo--owner
+                                           forgejo-repo--name forgejo-diff--pr-number files)))
+    (when-let ((session (review-session-start source)))
+      (review-panel-open session))))
+
+(defun mr-x/review-git-range (&optional range)
+  "Review a git RANGE of the current repository, prompting when not given.
+Empty input means the working tree against HEAD; \"--staged\" the index."
+  (interactive)
+  (let* ((root (or (magit-toplevel) (user-error "Not inside a git repository")))
+         (range (or range (string-trim (read-string "Range (empty = worktree vs HEAD, --staged, A..B, main...HEAD): "))))
+         (source (review-source-git-range root (unless (string-empty-p range) range))))
+    (when-let ((session (review-session-start source)))
+      (review-panel-open session))))
+
 (transient-define-prefix mr-x/pr-menu ()
   "PR actions for the current GitHub or Forgejo repository."
   [["Read"
     ("r" "PR list" mr-x/pr-list)
     ("v" "PR details" mr-x/pr-view)
     ("d" "Full diff" mr-x/pr-diff)
+    ("s" "Review session (files + side by side)" mr-x/pr-review-session
+     :if mr-x/forgejo-ediff-available-p)
+    ("G" "Review a git range" mr-x/review-git-range)
     ("e" "Compare this file (Ediff)" mr-x/forgejo-diff-ediff
      :if mr-x/forgejo-ediff-available-p)
     ("g" "Refresh" mr-x/pr-refresh)]
