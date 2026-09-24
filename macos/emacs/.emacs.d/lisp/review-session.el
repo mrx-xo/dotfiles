@@ -49,28 +49,35 @@ The panel subscribes here to put itself back in its side window.")
   (aref (review-session-files session) (or index (review-session-current session))))
 
 (defun review-session-load (session index callback)
-  "Load file INDEX of SESSION once, then invoke CALLBACK while still live."
+  "Load file INDEX of SESSION once, then invoke CALLBACK while still live.
+CALLBACK receives an optional error string if an asynchronous fetch fails."
   (let* ((files (review-session-files session))
          (file (aref files index))
          (source (review-session-source session)))
-    (if (or (plist-get file :loaded) (plist-get file :binary))
-        (when (eq session review-session--current) (funcall callback))
-      (funcall
-       (review-source-text source) file 'old
-       (lambda (old)
-         (when (eq session review-session--current)
-           (funcall
-            (review-source-text source) file 'new
-            (lambda (new)
-              (when (eq session review-session--current)
-                (let* ((rows (review-diff-rows (review-diff-ops old new)))
-                       (hunks (review-diff-hunks rows)))
-                  (dolist (pair (list (cons :old-text old) (cons :new-text new)
-                                      (cons :rows rows) (cons :hunks hunks)
-                                      (cons :loaded t)))
-                    (setq file (plist-put file (car pair) (cdr pair))))
-                  (aset files index file)
-                  (funcall callback)))))))))))
+    (cl-labels ((failed (error)
+                  (when (eq session review-session--current)
+                    (aset files index (plist-put file :error error))
+                    (funcall callback error))))
+      (if (or (plist-get file :loaded) (plist-get file :binary))
+          (when (eq session review-session--current) (funcall callback))
+	(funcall
+	 (review-source-text source) file 'old
+	 (lambda (old &optional error)
+           (when (eq session review-session--current)
+             (if error (failed error)
+               (funcall
+		(review-source-text source) file 'new
+		(lambda (new &optional error)
+		  (when (eq session review-session--current)
+		    (if error (failed error)
+                      (let* ((rows (review-diff-rows (review-diff-ops old new)))
+			     (hunks (review-diff-hunks rows)))
+			(dolist (pair (list (cons :old-text old) (cons :new-text new)
+					    (cons :rows rows) (cons :hunks hunks)
+					    (cons :loaded t) (cons :error nil)))
+			  (setq file (plist-put file (car pair) (cdr pair))))
+			(aset files index file)
+			(funcall callback))))))))))))))
 
 ;;;; Pane text
 
@@ -139,13 +146,13 @@ Every line carries a `review-row' property with its row index."
 
 (with-eval-after-load 'evil
   (evil-define-key 'normal review-pane-mode-map
-    (kbd "C-j") #'review-session-next-file
-    (kbd "C-k") #'review-session-prev-file
-    (kbd "M-j") #'review-session-next-hunk
-    (kbd "M-k") #'review-session-prev-hunk
-    (kbd "v") #'review-session-toggle-viewed
-    (kbd "u") #'syzygy-park
-    (kbd "q") #'review-session-quit))
+		   (kbd "C-j") #'review-session-next-file
+		   (kbd "C-k") #'review-session-prev-file
+		   (kbd "M-j") #'review-session-next-hunk
+		   (kbd "M-k") #'review-session-prev-hunk
+		   (kbd "v") #'review-session-toggle-viewed
+		   (kbd "u") #'syzygy-park
+		   (kbd "q") #'review-session-quit))
 
 (defun review-session--pane-buffer (session index side)
   "Create the pane buffer for file INDEX, SIDE of SESSION."
@@ -255,32 +262,34 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
     (setf (review-session-request session) request)
     (review-session-load
      session index
-     (lambda ()
+     (lambda (&optional error)
        (when (and (eq session review-session--current)
                   (eq request (review-session-request session))
                   (frame-live-p (review-session-frame session)))
-         (let ((old (review-session-old-buffer session))
-               (new (review-session-new-buffer session))
-               (next-old (review-session--pane-buffer session index 'old))
-               next-new)
-           (condition-case err
-               (setq next-new (review-session--pane-buffer session index 'new))
-             (error (kill-buffer next-old) (signal (car err) (cdr err))))
-           (setf (review-session-current session) index
-                 (review-session-hunk session)
-                 (max 0 (min (or hunk 0)
-                             (1- (length (plist-get (review-session-file session index) :hunks)))))
-                 (review-session-old-buffer session) next-old
-                 (review-session-new-buffer session) next-new)
-           (when (eq hunk -1)
-             (setf (review-session-hunk session)
-                   (max 0 (1- (length (plist-get (review-session-file session) :hunks))))))
-           (review-session--display session)
-           (dolist (buffer (list old new))
-             (when (buffer-live-p buffer) (kill-buffer buffer)))
-           (when viewed (review-session--mark-viewed session viewed))
-           (review-session--paint-hunk session)
-           (review-session--notify session)))))))
+         (if error
+             (progn (review-session--notify session) (message "Review: %s" error))
+           (let ((old (review-session-old-buffer session))
+		 (new (review-session-new-buffer session))
+		 (next-old (review-session--pane-buffer session index 'old))
+		 next-new)
+             (condition-case err
+		 (setq next-new (review-session--pane-buffer session index 'new))
+               (error (kill-buffer next-old) (signal (car err) (cdr err))))
+             (setf (review-session-current session) index
+                   (review-session-hunk session)
+                   (max 0 (min (or hunk 0)
+                               (1- (length (plist-get (review-session-file session index) :hunks)))))
+                   (review-session-old-buffer session) next-old
+                   (review-session-new-buffer session) next-new)
+             (when (eq hunk -1)
+               (setf (review-session-hunk session)
+                     (max 0 (1- (length (plist-get (review-session-file session) :hunks))))))
+             (review-session--display session)
+             (dolist (buffer (list old new))
+               (when (buffer-live-p buffer) (kill-buffer buffer)))
+             (when viewed (review-session--mark-viewed session viewed))
+             (review-session--paint-hunk session)
+             (review-session--notify session))))))))
 
 ;;;; Commands
 

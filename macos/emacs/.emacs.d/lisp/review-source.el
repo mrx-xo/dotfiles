@@ -10,6 +10,8 @@
 (require 'seq)
 
 (cl-defstruct review-source
+  "A review backend.  TEXT calls CALLBACK with text on success.
+For asynchronous failures, it calls CALLBACK with nil and an error string."
   name title range-label files text origin directory)
 
 (defun review-source--git (directory &rest args)
@@ -186,32 +188,43 @@ Revisions and index blobs are pinned when the file list is first read."
                 (mapconcat #'url-hexify-string (split-string path "/") "/"))
    `(("ref" . ,revision))
    (lambda (source _headers)
-     (unless (and (stringp (alist-get 'sha source))
-                  (string-prefix-p blob (alist-get 'sha source)))
-       (user-error "PR source for %s changed since this patch loaded; reopen the diff" path))
-     (unless (and (equal (alist-get 'encoding source) "base64")
-                  (stringp (alist-get 'content source)))
-       (user-error "The API did not return source text for %s" path))
-     (let ((text (decode-coding-string (base64-decode-string (alist-get 'content source)) 'utf-8)))
-       (when (string-match-p "\0" text)
-         (user-error "Cannot compare binary source %s as text" path))
-       (funcall callback text)))))
+     (let (text failure)
+       (condition-case err
+           (progn
+             (unless (and (stringp blob) (stringp (alist-get 'sha source))
+                          (string-prefix-p blob (alist-get 'sha source)))
+               (user-error "PR source for %s changed since this patch loaded; reopen the diff" path))
+             (unless (and (equal (alist-get 'encoding source) "base64")
+                          (stringp (alist-get 'content source)))
+               (user-error "The API did not return source text for %s" path))
+             (setq text (decode-coding-string (base64-decode-string (alist-get 'content source)) 'utf-8))
+             (when (string-match-p "\0" text)
+               (user-error "Cannot compare binary source %s as text" path)))
+         (error (setq failure (error-message-string err))))
+       (if failure (funcall callback nil failure) (funcall callback text))))
+   :error-callback
+   (lambda (error)
+     (funcall callback nil (format "Cannot load %s: %s" path (plist-get error :message))))))
 
 (defun review-source-forgejo-pr (host owner repo number files &optional title)
   "Return a source for PR NUMBER of OWNER/REPO on HOST with FILES from the patch."
   (require 'forgejo-api)
   (let ((revisions nil))
-    (cl-flet ((with-revisions (k)
+    (cl-flet ((with-revisions (k failure)
                 (if revisions (funcall k revisions)
                   (forgejo-api-get
                    host (format "repos/%s/%s/pulls/%d" owner repo number) nil
                    (lambda (data _headers)
-                     (setq revisions (list (or (alist-get 'merge_base data)
-                                               (alist-get 'sha (alist-get 'base data)))
-                                           (alist-get 'sha (alist-get 'head data))))
-                     (unless (and (car revisions) (cadr revisions))
-                       (user-error "PR metadata has no source revisions"))
-                     (funcall k revisions))))))
+                     (let ((revs (list (or (alist-get 'merge_base data)
+                                           (alist-get 'sha (alist-get 'base data)))
+                                       (alist-get 'sha (alist-get 'head data)))))
+                       (if (and (stringp (car revs)) (stringp (cadr revs)))
+                           (progn (setq revisions revs) (funcall k revisions))
+                         (funcall failure "PR metadata has no source revisions"))))
+                   :error-callback
+                   (lambda (error)
+                     (funcall failure (format "Cannot load PR metadata: %s"
+                                              (plist-get error :message))))))))
       (make-review-source
        :name "forgejo" :title (or title (format "PR #%d" number))
        :directory default-directory
@@ -228,7 +241,8 @@ Revisions and index blobs are pinned when the file list is first read."
                     (lambda (revs)
                       (review-source-forgejo--fetch host owner repo path
                                                     (if (eq side 'old) (car revs) (cadr revs))
-                                                    blob callback))))))
+                                                    blob callback))
+                    (lambda (error) (funcall callback nil error))))))
        :origin (lambda (file start end)
                  (list :label (format "%s/%s#%d %s:%s" owner repo number
                                       (or (plist-get file :origin-path) (plist-get file :path))
