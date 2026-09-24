@@ -1,0 +1,23 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Keep the tablet's terminal attached across sleep/network interruptions.
+# Usage: emx-connect SSH_HOST DEVICE
+set -u
+
+host=${1:?Usage: emx-connect SSH_HOST DEVICE}
+device=${2:?Usage: emx-connect SSH_HOST DEVICE}
+[[ $device =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]] || exit 2
+
+pgrep -x sshd >/dev/null || sshd
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+while true; do
+  ssh -o BatchMode=yes -o ConnectTimeout=10 \
+    -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+    "$host" -t "/opt/homebrew/bin/emacsclient -t -e '(progn (set-frame-parameter (selected-frame) (quote device) (quote $device)) (mr-x/global-scratch) (delete-other-windows))'"
+  status=$?
+  # OpenSSH returns 255 for transport failures. Respect normal client exits.
+  [ "$status" -eq 255 ] || exit "$status"
+  printf 'Connection lost. Retrying in 5 seconds; Ctrl-C stops retries.\n'
+  sleep 5
+done

@@ -14,6 +14,12 @@ ssh boox 'mkdir -p ~/.termux ~/.emacs.d'
 scp -q "$HERE/termux/termux.properties" "$HERE/termux/colors.properties" boox:.termux/
 ssh boox 'termux-reload-settings 2>/dev/null || true'
 
+echo "==> reconnecting terminal client"
+ssh boox 'mkdir -p ~/.local/bin'
+scp -q "$HERE/termux/emx-connect" boox:.local/bin/emx-connect
+ssh boox 'chmod 700 ~/.local/bin/emx-connect'
+# The tablet's ~/.shortcuts/emx supplies its private SSH alias and device ID.
+
 echo "==> emacs init.el"
 scp -q "$HERE/emacs/init.el" boox:.emacs.d/init.el
 
