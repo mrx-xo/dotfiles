@@ -100,7 +100,10 @@ ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
 # + local a494545 (GET /api/diff-review: repository scope diffs index vs HEAD, tree vs index, untracked vs /dev/null; turn scope is an immutable snapshot the bridge captures around each phone prompt through a temporary index and object directory)
 # + local 3a9c82e (phone diff review view: This turn and Before commit tabs, wrapping reader with one number column and persistent Hide numbers, change navigation, THIS TURN card and Before commit row)
 # + local 0d798a2 (browser tests for the diff review at 393 and 320 wide; review overlay at body root above the history dock)
-ACP_MOBILE_COMMIT="0d798a225a07bb110cbf5afda1d3c797f5f33848"
+# + local 5b56838 (GET /api/git-status: branch plus staged, unstaged and untracked counts for a live session)
+# + local 5290b6c (chat header: project title with buffer ordinal, provider icon, model, mode word, branch with dirty dot; status via dimmed icon and a second load line)
+# + local a68ceac (pull-down chat toolbar: git, model, pinned, fork, clone, catalogue; Before commit bar removed; kebab trimmed)
+ACP_MOBILE_COMMIT="a68ceacd659d8da4b1b486520e5b05c48b7e6f77"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
