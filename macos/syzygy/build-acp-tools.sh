@@ -18,7 +18,9 @@ BIN_DIR="$HOME/.local/bin"
 # + local 050a7b4 (every matched prompt response closes its turn: errors, agent exit, failed forward; sessionId from the request; queued prompts share one open/close)
 # + local 0173b23 (explicit secondary replay start/complete markers before queued live delivery)
 # + local 39e79c8 (shut the agent down when the primary frontend disconnects; fixes orphaned codex-acp after an Emacs crash)
-ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
+# + local fdfb2cf (synthesize `[steer]` user chunk for `_session/steering`)
+# + local 9577ffd (fake-phone scripts and README)
+ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
