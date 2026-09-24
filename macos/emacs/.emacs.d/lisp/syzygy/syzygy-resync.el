@@ -121,9 +121,10 @@ out-of-turn `user_message_chunk' arrives (another client's turn)."
       (syzygy-resync--lock))))
 
 (defun syzygy-resync--guard-submit (orig &rest args)
-  "Refuse ORIG (`shell-maker-submit', ARGS) in a locked buffer.
-This runs before shell-maker commits the input, so aborting here
-leaves no half-sent state behind."
+  "Refuse ORIG submit with ARGS in a locked buffer.
+This guards both the initial `shell-maker-submit' path and
+`agent-shell--busy-submit' for queued or steered prompts."
+  ;; Refs and local commands stay on shell-maker-submit; this router sees cleared input.
   (if (syzygy-resync--locked-p)
       (user-error "%s is %d phone turn(s) behind — SPC c y re-syncs (C-u SPC c y unlocks)"
                   (buffer-name) syzygy-resync--behind)
@@ -143,6 +144,7 @@ here until the next reload."
 (advice-add 'agent-shell--make-out-of-session-turn-notification-body
             :before #'syzygy-resync--flag)
 (advice-add 'shell-maker-submit :around #'syzygy-resync--guard-submit)
+(advice-add 'agent-shell--busy-submit :around #'syzygy-resync--guard-submit)
 
 (provide 'syzygy-resync)
 ;;; syzygy-resync.el ends here
