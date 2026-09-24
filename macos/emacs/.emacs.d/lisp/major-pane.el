@@ -860,6 +860,34 @@ re-marks the window showing the active conversation and restores protection."
         (set-window-dedicated-p win 'soft))
       win)))
 
+(defun major-pane--fallback-buffer (win)
+  "Return a non-conversation buffer to show in WIN once the pane leaves it.
+Prefers WIN's own history, then any live non-conversation buffer, then
+*scratch*.  Plain `bury-buffer' would pick WIN's previous buffer, which
+for a pane window is usually just another conversation."
+  (let ((ok (lambda (b)
+              (and (buffer-live-p b)
+                   (not (minibufferp b))
+                   (not (string-prefix-p " " (buffer-name b)))
+                   (not (equal (buffer-name b) major-pane-launcher-buffer-name))
+                   (not (memq b (major-pane-state-conversations major-pane--state)))
+                   (not (with-current-buffer b (derived-mode-p 'agent-shell-mode)))))))
+    (or (seq-find ok (mapcar #'car (window-prev-buffers win)))
+        (seq-find ok (buffer-list (window-frame win)))
+        (get-scratch-buffer-create))))
+
+(defun major-pane--vacate-window (win)
+  "Stop WIN being the pane: strip chrome and dedication, then remove it.
+Deletes WIN, or, when it is its frame's only window, shows
+`major-pane--fallback-buffer' in it instead."
+  (set-window-parameter win 'major-pane nil)
+  (set-window-parameter win 'tab-line-format nil)
+  (set-window-parameter win 'header-line-format nil)
+  (set-window-dedicated-p win nil)
+  (if (eq win (frame-root-window (window-frame win)))
+      (set-window-buffer win (major-pane--fallback-buffer win))
+    (delete-window win)))
+
 (defun major-pane--relocate-from-other-frame ()
   "Remove the pane window when it lives on a frame other than the selected one.
 Strips chrome/dedication and deletes the window (or buries the buffer
@@ -871,13 +899,7 @@ Refuses to move a pane that sits on `major-pane-home-frame'."
         (home (major-pane--home-frame)))
     (when (and win (not (eq (window-frame win) (selected-frame)))
                (not (and home (eq (window-frame win) home))))
-      (set-window-parameter win 'major-pane nil)
-      (set-window-parameter win 'tab-line-format nil)
-      (set-window-parameter win 'header-line-format nil)
-      (set-window-dedicated-p win nil)
-      (if (eq win (frame-root-window (window-frame win)))
-          (with-selected-window win (bury-buffer))
-        (delete-window win))
+      (major-pane--vacate-window win)
       t)))
 
 (defun major-pane--banner-for-tab-line (fmt)
@@ -1940,9 +1962,7 @@ After killing, shows the next conversation or hides the pane."
           (progn (set-window-buffer win next)
                  (set-window-dedicated-p win 'soft))
         (setf (major-pane-state-mode major-pane--state) 'hidden)
-        (if (eq win (frame-root-window (window-frame win)))
-            (with-selected-window win (bury-buffer))
-          (delete-window win))))))
+        (major-pane--vacate-window win)))))
 
 ;;;###autoload
 (defun major-pane-close-conversation ()
@@ -1965,9 +1985,7 @@ Otherwise, prompts with the picker."
         (kill-buffer buf)))
     (setf (major-pane-state-mode major-pane--state) 'hidden)
     (when (and win (window-live-p win))
-      (if (eq win (frame-root-window (window-frame win)))
-          (with-selected-window win (bury-buffer))
-        (delete-window win)))))
+      (major-pane--vacate-window win))))
 
 ;;; Eject / adopt
 ;;
@@ -2543,9 +2561,7 @@ the window that was active before the pane was shown."
      (win
       (setf (major-pane-state-active major-pane--state) buf
             (major-pane-state-mode major-pane--state) 'hidden)
-      (if (eq win (frame-root-window (window-frame win)))
-          (with-selected-window win (bury-buffer))
-        (delete-window win))
+      (major-pane--vacate-window win)
       ;; Restore focus to the window that was active before showing.
       (let ((lw (major-pane-state-last-window major-pane--state)))
         (when (and lw (window-live-p lw))
