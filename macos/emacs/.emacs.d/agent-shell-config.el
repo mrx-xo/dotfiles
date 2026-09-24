@@ -1243,25 +1243,42 @@ coming from the provider untouched."
                   :around #'mr-x/agent-shell-inject-local-commands)
 
       ;; Intercept local commands on submit
+      (defun mr-x/agent-shell--local-command-handler (input)
+        "Return the local command handler named by INPUT, or nil."
+        (when (string-prefix-p "/" input)
+          (let* ((cmd (cadr (split-string input "/")))
+                 (cmd-name (car (split-string cmd " "))))
+            (cdr (assoc cmd-name mr-x/agent-shell-local-commands)))))
+
       (defun mr-x/agent-shell-intercept-local-commands (orig-fun &rest args)
         "Run local command instead of sending to Claude."
         (let* ((prompt-start (save-excursion
                                (goto-char (point-max))
                                (re-search-backward comint-prompt-regexp nil t)
                                (match-end 0)))
-               (input (buffer-substring-no-properties prompt-start (point-max))))
-          (if (and (string-prefix-p "/" input)
-                   (let* ((cmd (cadr (split-string input "/")))
-                          (cmd-name (car (split-string cmd " ")))
-                          (handler (cdr (assoc cmd-name mr-x/agent-shell-local-commands))))
-                     (when handler
-                       (delete-region prompt-start (point-max))
-                       (funcall handler)
-                       t)))
-              nil
-            (apply orig-fun args))))
+               (input (buffer-substring-no-properties prompt-start (point-max)))
+               (handler (mr-x/agent-shell--local-command-handler input)))
+          (if (not handler)
+              (apply orig-fun args)
+            (delete-region prompt-start (point-max))
+            (funcall handler)
+            nil)))
 
-      (advice-add 'shell-maker-submit :around #'mr-x/agent-shell-intercept-local-commands))
+      (defun mr-x/agent-shell-intercept-busy-local-commands (orig-fun &rest args)
+        "Run a local command instead of routing a busy prompt to the agent."
+        (if-let* ((handler (mr-x/agent-shell--local-command-handler
+                            (plist-get args :prompt))))
+            (progn
+              (funcall handler)
+              t)
+          (apply orig-fun args)))
+
+      (advice-add 'shell-maker-submit :around
+                  #'mr-x/agent-shell-intercept-local-commands
+                  '((depth . -50)))
+      (advice-add 'agent-shell--busy-submit :around
+                  #'mr-x/agent-shell-intercept-busy-local-commands
+                  '((depth . -50))))
 
       ;; Delta-powered syntax highlighting for agent-shell diffs
       (with-eval-after-load 'agent-shell-diff
