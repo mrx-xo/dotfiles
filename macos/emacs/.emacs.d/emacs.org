@@ -4801,10 +4801,6 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c ," '(:ignore t :wk "Prompts")
         "c , p" '(agent-shell-prompt-compose :wk "Compose prompt")
         "c , r" '(mr-x/agent-shell-test-prompt :wk "Random test prompt")
-        "c , t" '(:ignore t :wk "Taskmaster")
-        "c , t n" '(mr-x/taskmaster-next-task :wk "Next task")
-        "c , t s" '(mr-x/taskmaster-summary :wk "Summary")
-        "c , t a" '(mr-x/taskmaster-add-task :wk "Add task")
         "c p" '(mr-x/agent-shell-apply-preset :wk "Preset → current shell")
         "c r" '(mr-x/agent-send-region-no-switch :wk "Send region (stay)")
         "c R" '(mr-x/agent-send-region :wk "Send region (go)")
@@ -9945,85 +9941,6 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                 (select-window ai-window)
               (mr-x/agent-shell-toggle))))
 
-        (defun mr-x/taskmaster-next-task ()
-          "Ask agent-shell for the next taskmaster task."
-          (interactive)
-          (mr-x/focus-ai-window)
-          (goto-char (point-max))
-          (insert "What's the next task?")
-          (shell-maker-submit))
-
-        (defun mr-x/taskmaster-summary ()
-          "Ask for a summary of taskmaster tags and status."
-          (interactive)
-          (mr-x/focus-ai-window)
-          (goto-char (point-max))
-          (insert "Please provide a succinct summary of the current taskmaster tags and their corresponding status.")
-          (shell-maker-submit))
-
-        (defun mr-x/taskmaster-get-project-root ()
-          "Get project root, prompting if detection fails."
-          (let ((root (projectile-project-root)))
-            (if (and root (not (string-match-p "roaming/$\\|roaming/projects/$" root)))
-                root
-              (read-directory-name "Select project root: "))))
-
-        (defun mr-x/taskmaster-get-tags (project-root)
-          "Get list of Task Master tags for PROJECT-ROOT.
-    Parses tasks.json directly instead of using CLI."
-          (let ((tasks-file (expand-file-name ".taskmaster/tasks/tasks.json" project-root)))
-            (if (file-exists-p tasks-file)
-                (condition-case nil
-                    (let* ((json-object-type 'alist)
-                           (json-key-type 'symbol)
-                           (data (json-read-file tasks-file)))
-                      (or (mapcar (lambda (entry) (symbol-name (car entry))) data)
-                          '("master")))
-                  (error '("master")))
-              '("master"))))
-
-        (defun mr-x/get-agent-shell-for-project (project-root)
-          "Get agent-shell buffer for PROJECT-ROOT, or prompt to select."
-          (let* ((all-shells (seq-filter
-                              (lambda (b)
-                                (with-current-buffer b (eq major-mode 'agent-shell-mode)))
-                              (buffer-list)))
-                 (project-shell (seq-find
-                                 (lambda (b)
-                                   (string-prefix-p project-root
-                                                    (buffer-local-value 'default-directory b)))
-                                 all-shells)))
-            (cond
-             (project-shell project-shell)
-             ((= (length all-shells) 1) (car all-shells))
-             ((> (length all-shells) 1)
-              (get-buffer (completing-read "Select agent-shell: " (mapcar #'buffer-name all-shells))))
-             (t (error "No agent-shell buffers found. Start one first.")))))
-
-        (defun mr-x/taskmaster-add-task ()
-          "Add a new task to Task Master via agent-shell."
-          (interactive)
-          (let* ((project-root (mr-x/taskmaster-get-project-root))
-                 (tags (mr-x/taskmaster-get-tags project-root))
-                 (selected-tag (completing-read "Select tag: " tags))
-                 (task-description (condition-case nil
-                                       (mr-x/ask-user-popup
-                                        "Task description"
-                                        (format "Adding task to **%s** tag in `%s`"
-                                                selected-tag (file-name-nondirectory
-                                                              (directory-file-name project-root))))
-                                     (error nil)))
-                 (shell-buffer (when task-description
-                                 (mr-x/get-agent-shell-for-project project-root))))
-            (when shell-buffer
-              (with-current-buffer shell-buffer
-                (goto-char (point-max))
-                (insert (format "Use mcp__task-master-ai__add_task with tag=\"%s\" to add this task: %s"
-                                selected-tag task-description))
-                (shell-maker-submit))
-              (message "Task submitted to %s" (buffer-name shell-buffer)))))
-
-
         (defun mr-x/agent-shell-test-prompt ()
           "Send a random test prompt to exercise agent-shell functionality."
           (interactive)
@@ -10507,8 +10424,8 @@ with  secret --cache \"gemini-api-token\"."
                "GOOSE_TOOLSHIM_OLLAMA_MODEL" "llama3.2:3b"))
 
         ;; Start Goose with a CLEAN, minimal toolset. agent-shell injects the
-        ;; global `agent-shell-mcp-servers' (task-master-ai & friends = 30+
-        ;; tools) into every session; small models drown in a big tool list and
+        ;; global `agent-shell-mcp-servers' (ask-user, chrome-devtools
+        ;; and friends) into every session; small models drown in a big tool list and
         ;; pick the wrong tool. Suppress it so qwen sees only the ~5 developer
         ;; tools (shell/read/write/edit/tree).
         (defun mr-x/goose-local-start ()
@@ -10527,17 +10444,13 @@ with  secret --cache \"gemini-api-token\"."
 
 
 
-        ;; MCP Servers - taskmaster for task management
+        ;; MCP Servers injected into every agent-shell session
         ;; Stdio transport requires: name, command, args, env
         ;; env must be a vector [] for proper JSON array serialization
+        ;; task-master-ai removed 2026-09-23: unused, and one copy per session
+        ;; cost ~60 MB each.
         (setq agent-shell-mcp-servers
-              `(((name . "task-master-ai")
-                 (command . "npx")
-                 (args . ["-y" "--package=task-master-ai" "task-master-ai"])
-                 (env . [((name . "TASK_MASTER_TOOLS") (value . "all"))]))
-
-
-    	    ((name . "ask-user")
+              `(((name . "ask-user")
     	     (command . "node")
     	     (args . ["/Users/marcosandrade/roaming/projects/MCP servers/ask-user-mcp/build/index.js"])
     	     (env . []))
