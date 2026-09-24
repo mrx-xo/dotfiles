@@ -516,5 +516,50 @@ No chat exists, so parking lands on the project scope."
   (should (eq (lookup-key syzygy-park-list-mode-map (kbd "C-c H")) #'syzygy-park-list-ask-all-here))
   (should (eq (lookup-key syzygy-park-list-mode-map (kbd "C-c F")) #'syzygy-park-list-ask-all-fork)))
 
+(require 'review-session)
+(require 'review-session-test)
+
+(ert-deftest syzygy-park-review-origin-maps-region-to-source-lines ()
+  (save-window-excursion
+    (let ((s (review-session-start (review-session-test--source review-session-test--spec))))
+      (unwind-protect
+          (with-current-buffer (review-session-new-buffer s)
+            (goto-char (point-min)) (forward-line 1)
+            (push-mark (point) t t)
+            (goto-char (point-max))
+            (let ((origin (syzygy-park--origin)))
+              (should (equal (plist-get origin :label) "a.el:2-2"))))
+        (review-session-quit)))))
+
+
+(ert-deftest syzygy-park-review-old-region-skips-padding-and-keeps-rename ()
+  (save-window-excursion
+    (let ((transient-mark-mode t)
+          (s (review-session-start
+              (review-session-test--source
+               '(("new.txt" renamed "a\nb\n" "a\nB\nextra\n"))))))
+      (unwind-protect
+          (progn
+            (setf (review-source-origin (review-session-source s))
+                  (lambda (file start end)
+                    (list :label (format "%s:%d-%d"
+                                         (plist-get file :origin-path) start end))))
+            (let ((file (review-session-file s)))
+              (plist-put file :old-path "old.txt"))
+            (with-current-buffer (review-session-old-buffer s)
+              (goto-char (point-min)) (forward-line 1)
+              (push-mark (point) t t) (goto-char (point-max))
+              (should (equal (plist-get (syzygy-park--origin) :label) "old.txt:2-2"))
+              (should (equal (syzygy-park--region-context) "b"))))
+        (review-session-quit)))))
+
+(ert-deftest syzygy-park-review-panel-origin-uses-file-at-point ()
+  (require 'review-panel)
+  (review-session-test--with s
+    (review-panel-open s)
+    (with-current-buffer (review-session-panel s)
+      (goto-char (point-min)) (re-search-forward "b\\.el")
+      (should (equal (plist-get (syzygy-park--origin) :label) "b.el:1-1")))))
+
 (provide 'syzygy-park-test)
 ;;; syzygy-park-test.el ends here

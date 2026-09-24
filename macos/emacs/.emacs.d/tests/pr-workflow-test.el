@@ -183,4 +183,41 @@
       (should-error (mr-x/pr-merge) :type 'user-error)
       (should-not pulled))))
 
+(require 'review-source-test)
+
+(ert-deftest pr-workflow-review-session-builds-forgejo-source ()
+  (review-source-test--with-patch
+    (let (started)
+      (cl-letf (((symbol-function 'review-session-start) (lambda (src) (setq started src) nil))
+                ((symbol-function 'review-panel-open) #'ignore))
+        (mr-x/pr-review-session)
+        (should (equal (review-source-name started) "forgejo"))
+        (should (equal (review-source-range-label started) "team/project#41"))
+        (should (equal (length (funcall (review-source-files started))) 4))))))
+
+(ert-deftest pr-workflow-review-session-rejects-non-forgejo-buffer ()
+  (with-temp-buffer
+    (should-error (mr-x/pr-review-session) :type 'user-error)))
+
+(ert-deftest pr-workflow-review-git-range-prompts-and-starts ()
+  (let (started)
+    (cl-letf (((symbol-function 'review-session-start) (lambda (src) (setq started src) nil))
+              ((symbol-function 'review-panel-open) #'ignore)
+              ((symbol-function 'magit-toplevel) (lambda (&rest _) "/tmp/repo/"))
+              ((symbol-function 'read-string) (lambda (&rest _) "main...HEAD")))
+      (mr-x/review-git-range)
+      (should (equal (review-source-name started) "git"))
+      (should (equal (review-source-range-label started) "main...HEAD")))))
+
+(ert-deftest pr-workflow-menu-has-session-keys-and-no-folding ()
+  (should (fboundp 'mr-x/pr-review-session))
+  (should (fboundp 'mr-x/review-git-range))
+  (should (transient-get-suffix 'mr-x/pr-menu "s"))
+  (should (transient-get-suffix 'mr-x/pr-menu "G"))
+  ;; `g' stays Refresh; the range review must not shadow it.
+  (should (eq (plist-get (cdr (transient-get-suffix 'mr-x/pr-menu "g")) :command)
+              'mr-x/pr-refresh))
+  (should-not (fboundp 'mr-x/pr-diff-files))
+  (should-not (fboundp 'mr-x/pr-diff-toggle-file)))
+
 (provide 'pr-workflow-test)
