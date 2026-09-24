@@ -59,5 +59,71 @@
       (should (equal syzygy-busy-submit-test--calls
                      '((:prompt "after-stream" :override nil)))))))
 
+(defun syzygy-busy-submit-test--notification (kind)
+  "Return a minimal ACP notification whose update has KIND."
+  `((method . "session/update")
+    (params . ((update . ((sessionUpdate . ,kind)
+                          (content . ((text . "phone prompt")))))))))
+
+(defun syzygy-busy-submit-test--state (buffer)
+  "Return a mutable agent-shell state for BUFFER."
+  (let ((state (make-hash-table :test #'eq)))
+    (puthash :buffer buffer state)
+    state))
+
+(ert-deftest syzygy-live-idle-session-info-does-not-arm-submit-guard ()
+  "An unconditional last-rx update must make this test fail."
+  (with-temp-buffer
+    (let ((state (syzygy-busy-submit-test--state (current-buffer))))
+      (setq-local syzygy-live-mode t)
+      (setq-local syzygy-live--last-rx nil)
+      (setq-local syzygy-live--remote-turn-active nil)
+      (cl-letf (((symbol-function 'agent-shell--active-requests-p)
+                 (lambda (_) nil)))
+        (syzygy-live--on-notification
+         (lambda (&rest _) :passed)
+         :state state
+         :acp-notification
+         (syzygy-busy-submit-test--notification "session_info_update")))
+      (should-not syzygy-live--last-rx))))
+
+(ert-deftest syzygy-live-out-of-turn-user-chunk-arms-submit-guard ()
+  "A phone prompt must timestamp the live submit guard."
+  (with-temp-buffer
+    (let ((state (syzygy-busy-submit-test--state (current-buffer))))
+      (setq-local syzygy-live-mode t)
+      (setq-local syzygy-live--last-rx nil)
+      (setq-local syzygy-live--remote-turn-active nil)
+      (cl-letf (((symbol-function 'agent-shell--active-requests-p)
+                 (lambda (_) nil))
+                ((symbol-function 'agent-shell--update-fragment)
+                 (lambda (&rest _) nil))
+                ((symbol-function 'syzygy-live--apply-phone-bar)
+                 (lambda (&rest _) nil))
+                ((symbol-function 'syzygy-live--sync-prompt-mark)
+                 (lambda () nil)))
+        (syzygy-live--on-notification
+         (lambda (&rest _) :passed)
+         :state state
+         :acp-notification
+         (syzygy-busy-submit-test--notification "user_message_chunk")))
+      (should (numberp syzygy-live--last-rx)))))
+
+(ert-deftest syzygy-live-active-remote-turn-chunk-arms-submit-guard ()
+  "Any update during a known phone turn must refresh the guard timestamp."
+  (with-temp-buffer
+    (let ((state (syzygy-busy-submit-test--state (current-buffer))))
+      (setq-local syzygy-live-mode t)
+      (setq-local syzygy-live--last-rx nil)
+      (setq-local syzygy-live--remote-turn-active t)
+      (cl-letf (((symbol-function 'agent-shell--active-requests-p)
+                 (lambda (_) nil)))
+        (syzygy-live--on-notification
+         (lambda (&rest _) :passed)
+         :state state
+         :acp-notification
+         (syzygy-busy-submit-test--notification "session_info_update")))
+      (should (numberp syzygy-live--last-rx)))))
+
 (provide 'syzygy-busy-submit-test)
 ;;; syzygy-busy-submit-test.el ends here
