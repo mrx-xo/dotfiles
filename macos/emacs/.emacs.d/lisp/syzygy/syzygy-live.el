@@ -244,7 +244,10 @@ ORIG and ARGS as in the advised function."
                   (buffer-local-value 'syzygy-live-mode buf)))
         (apply orig args)
       (with-current-buffer buf
-        (unless (agent-shell--active-requests-p state)
+        (when (and (not (agent-shell--active-requests-p state))
+                   (or (syzygy-live--out-of-turn-user-chunk-p
+                        state notification)
+                       syzygy-live--remote-turn-active))
           (setq syzygy-live--last-rx (float-time)))
         (if (not (syzygy-live--out-of-turn-user-chunk-p state notification))
             (apply orig args)
