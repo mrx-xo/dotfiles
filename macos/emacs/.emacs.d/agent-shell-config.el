@@ -990,6 +990,9 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                "CLAUDE_CODE_EXECUTABLE" (or (executable-find "claude")
                                             (expand-file-name "~/.local/bin/claude"))
                :inherit-env t))
+        ;; Chat mode is a cosmetic relabel Marcos declined on 2026-09-23.
+        ;; The persistent prompt stays on at its upstream default.
+        (setq agent-shell-chat-mode-enabled nil)
         ;; Launch the agent through acp-multiplex so this agent-shell session
         ;; becomes the multiplex PRIMARY: the proxy exposes a Unix socket that
         ;; acp-mobile discovers, letting the phone/Air attach to the same live
