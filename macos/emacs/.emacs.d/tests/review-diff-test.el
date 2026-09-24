@@ -1,0 +1,65 @@
+;;; review-diff-test.el --- Aligned rows and hunks from two texts -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'review-diff)
+
+(ert-deftest review-diff-ops-modified-block ()
+  (let ((ops (review-diff-ops "a\nb\nc\nd\n" "a\nB\nC\nd\n")))
+    (should (equal (mapcar (lambda (o) (plist-get o :kind)) ops) '(ctx del del add add ctx)))
+    (should (equal (plist-get (nth 1 ops) :old) 2))
+    (should (equal (plist-get (nth 3 ops) :new) 2))
+    (should (equal (plist-get (nth 5 ops) :old) 4))
+    (should (equal (plist-get (nth 5 ops) :new) 4))))
+
+(ert-deftest review-diff-ops-no-trailing-newline-is-not-a-row ()
+  (let ((ops (review-diff-ops "a\nb" "a\nc")))
+    (should (equal (mapcar (lambda (o) (plist-get o :text)) ops) '("a" "b" "c")))
+    (should-not (seq-some (lambda (o) (string-match-p "No newline" (plist-get o :text))) ops))))
+
+(ert-deftest review-diff-rows-pair-del-with-add ()
+  (let ((rows (review-diff-rows (review-diff-ops "a\nb\nc\n" "a\nX\nY\nZ\nc\n"))))
+    (should (equal (mapcar (lambda (r) (plist-get r :kind)) rows) '(ctx both add add ctx)))
+    (should (equal (plist-get (nth 1 rows) :old) "b"))
+    (should (equal (plist-get (nth 1 rows) :new) "X"))
+    (should (null (plist-get (nth 2 rows) :old-no)))
+    (should (equal (plist-get (nth 2 rows) :new-no) 3))))
+
+(ert-deftest review-diff-rows-added-file-is-all-adds ()
+  (let ((rows (review-diff-rows (review-diff-ops "" "x\ny\n"))))
+    (should (equal (length rows) 2))
+    (should (seq-every-p (lambda (r) (and (eq (plist-get r :kind) 'add) (null (plist-get r :old)))) rows))))
+
+(ert-deftest review-diff-rows-deleted-file-is-all-dels ()
+  (let ((rows (review-diff-rows (review-diff-ops "x\ny\n" ""))))
+    (should (equal (length rows) 2))
+    (should (seq-every-p (lambda (r) (eq (plist-get r :kind) 'del)) rows))))
+
+(ert-deftest review-diff-hunks-split-on-context-gap ()
+  (let* ((old (mapconcat #'number-to-string (number-sequence 1 30) "\n"))
+         (new (replace-regexp-in-string "^5$" "five" (replace-regexp-in-string "^25$" "twentyfive" old t) t))
+         (rows (review-diff-rows (review-diff-ops (concat old "\n") (concat new "\n"))))
+         (hunks (review-diff-hunks rows 3)))
+    (should (equal (length hunks) 2))
+    (should (equal (plist-get (car hunks) :old-start) 5))
+    (should (equal (plist-get (car hunks) :old-count) 1))
+    (should (equal (plist-get (cadr hunks) :new-start) 25))))
+
+(ert-deftest review-diff-hunks-merge-when-within-context ()
+  (let* ((rows (review-diff-rows (review-diff-ops "a\nb\nc\nd\ne\nf\n" "A\nb\nc\nd\nE\nf\n")))
+         (hunks (review-diff-hunks rows 3)))
+    (should (equal (length hunks) 1))
+    (should (equal (plist-get (car hunks) :start) 0))
+    (should (equal (plist-get (car hunks) :end) 4))))
+
+(ert-deftest review-diff-hunks-none-when-identical ()
+  (should (null (review-diff-hunks (review-diff-rows (review-diff-ops "a\n" "a\n"))))))
+
+(ert-deftest review-diff-label-finds-enclosing-defun ()
+  (let ((lines '("(require 'x)" "" "(defun foo ()" "  (bar)" "  (baz))" "" "(defun qux ()" "  1)")))
+    (should (equal (review-diff-label lines 4) "(defun foo ()"))
+    (should (equal (review-diff-label lines 7) "(defun qux ()"))
+    (should (equal (review-diff-label lines 0) ""))))
+
+(ert-deftest review-diff-label-markdown-heading ()
+  (should (equal (review-diff-label '("# Title" "text" "## Part" "more") 3) "## Part")))
+
+(provide 'review-diff-test)
