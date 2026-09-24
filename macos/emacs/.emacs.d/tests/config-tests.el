@@ -411,6 +411,19 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
     (should (equal (plist-get seen :command)
                    (car agent-shell-openai-codex-acp-command)))))
 
+(ert-deftest config-test-codex-account-resume-from-transcript-header ()
+  "A \"Codex B\" transcript resumes on account B; others fall through."
+  (require 'agent-shell-openai)
+  (let ((header nil))
+    (cl-letf (((symbol-function 'agent-recall--read-agent-name)
+               (lambda (_file) header)))
+      (setq header "Codex B")
+      (let ((config (mr-x/agent-shell--codex-account-config-for-transcript "x")))
+        (should (equal (alist-get :buffer-name config) "Codex B")))
+      (dolist (h '("Codex" "Codex main" "Claude Code" "Codex nope" nil))
+        (setq header h)
+        (should-not (mr-x/agent-shell--codex-account-config-for-transcript "x"))))))
+
 (ert-deftest config-test-codex-account-prompt-only-for-codex-presets ()
   "Only Codex presets ask for an account; RET picks the first, 2 the second."
   (should (mr-x/agent-shell--codex-preset-p (assq ?c mr-x/agent-shell-presets)))
