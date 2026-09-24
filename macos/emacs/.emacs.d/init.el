@@ -1847,12 +1847,24 @@ With multiple FILES, searches them together via `consult-line-multi'."
     "Heading-level lookup across mdox FILES via `consult-org-heading'.
 Candidates are org headings (with outline breadcrumbs), not body lines —
 for docs where the heading names the concept.  Same popup/quit contract
-as `mr-x/mdox-lookup'."
+as `mr-x/mdox-lookup'.
+RET opens the hit's body; C-RET opens its whole subtree."
     (let ((wconf (current-window-configuration))
-          (bufs (mr-x/mdox--prep-buffers files)))
+          (bufs (mr-x/mdox--prep-buffers files))
+          (subtree nil))
       (mr-x/mdox--display (car bufs))
       (condition-case nil
-          (consult-org-heading nil (mapcar #'expand-file-name files))
+          (progn
+            (minibuffer-with-setup-hook
+                (lambda ()
+                  (let ((map (make-sparse-keymap)))
+                    (define-key map (kbd "C-<return>")
+                                (lambda () (interactive)
+                                  (setq subtree t)
+                                  (exit-minibuffer)))
+                    (use-local-map (make-composed-keymap map (current-local-map)))))
+              (consult-org-heading nil (mapcar #'expand-file-name files)))
+            (if subtree (org-fold-show-subtree) (org-fold-show-entry)))
         (quit (set-window-configuration wconf)))))
 
   (defun mr-x/rig-lookup (&optional arg)
@@ -4297,6 +4309,27 @@ app-server' reads that home, and whose buffer carries the account name."
                      :context-buffer buffer)))
             config)))
 
+      ;; A non-main account's transcript header reads "Codex B", which no
+      ;; registered config matches, so agent-recall would fall back to the
+      ;; agent picker and then resume under the wrong CODEX_HOME (where the
+      ;; rollout does not exist).  Map the header back to its account.
+      (defun mr-x/agent-shell--codex-account-config-for-transcript (file)
+        "Return the Codex account config for transcript FILE, or nil.
+Matches an Agent header of the form \"Codex NAME\" against
+`mr-x/agent-shell-codex-accounts'."
+        (when-let* ((agent (and (fboundp 'agent-recall--read-agent-name)
+                                (agent-recall--read-agent-name file)))
+                    ((string-match "\\`Codex \\(.+\\)\\'" agent))
+                    (account (assoc (match-string 1 agent)
+                                    mr-x/agent-shell-codex-accounts))
+                    ((cdr account)))
+          (require 'agent-shell-openai)
+          (mr-x/agent-shell--config-for-codex-account
+           (agent-shell-openai-make-codex-config) account)))
+
+      (advice-add 'agent-recall--agent-config-for-transcript :before-until
+                  #'mr-x/agent-shell--codex-account-config-for-transcript)
+
       (defvar mr-x/agent-shell-presets
         '((?f "Fable 5.1 · Full" "fable[1m]"           "bypassPermissions")
           (?o "Opus 5.5 · Full"  "opus[1m]"            "bypassPermissions")
@@ -4320,6 +4353,23 @@ CONFIG-FN, when present, names the agent-config constructor to base the
 shell on (e.g. Codex) instead of the preferred (Claude) config.
 EFFORT, when present, is sent as the `reasoning_effort' config option
 once the session is up (Codex-only concept).")
+
+      (defun mr-x/agent-shell--set-effort (effort &optional on-success)
+        "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
+Found by ACP category `thought_level', not id: Claude and OpenCode name
+the option \"effort\", Codex \"reasoning_effort\".  Errors when the
+agent has no such option or does not offer EFFORT."
+        (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
+                                                           "thought_level")))
+          (unless opt (user-error "This agent has no effort setting"))
+          (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
+                            (map-elt opt :options))
+            (user-error "Effort %s not offered here" effort))
+          (if (equal effort (map-elt opt :current-value))
+              (when on-success (funcall on-success))
+            (agent-shell--set-session-config-option
+             :config-id (map-elt opt :id) :value effort
+             :on-success on-success))))
 
       (defun mr-x/agent-shell--set-effort-when-ready (buf effort tries)
         "Set BUF's `reasoning_effort' config option to EFFORT once its
@@ -4353,23 +4403,6 @@ original is left untouched."
 
       ;; ── Preset picker rendering ──────────────────────────
       ;; One row per vendor, keys bold, vendor in its palette hue, mode word
-      (defun mr-x/agent-shell--set-effort (effort &optional on-success)
-        "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
-Found by ACP category `thought_level', not id: Claude and OpenCode name
-the option \"effort\", Codex \"reasoning_effort\".  Errors when the
-agent has no such option or does not offer EFFORT."
-        (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
-                                                           "thought_level")))
-          (unless opt (user-error "This agent has no effort setting"))
-          (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
-                            (map-elt opt :options))
-            (user-error "Effort %s not offered here" effort))
-          (if (equal effort (map-elt opt :current-value))
-              (when on-success (funcall on-success))
-            (agent-shell--set-session-config-option
-             :config-id (map-elt opt :id) :value effort
-             :on-success on-success))))
-
       ;; colored by how much rope it gives the agent.  Rows come from each
       ;; preset's config constructor, so a new preset lands in its row on
       ;; its own.  The question sits on the last line where the cursor is.
@@ -4389,6 +4422,17 @@ agent has no such option or does not offer EFFORT."
           ('agent-shell-opencode-make-agent-config 'opencode)
           ('mr-x/agent-shell-make-deepseek-config 'deepseek)
           (_ 'other)))
+
+      (defun mr-x/agent-shell--buffer-vendor ()
+        "Vendor symbol for the current chat, matching `mr-x/agent-shell--preset-vendor'.
+DeepSeek runs on the Claude adapter, so only its mode-line name tells."
+        (let ((config (map-elt (agent-shell--state) :agent-config)))
+          (pcase (map-elt config :identifier)
+            ('claude-code (if (equal (map-elt config :mode-line-name) "DeepSeek")
+                              'deepseek 'claude))
+            ('codex 'codex)
+            ('opencode 'opencode)
+            (_ 'other))))
 
       (defun mr-x/agent-shell--preset-mode-word (mode-id)
         "Short lowercase word for session MODE-ID.
@@ -4419,17 +4463,6 @@ and the SPC c m keys cannot drift apart."
                   (propertize word 'face
                               `(:foreground ,(mr-x/color
                                               (mr-x/agent-shell--preset-mode-color word)))))))
-
-      (defun mr-x/agent-shell--buffer-vendor ()
-        "Vendor symbol for the current chat, matching `mr-x/agent-shell--preset-vendor'.
-DeepSeek runs on the Claude adapter, so only its mode-line name tells."
-        (let ((config (map-elt (agent-shell--state) :agent-config)))
-          (pcase (map-elt config :identifier)
-            ('claude-code (if (equal (map-elt config :mode-line-name) "DeepSeek")
-                              'deepseek 'claude))
-            ('codex 'codex)
-            ('opencode 'opencode)
-            (_ 'other))))
 
       (defun mr-x/agent-shell--preset-prompt (question)
         "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
@@ -4515,6 +4548,13 @@ set the model first, then the mode, then report the applied preset."
                (word (mr-x/agent-shell--preset-mode-word (nth 3 preset)))
                (effort (nth 5 preset))
                (buffer (current-buffer)))
+          ;; A preset names one vendor's ids; another vendor's chat would
+          ;; reject them.  Switching agents needs a new shell.
+          (unless (eq (mr-x/agent-shell--preset-vendor preset)
+                      (mr-x/agent-shell--buffer-vendor))
+            (user-error "%s is a %s preset; this chat is %s.  Use SPC c P for a new shell"
+                        label (mr-x/agent-shell--preset-vendor preset)
+                        (mr-x/agent-shell--buffer-vendor)))
           (agent-shell--config-option-set-model-id
            :model-id model-id
            :on-success
@@ -4547,13 +4587,6 @@ path typed by hand is accepted.  Returns an expanded directory."
                ;; projectile projects not already in dashboard (skip remote/TRAMP)
                (extra (cl-remove-if (lambda (p) (or (file-remote-p p)
                                                     (member (expand-file-name p) dash-paths)))
-          ;; A preset names one vendor's ids; another vendor's chat would
-          ;; reject them.  Switching agents needs a new shell.
-          (unless (eq (mr-x/agent-shell--preset-vendor preset)
-                      (mr-x/agent-shell--buffer-vendor))
-            (user-error "%s is a %s preset; this chat is %s.  Use SPC c P for a new shell"
-                        label (mr-x/agent-shell--preset-vendor preset)
-                        (mr-x/agent-shell--buffer-vendor)))
                                     projectile-known-projects))
                ;; build candidates: ((display . path) ...)
                (candidates (append
@@ -4711,6 +4744,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g G" '(mr-x/magit-status-side-window :wk "magit status (side window)")
         "g d" '(magit-diff-unstaged :wk "diff unstaged")
         "g D" '(difftastic-magit-diff :wk "structural diff (difftastic)")
+        "g s" '(diffview-current :wk "side-by-side patch")
         "g c" '(magit-branch-or-checkout :wk "branch or checkout")
         "g l" '(magit-log-current :wk "log current")
         "g L" '(magit-log-oneline :wk "log oneline")
@@ -6895,6 +6929,26 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :config
     (diff-hl-flydiff-mode 1))
 
+  ;; diffview — render a unified patch as aligned, read-only panes
+  (defun mr-x/diffview-visual-setup ()
+    "Give Diffview full-line contrast without changing global diff faces."
+    (setq-local truncate-lines t)
+    (face-remap-add-relative 'diff-added '(:background "#2e3b2e"))
+    (face-remap-add-relative 'diff-removed '(:background "#3b2626"))
+    (face-remap-add-relative 'diff-changed '(:background "#3b3520")))
+
+  (use-package diffview
+    :ensure t
+    :commands (diffview-current diffview-region diffview-message)
+    :hook (diffview-mode . mr-x/diffview-visual-setup)
+    :config
+    ;; Diffview defines these in its ordinary mode map, which Evil's normal
+    ;; state shadows.  Restore the package's intended review controls.
+    (evil-define-key 'normal diffview--mode-map (kbd "q") #'diffview--quit)
+    (evil-define-key 'normal diffview--mode-map (kbd "}") #'diffview--next-file)
+    (evil-define-key 'normal diffview--mode-map (kbd "{") #'diffview--prev-file)
+    (evil-define-key 'normal diffview--mode-map (kbd "l") #'diffview--align-windows))
+
   ;; treesit-fold — code folding via tree-sitter
   (use-package treesit-fold
     :ensure (:host github :repo "emacs-tree-sitter/treesit-fold")
@@ -7508,6 +7562,9 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     (define-key projectile-command-map (kbd "C-R") #'mr-x/clear-and-restart-dev-environment)
     ;; Load project-dashboard
     (require 'project-dashboard)
+    ;; `a' in a dashboard (and the Embark `a' action) asks for a launch
+    ;; preset, same as SPC c P, instead of a bare default shell.
+    (setq project-dashboard-agent-shell-function #'mr-x/agent-shell-start-preset)
     ;; Use project dashboard when switching projects (for other projectile commands)
     (setq projectile-switch-project-action #'project-dashboard--projectile-switch-action))
 
@@ -7529,9 +7586,6 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
           (compile (cdr (assoc name cmds))))
       (user-error "No project commands here (set mr-x/project-commands in .dir-locals.el)")))
 
-    ;; `a' in a dashboard (and the Embark `a' action) asks for a launch
-    ;; preset, same as SPC c P, instead of a bare default shell.
-    (setq project-dashboard-agent-shell-function #'mr-x/agent-shell-start-preset)
   (with-eval-after-load 'projectile
     (define-key projectile-command-map (kbd "RET") #'mr-x/project-command))
 
