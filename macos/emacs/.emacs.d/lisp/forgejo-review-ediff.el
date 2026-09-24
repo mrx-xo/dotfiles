@@ -24,41 +24,64 @@
        (bound-and-true-p forgejo-repo--host)
        (bound-and-true-p forgejo-diff--pr-number)))
 
-(defun mr-x/forgejo-ediff--sides ()
-  "Read old and new paths and blob IDs for the file at point.
-Reject binary and metadata-only entries rather than using the next file."
+(defun mr-x/forgejo-ediff--entry-at-point ()
+  "Parse the patch entry around point.
+Return (:sides (OLD NEW) :binary BOOL :start POS :end POS) where each side
+is (:path :blob :empty).  Signal when the entry has no blob IDs or paths."
   (save-excursion
     (save-restriction
       (beginning-of-line)
       (unless (looking-at "^diff --git ")
         (unless (re-search-backward "^diff --git " nil t)
           (user-error "Put point inside a file's diff first")))
-      (let ((start (point)))
+      (let ((start (point)) end)
         (forward-line)
-        (narrow-to-region start (if (re-search-forward "^diff --git " nil t)
-                                   (line-beginning-position) (point-max))))
-      (goto-char (point-min))
-      (unless (re-search-forward "^@@ " nil t)
-        (user-error "This entry has no text changes to compare (binary or metadata-only)"))
-      (let ((limit (line-beginning-position)) blobs paths)
+        (setq end (if (re-search-forward "^diff --git " nil t) (line-beginning-position) (point-max)))
+        (narrow-to-region start end)
         (goto-char (point-min))
-        (unless (re-search-forward "^index \\([[:xdigit:]]+\\)\\.\\.\\([[:xdigit:]]+\\)" limit t)
-          (user-error "This patch has no source blob IDs"))
-        (setq blobs (list (match-string-no-properties 1) (match-string-no-properties 2)))
-        (unless (re-search-forward "^--- \\([^\t\n]+\\).*\n\\+\\+\\+ \\([^\t\n]+\\)" limit t)
-          (user-error "This patch has no old/new file paths"))
-        (setq paths (list (match-string-no-properties 1) (match-string-no-properties 2)))
-        (cl-mapcar
-         (lambda (name blob)
-           (let* ((decoded (magit-decode-git-path name))
-                  (empty (equal decoded "/dev/null"))
-                  (path (if empty decoded (replace-regexp-in-string "\\`[ab]/" "" decoded))))
-             (unless (or empty
-                         (and (not (file-name-absolute-p path))
-                              (not (member ".." (split-string path "/")))))
-               (user-error "Invalid source path in patch"))
-             (list :path path :blob blob :empty empty)))
-         paths blobs)))))
+        (let ((binary (not (re-search-forward "^@@ " nil t)))
+              (limit (point)) blobs paths)
+          (goto-char (point-min))
+          ;; Pure renames and mode-only entries carry no index line.  They
+          ;; have no text to compare, so they get nil blobs rather than
+          ;; aborting the whole file list.
+          (if (re-search-forward "^index \\([[:xdigit:]]+\\)\\.\\.\\([[:xdigit:]]+\\)" (if binary (point-max) limit) t)
+              (setq blobs (list (match-string-no-properties 1) (match-string-no-properties 2)))
+            (if binary (setq blobs (list nil nil))
+              (user-error "This patch has no source blob IDs")))
+          (if binary
+              (progn
+                (goto-char (point-min))
+                (unless (re-search-forward
+                         "^diff --git \\(\\\"[^\n]*?\\\"\\|a/.*?\\) \\(\\\"[^\n]*\\\"\\|b/.*\\)$" nil t)
+                  (user-error "This patch has no old/new file paths"))
+                (setq paths (list (match-string-no-properties 1) (match-string-no-properties 2))))
+            (unless (re-search-forward "^--- \\([^\t\n]+\\).*\n\\+\\+\\+ \\([^\t\n]+\\)" limit t)
+              (user-error "This patch has no old/new file paths"))
+            (setq paths (list (match-string-no-properties 1) (match-string-no-properties 2))))
+          (list :start start :end end :binary binary
+                :sides
+                (cl-mapcar
+                 (lambda (name blob)
+                   (let* ((decoded (magit-decode-git-path name))
+                          (empty (or (equal decoded "/dev/null")
+                                     (and blob (string-match-p "\\`0+\\'" blob))))
+                          (path (if (equal decoded "/dev/null") decoded
+                                  (replace-regexp-in-string "\\`[ab]/" "" decoded))))
+                     (unless (or empty
+                                 (and (not (file-name-absolute-p path))
+                                      (not (member ".." (split-string path "/")))))
+                       (user-error "Invalid source path in patch"))
+                     (list :path path :blob blob :empty empty)))
+                 paths blobs)))))))
+
+(defun mr-x/forgejo-ediff--sides ()
+  "Read old and new paths and blob IDs for the file at point.
+Reject binary and metadata-only entries rather than using the next file."
+  (let ((entry (mr-x/forgejo-ediff--entry-at-point)))
+    (when (plist-get entry :binary)
+      (user-error "This entry has no text changes to compare (binary or metadata-only)"))
+    (plist-get entry :sides)))
 
 (defun mr-x/forgejo-ediff--buffer (path text side number)
   "Create a read-only, syntax-highlighted snapshot of PATH and TEXT.
