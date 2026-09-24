@@ -138,6 +138,7 @@
     (define-key m (kbd "M-j") #'review-session-next-hunk)
     (define-key m (kbd "M-k") #'review-session-prev-hunk)
     (define-key m (kbd "v") #'review-session-toggle-viewed)
+    (define-key m (kbd "u") #'syzygy-park)
     (define-key m (kbd "q") #'review-session-quit)
     m))
 
@@ -151,7 +152,8 @@
     (kbd "RET") #'review-panel-visit
     (kbd "C-j") #'review-session-next-file (kbd "C-k") #'review-session-prev-file
     (kbd "M-j") #'review-session-next-hunk (kbd "M-k") #'review-session-prev-hunk
-    (kbd "v") #'review-session-toggle-viewed (kbd "q") #'review-session-quit))
+    (kbd "v") #'review-session-toggle-viewed (kbd "q") #'review-session-quit
+    (kbd "u") #'syzygy-park))
 
 (defun review-panel--refresh (&optional session)
   "Re-render SESSION's panel, preserving its selected file or hunk."

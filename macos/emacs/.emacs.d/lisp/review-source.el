@@ -214,6 +214,7 @@ Revisions and index blobs are pinned when the file list is first read."
                      (funcall k revisions))))))
       (make-review-source
        :name "forgejo" :title (or title (format "PR #%d" number))
+       :directory default-directory
        :range-label (format "%s/%s#%d" owner repo number)
        :files (lambda () files)
        :text (lambda (file side callback)
@@ -229,7 +230,8 @@ Revisions and index blobs are pinned when the file list is first read."
                                                     (if (eq side 'old) (car revs) (cadr revs))
                                                     blob callback))))))
        :origin (lambda (file start end)
-                 (list :label (format "%s/%s#%d %s:%s" owner repo number (plist-get file :path)
+                 (list :label (format "%s/%s#%d %s:%s" owner repo number
+                                      (or (plist-get file :origin-path) (plist-get file :path))
                                       (if (= start end) start (format "%d-%d" start end)))
                        :link (format "forgejo:%s/%s#%d" owner repo number)
                        :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))))
