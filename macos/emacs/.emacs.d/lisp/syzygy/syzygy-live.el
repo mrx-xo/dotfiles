@@ -287,7 +287,8 @@ ORIG and ARGS as in the advised function."
             (map-put! state :last-entry-type "phone_user_message_chunk")))))))
 
 (defun syzygy-live--guard-submit (orig &rest args)
-  "Refuse ORIG (`shell-maker-submit', ARGS) while a phone turn streams."
+  "Refuse ORIG submit with ARGS while a phone turn streams."
+  ;; Refs and local commands stay on shell-maker-submit; this router sees cleared input.
   (if (and syzygy-live-mode
            syzygy-live--last-rx
            (< (- (float-time) syzygy-live--last-rx) 2.0))
@@ -322,6 +323,7 @@ for output after the prompt."
 
 (advice-add 'agent-shell--on-notification :around #'syzygy-live--on-notification)
 (advice-add 'shell-maker-submit :around #'syzygy-live--guard-submit)
+(advice-add 'agent-shell--busy-submit :around #'syzygy-live--guard-submit)
 (advice-add 'agent-shell--live-input-prompt-p :around #'syzygy-live--live-prompt-fix)
 
 (provide 'syzygy-live)
