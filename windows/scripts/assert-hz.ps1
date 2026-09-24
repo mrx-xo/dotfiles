@@ -1,6 +1,10 @@
 # Deployed to C:\Tools\MultiMonitorTool\assert-hz.ps1 on VENGEANCE.
 # Run by the mon-assert scheduled task, chained by monitor-mode.sh's
 # sync_windows() after every topology task (mon-extend / mon-only3/4).
+# Every mon-* task action is wrapped in run-hidden.vbs (2026-09-23), so no
+# terminal window appears: Windows Terminal is the default console host and
+# GlazeWM tiled each bare powershell/cmd launch. Change actions with
+# Set-ScheduledTask; schtasks /change demands the account password.
 #
 # Re-assert max refresh after monitor topology changes. Topology tasks
 # (MultiMonitorTool /disable, SetDisplayConfig extend) make Windows fall back
