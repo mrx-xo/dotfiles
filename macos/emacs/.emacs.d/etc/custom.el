@@ -111,7 +111,8 @@
 		    org-superstar package-lint popper projectile
 		    toc-org visual-fill-column))
  '(project-dashboard-org-task-files
-   '(("~/roaming/projects/agent-recall"
+   '(("~/.dotfiles" "~/roaming/notes/dotfiles.org")
+     ("~/roaming/projects/agent-recall"
       "~/roaming/notes/agent-recall.org")
      ("~/roaming/projects/home-lab" "~/roaming/notes/homelab.org")
      ("~/roaming/projects/rec" "~/roaming/notes/rec.org")
@@ -142,7 +143,8 @@
      ("major pane" . "~/roaming/projects/major-pane/")
      ("keymap explorer" . "~/roaming/projects/keymap-explorer/")
      ("Learning Elisp" . "~/roaming/code/learning/elisp/")
-     ("Gaia" . "~/roaming/projects/gaia/") ("testing" . "~/testing/"))))
+     ("Gaia" . "~/roaming/projects/gaia/") ("testing" . "~/testing/")
+     ("AIDOS" . "~/src/aidos/") ("Channel 5" . "~/channel5/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -186,13 +188,14 @@
  '(markdown-markup-face ((t (:foreground "#665c54"))))
  '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
  '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
- '(org-level-1 ((t (:foreground "#c8c8c8"))))
- '(org-level-2 ((t (:foreground "#a8a8a8"))))
- '(org-level-3 ((t (:foreground "#909090"))))
- '(org-level-4 ((t (:foreground "#787878"))))
- '(org-level-5 ((t (:foreground "#606060"))))
+ '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+ '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+ '(org-level-3 ((t (:foreground "#b8bb26"))))
+ '(org-level-4 ((t (:foreground "#8ec07c"))))
+ '(org-level-5 ((t (:foreground "#d3869b"))))
  '(org-level-6 ((t (:foreground "#505050"))))
  '(org-level-7 ((t (:foreground "#404040"))))
+ '(org-link ((t (:foreground "#83a598" :underline t))))
  '(shr-code ((t (:foreground "#fe8019" :background "#3c3836"))))
  '(shr-h1 ((t (:foreground "#fb4934" :weight bold :height 1.4))))
  '(shr-h2 ((t (:foreground "#fabd2f" :weight bold :height 1.2))))
