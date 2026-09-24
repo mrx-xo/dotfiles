@@ -2,6 +2,62 @@
 (require 'ert)
 (require 'review-session)
 
+(ert-deftest review-session-pane-render-avoids-quadratic-line-lookups ()
+  (let* ((text (mapconcat #'identity (make-list 1000 "line") "\n"))
+         (rows (review-diff-rows (review-diff-ops text text)))
+         (nth-function (symbol-function 'nth)) (traversed 0))
+    (cl-letf (((symbol-function 'nth)
+               (lambda (n list) (cl-incf traversed n) (funcall nth-function n list))))
+      (review-session-pane-text rows 'new text "file.txt"))
+    (should (< traversed (* 10 (length rows))))))
+
+(ert-deftest review-session-coalesces-concurrent-loads-and-completes-once ()
+  (save-window-excursion
+    (let* ((source (make-review-source
+                    :name "async" :title "Async" :range-label "range"
+                    :files (lambda () (list (list :path "a.el" :old-path "a.el")))))
+           pending session completed)
+      (setf (review-source-text source)
+            (lambda (_file side callback) (push (cons side callback) pending)))
+      (unwind-protect
+          (progn
+            (setq session (review-session-start source))
+            (review-session-load session 0 (lambda (&optional error) (push error completed)))
+            (should (= (length pending) 1))
+            (let ((old (cdr (pop pending))))
+              (funcall old "old\n")
+              (let ((new (cdr (pop pending))))
+                (funcall new "new\n")
+                ;; A duplicate/stale error may never poison a successful cache.
+                (funcall new nil "late failure"))
+              (funcall old nil "older failure"))
+            (should (equal completed '(nil)))
+            (should (plist-get (review-session-file session) :loaded))
+            (should-not (plist-get (review-session-file session) :error))
+            (should (equal (plist-get (review-session-file session) :new-text) "new\n")))
+        (review-session-quit)))))
+
+(ert-deftest review-session-panel-deletion-origin-uses-old-side-and-range ()
+  (require 'review-panel)
+  (save-window-excursion
+    (let* ((source (review-session-test--source
+                    '(("new.txt" modified "one\ntwo\nremoved\nfour\n" "one\ntwo\nfour\n"))))
+           session)
+      (setf (review-source-origin source)
+            (lambda (file start end) (list :path (plist-get file :origin-path)
+                                           :side (plist-get file :side)
+                                           :start start :end end)))
+      (unwind-protect
+          (progn
+            (setq session (review-session-start source))
+            (setf (plist-get (aref (review-session-files session) 0) :old-path) "old.txt")
+            (review-panel-open session)
+            (with-current-buffer (review-session-panel session)
+              (goto-char (text-property-any (point-min) (point-max) 'review-hunk 0))
+              (should (equal (review-session-origin)
+                             '(:path "old.txt" :side old :start 3 :end 3)))))
+        (review-session-quit)))))
+
 (defun review-session-test--source (spec)
   "SPEC is a list of (PATH KIND OLD NEW [BINARY])."
   (make-review-source

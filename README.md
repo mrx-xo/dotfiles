@@ -122,6 +122,8 @@ working-tree text is cached when each file loads. Quit and reopen to refresh.
 For a failed Forgejo file, use `RET` on its panel row to retry; if the patch
 and fetched blob disagree, reopen the PR diff first. Binary/metadata-only
 entries have no text comparison. Session progress is not persisted.
+Known minor limitation: a deletion-only hunk's heading label can name the
+first definition; its source ranges and parked old-side origin remain correct.
 
 ### Config tests
 

@@ -2,6 +2,20 @@
 (require 'ert)
 (require 'review-diff)
 
+(ert-deftest review-diff-hunk-map-avoids-quadratic-list-traversals ()
+  (let* ((rows (cl-loop for i from 1 to 4000
+                        collect (list :kind (if (zerop (% i 100)) 'both 'ctx)
+                                      :old-no i :new-no i :old "line" :new "line")))
+         (nth-function (symbol-function 'nth)) (traversed 0) hunks)
+    (cl-letf (((symbol-function 'nth)
+               (lambda (n list)
+                 (cl-incf traversed n)
+                 (funcall nth-function n list))))
+      (setq hunks (review-diff-hunks rows)))
+    (should (= (length hunks) 40))
+    ;; Counts work, not wall time: this is stable on slow and fast machines.
+    (should (< traversed (* 10 (length rows))))))
+
 (ert-deftest review-diff-ops-modified-block ()
   (let ((ops (review-diff-ops "a\nb\nc\nd\n" "a\nB\nC\nd\n")))
     (should (equal (mapcar (lambda (o) (plist-get o :kind)) ops) '(ctx del del add add ctx)))

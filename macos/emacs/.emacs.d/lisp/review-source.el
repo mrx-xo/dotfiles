@@ -143,18 +143,25 @@ Revisions and index blobs are pinned when the file list is first read."
                                           (plist-get file :index-blob)))
                      ((cdr revs) (review-source--git-show directory (cdr revs) path))
                      (t
-                      (let ((name (expand-file-name path directory)))
+                      ;; Prefix ./ so Git's literal ~/ directory is not HOME.
+                      (let ((name (expand-file-name (concat "./" path) directory)))
                         (or (file-symlink-p name)
-                            (with-temp-buffer
-                              (insert-file-contents name)
-                              (buffer-string)))))))))
+                            (progn
+                              (unless (file-in-directory-p name directory)
+                                (user-error "Review path escapes repository: %s" path))
+                              (with-temp-buffer
+                                (insert-file-contents name)
+                                (buffer-string))))))))))
        :origin
        (lambda (file start end)
          (let ((path (or (plist-get file :origin-path) (plist-get file :path))))
-           (list :label (format "%s:%s @ %s" path
-                                (if (= start end) start (format "%d-%d" start end)) label)
+           (list :label (format "%s:%s @ %s%s" path
+                                (if (= start end) start (format "%d-%d" start end)) label
+                                (if (eq (plist-get file :side) 'old) " (old)" ""))
+                 :side (or (plist-get file :side) 'new)
                  :link (format "file:%s::%d"
-                               (abbreviate-file-name (expand-file-name path directory)) start)
+                               (abbreviate-file-name
+                                (expand-file-name (concat "./" path) directory)) start)
                  :url nil)))))))
 
 (declare-function mr-x/forgejo-ediff--entry-at-point "forgejo-review-ediff")
@@ -244,9 +251,11 @@ Revisions and index blobs are pinned when the file list is first read."
                                                     blob callback))
                     (lambda (error) (funcall callback nil error))))))
        :origin (lambda (file start end)
-                 (list :label (format "%s/%s#%d %s:%s" owner repo number
+                 (list :label (format "%s/%s#%d %s:%s%s" owner repo number
                                       (or (plist-get file :origin-path) (plist-get file :path))
-                                      (if (= start end) start (format "%d-%d" start end)))
+                                      (if (= start end) start (format "%d-%d" start end))
+                                      (if (eq (plist-get file :side) 'old) " (old)" ""))
+                       :side (or (plist-get file :side) 'new)
                        :link (format "forgejo:%s/%s#%d" owner repo number)
                        :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))))
 
