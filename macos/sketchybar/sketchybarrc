@@ -172,7 +172,7 @@ sketchybar --add item claude_usage left                                      \
                       icon=":claude:"                                        \
                       icon.font="sketchybar-app-font:Regular:16.0"           \
                       icon.color=$ANTHROPIC_ORANGE                           \
-                      label="--% · --% |"                                   \
+                      label="--% · --%"                                     \
                       label.padding_right=2                                  \
                       script='./plugins/claude-usage.sh'                     \
                       update_freq=300                                        \
@@ -185,24 +185,63 @@ sketchybar --add item fable_usage left                                       \
                       icon.color=$FABLE_GOLD                                 \
                       icon.padding_left=6                                    \
                       icon.padding_right=4                                   \
-                      label="--% |"                                          \
+                      label="--%"                                            \
                       label.padding_left=0                                   \
-                      label.padding_right=4                                  \
+                      label.padding_right=0                                  \
                       click_script='open https://claude.ai/settings/usage'
 
+# Claude/Codex divider as its own item so it stays white instead of taking the
+# warning color of whichever reading sits before it.
+sketchybar --add item claude_sep left                                        \
+           --set      claude_sep                                             \
+                      icon=                                                  \
+                      icon.padding_left=0                                    \
+                      icon.padding_right=0                                   \
+                      label="|"                                              \
+                      label.color=0xFFFFFFFF                                 \
+                      label.padding_left=6                                   \
+                      label.padding_right=4
+
+# Two ChatGPT accounts share one openai icon: the default login on the left of
+# the separator, the ~/.codex-b account on the right. Separate items so each
+# percentage carries its own warning color; codex-usage.sh drives both.
 sketchybar --add item codex_usage left                                       \
            --set      codex_usage                                            \
                       icon=":openai:"                                        \
                       icon.font="sketchybar-app-font:Regular:16.0"           \
                       icon.color=0xFFFFFFFF                                  \
                       label="--%"                                            \
+                      label.padding_right=0                                  \
                       script='./plugins/codex-usage.sh'                      \
                       update_freq=60                                         \
                       click_script='open https://chatgpt.com/codex/settings/usage'
 
+# The separator is its own item so it stays white: sharing a label with either
+# account would paint it that account's warning color, which reads as a status
+# it does not have. Equal padding on both sides centers it between the numbers.
+sketchybar --add item codex_sep left                                         \
+           --set      codex_sep                                              \
+                      icon=                                                  \
+                      icon.padding_left=0                                    \
+                      icon.padding_right=0                                   \
+                      label="·"                                              \
+                      label.color=0xFFFFFFFF                                 \
+                      label.padding_left=5                                   \
+                      label.padding_right=5                                  \
+                      click_script='open https://chatgpt.com/codex/settings/usage'
+
+sketchybar --add item codex_b_usage left                                     \
+           --set      codex_b_usage                                          \
+                      icon=                                                  \
+                      icon.padding_left=0                                    \
+                      icon.padding_right=0                                   \
+                      label="--%"                                            \
+                      label.padding_left=0                                   \
+                      click_script='open https://chatgpt.com/codex/settings/usage'
+
 # One continuous background per display, spanning the entire left section.
 # Stable end items keep it intact when middle items hide or are recreated.
-sketchybar --add bracket left_group '/space\..*/' new_space codex_usage \
+sketchybar --add bracket left_group '/space\..*/' new_space codex_b_usage \
            --set left_group background.color=0xbf000000               \
                             background.corner_radius=10               \
                             background.height=25
