@@ -218,7 +218,8 @@ sketchybar --add item codex_usage left                                       \
 
 # The separator is its own item so it stays white: sharing a label with either
 # account would paint it that account's warning color, which reads as a status
-# it does not have. Equal padding on both sides centers it between the numbers.
+# it does not have. The glyph sits right of center in its box, so the right
+# padding is larger; 7/13 matches the gaps around Claude's dot.
 sketchybar --add item codex_sep left                                         \
            --set      codex_sep                                              \
                       icon=                                                  \
@@ -226,8 +227,8 @@ sketchybar --add item codex_sep left                                         \
                       icon.padding_right=0                                   \
                       label="·"                                              \
                       label.color=0xFFFFFFFF                                 \
-                      label.padding_left=5                                   \
-                      label.padding_right=5                                  \
+                      label.padding_left=7                                   \
+                      label.padding_right=13                                 \
                       click_script='open https://chatgpt.com/codex/settings/usage'
 
 sketchybar --add item codex_b_usage left                                     \
