@@ -581,15 +581,6 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   (should (fboundp 'mr-x/quick-ask--detach-all))
   (should (fboundp 'mr-x/quick-ask--strip-thinking)))
 
-;; ── Taskmaster ─────────────────────────────────────────────────────────────
-
-(ert-deftest config-test-mr-x-taskmaster-functions ()
-  "Taskmaster integration should be defined."
-  (should (fboundp 'mr-x/taskmaster-next-task))
-  (should (fboundp 'mr-x/taskmaster-summary))
-  (should (fboundp 'mr-x/taskmaster-add-task))
-  (should (fboundp 'mr-x/taskmaster-get-project-root)))
-
 ;; ── Bash Watcher ───────────────────────────────────────────────────────────
 
 (ert-deftest config-test-mr-x-bash-watcher-functions ()
