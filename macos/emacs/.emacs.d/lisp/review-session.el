@@ -11,6 +11,8 @@
 (require 'review-diff)
 (require 'review-source)
 
+(autoload 'syzygy-park "syzygy-park" nil t)
+
 (defgroup review nil "Side-by-side review sessions." :group 'tools)
 
 (defface review-gutter '((t :inherit shadow)) "Line numbers in a pane.")
@@ -125,6 +127,7 @@ Every line carries a `review-row' property with its row index."
     (define-key m (kbd "M-j") #'review-session-next-hunk)
     (define-key m (kbd "M-k") #'review-session-prev-hunk)
     (define-key m (kbd "v") #'review-session-toggle-viewed)
+    (define-key m (kbd "u") #'syzygy-park)
     (define-key m (kbd "q") #'review-session-quit)
     m)
   "Keys in a review pane.")
@@ -141,6 +144,7 @@ Every line carries a `review-row' property with its row index."
     (kbd "M-j") #'review-session-next-hunk
     (kbd "M-k") #'review-session-prev-hunk
     (kbd "v") #'review-session-toggle-viewed
+    (kbd "u") #'syzygy-park
     (kbd "q") #'review-session-quit))
 
 (defun review-session--pane-buffer (session index side)
@@ -358,6 +362,57 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
           (review-session-show 0)
         (error (review-session-quit) (signal (car err) (cdr err))))
       session)))
+
+
+(defvar review-panel--session)
+
+(defun review-session-pane-selection (&optional begin end)
+  "Map BEGIN..END in this pane to real source lines and text.
+Alignment padding and the rendered gutters are excluded.  With no
+bounds use the active region, or the source line at point."
+  (unless (and (derived-mode-p 'review-pane-mode) review-pane--session)
+    (user-error "Not in a review pane"))
+  (let* ((file (review-session-file review-pane--session review-pane--file-index))
+         (rows (vconcat (plist-get file :rows)))
+         (begin (or begin (if (use-region-p) (region-beginning) (point))))
+         (end (or end (if (use-region-p) (region-end) begin)))
+         (first (1- (line-number-at-pos begin)))
+         (last (1- (line-number-at-pos (if (> end begin) (1- end) end))))
+         (number-key (if (eq review-pane--side 'old) :old-no :new-no))
+         (text-key (if (eq review-pane--side 'old) :old :new))
+         numbers text)
+    (cl-loop for i from first to (min last (1- (length rows)))
+             for row = (aref rows i)
+             when (plist-get row number-key)
+             do (push (plist-get row number-key) numbers)
+             and do (push (plist-get row text-key) text))
+    (unless numbers (user-error "Selection contains no source lines"))
+    (list :start (car (last numbers)) :end (car numbers)
+          :text (string-join (nreverse text) "\n"))))
+
+(defun review-session-origin (&optional begin end)
+  "Return the source origin at point, including the side and real line range."
+  (let* ((pane (derived-mode-p 'review-pane-mode))
+         (session (if pane review-pane--session
+                    (and (derived-mode-p 'review-panel-mode) review-panel--session))))
+    (when session
+      (let* ((index (if pane review-pane--file-index
+                      (or (get-text-property (point) 'review-file)
+                          (review-session-current session))))
+             (file (copy-sequence (review-session-file session index)))
+             (selection (if pane (review-session-pane-selection begin end)
+                          (let* ((h (or (get-text-property (point) 'review-hunk) 0))
+                                 (hunk (nth h (plist-get file :hunks)))
+                                 (start (or (plist-get hunk :new-start) 1)))
+                            (list :start start
+                                  :end (+ start (max 0 (1- (or (plist-get hunk :new-count) 1)))))))))
+        (setq file (plist-put file :origin-path
+                              (or (and pane (eq review-pane--side 'old)
+                                       (plist-get file :old-path))
+                                  (plist-get file :path))))
+        (setq file (plist-put file :side (if pane review-pane--side 'new)))
+        (funcall (review-source-origin (review-session-source session))
+                 file (plist-get selection :start) (plist-get selection :end))))))
 
 (provide 'review-session)
 ;;; review-session.el ends here
