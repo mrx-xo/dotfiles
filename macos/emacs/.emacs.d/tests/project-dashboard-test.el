@@ -86,6 +86,42 @@
                (regexp-quote "unparseable-timestamp  Conversation title")
                (buffer-string))))))
 
+(ert-deftest project-dashboard-test-recent-conversation-shows-picker-metadata ()
+  "A conversation row carries label, tags, open marker, foreign project, and note."
+  (cl-letf (((symbol-function 'agent-recall-session-label) (lambda (_) "my-label"))
+            ((symbol-function 'agent-recall-catalogue-get)
+             (lambda (_) '((tags "keep" "infra") (note "Why it was kept"))))
+            ((symbol-function 'major-pane-workspace--live-buffer) (lambda (_) nil)))
+    (with-temp-buffer
+      (setq project-dashboard--project-root "/tmp/dotfiles/")
+      (let ((line (project-dashboard--conversation-line
+                   "/tmp/conversation.md"
+                   '(:timestamp "x" :session-id "s1" :project "home-lab"
+                                :preview "First message"))))
+        (dolist (piece '("[home-lab]" "my-label" "#keep #infra"))
+          (should (string-match-p (regexp-quote piece) line)))
+        (should-not (string-match-p "(open)" line))
+        (should (string-match-p "Why it was kept\\|First message" line))
+        (should-not (string-match-p "\\[dotfiles\\]"
+                                    (project-dashboard--conversation-line
+                                     "/tmp/c.md" '(:timestamp "x" :project "dotfiles"))))))))
+
+(ert-deftest project-dashboard-test-open-conversation-prefers-live-label ()
+  "An open chat shows its live major-pane label over the stored one."
+  (let* ((chat (generate-new-buffer " *chat*"))
+         (major-pane--labels (make-hash-table :test #'eq)))
+    (puthash chat "LIVE" major-pane--labels)
+    (unwind-protect
+        (cl-letf (((symbol-function 'agent-recall-session-label) (lambda (_) "stored"))
+                  ((symbol-function 'major-pane-workspace--live-buffer) (lambda (_) chat)))
+          (with-temp-buffer
+            (let ((line (project-dashboard--conversation-line
+                         "/tmp/conversation.md" '(:timestamp "x" :session-id "s1"))))
+              (should (string-match-p "LIVE" line))
+              (should-not (string-match-p "stored" line))
+              (should (string-match-p "(open)" line)))))
+      (kill-buffer chat))))
+
 (ert-deftest project-dashboard-test-agent-shell-function-runs-in-project-root ()
   "The `a' action calls `project-dashboard-agent-shell-function' with
 `default-directory' bound to the project root."
