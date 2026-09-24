@@ -15,7 +15,8 @@
 # init.el so Elpaca's org does the tangling.
 set -euo pipefail
 
-ORG="$HOME/.dotfiles/macos/emacs/.emacs.d/emacs.org"
+# Resolve beside this script so an isolated worktree tangles its own config.
+ORG="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../emacs/.emacs.d" && pwd)/emacs.org"
 EMACS="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
 # Full path + explicit socket: a bare `emacsclient` is missing from any shell
 # without /opt/homebrew/bin (ssh, launchd), which used to read as "daemon not

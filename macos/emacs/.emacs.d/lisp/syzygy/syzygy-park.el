@@ -193,10 +193,15 @@ chat.  CHAT defaults to the chat the current buffer stands for."
 
 ;;; Origin
 
+(declare-function review-session-origin "review-session" (&optional begin end))
+(declare-function review-session-pane-selection "review-session" (&optional begin end))
+
 (defun syzygy-park--region-context ()
   "Return the active region's text and deactivate it, or nil."
   (when (use-region-p)
-    (prog1 (buffer-substring-no-properties (region-beginning) (region-end))
+    (prog1 (if (derived-mode-p 'review-pane-mode)
+               (plist-get (review-session-pane-selection) :text)
+             (buffer-substring-no-properties (region-beginning) (region-end)))
       (deactivate-mark))))
 
 (defun syzygy-park--file-origin ()
@@ -244,10 +249,16 @@ buffer, or nil."
               :link (format "forgejo:%s/%s#%s" owner repo number)
               :url (and host (format "%s/%s/%s/%s/%s" host owner repo kind number)))))))
 
+(defun syzygy-park--review-origin ()
+  "Return the review source origin for a pane or the files panel."
+  (when (derived-mode-p 'review-pane-mode 'review-panel-mode)
+    (review-session-origin)))
+
 (defun syzygy-park--origin ()
   "Return where the current buffer is, as an origin plist, or nil in a chat."
   (cond
    ((syzygy-park--chat-here) nil)
+   ((syzygy-park--review-origin))
    ((buffer-file-name) (syzygy-park--file-origin))
    ((syzygy-park--forgejo-origin))
    ((syzygy-park--stored-link-origin))
