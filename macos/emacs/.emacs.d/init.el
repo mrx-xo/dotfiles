@@ -319,11 +319,12 @@ during daemon init the selected frame is non-graphic)."
   	(custom-set-faces
   	 '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
   	 '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
-  	 '(org-level-3 ((t (:foreground "#8ec07c"))))
-  	 '(org-level-4 ((t (:foreground "#83a598"))))
+  	 '(org-level-3 ((t (:foreground "#b8bb26"))))
+  	 '(org-level-4 ((t (:foreground "#8ec07c"))))
   	 '(org-level-5 ((t (:foreground "#d3869b"))))
   	 '(org-level-6 ((t (:foreground "#505050"))))
-  	 '(org-level-7 ((t (:foreground "#404040"))))))
+  	 '(org-level-7 ((t (:foreground "#404040"))))
+  	 '(org-link ((t (:foreground "#83a598" :underline t))))))
 
       (use-package org-modern
   	:ensure t
