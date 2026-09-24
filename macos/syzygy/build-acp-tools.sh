@@ -104,7 +104,8 @@ ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
 # + local 5290b6c (chat header: project title with buffer ordinal, provider icon, model, mode word, branch with dirty dot; status via dimmed icon and a second load line)
 # + local a68ceac (pull-down chat toolbar: git, model, pinned, fork, clone, catalogue; Before commit bar removed; kebab trimmed)
 # + local 312049d (canonical model and permission labels in the chat header and toolbar)
-ACP_MOBILE_COMMIT="312049dedb150d1f7dce30d52624eb3b9e0ad566"
+# + local 7da5dd6 (mode words and alert set loaded from the rig via /api/mode-words; mode colour keyed on the word)
+ACP_MOBILE_COMMIT="7da5dd64d5b7eea21bcf0c596be1ca7530628e46"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

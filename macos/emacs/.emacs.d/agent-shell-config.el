@@ -1582,9 +1582,12 @@ still wins over the copied model + mode."
                          :new-session t :no-focus t)))
               (when label
                 (major-pane-set-buffer-label buf label))
-              (when (nth 5 tuple)
+              (when-let ((effort (or (nth 5 tuple)
+                                     (and source (not tuple)
+                                          (agent-shell--current-thought-level-id
+                                           (buffer-local-value 'agent-shell--state source))))))
                 (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                             buf (nth 5 tuple) 60))
+                             buf effort 60))
               (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
               (buffer-name buf))))
 
