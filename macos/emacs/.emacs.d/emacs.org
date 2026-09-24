@@ -11663,6 +11663,13 @@ silent context-only capture with no marker."
         "Subscription token for turn-complete events.")
 
       ;; Context picker
+      (defvar-local mr-x/quick-ask--source-origin nil
+        "Origin captured before the source selection or buffer disappears.")
+      (defvar-local mr-x/quick-ask--source-context nil
+        "Selected source text without review gutters or padding.")
+      (defvar-local mr-x/quick-ask--posframe nil
+        "Non-nil when the response is displayed in a child frame.")
+
       (defvar-local mr-x/quick-ask--context-items nil
         "List of context plists: ((:type TYPE :label LABEL :content CONTENT) ...)")
       (defvar-local mr-x/quick-ask--source-buffer nil
@@ -11841,6 +11848,9 @@ silent context-only capture with no marker."
           (define-key map (kbd "R") #'mr-x/quick-ask--reset-and-restart)
           ;; Surface hidden agent-shell buffer
           (define-key map (kbd "C") #'mr-x/quick-ask--surface-session)
+          (define-key map (kbd "c") #'mr-x/quick-ask--surface-session)
+          (define-key map (kbd "u") #'mr-x/quick-ask--park)
+          (define-key map (kbd "y") #'mr-x/quick-ask--copy)
           map)
         "Keymap for response viewing. q dismiss, r again, R reset+again, C surface agent-shell.")
 
@@ -11862,6 +11872,9 @@ silent context-only capture with no marker."
           (kbd "r") #'mr-x/quick-ask--restart
           (kbd "R") #'mr-x/quick-ask--reset-and-restart
           (kbd "C") #'mr-x/quick-ask--surface-session
+          (kbd "c") #'mr-x/quick-ask--surface-session
+          (kbd "u") #'mr-x/quick-ask--park
+          (kbd "y") #'mr-x/quick-ask--copy
           (kbd "j") #'next-line
           (kbd "k") #'previous-line
           (kbd "G") #'end-of-buffer
@@ -11965,14 +11978,83 @@ silent context-only capture with no marker."
         (message "Quick Ask: aborted"))
 
       (defun mr-x/quick-ask--dismiss ()
-        "Close the response popup."
+        "Close the response and restore focus to its source window."
         (interactive)
-        (when mr-x/quick-ask--thinking-timer
-          (cancel-timer mr-x/quick-ask--thinking-timer))
-        (let ((win (get-buffer-window "*quick-ask*")))
-          (when win (quit-window t win)))
-        (when (buffer-live-p (get-buffer "*quick-ask*"))
-          (kill-buffer "*quick-ask*")))
+        (let ((buf (get-buffer "*quick-ask*")))
+          (when (buffer-live-p buf)
+            (let* ((source (buffer-local-value 'mr-x/quick-ask--source-buffer buf))
+                   (source-window (and (buffer-live-p source)
+                                       (get-buffer-window source t)))
+                   (child (buffer-local-value 'mr-x/quick-ask--posframe buf)))
+              (with-current-buffer buf
+                (when mr-x/quick-ask--thinking-timer
+                  (cancel-timer mr-x/quick-ask--thinking-timer))
+                (when (and child (fboundp 'posframe-hide))
+                  (posframe-hide buf)))
+              ;; Do not quit the child frame's sole window.
+              (dolist (window (get-buffer-window-list buf nil t))
+                (unless (frame-parameter (window-frame window) 'parent-frame)
+                  (quit-window nil window)))
+              (kill-buffer buf)
+              (when (and child (window-live-p source-window))
+                (select-window source-window)
+                (when (display-graphic-p (window-frame source-window))
+                  (select-frame-set-input-focus (window-frame source-window))))))))
+
+      (defun mr-x/quick-ask--park ()
+        "Park the question with its captured text and source origin."
+        (interactive)
+        (require 'syzygy-park)
+        (let ((question (or mr-x/quick-ask--question
+                            (user-error "No question to park")))
+              (context mr-x/quick-ask--source-context)
+              (origin mr-x/quick-ask--source-origin)
+              (source mr-x/quick-ask--source-buffer))
+          (if (buffer-live-p source)
+              (with-current-buffer source (syzygy-park question context origin))
+            (syzygy-park question context origin))
+          (mr-x/quick-ask--dismiss)))
+
+      (defun mr-x/quick-ask--copy ()
+        "Copy the answer and dismiss the response."
+        (interactive)
+        (kill-new (or mr-x/quick-ask--response ""))
+        (mr-x/quick-ask--dismiss)
+        (message "Response copied"))
+
+      (defun mr-x/quick-ask--display-response (buf)
+        "Display BUF beside its review selection, or in the bottom window."
+        (with-current-buffer buf
+          (let* ((source mr-x/quick-ask--source-buffer)
+                 (source-window (and (buffer-live-p source)
+                                     (get-buffer-window source t)))
+                 (region mr-x/quick-ask--source-region))
+            (if (and (window-live-p source-window)
+                     (with-current-buffer source (derived-mode-p 'review-pane-mode))
+                     (require 'posframe nil t) (posframe-workable-p))
+                (progn
+                  (setq mr-x/quick-ask--posframe t)
+                  (when-let ((window (get-buffer-window buf)))
+                    (unless (eq window (frame-root-window (window-frame window)))
+                      (delete-window window)))
+                  ;; posframe resolves integer anchors in the selected window.
+                  (with-selected-window source-window
+                    (let ((anchor (with-current-buffer source
+                                    (min (point-max) (max (point-min)
+                                                         (if region (cdr region) (point)))))))
+                      (posframe-show
+                       buf :position anchor
+                       :poshandler #'posframe-poshandler-point-bottom-left-corner
+                       :width (min 72 (- (frame-width) 4))
+                       :min-width (min 40 (- (frame-width) 4)) :max-height 24
+                       :border-width 1 :border-color "#504945"
+                       :background-color "#282828" :accept-focus t)))
+                  (let ((frame (and (boundp 'posframe--frame)
+                                    (buffer-local-value 'posframe--frame buf))))
+                    (when (frame-live-p frame) (select-frame-set-input-focus frame))))
+              (unless (get-buffer-window buf t)
+                (pop-to-buffer buf '((display-buffer-at-bottom)
+                                     (window-height . 0.4))))))))
 
       (defun mr-x/quick-ask--restart ()
         "Start a new question (same session — conversation memory preserved)."
@@ -12089,8 +12171,12 @@ silent context-only capture with no marker."
               (setq mr-x/quick-ask--response clean-response)
               ;; Header
               (setq-local header-line-format
-                          (propertize " AI Response  (q dismiss · r again · R reset · C agent-shell)"
+                          (propertize " q dismiss  c chat  u park  y copy  r again"
                                       'face '(:weight bold)))
+              (when mr-x/quick-ask--source-origin
+                (insert (propertize
+                         (concat (plist-get mr-x/quick-ask--source-origin :label) "\n")
+                         'face 'shadow)))
               ;; Question echo
               (insert (propertize question 'face '(:weight bold :foreground "#88c0d0")))
               (insert "\n")
@@ -12107,17 +12193,26 @@ silent context-only capture with no marker."
           (use-local-map mr-x/quick-ask-response-map)
           (setq buffer-read-only t)
           (when (fboundp 'evil-normal-state)
-            (evil-normal-state))))
+            (evil-normal-state))
+          (mr-x/quick-ask--display-response (current-buffer))))
 
       ;; Main entry point
       (defun mr-x/quick-ask ()
         "Ask a quick question in a bottom popup. Powered by Claude via agent-shell."
         (interactive)
         ;; Capture context before opening popup
-        (let ((source-buf (current-buffer))
+        (require 'syzygy-park)
+        (let* ((source-buf (current-buffer))
+              (source-directory default-directory)
               (region-active (use-region-p))
               (region-beg (when (use-region-p) (region-beginning)))
-              (region-end (when (use-region-p) (region-end))))
+              (region-end (when (use-region-p) (region-end)))
+              (source-origin (syzygy-park--origin))
+              (source-context
+               (when region-active
+                 (if (derived-mode-p 'review-pane-mode)
+                     (plist-get (review-session-pane-selection region-beg region-end) :text)
+                   (buffer-substring-no-properties region-beg region-end)))))
           (let ((buf (get-buffer-create "*quick-ask*")))
             (with-current-buffer buf
               (let ((inhibit-read-only t))
@@ -12127,6 +12222,9 @@ silent context-only capture with no marker."
                 (setq mr-x/quick-ask--phase 'input)
                 (setq buffer-read-only nil)
                 ;; Save source context
+                (setq default-directory source-directory)
+                (setq mr-x/quick-ask--source-origin source-origin
+                      mr-x/quick-ask--source-context source-context)
                 (setq mr-x/quick-ask--source-buffer source-buf)
                 (setq mr-x/quick-ask--source-region
                       (when region-active (cons region-beg region-end)))
@@ -12134,14 +12232,14 @@ silent context-only capture with no marker."
 
                 ;; Auto-attach region if active
                 (when region-active
-                  (let* ((content (with-current-buffer source-buf
-                                    (buffer-substring-no-properties region-beg region-end)))
+                  (let* ((content source-context)
                          (line-beg (with-current-buffer source-buf
                                      (line-number-at-pos region-beg)))
                          (line-end (with-current-buffer source-buf
                                      (line-number-at-pos region-end)))
-                         (label (format "%s (lines %d-%d)"
-                                        (buffer-name source-buf) line-beg line-end)))
+                         (label (or (plist-get source-origin :label)
+                                    (format "%s (lines %d-%d)"
+                                            (buffer-name source-buf) line-beg line-end))))
                     (push (list :type 'region :label label :content content)
                           mr-x/quick-ask--context-items)))
 

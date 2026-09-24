@@ -1,0 +1,138 @@
+;;; quick-ask-review-test.el --- Quick ask from review panes -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'review-session-test)
+(require 'syzygy-park)
+(require 'posframe)
+(require 'evil)
+(require 'markdown-mode)
+
+;; Focused batch runs load just the existing Quick Ask block.  Full-config
+;; smoke runs already have it from init.el, and skip this extraction.
+(unless (fboundp 'mr-x/quick-ask)
+  (with-temp-buffer
+    (insert-file-contents
+     (expand-file-name "../emacs.org" (file-name-directory (or load-file-name buffer-file-name))))
+    (goto-char (point-min))
+    (search-forward ";;; Quick Ask -")
+    (beginning-of-line)
+    (let ((start (point)))
+      (search-forward "#+end_src")
+      (beginning-of-line)
+      (eval-region start (point)))))
+
+(ert-deftest quick-ask-response-map-has-four-exits ()
+  (dolist (binding '(("q" . mr-x/quick-ask--dismiss)
+                     ("c" . mr-x/quick-ask--surface-session)
+                     ("u" . mr-x/quick-ask--park)
+                     ("y" . mr-x/quick-ask--copy)))
+    (should (eq (lookup-key mr-x/quick-ask-response-map (kbd (car binding)))
+                (cdr binding)))))
+
+(ert-deftest quick-ask-park-keeps-review-origin-and-clean-context ()
+  (review-session-test--with s
+    (let ((transient-mark-mode t)
+          (syzygy-park-file (make-temp-file "review-park"))
+          (syzygy-park--project-items (make-hash-table :test #'equal))
+          popup)
+      (unwind-protect
+          (progn
+            (select-window (review-session-new-window s))
+            (goto-char (point-min)) (forward-line 1)
+            (push-mark (point) t t) (goto-char (point-max))
+            (mr-x/quick-ask)
+            (setq popup (get-buffer "*quick-ask*"))
+            (with-current-buffer popup
+              (setq mr-x/quick-ask--question "why?"
+                    mr-x/quick-ask--response "because.")
+              (mr-x/quick-ask--park))
+            (let* ((scope (with-current-buffer (review-session-new-buffer s)
+                            (syzygy-park--scope-here)))
+                   (items (syzygy-park--items scope))
+                   (item (car items)))
+              (should (= (length items) 1))
+              (should (equal (plist-get item :question) "why?"))
+              (should (equal (plist-get item :context) "  2)"))
+              (should (equal (plist-get (plist-get item :origin) :label) "a.el:2-2"))))
+        (when (buffer-live-p popup) (kill-buffer popup))
+        (delete-file syzygy-park-file)))))
+
+(ert-deftest quick-ask-posframe-is-anchored-in-the-source-window ()
+  (review-session-test--with s
+    (let ((buf (get-buffer-create "*quick-ask*")) shown)
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (setq-local mr-x/quick-ask--source-buffer (review-session-new-buffer s))
+              (setq-local mr-x/quick-ask--source-region (cons 1 5)))
+            (select-window (review-session-old-window s))
+            (switch-to-buffer (get-buffer-create " *quick-ask-other*"))
+            (cl-letf (((symbol-function 'posframe-show)
+                       (lambda (_buf &rest args)
+                         (setq shown (list (current-buffer) args)) nil))
+                      ((symbol-function 'posframe-workable-p) (lambda () t)))
+              (mr-x/quick-ask--display-response buf))
+            (should (eq (car shown) (review-session-new-buffer s)))
+            (should (integer-or-marker-p (plist-get (cadr shown) :position))))
+        (when (buffer-live-p buf) (kill-buffer buf))
+        (kill-buffer " *quick-ask-other*")))))
+
+(ert-deftest quick-ask-copy-copies-only-the-response-and-dismisses ()
+  (let ((buf (get-buffer-create "*quick-ask*")) (kill-ring nil))
+    (with-current-buffer buf
+      (setq-local mr-x/quick-ask--response "The answer.")
+      (mr-x/quick-ask--copy))
+    (should (equal (car kill-ring) "The answer."))
+    (should-not (buffer-live-p buf))))
+
+(ert-deftest quick-ask-dismiss-hides-child-frame-without-losing-panes ()
+  (review-session-test--with s
+    (let ((buf (get-buffer-create "*quick-ask*")) hidden)
+      (with-current-buffer buf
+        (setq-local mr-x/quick-ask--posframe t
+                    mr-x/quick-ask--source-buffer (review-session-new-buffer s))
+        (cl-letf (((symbol-function 'posframe-hide) (lambda (b) (setq hidden b))))
+          (mr-x/quick-ask--dismiss)))
+      (should hidden)
+      (should-not (buffer-live-p buf))
+      (should (window-live-p (review-session-new-window s))))))
+
+
+(ert-deftest quick-ask-park-survives-source-navigation ()
+  (review-session-test--with s
+    (let ((transient-mark-mode t)
+          (syzygy-park-file (make-temp-file "review-park"))
+          (syzygy-park--project-items (make-hash-table :test #'equal)))
+      (unwind-protect
+          (progn
+            (select-window (review-session-new-window s))
+            (goto-char (point-min)) (forward-line 1)
+            (push-mark (point) t t) (goto-char (point-max))
+            (mr-x/quick-ask)
+            (review-session-next-file)
+            (with-current-buffer "*quick-ask*"
+              (setq mr-x/quick-ask--question "Still about a.el")
+              (mr-x/quick-ask--park))
+            (with-current-buffer (review-session-new-buffer s)
+              (let ((item (car (syzygy-park--items (syzygy-park--scope-here)))))
+                (should (equal (plist-get item :context) "  2)"))
+                (should (equal (plist-get (plist-get item :origin) :label) "a.el:2-2")))))
+        (when (get-buffer "*quick-ask*") (kill-buffer "*quick-ask*"))
+        (delete-file syzygy-park-file)))))
+
+(ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
+  (review-session-test--with s
+    (select-window (review-session-new-window s))
+    (mr-x/quick-ask)
+    (let* ((buf (get-buffer "*quick-ask*"))
+           (window (get-buffer-window buf)))
+      (unwind-protect
+          (cl-letf (((symbol-function 'posframe-workable-p) (lambda () nil)))
+            (with-current-buffer buf
+              (mr-x/quick-ask--show-response "why" "because"))
+            (should (eq (get-buffer-window buf) window))
+            (should (buffer-live-p (review-session-new-buffer s))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (mr-x/quick-ask--dismiss)))))))
+
+(provide 'quick-ask-review-test)
+;;; quick-ask-review-test.el ends here
