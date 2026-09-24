@@ -8,11 +8,10 @@
 ;;; Commentary:
 
 ;; A project dashboard that opens when switching projects via Projectile,
-;; showing Task Master tasks and TODO items with quick-action keybindings.
+;; showing org task files and TODO items with quick-action keybindings.
 
 ;;; Code:
 
-(require 'json)
 (require 'projectile)
 (require 'project-dashboard-art)
 
@@ -21,7 +20,12 @@
 (declare-function agent-recall--index-ensure "agent-recall")
 (declare-function agent-recall--open-transcript "agent-recall")
 (declare-function agent-recall-session-label "agent-recall")
+(declare-function agent-recall-catalogue-get "agent-recall")
+(declare-function agent-recall--candidate-description "agent-recall")
+(declare-function agent-recall--provider-icon "agent-recall")
+(declare-function major-pane-workspace--live-buffer "major-pane-workspace")
 (defvar agent-recall--index)
+(defvar major-pane--labels)
 
 ;;; Customization
 
@@ -29,11 +33,6 @@
   "Project dashboard settings."
   :group 'projectile
   :prefix "project-dashboard-")
-
-(defcustom project-dashboard-show-taskmaster t
-  "Whether to show Task Master tasks in the dashboard."
-  :type 'boolean
-  :group 'project-dashboard)
 
 (defcustom project-dashboard-show-todo-files t
   "Whether to show TODO items from project files."
@@ -61,19 +60,11 @@ model and permission mode to launch with."
   :type 'function
   :group 'project-dashboard)
 
-(defcustom project-dashboard-task-source 'auto
-  "Which task system drives the dashboard's task sections.
-`auto' uses org when the project has files declared in
-`project-dashboard-org-task-files', Task Master otherwise.
-The `s' key toggles the current dashboard buffer at any time."
-  :type '(choice (const auto) (const taskmaster) (const org))
-  :group 'project-dashboard)
-
 (defcustom project-dashboard-org-task-files nil
   "Alist mapping project roots to lists of org task files.
-Each entry is (PROJECT-ROOT . (ORG-FILE ...)).  Files behave like
-Task Master tags: each gets a stats row in the Tags section and
-number keys switch which file feeds Next Task / Recently Completed.
+Each entry is (PROJECT-ROOT . (ORG-FILE ...)).  Each file gets a
+stats row in the Files section and number keys switch which file
+feeds Next Task / Recently Completed.
 
 Example:
   \\='((\"~/.dotfiles\" . (\"~/roaming/notes/mr-x-rig-mdox.org\")))"
@@ -180,9 +171,6 @@ Press \\`D' in the dashboard to open the link for the current project."
 (defvar-local project-dashboard--project-root nil
   "The project root directory for this dashboard buffer.")
 
-(defvar-local project-dashboard--taskmaster-data nil
-  "Cached Task Master data for this dashboard.")
-
 (defvar-local project-dashboard--todo-data nil
   "Cached TODO file data for this dashboard.")
 
@@ -190,15 +178,7 @@ Press \\`D' in the dashboard to open the link for the current project."
   "Timer for auto-refreshing this dashboard buffer.")
 
 (defvar-local project-dashboard--tags-list nil
-  "Ordered list of tag names for number-based switching.")
-
-;;; Data Layer - Task Master
-
-(defvar-local project-dashboard--task-source nil
-  "Task source resolved for this dashboard buffer: `taskmaster' or `org'.")
-
-(defvar-local project-dashboard--source-override nil
-  "Session override from `project-dashboard-toggle-task-source', or nil.")
+  "Ordered list of org file names for number-based switching.")
 
 (defvar-local project-dashboard--active-org-file nil
   "The org task file currently feeding the task sections.")
@@ -209,175 +189,6 @@ Press \\`D' in the dashboard to open the link for the current project."
 (defvar project-dashboard--org-cache (make-hash-table :test 'equal)
   "Cache of parsed org task files: file -> (MTIME . TASKS).
 Avoids re-running `org-mode' over every file on each auto-refresh.")
-
-(defun project-dashboard--get-active-tag (project-root)
-  "Get the active Task Master tag for PROJECT-ROOT.
-Returns the tag name from state.json, or \"master\" as fallback."
-  (let ((state-file (expand-file-name ".taskmaster/state.json" project-root)))
-    (if (file-exists-p state-file)
-        (condition-case nil
-            (let* ((json-object-type 'alist)
-                   (json-key-type 'symbol)
-                   (state (json-read-file state-file)))
-              (or (alist-get 'currentTag state) "master"))
-          (error "master"))
-      "master")))
-
-(defun project-dashboard--set-active-tag (project-root tag-name)
-  "Set the active Task Master tag for PROJECT-ROOT to TAG-NAME.
-Writes to state.json file."
-  (let ((state-file (expand-file-name ".taskmaster/state.json" project-root)))
-    (condition-case err
-        (let* ((json-object-type 'alist)
-               (json-key-type 'symbol)
-               (state (if (file-exists-p state-file)
-                          (json-read-file state-file)
-                        '()))
-               (new-state (cons (cons 'currentTag tag-name)
-                                (assq-delete-all 'currentTag state))))
-          (with-temp-file state-file
-            (insert (json-encode new-state)))
-          t)
-      (error
-       (message "project-dashboard: Error setting tag: %s" err)
-       nil))))
-
-(defun project-dashboard--read-taskmaster-json (project-root)
-  "Read and parse Task Master tasks.json from PROJECT-ROOT.
-Returns nil if file doesn't exist or is invalid.
-Only returns tasks for the active tag - no fallback to other tags."
-  (let ((tasks-file (expand-file-name ".taskmaster/tasks/tasks.json" project-root)))
-    (when (file-exists-p tasks-file)
-      (condition-case err
-          (let* ((json-object-type 'alist)
-                 (json-array-type 'list)
-                 (json-key-type 'symbol)
-                 (data (json-read-file tasks-file))
-                 (active-tag (project-dashboard--get-active-tag project-root))
-                 (tag-symbol (intern active-tag)))
-            ;; Task Master stores tasks under tag name
-            ;; Structure is: { "tagname": { "tasks": [...] } }
-            ;; Only return tasks for active tag - no fallback
-            (alist-get 'tasks (alist-get tag-symbol data)))
-        (error
-         (message "project-dashboard: Error reading tasks.json: %s" err)
-         nil)))))
-
-(defun project-dashboard--parse-tasks (tasks &optional filter-statuses)
-  "Parse TASKS and optionally filter by FILTER-STATUSES.
-FILTER-STATUSES is a list of status strings like (\"pending\" \"in-progress\").
-Returns a list of task plists with :id, :title, :status, :priority, :dependencies."
-  (let ((filtered-tasks
-         (if filter-statuses
-             (seq-filter (lambda (task)
-                           (member (alist-get 'status task) filter-statuses))
-                         tasks)
-           tasks)))
-    (mapcar (lambda (task)
-              (list :id (alist-get 'id task)
-                    :title (alist-get 'title task)
-                    :status (alist-get 'status task)
-                    :priority (alist-get 'priority task)
-                    :dependencies (alist-get 'dependencies task)
-                    :description (alist-get 'description task)))
-            filtered-tasks)))
-
-(defun project-dashboard--find-next-task (all-tasks)
-  "Find the next task to work on from ALL-TASKS (raw alist format).
-Returns a plist for the first in-progress task, or first pending task
-whose dependencies are all done, or nil."
-  (let* ((done-ids (mapcar (lambda (task)
-                             (format "%s" (alist-get 'id task)))
-                           (seq-filter (lambda (task)
-                                         (string= (alist-get 'status task) "done"))
-                                       all-tasks)))
-         ;; First check for in-progress tasks
-         (in-progress (seq-find (lambda (task)
-                                  (string= (alist-get 'status task) "in-progress"))
-                                all-tasks))
-         ;; Then find first pending task with all deps satisfied
-         (next-pending (seq-find
-                        (lambda (task)
-                          (and (string= (alist-get 'status task) "pending")
-                               (let ((deps (alist-get 'dependencies task)))
-                                 (or (null deps)
-                                     (seq-every-p
-                                      (lambda (dep)
-                                        (member (format "%s" dep) done-ids))
-                                      deps)))))
-                        all-tasks))
-         (result (or in-progress next-pending)))
-    (when result
-      (list :id (alist-get 'id result)
-            :title (alist-get 'title result)
-            :status (alist-get 'status result)
-            :priority (alist-get 'priority result)
-            :description (alist-get 'description result)))))
-
-(defun project-dashboard--get-recently-completed (tasks &optional limit)
-  "Get recently completed tasks from TASKS, up to LIMIT (default 5).
-Returns list of completed task alists ordered by ID descending (higher = more recent)."
-  (when tasks
-    (let* ((done-tasks (seq-filter
-                        (lambda (task)
-                          (string= (alist-get 'status task) "done"))
-                        tasks))
-           (sorted-done (seq-sort
-                         (lambda (a b)
-                           (> (string-to-number (format "%s" (alist-get 'id a)))
-                              (string-to-number (format "%s" (alist-get 'id b)))))
-                         done-tasks)))
-      (seq-take sorted-done (or limit 5)))))
-
-(defun project-dashboard--get-all-tags-with-stats (project-root)
-  "Get all tags with task statistics from PROJECT-ROOT.
-Returns list of plists with :name, :pending, :in-progress, :done counts."
-  (let ((tasks-file (expand-file-name ".taskmaster/tasks/tasks.json" project-root)))
-    (when (file-exists-p tasks-file)
-      (condition-case nil
-          (let* ((json-object-type 'alist)
-                 (json-array-type 'list)
-                 (json-key-type 'symbol)
-                 (data (json-read-file tasks-file)))
-            (mapcar
-             (lambda (tag-entry)
-               (let* ((tag-name (symbol-name (car tag-entry)))
-                      (tag-data (cdr tag-entry))
-                      (tasks (alist-get 'tasks tag-data))
-                      (pending (length (seq-filter
-                                        (lambda (task) (string= (alist-get 'status task) "pending"))
-                                        tasks)))
-                      (in-progress (length (seq-filter
-                                            (lambda (task) (string= (alist-get 'status task) "in-progress"))
-                                            tasks)))
-                      (done (length (seq-filter
-                                     (lambda (task) (string= (alist-get 'status task) "done"))
-                                     tasks))))
-                 (list :name tag-name
-                       :pending pending
-                       :in-progress in-progress
-                       :done done)))
-             data))
-        (error nil)))))
-
-(defun project-dashboard--get-all-tasks-by-tag (project-root)
-  "Get all tasks from all tags in PROJECT-ROOT.
-Returns list of plists with :tag, :tasks where :tasks is list of task alists."
-  (let ((tasks-file (expand-file-name ".taskmaster/tasks/tasks.json" project-root)))
-    (when (file-exists-p tasks-file)
-      (condition-case nil
-          (let* ((json-object-type 'alist)
-                 (json-array-type 'list)
-                 (json-key-type 'symbol)
-                 (data (json-read-file tasks-file)))
-            (mapcar
-             (lambda (tag-entry)
-               (let* ((tag-name (symbol-name (car tag-entry)))
-                      (tag-data (cdr tag-entry))
-                      (tasks (alist-get 'tasks tag-data)))
-                 (list :tag tag-name :tasks tasks)))
-             data))
-        (error nil)))))
 
 ;;; Data Layer - TODO Files
 
@@ -450,17 +261,6 @@ truename so symlinked roots still match."
     (seq-filter #'file-exists-p
                 (mapcar #'expand-file-name (cdr cell)))))
 
-(defun project-dashboard--resolve-task-source (project-root)
-  "Resolve the task source for PROJECT-ROOT.
-The buffer-local toggle override wins, then
-`project-dashboard-task-source' (`auto' picks org when the project
-has declared org files, Task Master otherwise)."
-  (or project-dashboard--source-override
-      (pcase project-dashboard-task-source
-        ('taskmaster 'taskmaster)
-        ('org 'org)
-        (_ (if (project-dashboard--org-files project-root) 'org 'taskmaster)))))
-
 (defun project-dashboard--read-org-tasks (file)
   "Return task plists from org FILE, cached by modification time.
 Each plist has :title :state :category :priority :closed :file :pos.
@@ -504,9 +304,7 @@ Each plist has :title :state :category :priority :closed :file :pos.
           tasks)))))
 
 (defun project-dashboard--org-file-stats (files)
-  "Return tag-style stats plists for org FILES.
-Shape matches `project-dashboard--get-all-tags-with-stats' so the
-tags renderer can be reused: (:name :pending :in-progress :done)."
+  "Return stats plists (:name :pending :in-progress :done) for org FILES."
   (mapcar (lambda (file)
             (let ((pending 0) (in-progress 0) (done 0))
               (dolist (task (project-dashboard--read-org-tasks file))
@@ -655,130 +453,6 @@ tags renderer can be reused: (:name :pending :in-progress :done)."
                      'face '(:foreground "#b8bb26")))))
     (insert "\n")))
 
-(defun project-dashboard--render-status (status)
-  "Render STATUS with appropriate face."
-  (let ((face (pcase status
-                ("in-progress" 'project-dashboard-status-in-progress-face)
-                ("pending" 'project-dashboard-status-pending-face)
-                ("done" 'project-dashboard-status-done-face)
-                (_ 'project-dashboard-status-pending-face))))
-    (propertize (format "%-12s" status) 'face face)))
-
-(defun project-dashboard--render-priority (priority)
-  "Render PRIORITY indicator if high."
-  (if (and priority (string= priority "high"))
-      (propertize "!" 'face 'project-dashboard-priority-high-face)
-    " "))
-
-(defvar-local project-dashboard--active-tag nil
-  "The active Task Master tag for this dashboard.")
-
-(defun project-dashboard--priority-value (priority)
-  "Convert PRIORITY string to numeric value for sorting (higher = more important)."
-  (pcase priority
-    ("high" 3)
-    ("medium" 2)
-    ("low" 1)
-    (_ 2)))  ; default to medium
-
-(defun project-dashboard--find-next-task (tasks)
-  "Find the next task to work on from TASKS (raw alist format).
-Returns a plist with :id, :title, :is-in-progress, or nil.
-Algorithm matches Task Master: priority, then dependency count, then ID."
-  (when tasks
-    (let* (;; Build set of completed task IDs
-           (done-ids (mapcar (lambda (task)
-                               (format "%s" (alist-get 'id task)))
-                             (seq-filter (lambda (task)
-                                           (member (alist-get 'status task) '("done" "completed")))
-                                         tasks)))
-           ;; Check if deps are satisfied
-           (deps-satisfied-p (lambda (task)
-                               (let ((deps (alist-get 'dependencies task)))
-                                 (or (null deps)
-                                     (seq-every-p
-                                      (lambda (dep)
-                                        (member (format "%s" dep) done-ids))
-                                      deps)))))
-           ;; Get eligible tasks (in-progress or pending with deps satisfied)
-           (eligible (seq-filter
-                      (lambda (task)
-                        (let ((status (alist-get 'status task)))
-                          (and (member status '("in-progress" "pending"))
-                               (funcall deps-satisfied-p task))))
-                      tasks))
-           ;; Sort by: status (in-progress first), priority (high->low), 
-           ;; dep count (fewer first), ID (lower first)
-           (sorted (seq-sort
-                    (lambda (a b)
-                      (let ((a-in-progress (string= (alist-get 'status a) "in-progress"))
-                            (b-in-progress (string= (alist-get 'status b) "in-progress"))
-                            (a-priority (project-dashboard--priority-value (alist-get 'priority a)))
-                            (b-priority (project-dashboard--priority-value (alist-get 'priority b)))
-                            (a-deps (length (or (alist-get 'dependencies a) '())))
-                            (b-deps (length (or (alist-get 'dependencies b) '())))
-                            (a-id (string-to-number (format "%s" (alist-get 'id a))))
-                            (b-id (string-to-number (format "%s" (alist-get 'id b)))))
-                        (cond
-                         ;; In-progress tasks first
-                         ((and a-in-progress (not b-in-progress)) t)
-                         ((and b-in-progress (not a-in-progress)) nil)
-                         ;; Then by priority (higher first)
-                         ((> a-priority b-priority) t)
-                         ((< a-priority b-priority) nil)
-                         ;; Then by dependency count (fewer first)
-                         ((< a-deps b-deps) t)
-                         ((> a-deps b-deps) nil)
-                         ;; Then by ID (lower first)
-                         (t (< a-id b-id)))))
-                    eligible))
-           (result (car sorted)))
-      (when result
-        (list :id (alist-get 'id result)
-              :title (alist-get 'title result)
-              :is-in-progress (string= (alist-get 'status result) "in-progress"))))))
-
-(defun project-dashboard--render-next-task (next-task)
-  "Render the Next Task or In Progress section for NEXT-TASK plist."
-  (let* ((is-in-progress (plist-get next-task :is-in-progress))
-         (header (if is-in-progress "In Progress" "Next Task"))
-         (header-face (if is-in-progress
-                          'project-dashboard-status-in-progress-face
-                        'project-dashboard-section-face)))
-    (insert (propertize (format "  %s" header) 'face header-face))
-    (when project-dashboard--active-tag
-      (insert (propertize (format " (%s)" project-dashboard--active-tag)
-                          'face 'project-dashboard-separator-face)))
-    (insert (project-dashboard--source-badge))
-    (insert "\n\n")
-    (if next-task
-        (let* ((id (plist-get next-task :id))
-               (title (plist-get next-task :title)))
-          (insert "    ")
-          (insert (propertize (format "#%-4s" id) 'face 'project-dashboard-separator-face))
-          (insert (propertize (truncate-string-to-width title 70 nil nil "...")
-                              'face 'project-dashboard-task-title-face))
-          (insert "\n"))
-      (insert (propertize "    No next task\n" 'face 'project-dashboard-status-pending-face)))
-    (insert "\n")))
-
-(defun project-dashboard--render-recently-completed (tasks)
-  "Render the Recently Completed section with TASKS.
-TASKS is a list of task alists with 'id and 'title keys."
-  (when tasks
-    (insert (propertize "  Recently Completed" 'face 'project-dashboard-section-face))
-    (insert "\n\n")
-    (dolist (task tasks)
-      (let ((id (alist-get 'id task))
-            (title (alist-get 'title task)))
-        (insert "    ")
-        (insert (propertize (format "#%-4s" id) 
-                            'face '(:foreground "#928374" :strike-through t)))
-        (insert (propertize (truncate-string-to-width (or title "") 70 nil nil "...")
-                            'face '(:foreground "#928374" :strike-through t)))
-        (insert "\n")))
-    (insert "\n")))
-
 (defun project-dashboard--recent-conversations (project-root)
   "Return the newest agent-recall index entries under PROJECT-ROOT.
 Each element is (FILE . ENTRY) where ENTRY is an index plist,
@@ -872,6 +546,74 @@ unparseable TIMESTAMP unchanged."
                     (unless (= year current-year)
                       (format ", %d" year))))))))))
 
+(defun project-dashboard--conversation-buffer (session-id)
+  "Return SESSION-ID's live agent-shell buffer, or nil."
+  (and session-id
+       (fboundp 'major-pane-workspace--live-buffer)
+       (major-pane-workspace--live-buffer session-id)))
+
+(defun project-dashboard--conversation-label (session-id buffer)
+  "Return the label for SESSION-ID, preferring live BUFFER's label.
+An open chat's label lives in `major-pane--labels' and only reaches
+agent-recall's store when the capture hook runs, so read it first."
+  (or (and buffer (boundp 'major-pane--labels)
+           (gethash buffer major-pane--labels))
+      (and (fboundp 'agent-recall-session-label)
+           (agent-recall-session-label session-id))))
+
+(defun project-dashboard--conversation-line (file entry)
+  "Return the Recent Conversations row for transcript FILE with index ENTRY.
+Carries the same metadata as agent-recall's pickers: provider icon,
+age, [project] when it differs from this dashboard's, label,
+catalogue tags, an open marker, then the catalogue note, summary
+topic, or first user message."
+  (let* ((session-id (plist-get entry :session-id))
+         (project (plist-get entry :project))
+         (own-project (and project-dashboard--project-root
+                           (file-name-nondirectory
+                            (directory-file-name project-dashboard--project-root))))
+         (catalogue (and session-id (fboundp 'agent-recall-catalogue-get)
+                         (agent-recall-catalogue-get session-id)))
+         (tags (alist-get 'tags catalogue))
+         (buffer (project-dashboard--conversation-buffer session-id))
+         (label (project-dashboard--conversation-label session-id buffer))
+         (description
+          (string-trim
+           (or (if (fboundp 'agent-recall--candidate-description)
+                   (agent-recall--candidate-description
+                    file (plist-get entry :preview) (alist-get 'note catalogue))
+                 (plist-get entry :preview))
+               ""))))
+    (concat
+     "    "
+     ;; Keep the age column aligned when a row has no known provider.
+     (let ((icon (if (fboundp 'agent-recall--provider-icon)
+                     (agent-recall--provider-icon file entry)
+                   "")))
+       (if (and (string-empty-p icon)
+                (bound-and-true-p agent-recall-show-provider-icons))
+           "  "
+         icon))
+     (propertize (format "%-11s"
+                         (project-dashboard--conversation-age-label
+                          (plist-get entry :timestamp)))
+                 'face 'shadow)
+     "  "
+     (when (and project (not (equal (downcase project)
+                                    (downcase (or own-project "")))))
+       (propertize (format "[%s]  " project) 'face 'shadow))
+     (when label
+       (concat (propertize label 'face 'agent-recall-label) "  "))
+     (when tags
+       (concat (mapconcat (lambda (tag)
+                            (propertize (concat "#" tag) 'face 'agent-recall-tag))
+                          tags " ")
+               "  "))
+     (when buffer
+       (propertize "(open)  " 'face 'success))
+     (propertize (truncate-string-to-width description 60 nil nil "...")
+                 'face (if label 'shadow 'project-dashboard-task-title-face)))))
+
 (defun project-dashboard--render-recent-conversations (convos)
   "Render the Recent Conversations section for CONVOS.
 CONVOS is a list of (FILE . ENTRY) from
@@ -882,32 +624,12 @@ so RET can open it."
     (insert (propertize "  Recent Conversations" 'face 'project-dashboard-section-face))
     (insert "\n\n")
     (dolist (convo convos)
-      (let* ((file (car convo))
-             (entry (cdr convo))
-             (age (project-dashboard--conversation-age-label
-                   (plist-get entry :timestamp)))
-             (label (agent-recall-session-label (plist-get entry :session-id)))
-             (preview (or (plist-get entry :preview) ""))
-             (line (concat
-                    "    "
-                    (propertize age 'face 'shadow)
-                    "  "
-                    (when label
-                      (concat (propertize label 'face 'agent-recall-label) "  "))
-                    (propertize (truncate-string-to-width preview 60 nil nil "...")
-                                'face (if label 'shadow
-                                        'project-dashboard-task-title-face)))))
-        (insert (propertize line
-                            'project-dashboard-transcript file
-                            'mouse-face 'highlight
-                            'help-echo "RET/click: open transcript"))
-        (insert "\n")))
+      (insert (propertize (project-dashboard--conversation-line (car convo) (cdr convo))
+                          'project-dashboard-transcript (car convo)
+                          'mouse-face 'highlight
+                          'help-echo "RET/click: open transcript"))
+      (insert "\n"))
     (insert "\n")))
-
-(defun project-dashboard--source-badge ()
-  "Return a propertized badge naming the buffer's task source."
-  (propertize (if (eq project-dashboard--task-source 'org) " [org]" " [tm]")
-              'face 'project-dashboard-key-face))
 
 (defun project-dashboard--org-task-properties (task)
   "Return text properties linking a rendered line back to org TASK."
@@ -926,7 +648,6 @@ so RET can open it."
     (insert (propertize (format "  %s" header) 'face header-face))
     (insert (propertize (format " (%s)" active-name)
                         'face 'project-dashboard-separator-face))
-    (insert (project-dashboard--source-badge))
     (insert "\n\n")
     (if task
         (progn
@@ -966,17 +687,9 @@ so RET can open it."
 
 (defun project-dashboard--render-org-sections (project-root)
   "Render org-sourced task sections for PROJECT-ROOT.
-Returns non-nil when rendered, mirroring the has-taskmaster flag
-in `project-dashboard--render'."
+Returns non-nil when the project has org task files declared."
   (let ((files (project-dashboard--org-files project-root)))
-    (if (null files)
-        (progn
-          (insert (propertize "  Org Tasks" 'face 'project-dashboard-section-face))
-          (insert "\n\n")
-          (insert (propertize
-                   "    No org task files declared — see project-dashboard-org-task-files\n\n"
-                   'face 'project-dashboard-status-pending-face))
-          t)
+    (when files
       (unless (member project-dashboard--active-org-file files)
         (setq project-dashboard--active-org-file (car files)))
       (setq project-dashboard--org-files-list files)
@@ -987,25 +700,20 @@ in `project-dashboard--render'."
          (project-dashboard--org-next-task tasks) active-name)
         (project-dashboard--render-org-recently-completed
          (project-dashboard--org-recently-completed tasks 5))
-        ;; The file list doubles as the Tags section: same stats shape,
-        ;; same number-key switching.
         (project-dashboard--render-tags-section
-         (project-dashboard--org-file-stats files) active-name "Files"))
+         (project-dashboard--org-file-stats files) active-name))
       t)))
 
-(defun project-dashboard--render-tags-section (tags-stats active-tag &optional title)
-  "Render the Tags Overview section with TAGS-STATS.
-TAGS-STATS is a list of plists from `project-dashboard--get-all-tags-with-stats'.
-ACTIVE-TAG is the currently active tag name to highlight.  TITLE
-overrides the section heading (the org source passes \"Files\").
-Also stores tag names in `project-dashboard--tags-list' for number-based switching."
+(defun project-dashboard--render-tags-section (tags-stats active-tag)
+  "Render the Files section with TAGS-STATS.
+TAGS-STATS is a list of plists from `project-dashboard--org-file-stats'.
+ACTIVE-TAG is the active org file's base name, highlighted.
+Also stores the names in `project-dashboard--tags-list' for number keys."
   (when tags-stats
     ;; Store tags list for keybinding lookup
     (setq project-dashboard--tags-list
           (mapcar (lambda (tag) (plist-get tag :name)) tags-stats))
-    (insert (propertize (format "  %s" (or title "Tags"))
-                        'face 'project-dashboard-section-face))
-    (insert (project-dashboard--source-badge))
+    (insert (propertize "  Files" 'face 'project-dashboard-section-face))
     (insert "\n\n")
     (let ((idx 1))
       (dolist (tag tags-stats)
@@ -1042,33 +750,6 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
           (insert "\n")
           (cl-incf idx))))
     (insert "\n")))
-
-(defun project-dashboard--render-tasks-section (tasks)
-  "Render the Task Master TASKS section."
-  (insert (propertize "  Tasks" 'face 'project-dashboard-section-face))
-  (when project-dashboard--active-tag
-    (insert (propertize (format " (%s)" project-dashboard--active-tag)
-                        'face 'project-dashboard-separator-face)))
-  (insert "\n\n")
-  (if (null tasks)
-      (insert (propertize "    No tasks found\n" 'face 'project-dashboard-status-pending-face))
-    (let ((count 0))
-      (dolist (task tasks)
-        (when (< count project-dashboard-max-tasks)
-          (let* ((id (plist-get task :id))
-                 (title (plist-get task :title))
-                 (status (plist-get task :status))
-                 (priority (plist-get task :priority)))
-            (insert "    ")
-            (insert (propertize (format "#%-4s" id) 'face 'project-dashboard-separator-face))
-            (insert (project-dashboard--render-status status))
-            (insert (project-dashboard--render-priority priority))
-            (insert " ")
-            (insert (propertize (truncate-string-to-width (or title "") 70 nil nil "...")
-                                'face 'project-dashboard-task-title-face))
-            (insert "\n"))
-          (cl-incf count)))))
-  (insert "\n"))
 
 (defun project-dashboard--render-todo-section (todos todo-file-path)
   "Render the TODO section with TODOS from TODO-FILE-PATH."
@@ -1109,7 +790,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
                         (directory-file-name project-dashboard--project-root)))
          (has-link (assoc project-name project-dashboard-project-links))
          (actions (append '(("a" . "Agent") ("d" . "Dired") ("m" . "Magit") ("f" . "Find")
-                            ("v" . "Vterm") ("t" . "Tasks") ("s" . "Source"))
+                            ("v" . "Vterm") ("t" . "Tasks"))
                           (when has-link '(("D" . "Drive")))
                           '(("r" . "Refresh") ("q" . "Quit"))))
          (legend-parts
@@ -1125,9 +806,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
   "Render the complete dashboard for the current project."
   (let* ((inhibit-read-only t)
          (project-root project-dashboard--project-root)
-         (project-name (file-name-nondirectory (directory-file-name project-root)))
-         (has-taskmaster nil)
-         (has-todo nil))
+         (project-name (file-name-nondirectory (directory-file-name project-root))))
     (erase-buffer)
     
     ;; Header (ASCII art + project name)
@@ -1138,39 +817,12 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
     
     (insert "\n")
     
-    ;; Task sections: org files or Task Master, per resolved source
-    (setq project-dashboard--task-source
-          (project-dashboard--resolve-task-source project-root))
-    (if (eq project-dashboard--task-source 'org)
-        (setq has-taskmaster (project-dashboard--render-org-sections project-root))
-    (when project-dashboard-show-taskmaster
-      (let* ((active-tag (project-dashboard--get-active-tag project-root))
-             (tasks (project-dashboard--read-taskmaster-json project-root))
-             (all-tags-stats (project-dashboard--get-all-tags-with-stats project-root)))
-        (setq project-dashboard--active-tag active-tag)
-        ;; Always show tags section if we have any tags
-        (when all-tags-stats
-          (setq has-taskmaster t)
-          (if (null tasks)
-              ;; Empty tag - show placeholder message
-              (progn
-                (insert (propertize "  Next Task" 'face 'project-dashboard-section-face))
-                (insert (propertize (format " (%s)" active-tag) 'face 'project-dashboard-separator-face))
-                (insert (project-dashboard--source-badge))
-                (insert "\n\n")
-                (insert (propertize "    Tag is empty — time to add some tasks\n\n" 
-                                    'face 'project-dashboard-status-pending-face)))
-            ;; Has tasks - render normally
-            (let ((next-task (project-dashboard--find-next-task tasks))
-                  (recently-completed (project-dashboard--get-recently-completed tasks 5))
-                  (filtered (project-dashboard--parse-tasks tasks '("in-progress" "pending"))))
-              (setq project-dashboard--taskmaster-data filtered)
-              ;; 1. Focus Task (In Progress / Next Task) at top
-              (project-dashboard--render-next-task next-task)
-              ;; 2. Recently Completed section
-              (project-dashboard--render-recently-completed recently-completed)))
-          ;; 3. Tags overview at bottom (always show)
-          (project-dashboard--render-tags-section all-tags-stats active-tag)))))
+    ;; Org task sections (Next Task, Recently Completed, Files)
+    (unless (project-dashboard--render-org-sections project-root)
+      (insert (propertize "  Tasks" 'face 'project-dashboard-section-face)
+              "\n\n"
+              (propertize "    No org task file yet. Add one with M-x project-dashboard-add-org-file\n\n"
+                          'face 'project-dashboard-status-pending-face)))
 
     ;; Recent agent-shell conversations (agent-recall index)
     (project-dashboard--render-recent-conversations
@@ -1186,13 +838,7 @@ Also stores tag names in `project-dashboard--tags-list' for number-based switchi
                             (project-dashboard--read-todo-org file-path)
                           (project-dashboard--read-todo-md file-path))))
             (setq project-dashboard--todo-data (cons file-path todos))
-            (setq has-todo t)
             (project-dashboard--render-todo-section todos file-path)))))
-    
-    ;; Show message if no tasks found
-    (when (and (not has-taskmaster) (not has-todo))
-      (insert (propertize "  No tasks or TODO files found in this project\n\n"
-                          'face 'project-dashboard-status-pending-face)))
     
     (goto-char (point-min))))
 
@@ -1245,30 +891,6 @@ Runs `project-dashboard-agent-shell-function' in the project root."
       (projectile-find-file))
      (t
       (call-interactively #'find-file)))))
-
-(defun project-dashboard-open-tasks-file ()
-  "Open the tasks file for editing."
-  (interactive)
-  (let ((taskmaster-file (expand-file-name ".taskmaster/tasks/tasks.json"
-                                           project-dashboard--project-root))
-        (todo-file (car project-dashboard--todo-data)))
-    (cond
-     ;; Both exist - use ivy to choose if available
-     ((and (file-exists-p taskmaster-file) todo-file)
-      (if (fboundp 'ivy-read)
-          (ivy-read "Open tasks file: "
-                    (list (cons "Task Master (tasks.json)" taskmaster-file)
-                          (cons (format "TODO (%s)" (file-name-nondirectory todo-file)) todo-file))
-                    :action (lambda (choice)
-                              (find-file (cdr choice))))
-        ;; Fallback to Task Master if no ivy
-        (find-file taskmaster-file)))
-     ((file-exists-p taskmaster-file)
-      (find-file taskmaster-file))
-     (todo-file
-      (find-file todo-file))
-     (t
-      (message "No tasks file found in project")))))
 
 (defun project-dashboard-open-vterm ()
   "Open a new vterm buffer in the project root directory."
@@ -1325,8 +947,7 @@ org heading on org task lines, otherwise fall back to
 (defun project-dashboard-add-org-file (file)
   "Declare org task FILE for this dashboard's project and persist it.
 Adds FILE to `project-dashboard-org-task-files' under the current
-project root, saves the variable via Customize, and switches this
-dashboard to the org source immediately."
+project root, saves the variable via Customize, and refreshes."
   (interactive
    (progn
      (unless project-dashboard--project-root
@@ -1358,20 +979,8 @@ dashboard to the org source immediately."
             project-dashboard-org-task-files))
     (customize-save-variable 'project-dashboard-org-task-files
                              project-dashboard-org-task-files)
-    (setq project-dashboard--source-override 'org)
     (project-dashboard-refresh)
     (message "Org task file added: %s" file)))
-
-(defun project-dashboard-toggle-task-source ()
-  "Toggle this dashboard between Task Master and org task sources."
-  (interactive)
-  (let ((target (if (eq project-dashboard--task-source 'org) 'taskmaster 'org)))
-    (when (and (eq target 'org)
-               (null (project-dashboard--org-files project-dashboard--project-root)))
-      (user-error "No org task files declared for this project (see `project-dashboard-org-task-files')"))
-    (setq project-dashboard--source-override target)
-    (project-dashboard-refresh)
-    (message "Task source: %s" target)))
 
 (defun project-dashboard-refresh ()
   "Refresh the dashboard."
@@ -1431,24 +1040,17 @@ dashboard to the org source immediately."
   (quit-window))
 
 (defun project-dashboard-switch-tag (n)
-  "Switch to tag number N (1-indexed) from the tags list."
+  "Make org file number N (1-indexed) in the Files section active."
   (interactive "p")
   (if (and project-dashboard--tags-list
            (> n 0)
            (<= n (length project-dashboard--tags-list)))
       (let ((tag-name (nth (1- n) project-dashboard--tags-list)))
-        (if (eq project-dashboard--task-source 'org)
-            ;; Org source: rows are org files; switch the active one.
-            (progn
-              (setq project-dashboard--active-org-file
-                    (nth (1- n) project-dashboard--org-files-list))
-              (message "Switched to: %s" tag-name)
-              (project-dashboard--with-preserved-position
-               (project-dashboard--render)))
-          (when (project-dashboard--set-active-tag project-dashboard--project-root tag-name)
-            (message "Switched to tag: %s" tag-name)
-            (project-dashboard--with-preserved-position
-             (project-dashboard--render)))))
+        (setq project-dashboard--active-org-file
+              (nth (1- n) project-dashboard--org-files-list))
+        (message "Switched to: %s" tag-name)
+        (project-dashboard--with-preserved-position
+         (project-dashboard--render)))
     (message "Invalid tag number: %d" n)))
 
 (defun project-dashboard-switch-tag-1 () "Switch to tag 1." (interactive) (project-dashboard-switch-tag 1))
@@ -1473,22 +1075,16 @@ dashboard to the org source immediately."
 
 ;;; Major Mode
 
-(defvar project-dashboard-tasks-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "t") #'project-dashboard-open-tag-tasks)
-    (define-key map (kbd "T") #'project-dashboard-open-all-tasks)
-    (define-key map (kbd "f") #'project-dashboard-open-tasks-file)
-    map)
-  "Keymap for task-related commands under 't' prefix.")
-
 (defun project-dashboard-open-org-tasks ()
-  "Open the active org task file, jumping to its Tasks heading if any."
+  "Open the active org task file, jumping to its Tasks heading if any.
+Falls back to the project's TODO file when no org files are declared."
   (interactive)
   (let ((file (or project-dashboard--active-org-file
                   (car (project-dashboard--org-files
-                        project-dashboard--project-root)))))
+                        project-dashboard--project-root))
+                  (car project-dashboard--todo-data))))
     (unless file
-      (user-error "No org task files declared for this project"))
+      (user-error "No org task files declared (M-x project-dashboard-add-org-file)"))
     (find-file file)
     (goto-char (point-min))
     (when (re-search-forward "^\\*+ Tasks\\b" nil t)
@@ -1501,16 +1097,6 @@ dashboard to the org source immediately."
             (org-fold-show-children)
           (with-no-warnings (org-show-children)))))))
 
-(defvar project-dashboard--tasks-key-def
-  `(menu-item "" ,project-dashboard-tasks-map
-              :filter ,(lambda (map)
-                         (if (eq project-dashboard--task-source 'org)
-                             #'project-dashboard-open-org-tasks
-                           map)))
-  "Source-aware definition for the `t' key.
-Taskmaster dashboards get the usual `t' prefix map; org dashboards
-jump straight to the active org file's Tasks heading.")
-
 (defvar project-dashboard-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "a") #'project-dashboard-open-agent-shell)
@@ -1519,14 +1105,13 @@ jump straight to the active org file's Tasks heading.")
     (define-key map (kbd "D") #'project-dashboard-open-link)
     (define-key map (kbd "f") #'project-dashboard-find-file)
     (define-key map (kbd "v") #'project-dashboard-open-vterm)
-    (define-key map (kbd "t") project-dashboard--tasks-key-def)
+    (define-key map (kbd "t") #'project-dashboard-open-org-tasks)
     (define-key map (kbd "r") #'project-dashboard-refresh)
     (define-key map (kbd "g") #'project-dashboard-refresh)
     (define-key map (kbd "q") #'project-dashboard-quit)
     (define-key map (kbd "RET") #'project-dashboard-open-at-point)
     (define-key map [mouse-1] #'project-dashboard-mouse-open)
-    (define-key map (kbd "s") #'project-dashboard-toggle-task-source)
-    (define-key map (kbd "S") #'project-dashboard-add-org-file)
+    (define-key map (kbd "o") #'project-dashboard-add-org-file)
     ;; Tag switching (1-9)
     (define-key map (kbd "1") #'project-dashboard-switch-tag-1)
     (define-key map (kbd "2") #'project-dashboard-switch-tag-2)
@@ -1569,13 +1154,12 @@ jump straight to the active org file's Tasks heading.")
     (kbd "D") #'project-dashboard-open-link
     (kbd "f") #'project-dashboard-find-file
     (kbd "v") #'project-dashboard-open-vterm
-    (kbd "t") project-dashboard--tasks-key-def
+    (kbd "t") #'project-dashboard-open-org-tasks
     (kbd "r") #'project-dashboard-refresh
     (kbd "R") #'project-dashboard-new-art
     (kbd "gr") #'project-dashboard-refresh
     (kbd "q") #'project-dashboard-quit
-    (kbd "s") #'project-dashboard-toggle-task-source
-    (kbd "S") #'project-dashboard-add-org-file
+    (kbd "o") #'project-dashboard-add-org-file
     (kbd "RET") #'project-dashboard-open-at-point
     ;; Tag switching (1-9)
     (kbd "1") #'project-dashboard-switch-tag-1
@@ -1597,205 +1181,6 @@ jump straight to the active org file's Tasks heading.")
     (kbd "&") #'project-dashboard-switch-tag-16
     (kbd "*") #'project-dashboard-switch-tag-17
     (kbd "(") #'project-dashboard-switch-tag-18))
-
-;;; All Tasks View
-
-(defvar-local project-dashboard-all-tasks--project-root nil
-  "Project root for the all-tasks buffer.")
-
-(defun project-dashboard--render-all-tasks-buffer (project-root)
-  "Render the all-tasks buffer for PROJECT-ROOT."
-  (let ((inhibit-read-only t)
-        (all-tags-tasks (project-dashboard--get-all-tasks-by-tag project-root))
-        (project-name (file-name-nondirectory (directory-file-name project-root))))
-    (erase-buffer)
-    (insert "\n")
-    (insert (propertize (format "  All Tasks: %s\n" project-name)
-                        'face 'project-dashboard-header-face))
-    (insert (propertize (format "  %s\n\n" (make-string 50 ?─))
-                        'face 'project-dashboard-separator-face))
-    (if (null all-tags-tasks)
-        (insert (propertize "  No tasks found\n" 'face 'project-dashboard-status-pending-face))
-      (dolist (tag-group all-tags-tasks)
-        (let ((tag-name (plist-get tag-group :tag))
-              (tasks (plist-get tag-group :tasks)))
-          ;; Tag header
-          (insert (propertize (format "  %s" tag-name) 'face 'project-dashboard-section-face))
-          (insert (propertize (format " (%d tasks)\n\n" (length tasks))
-                              'face 'project-dashboard-separator-face))
-          ;; Tasks under this tag
-          (if (null tasks)
-              (insert (propertize "    No tasks\n" 'face 'project-dashboard-status-pending-face))
-            (dolist (task tasks)
-              (let* ((id (alist-get 'id task))
-                     (title (alist-get 'title task))
-                     (status (alist-get 'status task))
-                     (priority (alist-get 'priority task))
-                     (status-face (pcase status
-                                    ("in-progress" 'project-dashboard-status-in-progress-face)
-                                    ("done" 'project-dashboard-status-done-face)
-                                    (_ 'project-dashboard-status-pending-face))))
-                (insert "    ")
-                (insert (propertize (format "#%-4s" id) 'face 'project-dashboard-separator-face))
-                (insert (propertize (format "%-12s" status) 'face status-face))
-                (when (and priority (string= priority "high"))
-                  (insert (propertize "! " 'face 'project-dashboard-priority-high-face)))
-                (unless (and priority (string= priority "high"))
-                  (insert "  "))
-                (insert (propertize (truncate-string-to-width (or title "") 60 nil nil "...")
-                                    'face 'project-dashboard-task-title-face))
-                (insert "\n"))))
-          (insert "\n"))))
-    (insert (propertize (format "  %s\n" (make-string 50 ?─))
-                        'face 'project-dashboard-separator-face))
-    (insert "\n")
-    (insert (propertize "  [q] Back to dashboard\n" 'face 'project-dashboard-key-face))
-    (goto-char (point-min))))
-
-(defvar project-dashboard-all-tasks-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "q") #'project-dashboard-all-tasks-quit)
-    (define-key map (kbd "g") #'project-dashboard-all-tasks-refresh)
-    (define-key map (kbd "r") #'project-dashboard-all-tasks-refresh)
-    map)
-  "Keymap for `project-dashboard-all-tasks-mode'.")
-
-(define-derived-mode project-dashboard-all-tasks-mode special-mode "AllTasks"
-  "Major mode for displaying all tasks across all tags."
-  (setq buffer-read-only t)
-  (setq truncate-lines t))
-
-(with-eval-after-load 'evil
-  (evil-set-initial-state 'project-dashboard-all-tasks-mode 'normal)
-  (evil-define-key 'normal project-dashboard-all-tasks-mode-map
-    (kbd "q") #'project-dashboard-all-tasks-quit
-    (kbd "gr") #'project-dashboard-all-tasks-refresh))
-
-(defun project-dashboard-all-tasks-quit ()
-  "Quit the all-tasks view and return to dashboard."
-  (interactive)
-  (let ((project-root project-dashboard-all-tasks--project-root))
-    (quit-window)
-    (when project-root
-      (project-dashboard-open project-root))))
-
-(defun project-dashboard-all-tasks-refresh ()
-  "Refresh the all-tasks view."
-  (interactive)
-  (project-dashboard--render-all-tasks-buffer project-dashboard-all-tasks--project-root)
-  (message "All tasks refreshed"))
-
-(defun project-dashboard-open-all-tasks ()
-  "Open the all-tasks view for the current project."
-  (interactive)
-  (let* ((project-root project-dashboard--project-root)
-         (buf-name (format "*All Tasks: %s*"
-                           (file-name-nondirectory (directory-file-name project-root))))
-         (buf (get-buffer-create buf-name)))
-    (with-current-buffer buf
-      (unless (eq major-mode 'project-dashboard-all-tasks-mode)
-        (project-dashboard-all-tasks-mode))
-      (setq project-dashboard-all-tasks--project-root project-root)
-      (project-dashboard--render-all-tasks-buffer project-root))
-    (switch-to-buffer buf)))
-
-(defvar-local project-dashboard-tag-tasks--tag-name nil
-  "Tag name for the tag-tasks buffer.")
-
-(defun project-dashboard--render-tag-tasks-buffer (project-root tag-name)
-  "Render the tag-tasks buffer for TAG-NAME in PROJECT-ROOT."
-  (let* ((inhibit-read-only t)
-         (all-tags-tasks (project-dashboard--get-all-tasks-by-tag project-root))
-         (tag-data (seq-find (lambda (task) (string= (plist-get task :tag) tag-name)) all-tags-tasks))
-         (tasks (plist-get tag-data :tasks))
-         (project-name (file-name-nondirectory (directory-file-name project-root))))
-    (erase-buffer)
-    (insert "\n")
-    (insert (propertize (format "  Tasks: %s" tag-name)
-                        'face 'project-dashboard-header-face))
-    (insert (propertize (format " (%s)\n" project-name)
-                        'face 'project-dashboard-separator-face))
-    (insert (propertize (format "  %s\n\n" (make-string 50 ?─))
-                        'face 'project-dashboard-separator-face))
-    (if (null tasks)
-        (insert (propertize "  No tasks in this tag\n" 'face 'project-dashboard-status-pending-face))
-      (dolist (task tasks)
-        (let* ((id (alist-get 'id task))
-               (title (alist-get 'title task))
-               (status (alist-get 'status task))
-               (priority (alist-get 'priority task))
-               (status-face (pcase status
-                              ("in-progress" 'project-dashboard-status-in-progress-face)
-                              ("done" 'project-dashboard-status-done-face)
-                              (_ 'project-dashboard-status-pending-face))))
-          (insert "    ")
-          (insert (propertize (format "#%-4s" id) 'face 'project-dashboard-separator-face))
-          (insert (propertize (format "%-12s" status) 'face status-face))
-          (when (and priority (string= priority "high"))
-            (insert (propertize "! " 'face 'project-dashboard-priority-high-face)))
-          (unless (and priority (string= priority "high"))
-            (insert "  "))
-          (insert (propertize (truncate-string-to-width (or title "") 60 nil nil "...")
-                              'face 'project-dashboard-task-title-face))
-          (insert "\n"))))
-    (insert "\n")
-    (insert (propertize (format "  %s\n" (make-string 50 ?─))
-                        'face 'project-dashboard-separator-face))
-    (insert "\n")
-    (insert (propertize "  [q] Back to dashboard\n" 'face 'project-dashboard-key-face))
-    (goto-char (point-min))))
-
-(defvar project-dashboard-tag-tasks-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "q") #'project-dashboard-tag-tasks-quit)
-    (define-key map (kbd "g") #'project-dashboard-tag-tasks-refresh)
-    (define-key map (kbd "r") #'project-dashboard-tag-tasks-refresh)
-    map)
-  "Keymap for `project-dashboard-tag-tasks-mode'.")
-
-(define-derived-mode project-dashboard-tag-tasks-mode special-mode "TagTasks"
-  "Major mode for displaying tasks for a specific tag."
-  (setq buffer-read-only t)
-  (setq truncate-lines t))
-
-(with-eval-after-load 'evil
-  (evil-set-initial-state 'project-dashboard-tag-tasks-mode 'normal)
-  (evil-define-key 'normal project-dashboard-tag-tasks-mode-map
-    (kbd "q") #'project-dashboard-tag-tasks-quit
-    (kbd "gr") #'project-dashboard-tag-tasks-refresh))
-
-(defun project-dashboard-tag-tasks-quit ()
-  "Quit the tag-tasks view and return to dashboard."
-  (interactive)
-  (let ((project-root project-dashboard-all-tasks--project-root))
-    (quit-window)
-    (when project-root
-      (project-dashboard-open project-root))))
-
-(defun project-dashboard-tag-tasks-refresh ()
-  "Refresh the tag-tasks view."
-  (interactive)
-  (project-dashboard--render-tag-tasks-buffer 
-   project-dashboard-all-tasks--project-root
-   project-dashboard-tag-tasks--tag-name)
-  (message "Tag tasks refreshed"))
-
-(defun project-dashboard-open-tag-tasks ()
-  "Open the tasks view for the currently active tag."
-  (interactive)
-  (let* ((project-root project-dashboard--project-root)
-         (tag-name project-dashboard--active-tag)
-         (buf-name (format "*Tasks: %s (%s)*"
-                           tag-name
-                           (file-name-nondirectory (directory-file-name project-root))))
-         (buf (get-buffer-create buf-name)))
-    (with-current-buffer buf
-      (unless (eq major-mode 'project-dashboard-tag-tasks-mode)
-        (project-dashboard-tag-tasks-mode))
-      (setq project-dashboard-all-tasks--project-root project-root)
-      (setq project-dashboard-tag-tasks--tag-name tag-name)
-      (project-dashboard--render-tag-tasks-buffer project-root tag-name))
-    (switch-to-buffer buf)))
 
 ;;; Entry Points
 
