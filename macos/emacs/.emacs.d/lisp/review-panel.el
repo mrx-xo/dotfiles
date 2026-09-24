@@ -201,7 +201,7 @@
   (when (and (eq session review-session--current)
              (buffer-live-p (review-session-panel session))
              (< index (length (review-session-files session))))
-    (let ((next (lambda ()
+    (let ((next (lambda (&optional _error)
                   (review-panel--refresh session)
                   (run-at-time 0 nil #'review-panel--preload session (1+ index)))))
       (condition-case err

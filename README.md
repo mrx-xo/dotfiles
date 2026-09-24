@@ -96,6 +96,33 @@ A full isolated copy of the config at `~/.emacs-sandbox` for testing changes
 without touching the running daemon. Launch with `Cmd+Shift+S`, resync with
 `macos/scripts/emacs-sandbox.sh --fresh`.
 
+### Read-only review sessions
+
+`SPC g R G` reviews a local Git range: empty input compares the working tree
+with HEAD, `--staged` reviews the index, one revision reviews its commit,
+and `A..B` / `A...B` compare revisions. From an open Forgejo PR **diff**,
+`SPC g R s` starts the same files-panel and old/new-pane workflow.
+GitHub PR sessions and a separate panel frame are not supported yet.
+
+In the panes and panel, `C-j` / `C-k` navigate files, `M-j` / `M-k` navigate
+hunks, `v` toggles viewed, `u` parks a question, and `q` restores the previous
+layout. Forward file navigation marks the file you leave; mark the last
+file with `v`. In the panel only, `TAB` folds a file or collapses the header
+to a strip, and `RET` opens a file/hunk. Use `V` for Evil line selection
+because plain `v` is viewed.
+
+`SPC q` with a pane selection captures original source lines and their
+origin. The answer uses a graphical child frame when available, with a
+bottom-window fallback. Response exits: `q` dismiss, `c` continue in chat,
+`u` park the question, `y` copy the answer. Comment/approve/merge actions
+remain in the original PR buffers; a review session never writes source.
+
+Commit ranges and staged blobs are pinned when the session opens;
+working-tree text is cached when each file loads. Quit and reopen to refresh.
+For a failed Forgejo file, use `RET` on its panel row to retry; if the patch
+and fetched blob disagree, reopen the PR diff first. Binary/metadata-only
+entries have no text comparison. Session progress is not persisted.
+
 ### Config tests
 
 After touching `emacs.org`/`init.el`:

@@ -169,7 +169,7 @@
            (calls nil) (got nil)
            (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files)))
       (cl-letf (((symbol-function 'forgejo-api-get)
-                 (lambda (host path params cb)
+                 (lambda (host path params cb &rest _args)
                    (push (list path params) calls)
                    (cond ((string-suffix-p "pulls/41" path)
                           (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil))
@@ -184,14 +184,33 @@
 (ert-deftest review-source-forgejo-text-rejects-drifted-blob ()
   (review-source-test--with-patch
     (let* ((files (review-source-forgejo-patch-files))
-           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files)))
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files))
+           failure)
       (cl-letf (((symbol-function 'forgejo-api-get)
-                 (lambda (_host path _params cb)
+                 (lambda (_host path _params cb &rest _args)
                    (if (string-suffix-p "pulls/41" path)
                        (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil)
                      (funcall cb `((sha . "9999999") (encoding . "base64")
                                    (content . ,(base64-encode-string "x"))) nil)))))
-        (should-error (funcall (review-source-text src) (car files) 'new #'ignore) :type 'user-error)))))
+        (funcall (review-source-text src) (car files) 'new
+                 (lambda (text &optional error) (should-not text) (setq failure error)))
+        (should (string-match-p "changed since this patch" failure))))))
+
+(ert-deftest review-source-forgejo-reports-metadata-and-content-errors ()
+  (review-source-test--with-patch
+    (dolist (stage '(metadata content))
+      (let* ((files (review-source-forgejo-patch-files))
+             (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files))
+             failure)
+        (cl-letf (((symbol-function 'forgejo-api-get)
+                   (lambda (_host path _params cb &rest args)
+                     (if (and (eq stage 'content) (string-suffix-p "pulls/41" path))
+                         (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil)
+                       (funcall (plist-get args :error-callback)
+                                '(:status 403 :message "access denied"))))))
+          (funcall (review-source-text src) (car files) 'new
+                   (lambda (text &optional error) (should-not text) (setq failure error)))
+          (should (string-match-p "access denied" failure)))))))
 
 (ert-deftest review-source-forgejo-absent-side-is-empty-without-api ()
   (review-source-test--with-patch

@@ -3,6 +3,24 @@
 (require 'review-panel)
 (require 'review-session-test)
 
+(ert-deftest review-panel-preload-continues-after-async-failure ()
+  (review-panel-test--with s
+    (let ((text (review-source-text (review-session-source s))))
+      (setf (review-source-text (review-session-source s))
+            (lambda (file side callback)
+              (if (equal (plist-get file :path) "b.el")
+                  (run-at-time 0 nil callback nil "access denied")
+                (funcall text file side callback))))
+      (review-panel-open s)
+      (let ((deadline (+ (float-time) 2)))
+        (while (and (< (float-time) deadline)
+                    (not (plist-get (review-session-file s 1) :error)))
+          (accept-process-output nil 0.01)))
+      (should (equal (plist-get (review-session-file s 1) :error) "access denied"))
+      (should-not (plist-get (review-session-file s 1) :loaded))
+      (with-current-buffer (review-session-panel s)
+        (should (string-match-p "failed" (buffer-string)))))))
+
 (defmacro review-panel-test--with (var &rest body)
   (declare (indent 1))
   `(save-window-excursion
