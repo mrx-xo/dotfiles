@@ -7439,12 +7439,19 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     (require 'forgejo-pull)
     (require 'forgejo-review-navigation)
     (require 'forgejo-merge)
-    (require 'pr-workflow)
     ;; Let the package's review keys win over Evil's editing commands.
     ;; Unassigned keys still fall through to Evil navigation.
     (dolist (map '(forgejo-pull-list-mode-map forgejo-pull-view-mode-map
                    forgejo-view-diff-map forgejo-review-thread-map))
       (evil-make-overriding-map (symbol-value map) 'normal t)))
+
+  ;; PR/review commands are entry points even before Magit or Forge loads.
+  ;; Do not require this from Forgejo's :config: the workflow itself requires
+  ;; Forge, so doing both would create a recursive load on first invocation.
+  (use-package pr-workflow
+    :ensure nil
+    :commands (mr-x/pr-menu mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
+               mr-x/pr-review-session mr-x/review-git-range))
 
 
 
