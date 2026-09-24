@@ -47,6 +47,7 @@
 
 (declare-function agent-shell--update-fragment "agent-shell")
 (declare-function agent-shell--active-requests-p "agent-shell")
+(declare-function agent-shell--shell-buffer "agent-shell")
 (defvar syzygy-resync--behind)
 
 (defgroup syzygy nil
@@ -289,14 +290,24 @@ ORIG and ARGS as in the advised function."
               (syzygy-live--sync-prompt-mark))
             (map-put! state :last-entry-type "phone_user_message_chunk")))))))
 
+(defun syzygy-live--submission-buffer ()
+  "Return the shell buffer targeted by the current submit command."
+  (or (and (or (derived-mode-p 'agent-shell-mode)
+               (local-variable-p 'syzygy-live-mode))
+           (current-buffer))
+      (and (fboundp 'agent-shell--shell-buffer)
+           (ignore-errors (agent-shell--shell-buffer :no-create t)))))
+
 (defun syzygy-live--guard-submit (orig &rest args)
-  "Refuse ORIG submit with ARGS while a phone turn streams."
-  ;; Refs and local commands stay on shell-maker-submit; this router sees cleared input.
-  (if (and syzygy-live-mode
-           syzygy-live--last-rx
-           (< (- (float-time) syzygy-live--last-rx) 2.0))
+  "Refuse ORIG submit with ARGS while its target phone turn streams."
+  (let* ((buf (syzygy-live--submission-buffer))
+         (live (and buf (buffer-local-value 'syzygy-live-mode buf)))
+         (last-rx (and buf (buffer-local-value 'syzygy-live--last-rx buf))))
+    (if (and live
+             last-rx
+             (< (- (float-time) last-rx) 2.0))
       (user-error "Phone turn streaming — give it a beat")
-    (apply orig args)))
+      (apply orig args))))
 
 (defun syzygy-live--live-prompt-fix (orig prompt)
   "Around `agent-shell--live-input-prompt-p' (ORIG, PROMPT): skip markers.
@@ -325,8 +336,14 @@ for output after the prompt."
             ok)))))
 
 (advice-add 'agent-shell--on-notification :around #'syzygy-live--on-notification)
-(advice-add 'shell-maker-submit :around #'syzygy-live--guard-submit)
-(advice-add 'agent-shell--busy-submit :around #'syzygy-live--guard-submit)
+(advice-add 'shell-maker-submit :around #'syzygy-live--guard-submit
+            '((depth . -90)))
+(advice-add 'agent-shell--busy-submit :around #'syzygy-live--guard-submit
+            '((depth . -90)))
+(advice-add 'agent-shell-prompt-queue :around #'syzygy-live--guard-submit
+            '((depth . -90)))
+(advice-add 'agent-shell-prompt-steer :around #'syzygy-live--guard-submit
+            '((depth . -90)))
 (advice-add 'agent-shell--live-input-prompt-p :around #'syzygy-live--live-prompt-fix)
 
 (provide 'syzygy-live)

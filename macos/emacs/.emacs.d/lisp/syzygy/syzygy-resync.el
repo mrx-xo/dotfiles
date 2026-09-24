@@ -41,6 +41,7 @@
 (require 'cl-lib)
 
 (declare-function agent-shell-reload "agent-shell")
+(declare-function agent-shell--shell-buffer "agent-shell")
 (declare-function evil-normal-state "evil-states")
 
 (defface syzygy-resync-banner
@@ -120,15 +121,23 @@ out-of-turn `user_message_chunk' arrives (another client's turn)."
     (with-current-buffer buf
       (syzygy-resync--lock))))
 
+(defun syzygy-resync--submission-buffer ()
+  "Return the shell buffer targeted by the current submit command."
+  (or (and (or (derived-mode-p 'agent-shell-mode)
+               (local-variable-p 'syzygy-resync--behind))
+           (current-buffer))
+      (and (fboundp 'agent-shell--shell-buffer)
+           (ignore-errors (agent-shell--shell-buffer :no-create t)))))
+
 (defun syzygy-resync--guard-submit (orig &rest args)
-  "Refuse ORIG submit with ARGS in a locked buffer.
-This guards both the initial `shell-maker-submit' path and
-`agent-shell--busy-submit' for queued or steered prompts."
-  ;; Refs and local commands stay on shell-maker-submit; this router sees cleared input.
-  (if (syzygy-resync--locked-p)
-      (user-error "%s is %d phone turn(s) behind — SPC c y re-syncs (C-u SPC c y unlocks)"
-                  (buffer-name) syzygy-resync--behind)
-    (apply orig args)))
+  "Refuse ORIG submit with ARGS when its target shell is locked.
+This covers prompt submits plus the direct queue and steer commands."
+  (let ((buf (syzygy-resync--submission-buffer)))
+    (if (and buf (syzygy-resync--locked-p buf))
+        (user-error "%s is %d phone turn(s) behind — SPC c y re-syncs (C-u SPC c y unlocks)"
+                    (buffer-name buf)
+                    (buffer-local-value 'syzygy-resync--behind buf))
+      (apply orig args))))
 
 (defun syzygy-resync-buffer (&optional unlock-only)
   "Replay this session into a fresh buffer, catching up on phone turns.
@@ -143,8 +152,14 @@ here until the next reload."
 
 (advice-add 'agent-shell--make-out-of-session-turn-notification-body
             :before #'syzygy-resync--flag)
-(advice-add 'shell-maker-submit :around #'syzygy-resync--guard-submit)
-(advice-add 'agent-shell--busy-submit :around #'syzygy-resync--guard-submit)
+(advice-add 'shell-maker-submit :around #'syzygy-resync--guard-submit
+            '((depth . -100)))
+(advice-add 'agent-shell--busy-submit :around #'syzygy-resync--guard-submit
+            '((depth . -100)))
+(advice-add 'agent-shell-prompt-queue :around #'syzygy-resync--guard-submit
+            '((depth . -100)))
+(advice-add 'agent-shell-prompt-steer :around #'syzygy-resync--guard-submit
+            '((depth . -100)))
 
 (provide 'syzygy-resync)
 ;;; syzygy-resync.el ends here

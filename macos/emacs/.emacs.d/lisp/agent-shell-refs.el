@@ -704,6 +704,33 @@ case agent-shell rewrites the echoed input region asynchronously."
                              (with-current-buffer buf
                                (agent-shell-refs-repair)))))))))))
 
+(defun agent-shell-refs--around-busy-submit (orig-fun &rest args)
+  "Advice around `agent-shell--busy-submit' to prepend attached refs.
+The router receives prompt text directly, so transform its `:prompt'
+argument instead of editing the live prompt.  Consume refs only after
+the router accepts the submission."
+  (if (not (and (derived-mode-p 'agent-shell-mode)
+                agent-shell-refs--list))
+      (apply orig-fun args)
+    (let* ((prompt (plist-get args :prompt))
+           (refs-text (agent-shell-refs--format-for-send
+                       agent-shell-refs--list))
+           (send-args (copy-sequence args)))
+      (setq send-args (plist-put send-args :prompt
+                                 (concat refs-text prompt)))
+      (prog1 (apply orig-fun send-args)
+        (setq agent-shell-refs--list nil)
+        (agent-shell-refs--update-input-preview)
+        (force-mode-line-update)
+        (let ((buf (current-buffer)))
+          (agent-shell-refs-repair)
+          (dolist (delay '(0.5 2 5))
+            (run-at-time delay nil
+                         (lambda ()
+                           (when (buffer-live-p buf)
+                             (with-current-buffer buf
+                               (agent-shell-refs-repair)))))))))))
+
 ;;; --- Find shell buffer ---
 
 (defun agent-shell-refs--find-shell-buffer ()
@@ -729,6 +756,8 @@ project's shell buffer."
                   (list 'agent-shell-refs--modeline-construct))))
   ;; Submit advice
   (advice-add 'shell-maker-submit :around #'agent-shell-refs--around-submit)
+  (advice-add 'agent-shell--busy-submit :around
+              #'agent-shell-refs--around-busy-submit)
   ;; [ref N] marker pills — remove first so re-running setup can't stack
   ;; duplicate keywords; refresh live buffers so it applies immediately
   (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords)
@@ -749,6 +778,8 @@ project's shell buffer."
   (setq mode-line-misc-info
         (delq 'agent-shell-refs--modeline-construct mode-line-misc-info))
   (advice-remove 'shell-maker-submit #'agent-shell-refs--around-submit)
+  (advice-remove 'agent-shell--busy-submit
+                 #'agent-shell-refs--around-busy-submit)
   (remove-hook 'agent-shell-mode-hook #'agent-shell-refs--setup-buffer)
   (font-lock-remove-keywords 'agent-shell-mode agent-shell-refs--marker-keywords))
 

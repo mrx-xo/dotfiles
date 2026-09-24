@@ -473,6 +473,24 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
   (should (eq (cdr (assoc "clone" mr-x/agent-shell-local-commands))
               'mr-x/agent-shell-clone)))
 
+(ert-deftest config-test-agent-shell-busy-local-command-stays-local ()
+  "A local slash command submitted mid-turn must not reach the agent."
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (setq-local syzygy-resync--behind 0)
+    (setq-local syzygy-live-mode nil)
+    (setq-local agent-shell-refs--list '("Reference text"))
+    (let* ((ran nil)
+           (handler (lambda () (setq ran t)))
+           (mr-x/agent-shell-local-commands
+            (list (cons "clear" handler)))
+           (agent-shell-busy-submit-default-function
+            (lambda (prompt)
+              (ert-fail (format "Local command reached router: %s" prompt)))))
+      (agent-shell--busy-submit :prompt "/clear")
+      (should ran)
+      (should (equal agent-shell-refs--list '("Reference text"))))))
+
 (ert-deftest config-test-agent-shell-inbox ()
   "Phone-screenshot inbox package should be loaded with its entry points."
   (should (featurep 'agent-shell-inbox))
@@ -896,6 +914,43 @@ Popper must NOT control display, the popup rule must be present, and a
                          "Ref 1:\n> first\n\n"
                          "Ref 2:\n> second\n"
                          "</referenced-context>\n\n"))))
+
+(ert-deftest config-test-agent-shell-busy-refs-prepend-and-consume ()
+  "A successful mid-turn submit sends attached refs exactly once."
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (setq-local syzygy-resync--behind 0)
+    (setq-local syzygy-live-mode nil)
+    (setq-local agent-shell-refs--list '("Reference text"))
+    (let* ((expected
+            (concat "<referenced-context>\n"
+                    "Ref 1:\n> Reference text\n"
+                    "</referenced-context>\n\n"
+                    "Please use ref 1"))
+           (agent-shell-busy-submit-override-function #'identity))
+      (should (equal (agent-shell--busy-submit
+                      :prompt "Please use ref 1" :override t)
+                     expected))
+      (should-not agent-shell-refs--list))))
+
+(ert-deftest config-test-agent-shell-busy-refs-survive-router-error ()
+  "A rejected mid-turn submit keeps attached refs for the next attempt."
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (setq-local syzygy-resync--behind 0)
+    (setq-local syzygy-live-mode nil)
+    (setq-local agent-shell-refs--list '("Reference text"))
+    (let* ((expected
+            (concat "<referenced-context>\n"
+                    "Ref 1:\n> Reference text\n"
+                    "</referenced-context>\n\n"
+                    "Try again"))
+           (agent-shell-busy-submit-default-function
+            (lambda (prompt) (signal 'user-error (list prompt))))
+           (err (should-error (agent-shell--busy-submit :prompt "Try again")
+                              :type 'user-error)))
+      (should (equal (cadr err) expected))
+      (should (equal agent-shell-refs--list '("Reference text"))))))
 
 (ert-deftest config-test-project-dashboard-loaded ()
   "project-dashboard should be loaded."
@@ -2279,6 +2334,69 @@ committed-but-never-sent prompt."
   (should-not (advice-member-p 'syzygy-resync--guard 'agent-shell--handle))
   (should (advice-member-p 'syzygy-resync--flag
                            'agent-shell--make-out-of-session-turn-notification-body)))
+
+(ert-deftest config-test-syzygy-resync-blocks-direct-prompt-commands ()
+  "A locked shell refuses direct queue and steer commands."
+  (let ((shell (generate-new-buffer " *syzygy-locked-shell*"))
+        (calls nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer shell
+            (setq-local major-mode 'agent-shell-mode)
+            (setq-local syzygy-resync--behind 1)
+            (setq-local syzygy-live-mode nil)
+            (setq-local agent-shell--state
+                        '((:session . ((:id . "test"))))))
+          (cl-letf (((symbol-function 'agent-shell--shell-buffer)
+                     (lambda (&rest _) shell))
+                    ((symbol-function 'shell-maker-busy)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'agent-shell-steering-supported-p)
+                     (lambda () t))
+                    ((symbol-function 'agent-shell-status)
+                     (lambda (&rest _) 'working))
+                    ((symbol-function 'agent-shell--prompt-queue-enqueue)
+                     (lambda (&rest _) (push :queued calls)))
+                    ((symbol-function 'agent-shell-experimental--send-steering)
+                     (lambda (&rest _) (push :steered calls))))
+            (should-error (agent-shell-prompt-queue "queued")
+                          :type 'user-error)
+            (should-error (agent-shell-prompt-steer "steered")
+                          :type 'user-error)
+            (should-not calls)))
+      (kill-buffer shell))))
+
+(ert-deftest config-test-syzygy-live-blocks-direct-prompt-commands ()
+  "A streaming phone turn refuses direct queue and steer commands."
+  (let ((shell (generate-new-buffer " *syzygy-live-shell*"))
+        (calls nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer shell
+            (setq-local major-mode 'agent-shell-mode)
+            (setq-local syzygy-resync--behind 0)
+            (setq-local syzygy-live-mode t)
+            (setq-local syzygy-live--last-rx (float-time))
+            (setq-local agent-shell--state
+                        '((:session . ((:id . "test"))))))
+          (cl-letf (((symbol-function 'agent-shell--shell-buffer)
+                     (lambda (&rest _) shell))
+                    ((symbol-function 'shell-maker-busy)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'agent-shell-steering-supported-p)
+                     (lambda () t))
+                    ((symbol-function 'agent-shell-status)
+                     (lambda (&rest _) 'working))
+                    ((symbol-function 'agent-shell--prompt-queue-enqueue)
+                     (lambda (&rest _) (push :queued calls)))
+                    ((symbol-function 'agent-shell-experimental--send-steering)
+                     (lambda (&rest _) (push :steered calls))))
+            (should-error (agent-shell-prompt-queue "queued")
+                          :type 'user-error)
+            (should-error (agent-shell-prompt-steer "steered")
+                          :type 'user-error)
+            (should-not calls)))
+      (kill-buffer shell))))
 
 (ert-deftest config-test-syzygy-package ()
   "The syzygy umbrella loads all three modules with their entry points.
