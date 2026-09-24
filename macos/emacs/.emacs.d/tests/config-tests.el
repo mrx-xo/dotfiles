@@ -342,10 +342,26 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
   (let ((preset (assq ?g mr-x/agent-shell-presets)))
     (should preset)
     (should (equal (cdr preset)
-                   '("OpenCode GLM Flash · Bypass"
+                   '("GLM 5.3 Flash · Full"
                      "openrouter/z-ai/glm-5.3-flash"
                      "bypass"
                      agent-shell-opencode-make-agent-config)))))
+
+(ert-deftest config-test-agent-preset-labels-use-canonical-names ()
+  "Preset labels use family-first model versions and shared permission names."
+  (should
+   (equal (mapcar (lambda (preset) (cons (car preset) (nth 1 preset)))
+                  mr-x/agent-shell-presets)
+          '((?f . "Fable 5.1 · Full")
+            (?o . "Opus 5.5 · Full")
+            (?s . "Sonnet 5 · Accept edits")
+            (?p . "Opus 5.5 · Plan")
+            (?a . "Astra 6 · Full")
+            (?c . "Sol 5.6 · Full")
+            (?x . "Sol 5.6 Max · Full")
+            (?O . "Luna 5.6 · Build")
+            (?g . "GLM 5.3 Flash · Full")
+            (?d . "DeepSeek Chat · Accept edits")))))
 
 (ert-deftest config-test-preset-prompt-lists-every-key-by-vendor ()
   "The preset picker shows one row per vendor and every preset key."
@@ -362,8 +378,12 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
   (should (eq (mr-x/agent-shell--preset-vendor (assq ?a mr-x/agent-shell-presets)) 'codex))
   (should (eq (mr-x/agent-shell--preset-vendor (assq ?g mr-x/agent-shell-presets)) 'opencode))
   (should (eq (mr-x/agent-shell--preset-vendor (assq ?d mr-x/agent-shell-presets)) 'deepseek))
-  (should (equal (mr-x/agent-shell--preset-mode-word "bypassPermissions") "bypass"))
-  (should (equal (mr-x/agent-shell--preset-mode-word "agent-full-access") "full")))
+  (dolist (mode '("bypassPermissions" "agent-full-access" "bypass"))
+    (should (equal (mr-x/agent-shell--preset-mode-word mode) "full")))
+  (should (equal (mr-x/agent-shell--preset-mode-word "acceptEdits") "accept edits"))
+  (should (equal (mr-x/agent-shell--preset-mode-word "agent") "auto"))
+  (should (equal (mr-x/agent-shell--preset-mode-word "read-only") "ask"))
+  (should (equal (mr-x/agent-shell--preset-mode-word "default") "manual")))
 
 (ert-deftest config-test-codex-account-main-leaves-config-alone ()
   "The first Codex account has no CODEX_HOME and must not copy the config."

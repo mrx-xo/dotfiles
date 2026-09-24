@@ -4385,9 +4385,9 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;; already wearing that model + permission profile.
       ;;
       ;; Valid IDs (from the live ACP session, `agent-shell--get-available-*'):
-      ;;   models: "default" (Opus 4.8 1M) "opus[1m]" "claude-fable-5[1m]"
+      ;;   models: "default" (Opus 5.5 1M) "opus[1m]" "fable[1m]"
       ;;           "sonnet" "haiku"
-      ;;   modes:  "auto" "default" "acceptEdits" "plan" "dontAsk"
+      ;;   modes:  "auto" "default" "acceptEdits" "plan"
       ;;           "bypassPermissions"
       ;; Codex IDs (from a live codex-acp session).  GOTCHA: the session's
       ;; :models list shows suffixed ids ("gpt-5.6-sol[high]") but those are
@@ -4501,21 +4501,21 @@ app-server' reads that home, and whose buffer carries the account name."
             config)))
 
       (defvar mr-x/agent-shell-presets
-        '((?f "Fable 5.1 · Bypass" "fable[1m]"           "bypassPermissions")
-          (?o "Opus · Bypass"      "opus[1m]"            "bypassPermissions")
-          (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
-          (?p "Opus · Plan"     "default"            "plan")
-          (?a "Astra · Full"    "gpt-6-astra"        "agent-full-access"
+        '((?f "Fable 5.1 · Full" "fable[1m]"           "bypassPermissions")
+          (?o "Opus 5.5 · Full"  "opus[1m]"            "bypassPermissions")
+          (?s "Sonnet 5 · Accept edits" "sonnet"       "acceptEdits")
+          (?p "Opus 5.5 · Plan"  "default"             "plan")
+          (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
               agent-shell-openai-make-codex-config "high")
-          (?c "Sol · Full"      "gpt-5.6-sol"        "agent-full-access"
+          (?c "Sol 5.6 · Full"   "gpt-5.6-sol"         "agent-full-access"
               agent-shell-openai-make-codex-config "high")
-          (?x "Sol Max · Full"  "gpt-5.6-sol"        "agent-full-access"
+          (?x "Sol 5.6 Max · Full" "gpt-5.6-sol"       "agent-full-access"
               agent-shell-openai-make-codex-config "max")
-          (?O "OpenCode Luna · Build" "openai/gpt-5.6-luna" "build"
+          (?O "Luna 5.6 · Build" "openai/gpt-5.6-luna" "build"
               agent-shell-opencode-make-agent-config)
-          (?g "OpenCode GLM Flash · Bypass" "openrouter/z-ai/glm-5.3-flash" "bypass"
+          (?g "GLM 5.3 Flash · Full" "openrouter/z-ai/glm-5.3-flash" "bypass"
               agent-shell-opencode-make-agent-config)
-          (?d "DeepSeek · Accept" "default"          "acceptEdits"
+          (?d "DeepSeek Chat · Accept edits" "default" "acceptEdits"
               mr-x/agent-shell-make-deepseek-config))
         "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
 Each launches a fresh shell with that model and permission mode.
@@ -4580,16 +4580,18 @@ original is left untouched."
       (defun mr-x/agent-shell--preset-mode-word (mode-id)
         "Short lowercase word for session MODE-ID."
         (pcase mode-id
-          ((or "bypassPermissions" "bypass") "bypass")
-          ("agent-full-access" "full")
-          ("acceptEdits" "accept")
+          ((or "bypassPermissions" "agent-full-access" "bypass") "full")
+          ("acceptEdits" "accept edits")
+          ("agent" "auto")
+          ("read-only" "ask")
+          ("default" "manual")
           (_ (downcase mode-id))))
 
       (defun mr-x/agent-shell--preset-mode-color (word)
         "Palette color name for a mode WORD: red for no guardrails, down to mint."
         (pcase word
-          ((or "bypass" "full") 'red)
-          ((or "accept" "auto") 'gold)
+          ("full" 'red)
+          ((or "accept edits" "auto") 'gold)
           ("build" 'lime)
           (_ 'mint)))
 
@@ -4821,11 +4823,11 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
         "c m o" '(agent-shell-set-session-config-option :wk "Set option...")
         "c m c" '(agent-shell-cycle-session-mode :wk "Cycle")
-        "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "Default")
+        "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "Manual")
         "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "acceptEdits")) :wk "Accept Edits")
         "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "plan")) :wk "Plan")
-        "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "dontAsk")) :wk "Don't Ask")
-        "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "Bypass Perms")
+        "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "auto")) :wk "Auto")
+        "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "Full")
         "c ." '(agent-shell-set-session-model :wk "Set model")
         "c T" '(agent-shell-open-transcript :wk "Open transcript")
         "c q" '(agent-shell-prompt-queue :wk "Queue request")

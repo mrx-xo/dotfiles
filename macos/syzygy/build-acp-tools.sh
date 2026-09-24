@@ -103,7 +103,8 @@ ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
 # + local 5b56838 (GET /api/git-status: branch plus staged, unstaged and untracked counts for a live session)
 # + local 5290b6c (chat header: project title with buffer ordinal, provider icon, model, mode word, branch with dirty dot; status via dimmed icon and a second load line)
 # + local a68ceac (pull-down chat toolbar: git, model, pinned, fork, clone, catalogue; Before commit bar removed; kebab trimmed)
-ACP_MOBILE_COMMIT="a68ceacd659d8da4b1b486520e5b05c48b7e6f77"
+# + local 312049d (canonical model and permission labels in the chat header and toolbar)
+ACP_MOBILE_COMMIT="312049dedb150d1f7dce30d52624eb3b9e0ad566"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

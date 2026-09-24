@@ -21,16 +21,16 @@
 (ert-deftest syzygy-presets-json-mirrors-the-rig-list ()
   "Key, label, model, mode, agent and effort travel; order is the rig's."
   (let ((mr-x/agent-shell-presets
-         '((?f "Fable 5.1 · Bypass" "fable[1m]" "bypassPermissions")
-           (?F "Fable 5 · Bypass" "claude-fable-5[1m]" "bypassPermissions")
-           (?a "Astra · Full" "gpt-6-astra" "agent-full-access"
+         '((?f "Fable 5.1 · Full" "fable[1m]" "bypassPermissions")
+           (?o "Opus 5.5 · Plan" "default" "plan")
+           (?a "Astra 6 · Full" "gpt-6-astra" "agent-full-access"
                agent-shell-openai-make-codex-config "high")
-           (?d "DeepSeek · Accept" "default" "acceptEdits"
+           (?d "DeepSeek Chat · Accept edits" "default" "acceptEdits"
                mr-x/agent-shell-make-deepseek-config))))
     (let ((got (syzygy-presets-test--decode (syzygy-presets-json))))
       (should (equal (mapcar (lambda (p) (alist-get 'key p)) got)
-                     '("f" "F" "a" "d")))
-      (should (equal (alist-get 'label (car got)) "Fable 5.1 · Bypass"))
+                     '("f" "o" "a" "d")))
+      (should (equal (alist-get 'label (car got)) "Fable 5.1 · Full"))
       (should (equal (alist-get 'model (car got)) "fable[1m]"))
       (should (equal (alist-get 'mode (car got)) "bypassPermissions"))
       (should (equal (alist-get 'agent (car got)) "claude"))

@@ -118,7 +118,7 @@ Missing configured defaults require a choice; the first permission option
 is never silently selected.
 Legacy preset and clone requests continue through the existing bridge.
 
-OpenCode is available in the Agent picker and through the `OpenCode Luna · Build`
+OpenCode is available in the Agent picker and through the `Luna 5.6 · Build`
 rig preset. It launches `openai/gpt-5.6-luna` in `build` mode through
 `acp-multiplex`, using the installer's absolute executable path. The preset
 keeps OpenCode launchable before any chat has advertised choices; after an
