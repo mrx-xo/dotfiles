@@ -155,5 +155,84 @@ Revisions and index blobs are pinned when the file list is first read."
                                (abbreviate-file-name (expand-file-name path directory)) start)
                  :url nil)))))))
 
+(declare-function mr-x/forgejo-ediff--entry-at-point "forgejo-review-ediff")
+(declare-function forgejo-api-get "forgejo-api")
+
+(defun review-source-forgejo-patch-files ()
+  "Parse every entry of the Forgejo PR patch in the current buffer."
+  (require 'forgejo-review-ediff)
+  (save-excursion
+    (goto-char (point-min))
+    (let (files)
+      (while (re-search-forward "^diff --git " nil t)
+        (let* ((entry (mr-x/forgejo-ediff--entry-at-point))
+               (old (car (plist-get entry :sides))) (new (cadr (plist-get entry :sides)))
+               (kind (cond ((plist-get old :empty) 'added)
+                           ((plist-get new :empty) 'deleted)
+                           ((equal (plist-get old :path) (plist-get new :path)) 'modified)
+                           (t 'renamed))))
+          (push (list :path (if (eq kind 'deleted) (plist-get old :path) (plist-get new :path))
+                      :old-path (and (not (eq kind 'added)) (plist-get old :path))
+                      :kind kind :binary (plist-get entry :binary)
+                      :blobs (list (plist-get old :blob) (plist-get new :blob)))
+                files)
+          (goto-char (plist-get entry :end))))
+      (nreverse files))))
+
+(defun review-source-forgejo--fetch (host owner repo path revision blob callback)
+  "Fetch PATH at REVISION through the contents API, check BLOB, call CALLBACK."
+  (forgejo-api-get
+   host (format "repos/%s/%s/contents/%s" owner repo
+                (mapconcat #'url-hexify-string (split-string path "/") "/"))
+   `(("ref" . ,revision))
+   (lambda (source _headers)
+     (unless (and (stringp (alist-get 'sha source))
+                  (string-prefix-p blob (alist-get 'sha source)))
+       (user-error "PR source for %s changed since this patch loaded; reopen the diff" path))
+     (unless (and (equal (alist-get 'encoding source) "base64")
+                  (stringp (alist-get 'content source)))
+       (user-error "The API did not return source text for %s" path))
+     (let ((text (decode-coding-string (base64-decode-string (alist-get 'content source)) 'utf-8)))
+       (when (string-match-p "\0" text)
+         (user-error "Cannot compare binary source %s as text" path))
+       (funcall callback text)))))
+
+(defun review-source-forgejo-pr (host owner repo number files &optional title)
+  "Return a source for PR NUMBER of OWNER/REPO on HOST with FILES from the patch."
+  (require 'forgejo-api)
+  (let ((revisions nil))
+    (cl-flet ((with-revisions (k)
+                (if revisions (funcall k revisions)
+                  (forgejo-api-get
+                   host (format "repos/%s/%s/pulls/%d" owner repo number) nil
+                   (lambda (data _headers)
+                     (setq revisions (list (or (alist-get 'merge_base data)
+                                               (alist-get 'sha (alist-get 'base data)))
+                                           (alist-get 'sha (alist-get 'head data))))
+                     (unless (and (car revisions) (cadr revisions))
+                       (user-error "PR metadata has no source revisions"))
+                     (funcall k revisions))))))
+      (make-review-source
+       :name "forgejo" :title (or title (format "PR #%d" number))
+       :range-label (format "%s/%s#%d" owner repo number)
+       :files (lambda () files)
+       :text (lambda (file side callback)
+               (let* ((path (if (eq side 'old) (plist-get file :old-path) (plist-get file :path)))
+                      (blob (nth (if (eq side 'old) 0 1) (plist-get file :blobs))))
+                 (if (or (null path) (plist-get file :binary)
+                         (and (eq side 'old) (eq (plist-get file :kind) 'added))
+                         (and (eq side 'new) (eq (plist-get file :kind) 'deleted)))
+                     (funcall callback "")
+                   (with-revisions
+                    (lambda (revs)
+                      (review-source-forgejo--fetch host owner repo path
+                                                    (if (eq side 'old) (car revs) (cadr revs))
+                                                    blob callback))))))
+       :origin (lambda (file start end)
+                 (list :label (format "%s/%s#%d %s:%s" owner repo number (plist-get file :path)
+                                      (if (= start end) start (format "%d-%d" start end)))
+                       :link (format "forgejo:%s/%s#%d" owner repo number)
+                       :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))))
+
 (provide 'review-source)
 ;;; review-source.el ends here
