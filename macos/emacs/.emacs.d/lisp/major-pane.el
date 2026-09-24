@@ -946,24 +946,28 @@ and date numbers.  Works across backends:
          (short (string-join tokens "-")))
     (if (string-empty-p short) model-id short)))
 
-(defvar major-pane-short-mode-names
-  '(;; Claude.  Keys are the agent's own :name strings, sentence case —
-    ;; title case here silently stops matching, which also drops the
-    ;; mode out of `major-pane-alert-mode-names' and paints an unguarded
-    ;; session in the calm info face.
-    ("Bypass permissions" . "Bypass")
-    ("Accept edits" . "Edits")
-    ;; Codex
-    ("Agent (full access)" . "Full")
-    ("Read-only" . "Read")
-    ("Agent" . "Agent"))
-  "Alist shortening permission-mode display names for the banner.
-Names not listed here pass through unchanged (Claude \"Manual\"/\"Auto\"/
-\"Plan\", OpenCode \"build\"/\"plan\") — they are already short.")
+(defvar major-pane-mode-words
+  '(("bypassPermissions" . "full")  ; Claude
+    ("agent-full-access" . "full")  ; Codex
+    ("bypass" . "full")             ; OpenCode (rig agent in opencode.json)
+    ("acceptEdits" . "accept edits")
+    ("agent" . "auto")              ; Codex
+    ("read-only" . "ask")           ; Codex
+    ("default" . "manual"))         ; Claude
+  "Permission-mode ids mapped to the one word the rig uses everywhere.
+Keyed by the agent's mode ID, never its display name, so a vendor
+recasing a label cannot silently drop a mode out of
+`major-pane-alert-mode-words'.  Unlisted ids (\"auto\", \"plan\",
+\"build\") read as their own lowercased id.  The launch-preset picker
+and the SPC c m keys read this table too; acp-mobile's
+MODE_SHORT_NAMES mirrors it.")
 
-(defvar major-pane-alert-mode-names '("Bypass" "Full")
-  "Shortened permission modes rendered with the alert face in the banner.
-These grant unguarded access (Claude bypass, Codex full access).")
+(defvar major-pane-alert-mode-words '("full")
+  "Mode words rendered with the alert face in the banner: no guardrails.")
+
+(defun major-pane-mode-word (mode-id)
+  "The rig's word for permission MODE-ID; see `major-pane-mode-words'."
+  (or (cdr (assoc mode-id major-pane-mode-words)) (downcase mode-id)))
 
 (defun major-pane--fast-badge ()
   "Return a lightning glyph marking fast mode in the banner.
@@ -972,10 +976,6 @@ font); falls back to plain text when nerd-icons is unavailable."
   (if (fboundp 'nerd-icons-mdicon)
       (nerd-icons-mdicon "nf-md-lightning_bolt")
     "fast"))
-
-(defun major-pane--short-mode-name (mode-name)
-  "Return the abbreviated form of MODE-NAME, or MODE-NAME itself."
-  (or (cdr (assoc mode-name major-pane-short-mode-names)) mode-name))
 
 (defvar-local major-pane--banner-cache nil
   "Memo for `major-pane--format-banner': a cons of (KEY . STRING).
@@ -1024,8 +1024,10 @@ re-renders.  There is no stale-banner window."
          ;; Claude names it "effort"; Codex "reasoning_effort".
          (effort-val (or (major-pane--config-option-label opts "effort")
                          (major-pane--config-option-label opts "reasoning_effort")))
-         (mode-val (when-let* ((m (major-pane--config-option-label opts "mode")))
-                     (major-pane--short-mode-name m)))
+         (mode-val (when-let* ((m (alist-get :current-value
+                                             (seq-find (lambda (o) (equal (alist-get :id o) "mode"))
+                                                       opts))))
+                     (major-pane-mode-word m)))
          ;; Codex carries Plan as a separate "collaboration_mode";
          ;; surface it (Claude folds Plan into `mode', so this is nil).
          (collab-val (let ((c (major-pane--config-option-label
@@ -1059,7 +1061,7 @@ re-renders.  There is no stale-banner window."
          (concat sep
                  (propertize mode-val
                              'face (if (member mode-val
-                                               major-pane-alert-mode-names)
+                                               major-pane-alert-mode-words)
                                        'major-pane-banner-alert
                                      'major-pane-banner-info))))
        (when collab-val

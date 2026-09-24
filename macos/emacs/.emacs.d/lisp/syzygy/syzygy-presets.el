@@ -44,5 +44,20 @@ side maps to 404."
     (syzygy-bridge-encode-json
      (vconcat (mapcar #'syzygy-presets--entry mr-x/agent-shell-presets)))))
 
+(defvar major-pane-mode-words)
+(defvar major-pane-alert-mode-words)
+
+(defun syzygy-mode-words-json ()
+  "Return the rig's permission-mode words as base64-wrapped JSON.
+Shape: {words: {MODE-ID: WORD}, alert: [WORD...]}, straight from
+`major-pane-mode-words', so the phone's mode button reads the same
+word the banner and preset picker show.  Nil when major-pane is not
+loaded, which the Go side maps to 404."
+  (when (boundp 'major-pane-mode-words)
+    (syzygy-bridge-encode-json
+     `((words . ,(mapcar (lambda (pair) (cons (intern (car pair)) (cdr pair)))
+                         major-pane-mode-words))
+       (alert . ,(vconcat major-pane-alert-mode-words))))))
+
 (provide 'syzygy-presets)
 ;;; syzygy-presets.el ends here

@@ -1781,30 +1781,24 @@ drop the entire tab row."
   (major-pane--spinner-sync)
   (should (null major-pane--spinner-timer)))
 
-(ert-deftest config-test-major-pane-short-mode-names-match-agent-vocabulary ()
-  "Banner mode keys must be the agent's own :name strings, verbatim.
-`major-pane--short-mode-name' matches with `assoc', and
-`major-pane-alert-mode-names' keys off the SHORTENED name.  A key that
-drifts from the agent's wording therefore fails silently twice: the
-banner shows the long name, and an unguarded session (Claude bypass,
-Codex full access) renders in the calm info face instead of the alert
-face.  Title-cased Claude keys shipped that way once already."
+(ert-deftest config-test-major-pane-mode-words-cover-agent-vocabulary ()
+  "Every agent's unguarded mode id must map to an alert word.
+The banner once keyed on display names and missed OpenCode's lowercase
+`bypass', painting an unguarded chat in the calm face.  Ids observed
+from live `:config-options' of Claude, Codex and OpenCode."
   (require 'major-pane)
-  ;; Observed from live `:config-options' — the agents' full mode vocabulary.
-  (let ((vocabulary '("Manual" "Accept edits" "Plan" "Auto" "Bypass permissions"
-                      "Read-only" "Agent" "Agent (full access)"
-                      "build" "plan")))
-    (dolist (entry major-pane-short-mode-names)
-      (should (member (car entry) vocabulary))))
-  ;; The two unguarded modes must shorten INTO the alert set.
-  (dolist (mode '("Bypass permissions" "Agent (full access)"))
-    (should (member (major-pane--short-mode-name mode)
-                    major-pane-alert-mode-names)))
-  ;; ...and a guarded mode must not.
-  (should (equal "Read" (major-pane--short-mode-name "Read-only")))
-  (should-not (member "Read" major-pane-alert-mode-names))
-  ;; Unlisted names pass through untouched.
-  (should (equal "Manual" (major-pane--short-mode-name "Manual"))))
+  (dolist (id '("bypassPermissions" "agent-full-access" "bypass"))
+    (should (member (major-pane-mode-word id) major-pane-alert-mode-words)))
+  (dolist (id '("default" "acceptEdits" "plan" "auto" "read-only" "agent" "build"))
+    (should-not (member (major-pane-mode-word id) major-pane-alert-mode-words)))
+  (should (equal "ask" (major-pane-mode-word "read-only")))
+  (should (equal "build" (major-pane-mode-word "build"))))
+
+(ert-deftest config-test-agent-shell-mode-keys-use-words ()
+  "SPC c m keys resolve words, so they work on every agent, not just Claude."
+  (should (fboundp 'mr-x/agent-shell--preset-mode-word))
+  (should (equal "full" (mr-x/agent-shell--preset-mode-word "bypass")))
+  (should (equal "full" (mr-x/agent-shell--preset-mode-word "agent-full-access"))))
 
 (ert-deftest config-test-major-pane-ping-keeps-computed-pixel-size ()
   "Done ping must opt out of Emacs' implicit high-DPI image scaling.

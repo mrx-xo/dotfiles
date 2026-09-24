@@ -4164,13 +4164,13 @@ Display uses agent-shell's normal path so major-pane controls placement."
         (require 'agent-shell)
         (unless (derived-mode-p 'agent-shell-mode)
           (user-error "Not in an agent-shell buffer"))
-        (let* ((state (agent-shell--state))
-               (config (copy-alist (map-elt state :agent-config)))
-               (model-id (agent-shell--current-model-id state)))
-          (when model-id
-            (setf (alist-get :default-model-id config)
-                  (lambda () model-id)))
-          (agent-shell--start :config config :new-session t)))
+        (let* ((effort (agent-shell--current-thought-level-id (agent-shell--state)))
+               (buf (agent-shell--start
+                     :config (mr-x/agent-shell--clone-config (current-buffer))
+                     :new-session t)))
+          (when effort
+            (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready buf effort 60))
+          buf))
 
       ;; ------------------------------------------------------------------
       ;; Launch presets: model + permission-mode in one keystroke.
@@ -4328,8 +4328,7 @@ after spawn, same dance as `mr-x/agent-spawn--send-when-ready')."
         (when (buffer-live-p buf)
           (with-current-buffer buf
             (if (map-nested-elt agent-shell--state '(:session :id))
-                (agent-shell--set-session-config-option
-                 :config-id "reasoning_effort" :value effort)
+                (mr-x/agent-shell--set-effort effort)
               (if (> tries 0)
                   (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
                                buf effort (1- tries))
@@ -4354,6 +4353,23 @@ original is left untouched."
 
       ;; ── Preset picker rendering ──────────────────────────
       ;; One row per vendor, keys bold, vendor in its palette hue, mode word
+      (defun mr-x/agent-shell--set-effort (effort &optional on-success)
+        "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
+Found by ACP category `thought_level', not id: Claude and OpenCode name
+the option \"effort\", Codex \"reasoning_effort\".  Errors when the
+agent has no such option or does not offer EFFORT."
+        (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
+                                                           "thought_level")))
+          (unless opt (user-error "This agent has no effort setting"))
+          (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
+                            (map-elt opt :options))
+            (user-error "Effort %s not offered here" effort))
+          (if (equal effort (map-elt opt :current-value))
+              (when on-success (funcall on-success))
+            (agent-shell--set-session-config-option
+             :config-id (map-elt opt :id) :value effort
+             :on-success on-success))))
+
       ;; colored by how much rope it gives the agent.  Rows come from each
       ;; preset's config constructor, so a new preset lands in its row on
       ;; its own.  The question sits on the last line where the cursor is.
@@ -4375,14 +4391,11 @@ original is left untouched."
           (_ 'other)))
 
       (defun mr-x/agent-shell--preset-mode-word (mode-id)
-        "Short lowercase word for session MODE-ID."
-        (pcase mode-id
-          ((or "bypassPermissions" "agent-full-access" "bypass") "full")
-          ("acceptEdits" "accept edits")
-          ("agent" "auto")
-          ("read-only" "ask")
-          ("default" "manual")
-          (_ (downcase mode-id))))
+        "Short lowercase word for session MODE-ID.
+The table lives in `major-pane-mode-words' so the banner, this picker
+and the SPC c m keys cannot drift apart."
+        (require 'major-pane)
+        (major-pane-mode-word mode-id))
 
       (defun mr-x/agent-shell--preset-mode-color (word)
         "Palette color name for a mode WORD: red for no guardrails, down to mint."
@@ -4406,6 +4419,17 @@ original is left untouched."
                   (propertize word 'face
                               `(:foreground ,(mr-x/color
                                               (mr-x/agent-shell--preset-mode-color word)))))))
+
+      (defun mr-x/agent-shell--buffer-vendor ()
+        "Vendor symbol for the current chat, matching `mr-x/agent-shell--preset-vendor'.
+DeepSeek runs on the Claude adapter, so only its mode-line name tells."
+        (let ((config (map-elt (agent-shell--state) :agent-config)))
+          (pcase (map-elt config :identifier)
+            ('claude-code (if (equal (map-elt config :mode-line-name) "DeepSeek")
+                              'deepseek 'claude))
+            ('codex 'codex)
+            ('opencode 'opencode)
+            (_ 'other))))
 
       (defun mr-x/agent-shell--preset-prompt (question)
         "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
@@ -4488,17 +4512,17 @@ set the model first, then the mode, then report the applied preset."
         (let* ((preset (mr-x/agent-shell--read-preset char))
                (label (nth 1 preset))
                (model-id (nth 2 preset))
-               (mode-id (nth 3 preset))
+               (word (mr-x/agent-shell--preset-mode-word (nth 3 preset)))
+               (effort (nth 5 preset))
                (buffer (current-buffer)))
           (agent-shell--config-option-set-model-id
            :model-id model-id
            :on-success
            (lambda ()
              (with-current-buffer buffer
-               (agent-shell--config-option-set-mode-id
-                :mode-id mode-id
-                :on-success
-                (lambda () (message "Agent preset applied: %s" label))))))))
+               (mr-x/agent-shell-set-mode-word word)
+               (when effort (mr-x/agent-shell--set-effort effort))
+               (message "Agent preset applied: %s" label))))))
 
       (defun mr-x/agent-shell--read-preset-or-default ()
         "Read a preset char, or RET/SPC for the default (preferred/Claude) config.
@@ -4523,6 +4547,13 @@ path typed by hand is accepted.  Returns an expanded directory."
                ;; projectile projects not already in dashboard (skip remote/TRAMP)
                (extra (cl-remove-if (lambda (p) (or (file-remote-p p)
                                                     (member (expand-file-name p) dash-paths)))
+          ;; A preset names one vendor's ids; another vendor's chat would
+          ;; reject them.  Switching agents needs a new shell.
+          (unless (eq (mr-x/agent-shell--preset-vendor preset)
+                      (mr-x/agent-shell--buffer-vendor))
+            (user-error "%s is a %s preset; this chat is %s.  Use SPC c P for a new shell"
+                        label (mr-x/agent-shell--preset-vendor preset)
+                        (mr-x/agent-shell--buffer-vendor)))
                                     projectile-known-projects))
                ;; build candidates: ((display . path) ...)
                (candidates (append
@@ -4620,11 +4651,13 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c m m" '(agent-shell-set-session-mode :wk "Pick mode...")
         "c m o" '(agent-shell-set-session-config-option :wk "Set option...")
         "c m c" '(agent-shell-cycle-session-mode :wk "Cycle")
-        "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "Manual")
-        "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "acceptEdits")) :wk "Accept Edits")
-        "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "plan")) :wk "Plan")
-        "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "auto")) :wk "Auto")
-        "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "Full")
+        ;; Words, not ids: each resolves against whatever the chat's agent
+        ;; offers (see `mr-x/agent-shell-set-mode-word').
+        "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "manual" "ask" "build")) :wk "Manual")
+        "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "accept edits")) :wk "Accept Edits")
+        "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "plan")) :wk "Plan")
+        "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "auto")) :wk "Auto")
+        "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "full")) :wk "Full")
         "c ." '(agent-shell-set-session-model :wk "Set model")
         "c T" '(agent-shell-open-transcript :wk "Open transcript")
         "c q" '(agent-shell-prompt-queue :wk "Queue request")
@@ -4692,38 +4725,69 @@ the `?c' preset from `mr-x/agent-shell-presets'."
 
       ;; Bind after agent-shell loads
       (with-eval-after-load 'agent-shell
-        (defun mr-x/agent-shell-set-mode-direct (mode-id)
-          "Set agent-shell session mode directly by MODE-ID, skipping the picker."
-          (let* ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
-                         (seq-first (agent-shell-project-buffers))))
-                 (state (and buf (buffer-local-value 'agent-shell--state buf))))
+        (defun mr-x/agent-shell--mode-buffer ()
+          "The agent-shell buffer a mode key acts on: this one, else the project's."
+          (let ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+                         (seq-first (agent-shell-project-buffers)))))
             (unless buf (user-error "No agent-shell buffer found"))
-            (with-current-buffer buf
-              (unless (map-nested-elt state '(:session :id))
-                (user-error "No active session"))
-              (let ((current (map-nested-elt state '(:session :mode-id))))
-                (when (and current (string= mode-id current))
-                  (user-error "Already in %s mode" (or (agent-shell--resolve-session-mode-name
-                                                        mode-id (agent-shell--get-available-modes state))
-                                                       mode-id)))
-                (agent-shell--send-request
-                 :state state
-                 :client (map-elt state :client)
-                 :request (acp-make-session-set-mode-request
-                           :session-id (map-nested-elt state '(:session :id))
-                           :mode-id mode-id)
-                 :buffer buf
-                 :on-success (lambda (_)
-                               (let ((session (map-elt (agent-shell--state) :session)))
-                                 (map-put! session :mode-id mode-id)
-                                 (map-put! (agent-shell--state) :session session)
-                                 (message "Session mode: %s"
-                                          (or (agent-shell--resolve-session-mode-name
-                                               mode-id (agent-shell--get-available-modes (agent-shell--state)))
-                                              mode-id)))
-                               (agent-shell--update-header-and-mode-line))
-                 :on-failure (lambda (err _)
-                               (message "Failed to set mode: %s" err)))))))
+            (unless (map-nested-elt (buffer-local-value 'agent-shell--state buf)
+                                    '(:session :id))
+              (user-error "No active session"))
+            buf))
+
+        (defun mr-x/agent-shell-set-mode-direct (mode-id)
+          "Set agent-shell session mode directly by MODE-ID, skipping the picker.
+Goes through agent-shell's own setter, which updates the `mode' config
+option when the agent has one (all of ours do) and only falls back to
+session/set_mode otherwise, so the banner and phone see the change."
+          (with-current-buffer (mr-x/agent-shell--mode-buffer)
+            (when (equal mode-id (agent-shell--current-mode-id (agent-shell--state)))
+              (user-error "Already in %s mode" (or (agent-shell--resolve-session-mode-name
+                                                    mode-id (agent-shell--get-available-modes
+                                                             (agent-shell--state)))
+                                                   mode-id)))
+            (agent-shell--config-option-set-mode-id
+             :mode-id mode-id
+             :on-failure (lambda (err &rest _) (message "Failed to set mode: %s" err)))))
+
+        (defun mr-x/agent-shell--codex-plan-option (state)
+          "Codex's `collaboration_mode' option in STATE when it offers \"plan\".
+Codex keeps Plan out of its permission modes; Claude and OpenCode don't."
+          (when-let ((opt (agent-shell--config-option-by-category state "collaboration_mode")))
+            (when (seq-find (lambda (v) (equal "plan" (map-elt v :value)))
+                            (map-elt opt :options))
+              opt)))
+
+        (defun mr-x/agent-shell-set-mode-word (&rest words)
+          "Switch to the first offered mode whose word is one of WORDS.
+Words come from `mr-x/agent-shell--preset-mode-word', so \"full\" means
+bypassPermissions on Claude, agent-full-access on Codex and bypass on
+OpenCode.  Codex Plan lives in `collaboration_mode', handled here too."
+          (with-current-buffer (mr-x/agent-shell--mode-buffer)
+            (let* ((state (agent-shell--state))
+                   (modes (agent-shell--get-available-modes state))
+                   (hit (seq-find (lambda (m)
+                                    (member (mr-x/agent-shell--preset-mode-word
+                                             (map-elt m :id))
+                                            words))
+                                  modes))
+                   (plan-opt (mr-x/agent-shell--codex-plan-option state)))
+              (cond
+               (hit
+                ;; Leaving Codex Plan: drop the collaboration mode too.
+                (when (and plan-opt (equal "plan" (map-elt plan-opt :current-value)))
+                  (agent-shell--set-session-config-option
+                   :config-id (map-elt plan-opt :id) :value "default"))
+                (unless (equal (map-elt hit :id) (agent-shell--current-mode-id state))
+                  (mr-x/agent-shell-set-mode-direct (map-elt hit :id))))
+               ((and plan-opt (member "plan" words))
+                (agent-shell--set-session-config-option
+                 :config-id (map-elt plan-opt :id) :value "plan"
+                 :on-success (lambda () (message "Session mode: Plan"))))
+               (t
+                (user-error "No %s mode here; offered: %s"
+                            (string-join words "/")
+                            (mapconcat (lambda (m) (map-elt m :id)) modes ", ")))))))
 
         (mr-x/leader-def
           "g m" '(mr-x/ai-commit-message :wk "AI commit message")))
