@@ -245,12 +245,43 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
 
+(defvar mr-x/review-git-range-history nil
+  "History of review presets and manually entered Git ranges.")
+
+(defun mr-x/review--read-git-range ()
+  "Pick a common comparison or enter any Git revision or range.
+Return an empty string for the working tree, which remains the default."
+  (let* ((presets '(("Uncommitted changes" . "")
+                    ("Staged changes" . "--staged")
+                    ("Latest commit" . "HEAD")
+                    ("Last 3 commits" . "HEAD~3..HEAD")
+                    ("Branch changes since main" . "main...HEAD")))
+         (annotate (lambda (candidate)
+                     (when-let ((range (cdr (assoc candidate presets))))
+                       (concat "  " (propertize
+                                     (if (string-empty-p range) "working tree vs HEAD" range)
+                                     'face 'completions-annotations)))))
+         (choice
+          (string-trim
+           (completing-read
+            "Review (pick or type a Git range): "
+            (lambda (string predicate action)
+              (if (eq action 'metadata)
+                  `(metadata (category . review-git-range)
+                             (annotation-function . ,annotate)
+                             (display-sort-function . identity)
+                             (cycle-sort-function . identity))
+                (complete-with-action action presets string predicate)))
+            nil nil nil 'mr-x/review-git-range-history (caar presets)))))
+    (or (cdr (assoc choice presets)) choice)))
+
 (defun mr-x/review-git-range (&optional range)
-  "Review a git RANGE of the current repository, prompting when not given.
+  "Review a git RANGE of the current repository.
+When RANGE is omitted, pick a preset or type any revision or range.
 Empty input means the working tree against HEAD; \"--staged\" the index."
   (interactive)
   (let* ((root (or (magit-toplevel) (user-error "Not inside a git repository")))
-         (range (or range (string-trim (read-string "Range (empty = worktree vs HEAD, --staged, A..B, main...HEAD): "))))
+         (range (or range (mr-x/review--read-git-range)))
          (source (review-source-git-range root (unless (string-empty-p range) range))))
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
