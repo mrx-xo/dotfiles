@@ -125,4 +125,91 @@
   (review-source-test--with-repo dir
     (should-error (review-source--git-show dir "does-not-exist" "a.txt") :type 'user-error)))
 
+(require 'forgejo-pull)
+(require 'forgejo-review-ediff)
+
+(defconst review-source-test--patch
+  (concat "diff --git a/a.el b/a.el\nindex 1111111..2222222 100644\n--- a/a.el\n+++ b/a.el\n@@ -1 +1 @@\n-old\n+new\n"
+          "diff --git a/new.md b/new.md\nnew file mode 100644\nindex 0000000..3333333\n--- /dev/null\n+++ b/new.md\n@@ -0,0 +1 @@\n+hi\n"
+          "diff --git a/img.png b/img.png\nindex 4444444..5555555 100644\nBinary files a/img.png and b/img.png differ\n"
+          "diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\nindex 6666666..0000000\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n"))
+
+(defmacro review-source-test--with-patch (&rest body)
+  (declare (indent 0))
+  `(with-temp-buffer
+     (insert review-source-test--patch)
+     (diff-mode)
+     (setq-local forgejo-repo--host "https://forge.example")
+     (setq-local forgejo-repo--owner "team")
+     (setq-local forgejo-repo--name "project")
+     (setq-local forgejo-diff--pr-number 41)
+     ,@body))
+
+(ert-deftest review-source-forgejo-patch-files-kinds-and-blobs ()
+  (review-source-test--with-patch
+    (let ((files (review-source-forgejo-patch-files)))
+      (should (equal (mapcar (lambda (f) (list (plist-get f :path) (plist-get f :kind) (plist-get f :binary))) files)
+                     '(("a.el" modified nil) ("new.md" added nil) ("img.png" modified t) ("gone.txt" deleted nil))))
+      (should (equal (plist-get (car files) :blobs) '("1111111" "2222222")))
+      (should (equal (plist-get (nth 1 files) :old-path) nil)))))
+
+(ert-deftest review-source-forgejo-pure-rename-does-not-abort-the-list ()
+  (with-temp-buffer
+    (insert review-source-test--patch
+            "diff --git a/x.txt b/y.txt\nsimilarity index 100%\nrename from x.txt\nrename to y.txt\n")
+    (diff-mode)
+    (let ((files (review-source-forgejo-patch-files)))
+      (should (equal (length files) 5))
+      (should (equal (plist-get (nth 4 files) :kind) 'renamed))
+      (should (plist-get (nth 4 files) :binary)))))
+
+(ert-deftest review-source-forgejo-text-checks-blob-and-decodes ()
+  (review-source-test--with-patch
+    (let* ((files (review-source-forgejo-patch-files))
+           (calls nil) (got nil)
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files)))
+      (cl-letf (((symbol-function 'forgejo-api-get)
+                 (lambda (host path params cb)
+                   (push (list path params) calls)
+                   (cond ((string-suffix-p "pulls/41" path)
+                          (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil))
+                         (t (funcall cb `((sha . "2222222abc") (encoding . "base64")
+                                          (content . ,(base64-encode-string "new\n")))
+                                     nil))))))
+        (funcall (review-source-text src) (car files) 'new (lambda (s) (setq got s)))
+        (should (equal got "new\n"))
+        (should (equal (cadr (car calls)) '(("ref" . "head1"))))
+        (should (string-match-p "contents/a.el" (car (car calls))))))))
+
+(ert-deftest review-source-forgejo-text-rejects-drifted-blob ()
+  (review-source-test--with-patch
+    (let* ((files (review-source-forgejo-patch-files))
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files)))
+      (cl-letf (((symbol-function 'forgejo-api-get)
+                 (lambda (_host path _params cb)
+                   (if (string-suffix-p "pulls/41" path)
+                       (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil)
+                     (funcall cb `((sha . "9999999") (encoding . "base64")
+                                   (content . ,(base64-encode-string "x"))) nil)))))
+        (should-error (funcall (review-source-text src) (car files) 'new #'ignore) :type 'user-error)))))
+
+(ert-deftest review-source-forgejo-absent-side-is-empty-without-api ()
+  (review-source-test--with-patch
+    (let* ((files (review-source-forgejo-patch-files))
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files))
+           (got 'unset))
+      (cl-letf (((symbol-function 'forgejo-api-get) (lambda (&rest _) (error "no api call expected"))))
+        (funcall (review-source-text src) (nth 1 files) 'old (lambda (s) (setq got s)))
+        (should (equal got ""))))))
+
+(ert-deftest review-source-forgejo-binary-paths-and-empty-addition ()
+  (with-temp-buffer
+    (insert "diff --git a/a/img.png b/a/img.png\nindex 1111111..2222222\nBinary files differ\n"
+            "diff --git \"a/tab\\timg.png\" \"b/tab\\timg.png\"\nindex 1111111..2222222\nBinary files differ\n"
+            "diff --git a/empty.txt b/empty.txt\nnew file mode 100644\nindex 0000000..e69de29\n")
+    (let ((files (review-source-forgejo-patch-files)))
+      (should (equal (mapcar (lambda (f) (plist-get f :path)) files)
+                     '("a/img.png" "tab\timg.png" "empty.txt")))
+      (should (eq (plist-get (nth 2 files) :kind) 'added)))))
+
 (provide 'review-source-test)
