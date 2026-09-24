@@ -98,9 +98,12 @@ without touching the running daemon. Launch with `Cmd+Shift+S`, resync with
 
 ### Read-only review sessions
 
-`SPC g R G` reviews a local Git range: empty input compares the working tree
-with HEAD, `--staged` reviews the index, one revision reviews its commit,
-and `A..B` / `A...B` compare revisions. From an open Forgejo PR **diff**,
+`SPC g R G` opens a picker for uncommitted changes (the default), staged
+changes, the latest commit, the last three commits, or branch changes since
+`main`. Each preset shows its Git expression. You can also type any revision
+or `A..B` / `A...B` range; `M-RET` submits the exact typed input instead of
+the highlighted completion. Empty input still compares the working tree
+with HEAD. From an open Forgejo PR **diff**,
 `SPC g R s` starts the same files-panel and old/new-pane workflow.
 GitHub PR sessions and a separate panel frame are not supported yet.
 
