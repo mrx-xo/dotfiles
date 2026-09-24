@@ -125,8 +125,57 @@
   (review-source-test--with-repo dir
     (should-error (review-source--git-show dir "does-not-exist" "a.txt") :type 'user-error)))
 
+(ert-deftest review-source-git-tilde-path-stays-inside-repository ()
+  (review-source-test--with-repo dir
+    (make-directory (concat dir "/~"))
+    (with-temp-file (concat dir "/~/notes.txt") (insert "base\n"))
+    (review-source-test--git dir "add" "-f" "~/notes.txt")
+    (review-source-test--git dir "commit" "-qm" "tilde directory")
+    (with-temp-file (concat dir "/~/notes.txt") (insert "changed\n"))
+    (let* ((src (review-source-git-range dir))
+           (file (car (funcall (review-source-files src))))
+           (reader (symbol-function 'insert-file-contents))
+           got)
+      (cl-letf (((symbol-function 'insert-file-contents)
+                 (lambda (name &rest args)
+                   (should (equal name (concat dir "/~/notes.txt")))
+                   (apply reader name args))))
+        (funcall (review-source-text src) file 'new (lambda (text) (setq got text))))
+      (should (equal got "changed\n"))
+      (should (equal (plist-get (funcall (review-source-origin src) file 1 1) :link)
+                     (concat "file:" (abbreviate-file-name dir) "/~/notes.txt::1"))))))
+
+(ert-deftest review-source-git-does-not-read-through-an-escaping-parent-symlink ()
+  (review-source-test--with-repo dir
+    (let ((outside (make-temp-file "review-outside-" t)))
+      (unwind-protect
+          (progn
+            (make-directory (concat dir "/nested"))
+            (with-temp-file (concat dir "/nested/file.txt") (insert "base\n"))
+            (review-source-test--git dir "add" "nested/file.txt")
+            (review-source-test--git dir "commit" "-qm" "nested")
+            (with-temp-file (concat dir "/nested/file.txt") (insert "changed\n"))
+            (let* ((src (review-source-git-range dir))
+                   (file (car (funcall (review-source-files src)))))
+              (delete-file (concat dir "/nested/file.txt"))
+              (delete-directory (concat dir "/nested"))
+              (make-symbolic-link outside (concat dir "/nested"))
+              (cl-letf (((symbol-function 'insert-file-contents)
+                         (lambda (&rest _) (ert-fail "Attempted outside read"))))
+                (should-error (funcall (review-source-text src) file 'new #'ignore)
+                              :type 'user-error))))
+        (delete-directory outside t)))))
+
 (require 'forgejo-pull)
 (require 'forgejo-review-ediff)
+
+(ert-deftest review-source-old-side-is-explicit-in-persistable-origin-label ()
+  (dolist (source (list (review-source-git-range temporary-file-directory "HEAD~1..HEAD")
+                        (review-source-forgejo-pr "https://forge.example" "team" "project" 1 nil)))
+    (let ((origin (funcall (review-source-origin source)
+                           '(:path "new.txt" :origin-path "old.txt" :side old) 3 4)))
+      (should (eq (plist-get origin :side) 'old))
+      (should (string-match-p "old.txt:3-4.*(old)" (plist-get origin :label))))))
 
 (defconst review-source-test--patch
   (concat "diff --git a/a.el b/a.el\nindex 1111111..2222222 100644\n--- a/a.el\n+++ b/a.el\n@@ -1 +1 @@\n-old\n+new\n"

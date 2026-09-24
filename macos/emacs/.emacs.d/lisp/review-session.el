@@ -50,34 +50,59 @@ The panel subscribes here to put itself back in its side window.")
 
 (defun review-session-load (session index callback)
   "Load file INDEX of SESSION once, then invoke CALLBACK while still live.
-CALLBACK receives an optional error string if an asynchronous fetch fails."
+CALLBACK receives an optional error string if an asynchronous fetch fails.
+Concurrent consumers share one load; stale completions cannot alter its cache."
   (let* ((files (review-session-files session))
          (file (aref files index))
-         (source (review-session-source session)))
-    (cl-labels ((failed (error)
-                  (when (eq session review-session--current)
-                    (aset files index (plist-put file :error error))
-                    (funcall callback error))))
-      (if (or (plist-get file :loaded) (plist-get file :binary))
-          (when (eq session review-session--current) (funcall callback))
-	(funcall
-	 (review-source-text source) file 'old
-	 (lambda (old &optional error)
-           (when (eq session review-session--current)
-             (if error (failed error)
-               (funcall
-		(review-source-text source) file 'new
-		(lambda (new &optional error)
-		  (when (eq session review-session--current)
-		    (if error (failed error)
-                      (let* ((rows (review-diff-rows (review-diff-ops old new)))
-			     (hunks (review-diff-hunks rows)))
-			(dolist (pair (list (cons :old-text old) (cons :new-text new)
-					    (cons :rows rows) (cons :hunks hunks)
-					    (cons :loaded t) (cons :error nil)))
-			  (setq file (plist-put file (car pair) (cdr pair))))
-			(aset files index file)
-			(funcall callback))))))))))))))
+         (source (review-session-source session))
+         (pending (plist-get file :loading)))
+    (cond
+     ((or (plist-get file :loaded) (plist-get file :binary))
+      (when (eq session review-session--current) (funcall callback)))
+     (pending (setcdr pending (append (cdr pending) (list callback))))
+     (t
+      (setq pending (list (make-symbol "review-load") callback))
+      (aset files index (setq file (plist-put file :loading pending)))
+      (let (old-done)
+        (cl-labels
+            ((active ()
+               (and (eq session review-session--current)
+                    (eq pending (plist-get (aref files index) :loading))))
+             (finish (&optional error)
+               (when (active)
+                 (setq file (plist-put file :loading nil)
+                       file (plist-put file :error error))
+                 (aset files index file)
+                 (dolist (consumer (cdr pending))
+                   (if error (funcall consumer error) (funcall consumer)))))
+             (new-ready (old new error)
+               (when (active)
+                 (if error (finish error)
+                   (let (failure)
+                     (condition-case err
+                         (let* ((rows (review-diff-rows (review-diff-ops old new)))
+                                (hunks (review-diff-hunks rows)))
+                           (dolist (pair (list (cons :old-text old) (cons :new-text new)
+                                               (cons :rows rows) (cons :hunks hunks)
+                                               (cons :loaded t)))
+                             (setq file (plist-put file (car pair) (cdr pair)))))
+                       (error (setq failure (error-message-string err))))
+                     (finish failure)))))
+             (old-ready (old &optional error)
+               (when (and (active) (not old-done))
+                 (setq old-done t)
+                 (if error (finish error)
+                   (condition-case err
+                       (funcall (review-source-text source) file 'new
+                                (lambda (new &optional failure)
+                                  (new-ready old new failure)))
+                     (error (finish (error-message-string err))))))))
+          (condition-case err
+              (funcall (review-source-text source) file 'old #'old-ready)
+            (error
+             (when (active)
+               (aset files index (plist-put file :loading nil)))
+             (signal (car err) (cdr err))))))))))
 
 ;;;; Pane text
 
@@ -100,7 +125,8 @@ CALLBACK receives an optional error string if an asynchronous fetch fails."
   "Render ROWS for SIDE (old or new) of TEXT as one string, gutter included.
 Every line carries a `review-row' property with its row index."
   (let* ((path (or path "file.txt"))
-         (lines (if (string-empty-p text) nil (review-session--fontified-lines text path)))
+         (lines (vconcat (unless (string-empty-p text)
+                           (review-session--fontified-lines text path))))
          (width (max 3 (length (number-to-string (max 1 (length lines))))))
          (no-key (if (eq side 'old) :old-no :new-no))
          (text-key (if (eq side 'old) :old :new))
@@ -109,7 +135,7 @@ Every line carries a `review-row' property with its row index."
       (let* ((no (plist-get row no-key))
              (kind (plist-get row :kind))
              (present (plist-get row text-key))
-             (line (and no (or (nth (1- no) lines) present "")))
+             (line (and no (or (and (<= no (length lines)) (aref lines (1- no))) present "")))
              (row-face (cond ((null no) 'review-blank)
                              ((and (eq side 'old) (memq kind '(del both))) 'review-del)
                              ((and (eq side 'new) (memq kind '(add both))) 'review-add)))
@@ -409,17 +435,23 @@ bounds use the active region, or the source line at point."
                       (or (get-text-property (point) 'review-file)
                           (review-session-current session))))
              (file (copy-sequence (review-session-file session index)))
+             (hunk (unless pane
+                     (nth (or (get-text-property (point) 'review-hunk) 0)
+                          (plist-get file :hunks))))
+             (side (if pane review-pane--side
+                     (if (or (eq (plist-get file :kind) 'deleted)
+                             (and hunk (zerop (plist-get hunk :new-count))))
+                         'old 'new)))
              (selection (if pane (review-session-pane-selection begin end)
-                          (let* ((h (or (get-text-property (point) 'review-hunk) 0))
-                                 (hunk (nth h (plist-get file :hunks)))
-                                 (start (or (plist-get hunk :new-start) 1)))
+                          (let* ((start (or (plist-get hunk (if (eq side 'old) :old-start :new-start)) 1))
+                                 (count (plist-get hunk (if (eq side 'old) :old-count :new-count))))
                             (list :start start
-                                  :end (+ start (max 0 (1- (or (plist-get hunk :new-count) 1)))))))))
+                                  :end (+ start (max 0 (1- (or count 1)))))))))
         (setq file (plist-put file :origin-path
-                              (or (and pane (eq review-pane--side 'old)
+                              (or (and (eq side 'old)
                                        (plist-get file :old-path))
                                   (plist-get file :path))))
-        (setq file (plist-put file :side (if pane review-pane--side 'new)))
+        (setq file (plist-put file :side side))
         (funcall (review-source-origin (review-session-source session))
                  file (plist-get selection :start) (plist-get selection :end))))))
 
