@@ -61,7 +61,28 @@ class ClaudeUsageParserTest(unittest.TestCase):
 
         self.assertEqual(
             parser.parse_usage(response),
-            ("9% · 40%", "12% |", "warning"),
+            ("9% · 40%", "12%", "normal", "warning"),
+        )
+
+    def test_critical_fable_does_not_color_the_session_and_weekly_numbers(self):
+        parser = load_parser()
+        response = {
+            "limits": [
+                {"kind": "session", "group": "session", "percent": 0, "severity": "normal"},
+                {"kind": "weekly_all", "group": "weekly", "percent": 52, "severity": "normal"},
+                {
+                    "kind": "model",
+                    "group": "weekly",
+                    "percent": 100,
+                    "severity": "critical",
+                    "scope": {"model": {"display_name": "Claude Fable 5.1"}},
+                },
+            ]
+        }
+
+        self.assertEqual(
+            parser.parse_usage(response),
+            ("0% · 52%", "100%", "normal", "critical"),
         )
 
     def test_omits_fable_segment_when_server_does_not_report_it(self):
@@ -81,7 +102,7 @@ class ClaudeUsageParserTest(unittest.TestCase):
 
         self.assertEqual(
             parser.parse_usage(response),
-            ("9% · 40% |", None, "normal"),
+            ("9% · 40%", None, "normal", "normal"),
         )
 
     def test_falls_back_to_legacy_session_and_weekly_fields(self):
@@ -93,7 +114,7 @@ class ClaudeUsageParserTest(unittest.TestCase):
 
         self.assertEqual(
             parser.parse_usage(response),
-            ("9% · 40% |", None, "normal"),
+            ("9% · 40%", None, "normal", "normal"),
         )
 
     def test_uses_latest_desktop_history_sample_when_api_is_unavailable(self):
@@ -112,7 +133,7 @@ class ClaudeUsageParserTest(unittest.TestCase):
 
         self.assertEqual(
             parser.parse_history(history),
-            ("10% · 40% |", None, "normal"),
+            ("10% · 40%", None, "normal", "normal"),
         )
 
     def test_cli_preserves_the_empty_fable_field_for_shell_parsing(self):
@@ -130,7 +151,7 @@ class ClaudeUsageParserTest(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "9% · 40% |\t-\tnormal\n")
+        self.assertEqual(result.stdout, "9% · 40%\t-\tnormal\tnormal\n")
 
 
 if __name__ == "__main__":

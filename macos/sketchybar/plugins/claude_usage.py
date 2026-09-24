@@ -41,6 +41,7 @@ def parse_usage(response):
     current = None
     weekly = None
     fable = None
+    fable_severity = "normal"
     severities = []
 
     for limit in response.get("limits") or []:
@@ -60,7 +61,7 @@ def parse_usage(response):
             and "fable" in _display_name(limit).lower()
         ):
             fable = percent
-            severities.append(limit.get("severity") or "normal")
+            fable_severity = limit.get("severity") or "normal"
 
     if current is None:
         current = _legacy_percent(response, "five_hour")
@@ -69,19 +70,17 @@ def parse_usage(response):
     if current is None or weekly is None:
         raise ValueError("Claude response has no session or weekly usage")
 
-    segments = ["{}%".format(current), "{}%".format(weekly)]
-    if fable is not None:
-        primary_label = " · ".join(segments)
-        fable_label = "{}% |".format(fable)
-    else:
-        primary_label = " · ".join(segments) + " |"
-        fable_label = None
+    # The trailing pipe is its own sketchybar item, so it never takes a color.
+    primary_label = "{}% · {}%".format(current, weekly)
+    fable_label = "{}%".format(fable) if fable is not None else None
 
+    # Fable is its own item with its own color, so its limit never paints the
+    # session and weekly numbers.
     severity = max(
         severities or ["normal"],
         key=lambda value: SEVERITY_RANK.get(value, 0),
     )
-    return primary_label, fable_label, severity
+    return primary_label, fable_label, severity, fable_severity
 
 
 def parse_history(history):
@@ -100,19 +99,21 @@ def parse_history(history):
     current = _percent(usage["fh"])
     weekly = _percent(usage["sd"])
     severity = _severity_from_percent(max(current, weekly))
-    return "{}% · {}% |".format(current, weekly), None, severity
+    return "{}% · {}%".format(current, weekly), None, severity, "normal"
 
 
 def main():
     try:
         data = json.load(sys.stdin)
         if len(sys.argv) > 1 and sys.argv[1] == "--history":
-            primary_label, fable_label, severity = parse_history(data)
+            parsed = parse_history(data)
         else:
-            primary_label, fable_label, severity = parse_usage(data)
+            parsed = parse_usage(data)
     except (TypeError, ValueError, json.JSONDecodeError):
         return 1
-    print("{}\t{}\t{}".format(primary_label, fable_label or "-", severity))
+    primary_label, fable_label, severity, fable_severity = parsed
+    print("{}\t{}\t{}\t{}".format(
+        primary_label, fable_label or "-", severity, fable_severity))
     return 0
 
 

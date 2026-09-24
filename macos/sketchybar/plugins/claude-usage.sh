@@ -4,8 +4,8 @@
 #
 # Reads the same endpoint Claude Code's /usage command uses. The label shows
 # the 5-hour session and all-model weekly windows, followed by the Fable weekly
-# limit when the server reports one. The trailing pipe separates Claude from
-# the adjacent Codex item.
+# limit when the server reports one. The pipe separating Claude from Codex is
+# its own item (claude_sep) that stays white.
 #
 # The OAuth token is short-lived, so it is re-read from the Keychain each run
 # rather than cached. Verified to read silently from sketchybar's process.
@@ -24,20 +24,26 @@ DIM=0xFF888888
 
 mkdir -p "$CACHE_DIR"
 
-render() { # primary_label fable_label severity
-  case "$3" in
-    critical) color=$RED ;;
-    warning)  color=$ORANGE ;;
-    *)        color=$WHITE ;;
+severity_color() { # severity
+  case "$1" in
+    critical) echo $RED ;;
+    warning)  echo $ORANGE ;;
+    *)        echo $WHITE ;;
   esac
-  [ "$1" = "--% · --% |" ] && color=$DIM
+}
+
+render() { # primary_label fable_label severity fable_severity
+  local color fable_color
+  color=$(severity_color "$3")
+  fable_color=$(severity_color "$4")
+  [ "$1" = "--% · --%" ] && color=$DIM
   sketchybar --set "$NAME" \
     drawing=on \
     icon=":claude:" \
     label="$1" \
     label.color=$color
   if [ -n "$2" ] && [ "$2" != "-" ]; then
-    sketchybar --set "$FABLE_NAME" drawing=on label="$2" label.color=$color
+    sketchybar --set "$FABLE_NAME" drawing=on label="$2" label.color=$fable_color
   else
     sketchybar --set "$FABLE_NAME" drawing=off
   fi
@@ -48,10 +54,10 @@ render() { # primary_label fable_label severity
 # shows a placeholder, so the pill keeps a stable width instead of jumping.
 fallback() {
   if [ -s "$CACHE" ]; then
-    IFS=$'\t' read -r version primary_label fable_label severity < "$CACHE"
-    if [ "$version" = "v3" ] && [ -n "$primary_label" ] \
-       && [ -n "$fable_label" ] && [ -n "$severity" ]; then
-      render "$primary_label" "$fable_label" "$severity"
+    IFS=$'\t' read -r version primary_label fable_label severity fable_severity < "$CACHE"
+    if [ "$version" = "v4" ] && [ -n "$primary_label" ] \
+       && [ -n "$fable_label" ] && [ -n "$severity" ] && [ -n "$fable_severity" ]; then
+      render "$primary_label" "$fable_label" "$severity" "$fable_severity"
       exit 0
     fi
   fi
@@ -59,12 +65,12 @@ fallback() {
     parsed=$(python3 "$SCRIPT_DIR/claude_usage.py" --history \
              < "$DESKTOP_HISTORY" 2>/dev/null)
     if [ -n "$parsed" ]; then
-      IFS=$'\t' read -r primary_label fable_label severity <<< "$parsed"
-      render "$primary_label" "$fable_label" "$severity"
+      IFS=$'\t' read -r primary_label fable_label severity fable_severity <<< "$parsed"
+      render "$primary_label" "$fable_label" "$severity" "$fable_severity"
       exit 0
     fi
   fi
-  render "--% · --% |" - normal
+  render "--% · --%" - normal normal
   exit 0
 }
 
@@ -80,9 +86,9 @@ RESP=$(curl -sS --max-time 5 https://api.anthropic.com/api/oauth/usage \
 PARSED=$(printf '%s' "$RESP" | python3 "$SCRIPT_DIR/claude_usage.py" 2>/dev/null)
 [ -z "$PARSED" ] && fallback
 
-IFS=$'\t' read -r PRIMARY_LABEL FABLE_LABEL SEVERITY <<< "$PARSED"
+IFS=$'\t' read -r PRIMARY_LABEL FABLE_LABEL SEVERITY FABLE_SEVERITY <<< "$PARSED"
 [ -z "$PRIMARY_LABEL" ] && fallback
 
-printf 'v3\t%s\t%s\t%s\n' \
-  "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY" > "$CACHE"
-render "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY"
+printf 'v4\t%s\t%s\t%s\t%s\n' \
+  "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY" "$FABLE_SEVERITY" > "$CACHE"
+render "$PRIMARY_LABEL" "$FABLE_LABEL" "$SEVERITY" "$FABLE_SEVERITY"
