@@ -226,6 +226,30 @@
 (ert-deftest pr-workflow-review-open-rejects-non-pr-url ()
   (should-error (mr-x/pr-review-open "https://forge.example/team/project") :type 'user-error))
 
+(ert-deftest pr-workflow-review-session-builds-github-source-from-forge-shas ()
+  (pr-test--github
+    (oset pr base-rev "b1") (oset pr head-rev "h1") (oset pr head-ref "fix-nav")
+    (let (args started)
+      (cl-letf (((symbol-function 'forge-get-worktree) (lambda (_repo) "/tmp/project/"))
+                ((symbol-function 'review-source-github-pr)
+                 (lambda (&rest a) (setq args a) 'github-source))
+                ((symbol-function 'review-session-start) (lambda (src) (setq started src) nil))
+                ((symbol-function 'review-panel-open) #'ignore))
+        (should (mr-x/pr-review-available-p))
+        (mr-x/pr-review-session)
+        (should (eq started 'github-source))
+        (should (equal (seq-take args 4) '("/tmp/project/" "team" "project" 11)))
+        (should (equal (plist-get (nthcdr 4 args) :base-rev) "b1"))
+        (should (equal (plist-get (nthcdr 4 args) :head-rev) "h1"))
+        (should (equal (plist-get (nthcdr 4 args) :title) "Fix navigation"))
+        (should (equal (plist-get (nthcdr 4 args) :head-ref) "fix-nav"))))))
+
+(ert-deftest pr-workflow-github-review-needs-a-local-clone ()
+  (pr-test--github
+    (oset pr base-rev "b1") (oset pr head-rev "h1")
+    (cl-letf (((symbol-function 'forge-get-worktree) (lambda (_repo) nil)))
+      (should-error (mr-x/pr-review-session) :type 'user-error))))
+
 (ert-deftest pr-workflow-review-session-rejects-non-forgejo-buffer ()
   (with-temp-buffer
     (should-error (mr-x/pr-review-session) :type 'user-error)))

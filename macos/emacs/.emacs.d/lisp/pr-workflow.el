@@ -234,14 +234,40 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
       ('github (mr-x/pr--github-merge c))
       ('forgejo (mr-x/pr--visit c) (mr-x/forgejo-merge-pr)))))
 
+(defun mr-x/pr--github-review-context ()
+  "The GitHub PR context here, or nil."
+  (ignore-errors
+    (let ((c (mr-x/pr-context t)))
+      (and (eq (plist-get c :backend) 'github) (plist-get c :pullreq) c))))
+
+(defun mr-x/pr-review-available-p ()
+  "Whether this buffer shows a PR the review session can open."
+  (or (mr-x/forgejo-ediff-available-p)
+      (and (mr-x/pr--github-review-context) t)))
+
+(defun mr-x/pr--github-review-source (c)
+  "A review source for GitHub PR context C, read from its local clone."
+  (let* ((repo (plist-get c :repository))
+         (pr (plist-get c :pullreq))
+         (dir (or (forge-get-worktree repo)
+                  (user-error "Review needs a local clone of %s/%s"
+                              (plist-get c :owner) (plist-get c :name)))))
+    (review-source-github-pr dir (plist-get c :owner) (plist-get c :name) (plist-get c :number)
+                             :title (oref pr title)
+                             :base-ref (oref pr base-ref) :head-ref (oref pr head-ref)
+                             :base-rev (oref pr base-rev) :head-rev (oref pr head-rev))))
+
 (defun mr-x/pr-review-session ()
-  "Review the Forgejo PR patch in this buffer one file at a time."
+  "Review this PR one file at a time: an open Forgejo PR diff, or a GitHub PR."
   (interactive)
-  (unless (mr-x/forgejo-ediff-available-p)
-    (user-error "Open a Forgejo PR diff first (SPC g R d)"))
-  (let* ((files (review-source-forgejo-patch-files))
-         (source (review-source-forgejo-pr forgejo-repo--host forgejo-repo--owner
-                                           forgejo-repo--name forgejo-diff--pr-number files)))
+  (let ((source
+         (cond
+          ((mr-x/forgejo-ediff-available-p)
+           (review-source-forgejo-pr forgejo-repo--host forgejo-repo--owner forgejo-repo--name
+                                     forgejo-diff--pr-number (review-source-forgejo-patch-files)))
+          ((mr-x/pr--github-review-context)
+           (mr-x/pr--github-review-source (mr-x/pr--github-review-context)))
+          (t (user-error "Open a Forgejo PR diff (SPC g R d) or a GitHub PR first")))))
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
 
@@ -329,9 +355,9 @@ Empty input means the working tree against HEAD; \"--staged\" the index."
     ("v" "PR details" mr-x/pr-view)
     ("d" "Full diff" mr-x/pr-diff)
     ("s" "MR-X diff (current PR)" mr-x/pr-review-session
-     :if mr-x/forgejo-ediff-available-p)
+     :if mr-x/pr-review-available-p)
     ("X" "Review session" mr-x/pr-review-session
-     :if mr-x/forgejo-ediff-available-p)
+     :if mr-x/pr-review-available-p)
     ("G" "Review a git range" mr-x/review-git-range)
     ("e" "Compare this file (Ediff)" mr-x/forgejo-diff-ediff
      :if mr-x/forgejo-ediff-available-p)

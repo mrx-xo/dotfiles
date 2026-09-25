@@ -334,5 +334,37 @@ Revisions and index blobs are pinned when the file list is first read."
                        :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))
       source)))
 
+(cl-defun review-source-github-pr (directory owner name number
+                                             &key title base-ref head-ref base-rev head-rev)
+  "Return a source for GitHub PR NUMBER of OWNER/NAME, read from DIRECTORY.
+The PR is BASE-REV...HEAD-REV, the commits Forge recorded, reviewed as a
+local Git range.  Forge's own range (base branch...refs/pullreqs/N) is
+empty once the base branch contains the head, as with any merged PR."
+  (dolist (rev (list base-rev head-rev))
+    (unless (and (stringp rev)
+                 (let ((default-directory (file-name-as-directory (expand-file-name directory))))
+                   (zerop (call-process "git" nil nil nil "cat-file" "-e" (concat rev "^{commit}")))))
+      (user-error "PR #%d commit %s is not in this clone; refresh the PR (SPC g R g) and fetch"
+                  number (or rev "unknown"))))
+  (let* ((source (review-source-git-range directory (format "%s...%s" base-rev head-rev)))
+         (origin (review-source-origin source))
+         (label (format "%s/%s#%d" owner name number)))
+    (setf (review-source-name source) "github"
+          (review-source-title source) (or title (format "PR #%d" number))
+          (review-source-number source) number
+          (review-source-subtitle source)
+          (if (and head-ref base-ref)
+              (format "%s / %s   %s -> %s" owner name head-ref base-ref)
+            (format "%s / %s" owner name))
+          (review-source-range-label source) label
+          (review-source-origin source)
+          (lambda (file start end)
+            (let ((o (funcall origin file start end)))
+              (plist-put o :label (format "%s %s:%s" label
+                                          (or (plist-get file :origin-path) (plist-get file :path))
+                                          (if (= start end) start (format "%d-%d" start end))))
+              (plist-put o :url (format "https://github.com/%s/%s/pull/%d/files" owner name number)))))
+    source))
+
 (provide 'review-source)
 ;;; review-source.el ends here
