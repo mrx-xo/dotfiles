@@ -32,8 +32,8 @@
 (ert-deftest review-hydra-navigation-uses-control-keys ()
   (dolist (pair '(("C-j" . hydra-review/review-session-next-file)
                   ("C-k" . hydra-review/review-session-prev-file)
-                  ("C-n" . hydra-review/review-session-next-hunk)
-                  ("C-p" . hydra-review/review-session-prev-hunk)))
+                  ("M-j" . hydra-review/review-session-next-hunk)
+                  ("M-k" . hydra-review/review-session-prev-hunk)))
     (should (eq (lookup-key hydra-review/keymap (kbd (car pair))) (cdr pair)))))
 
 (provide 'review-hydra-test)
