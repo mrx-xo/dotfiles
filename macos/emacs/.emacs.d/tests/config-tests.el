@@ -1422,6 +1422,30 @@ explicit profile arg must win over the frame default."
       (mr-x/apply-eink-faces-to-existing-frames))
     (should (equal applied (list calliope-frame daemon-frame)))))
 
+(ert-deftest config-test-tty-client-frame-never-claims-main ()
+  "A tty client (CALLIOPE's emx) must not be decorated as the main frame.
+The sole-GUI-frame check counts only graphic frames, so a tty client
+arriving while one GUI frame was up took the MAIN branch: dark background
+on the e-ink and `major-pane-home-frame' moved onto the tablet.  Batch's
+selected frame is non-graphic, i.e. exactly that tty client."
+  (let ((gui-frame 'gui-frame)
+        (home-before (bound-and-true-p major-pane-home-frame))
+        params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'frame-list)
+                     (lambda () (list gui-frame (selected-frame))))
+                    ((symbol-function 'display-graphic-p)
+                     (lambda (&optional frame) (eq frame gui-frame)))
+                    ((symbol-function 'set-frame-parameter)
+                     (lambda (frame param value)
+                       (push (list frame param value) params))))
+            (mr-x/decorate-secondary-frame))
+          (should-not params)
+          (should (eq (bound-and-true-p major-pane-home-frame) home-before)))
+      (when (boundp 'major-pane-home-frame)
+        (setq major-pane-home-frame home-before)))))
+
 (ert-deftest config-test-point-stack-push-pop ()
   "point-stack should push and pop positions in a temp buffer."
   ;; Force-load point-stack since it's deferred via :bind
