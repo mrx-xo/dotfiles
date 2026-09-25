@@ -50,15 +50,15 @@
   "
  Review session
  Files               Hunks               View / ask
- _C-j_: next file     _C-n_: next hunk     _f_: files panel
- _C-k_: prev file     _C-p_: prev hunk     _o_: old pane   _w_: new pane
+ _C-j_: next file     _M-j_: next hunk     _f_: files panel
+ _C-k_: prev file     _M-k_: prev hunk     _o_: old pane   _w_: new pane
  _v_: viewed        _TAB_: fold       _a_: Quick Ask  _u_: park
                    _z_: strip
  _Q_: quit review                    _q_: quit hydra"
   ("C-j" review-session-next-file)
   ("C-k" review-session-prev-file)
-  ("C-n" review-session-next-hunk)
-  ("C-p" review-session-prev-hunk)
+  ("M-j" review-session-next-hunk)
+  ("M-k" review-session-prev-hunk)
   ("v" review-session-toggle-viewed)
   ("TAB" review-hydra-fold)
   ("z" review-hydra-strip)
