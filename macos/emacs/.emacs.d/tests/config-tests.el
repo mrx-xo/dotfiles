@@ -2378,13 +2378,27 @@ Together these hid 106 lines of roaming/notes/homelab.org."
       (should-not (mr-x/arca-caldav-enable-timer)))))
 
 (ert-deftest config-test-arca-caldav-guard-passes-on-mrx ()
-  "On mrx the wrapper calls org-caldav-sync."
-  (let ((called nil))
-    (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
-              ((symbol-function 'mr-x/arca-caldav-url) (lambda () "https://example.invalid/dav"))
-              ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
-      (should (mr-x/arca-caldav-sync))
-      (should called))))
+  "In the main daemon on mrx the wrapper calls org-caldav-sync."
+  (dolist (daemon '("server" t))
+    (let ((called nil))
+      (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
+                ((symbol-function 'daemonp) (lambda () daemon))
+                ((symbol-function 'mr-x/arca-caldav-url) (lambda () "https://example.invalid/dav"))
+                ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
+        (should (mr-x/arca-caldav-sync))
+        (should called)))))
+
+(ert-deftest config-test-arca-caldav-guard-blocks-sandbox-on-mrx ()
+  "The sandbox daemon runs on mrx too, and must never sync."
+  (dolist (daemon '("sandbox" nil))
+    (let ((called nil))
+      (cl-letf (((symbol-function 'mr-x/machine-id) (lambda () "mrx"))
+                ((symbol-function 'daemonp) (lambda () daemon))
+                ((symbol-function 'mr-x/arca-caldav-url) (lambda () "https://example.invalid/dav"))
+                ((symbol-function 'org-caldav-sync) (lambda () (setq called t))))
+        (should-not (mr-x/arca-caldav-sync))
+        (should-not called)
+        (should-not (mr-x/arca-caldav-enable-timer))))))
 
 (ert-deftest config-test-arca-caldav-idle-sync-never-prompts ()
   "The idle sync resumes, skips deletions, and turns a prompt into an error."
