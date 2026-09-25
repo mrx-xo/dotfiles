@@ -1985,8 +1985,13 @@ so the file is the only reliable source."
     "The one machine allowed to run `org-caldav-sync' against ARCA.")
 
   (defun mr-x/arca-caldav-on-sync-machine-p ()
-    "True on the one syncing machine, and only when the URL file exists."
+    "True in the main daemon on the one syncing machine, with the URL file.
+The main daemon is --fg-daemon=server (launchd) or a plain `emacs
+--daemon'.  The local sandbox also runs on MrX with its own caldav state
+dir, so the machine alone is not enough: it synced the same files until
+2026-09-25."
     (and (string= (mr-x/machine-id) mr-x/arca-caldav-machine)
+         (member (daemonp) '(t "server"))
          (mr-x/arca-caldav-url)
          t))
 
