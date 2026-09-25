@@ -125,6 +125,15 @@ FACTOR is the tallest text height on the line, relative to the frame font."
     ('current (review-panel--txt "❯" 'orange :height height))
     (_ (review-panel--txt "○" 'mute :height height))))
 
+(defun review-panel--mode-label (mode)
+  "Short label for a content-unchanged file with MODE (OLD . NEW)."
+  (if (not mode) "no changes"
+    (let ((old (logand #o111 (string-to-number (car mode) 8)))
+          (new (logand #o111 (string-to-number (cdr mode) 8))))
+      (cond ((and (zerop old) (not (zerop new))) "mode +x")
+            ((and (not (zerop old)) (zerop new)) "mode -x")
+            (t "mode")))))
+
 (defun review-panel--kind (file faded)
   (pcase-let ((`(,letter . ,token) (pcase (plist-get file :kind)
                                      ('added '("A" . green)) ('deleted '("D" . red))
@@ -249,6 +258,9 @@ The file name wins: whole folders are dropped from the left behind
          (tally (and (plist-get file :rows) (review-panel--tally (plist-get file :rows))))
          (status (cond ((plist-get file :error) (review-panel--txt "failed" 'red :height 0.92))
                        ((plist-get file :binary) (review-panel--txt "binary" 'mute :faded viewed :height 0.92))
+                       ((plist-get file :unchanged)
+                        (review-panel--txt (review-panel--mode-label (plist-get file :mode))
+                                           'mute :faded viewed :height 0.92))
                        ((not (plist-get file :loaded)) (review-panel--txt "loading" 'mute :height 0.92))
                        ((and current hunks)
                         (review-panel--txt (format "hunk %d/%d" (1+ (review-session-hunk session)) (length hunks))
