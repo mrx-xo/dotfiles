@@ -134,6 +134,56 @@
             (should (equal mr-x/quick-ask--response "Because **cur**."))))
       (kill-buffer buf))))
 
+(defvar agent-shell-preferred-agent-config nil)
+
+(ert-deftest quick-ask-runs-one-session-per-project-root ()
+  (let* ((repo (file-name-as-directory (make-temp-file "qa-repo" t)))
+         (sub (expand-file-name "lisp/deep/" repo))
+         (other (file-name-as-directory (make-temp-file "qa-other" t)))
+         (mr-x/quick-ask--sessions (make-hash-table :test #'equal))
+         (mr-x/quick-ask--shell-buffer nil)
+         started)
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (let ((default-directory repo)) (call-process "git" nil nil nil "init" "-q"))
+          (cl-letf (((symbol-function 'agent-shell--start)
+                     (lambda (&rest _)
+                       (push default-directory started)
+                       (generate-new-buffer " *qa-fake-shell*")))
+                    ((symbol-function 'major-pane-exclude-buffer) #'ignore)
+                    ((symbol-function 'mr-x/quick-ask--session-healthy-p) #'buffer-live-p))
+            (let ((a (mr-x/quick-ask--ensure-session sub))
+                  (b (mr-x/quick-ask--ensure-session repo))
+                  (c (mr-x/quick-ask--ensure-session other)))
+              ;; The agent runs at the project root, once per project.
+              (should (equal started (list (file-truename other) (file-truename repo))))
+              (should (eq a b))
+              (should-not (eq a c))
+              (should (eq mr-x/quick-ask--shell-buffer c)))))
+      (maphash (lambda (_ b) (when (buffer-live-p b) (kill-buffer b))) mr-x/quick-ask--sessions)
+      (delete-directory repo t) (delete-directory other t))))
+
+(ert-deftest quick-ask-popup-grows-to-its-content ()
+  ;; posframe counts lines, but the card pads rows in pixels: a line-count
+  ;; height hid the bottom of the answer behind a scroll.
+  (review-session-test--with s
+    (let ((buf (get-buffer-create "*quick-ask*")) calls)
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (setq-local mr-x/quick-ask--source-buffer (review-session-new-buffer s))
+              (setq-local mr-x/quick-ask--source-region (cons 1 5)))
+            (cl-letf (((symbol-function 'posframe-show)
+                       (lambda (_buf &rest args) (push args calls) nil))
+                      ((symbol-function 'posframe-workable-p) (lambda () t))
+                      ((symbol-function 'mr-x/quick-ask--content-lines) (lambda (&rest _) 12)))
+              (mr-x/quick-ask--display-response buf))
+            (let ((last (car calls)))
+              (should (= (plist-get last :height) 12))
+              (should (>= (plist-get last :max-height) 12))))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
+
 (ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
   (review-session-test--with s
     (select-window (review-session-new-window s))
