@@ -435,6 +435,9 @@ BASE and HEAD are bound to the PR's base and head commits."
       (should (equal (review-source-range-label src) "team/project#11"))
       (let ((files (funcall (review-source-files src))))
         (should (equal (mapcar (lambda (f) (plist-get f :path)) files) '("a.txt")))
+        ;; Pane headers name the PR's branches, not the bare commit range.
+        (should (equal (review-source-old-label src) (format "main @ %s" (substring base 0 7))))
+        (should (equal (review-source-new-label src) (format "topic @ %s" (substring head 0 7))))
         (let (old new)
           (funcall (review-source-text src) (car files) 'old (lambda (s) (setq old s)))
           (funcall (review-source-text src) (car files) 'new (lambda (s) (setq new s)))

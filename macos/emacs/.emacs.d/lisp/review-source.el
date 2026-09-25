@@ -348,6 +348,7 @@ empty once the base branch contains the head, as with any merged PR."
                   number (or rev "unknown"))))
   (let* ((source (review-source-git-range directory (format "%s...%s" base-rev head-rev)))
          (origin (review-source-origin source))
+         (list-files (review-source-files source))
          (label (format "%s/%s#%d" owner name number)))
     (setf (review-source-name source) "github"
           (review-source-title source) (or title (format "PR #%d" number))
@@ -357,6 +358,16 @@ empty once the base branch contains the head, as with any merged PR."
               (format "%s / %s   %s -> %s" owner name head-ref base-ref)
             (format "%s / %s" owner name))
           (review-source-range-label source) label
+          ;; git-range labels its sides when the files first load; name the
+          ;; PR's branches instead of the bare commit range.
+          (review-source-files source)
+          (lambda ()
+            (prog1 (funcall list-files)
+              (when (and base-ref head-ref)
+                (setf (review-source-old-label source)
+                      (format "%s @ %s" base-ref (substring base-rev 0 (min 7 (length base-rev))))
+                      (review-source-new-label source)
+                      (format "%s @ %s" head-ref (substring head-rev 0 (min 7 (length head-rev))))))))
           (review-source-origin source)
           (lambda (file start end)
             (let ((o (funcall origin file start end)))
