@@ -17,7 +17,16 @@ case "$URL" in
 esac
 
 # Start the sandbox when it is down; never start or restart the main daemon.
-if ! "$EMACSCLIENT" --socket-name="$SOCKET" --eval t >/dev/null 2>&1; then
+# Every call has a timeout: a daemon stuck in a loop would otherwise make
+# rv hang with no output.
+status=0
+timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET" --eval t >/dev/null 2>&1 || status=$?
+if [ "$status" = 124 ]; then
+  echo "review-pr: the $SOCKET daemon is not responding (stuck in a loop?)" >&2
+  [ "$SOCKET" = sandbox ] &&
+    echo "Kill it with: pkill -f -- '--fg-daemon=sandbox', then run rv again" >&2
+  exit 1
+elif [ "$status" != 0 ]; then
   if [ "$SOCKET" != sandbox ]; then
     echo "review-pr: the $SOCKET daemon is not running" >&2
     exit 1
@@ -26,6 +35,9 @@ if ! "$EMACSCLIENT" --socket-name="$SOCKET" --eval t >/dev/null 2>&1; then
   "$(dirname "$0")/emacs-sandbox.sh" --no-frame >/dev/null
 fi
 
-"$EMACSCLIENT" --socket-name="$SOCKET" \
-  --eval "(progn (require 'pr-workflow) (mr-x/pr-review-open \"$URL\") nil)" >/dev/null
+if ! timeout 20 "$EMACSCLIENT" --socket-name="$SOCKET" \
+     --eval "(progn (require 'pr-workflow) (mr-x/pr-review-open \"$URL\") nil)" >/dev/null; then
+  echo "review-pr: the $SOCKET daemon did not accept the review" >&2
+  exit 1
+fi
 echo "Opening $URL in the $SOCKET daemon"
