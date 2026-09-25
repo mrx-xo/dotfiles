@@ -122,6 +122,31 @@
     (should (equal (review-session-current s) 0))
     (should (equal (review-session-viewed s) '(0)))))
 
+(ert-deftest review-session-revisits-reuse-rendered-panes ()
+  (let ((renders 0) (render (symbol-function 'review-session-pane-text)))
+    (cl-letf (((symbol-function 'review-session-pane-text)
+               (lambda (&rest args) (cl-incf renders) (apply render args))))
+      (review-session-test--with s
+        (should (= renders 2))
+        (review-session-next-file)
+        (should (= renders 4))
+        (review-session-prev-file)
+        (review-session-next-file)
+        (should (= renders 4))
+        (with-current-buffer (review-session-new-buffer s)
+          (should (string-match-p "Y" (buffer-string))))))))
+
+(ert-deftest review-session-prerenders-neighbours ()
+  (review-session-test--with s
+    (should-not (plist-get (review-session-file s 1) :new-pane))
+    (review-session--prerender s)
+    (should (plist-get (review-session-file s 1) :old-pane))
+    (should (plist-get (review-session-file s 1) :new-pane))
+    ;; Binary files have nothing to render.
+    (review-session-next-file)
+    (review-session--prerender s)
+    (should-not (plist-get (review-session-file s 2) :new-pane))))
+
 (ert-deftest review-session-hunks-walk-then-spill-into-next-file ()
   (review-session-test--with s
     (review-session-next-file)

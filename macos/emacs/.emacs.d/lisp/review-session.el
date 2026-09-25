@@ -14,6 +14,14 @@
 (autoload 'syzygy-park "syzygy-park" nil t)
 
 (defgroup review nil "Side-by-side review sessions." :group 'tools)
+(require 'review-frame)
+(autoload 'hydra-review/body "review-hydra" nil t)
+
+(defcustom review-session-pop-out t
+  "Open new reviews' side-by-side panes in a separate graphical frame.
+When nil, use the invoking frame and restore its layout on quit.
+Terminal sessions always use the invoking frame."
+  :type 'boolean :group 'review)
 
 (defface review-gutter '((t :inherit shadow)) "Line numbers in a pane.")
 (defface review-del '((t :background "#372523" :extend t)) "Removed row.")
@@ -25,7 +33,8 @@
 
 (cl-defstruct review-session
   source files current hunk viewed layout frame panel
-  old-buffer new-buffer old-window new-window request directory)
+  old-buffer new-buffer old-window new-window request directory
+  own-frame panel-frame)
 
 (defvar review-session--current nil "The live session, or nil.")
 (defvar review-session-update-hook nil "Run with the session after every change.")
@@ -168,6 +177,7 @@ Every line carries a `review-row' property with its row index."
 (define-derived-mode review-pane-mode special-mode "Review"
   "Read-only pane of a review session."
   (setq truncate-lines t)
+  (setq-local popper-popup-status 'raised)
   (setq-local scroll-margin 0))
 
 (with-eval-after-load 'evil
@@ -180,6 +190,46 @@ Every line carries a `review-row' property with its row index."
 		   (kbd "u") #'syzygy-park
 		   (kbd "q") #'review-session-quit))
 
+(defun review-session--pane-string (session index side)
+  "Return file INDEX's rendered SIDE of SESSION, rendering it only once.
+Loaded texts never change during a session, so neither does their render;
+fontifying a large file is the slow part of every file switch."
+  (let* ((files (review-session-files session))
+         (file (aref files index))
+         (key (if (eq side 'old) :old-pane :new-pane)))
+    (or (plist-get file key)
+        (let ((text (review-session-pane-text
+                     (plist-get file :rows) side
+                     (plist-get file (if (eq side 'old) :old-text :new-text))
+                     (plist-get file (if (eq side 'old) :old-path :path)))))
+          (aset files index (plist-put file key text))
+          text))))
+
+(defvar review-session--prerender-timer nil)
+
+(defun review-session--prerender (session)
+  "Render the files on either side of SESSION's current one.
+Best effort: any user input abandons the work."
+  (when (eq session review-session--current)
+    (let ((i (review-session-current session)))
+      (dolist (index (list (1+ i) (1- i)))
+        (when (and (< -1 index (length (review-session-files session)))
+                   (not (plist-get (review-session-file session index) :binary)))
+          (ignore-errors
+            (review-session-load
+             session index
+             (lambda (&optional error)
+               (unless error
+                 (while-no-input
+                   (dolist (side '(old new))
+                     (review-session--pane-string session index side))))))))))))
+
+(defun review-session--schedule-prerender (session)
+  (when (timerp review-session--prerender-timer)
+    (cancel-timer review-session--prerender-timer))
+  (setq review-session--prerender-timer
+        (run-with-idle-timer 0.3 nil #'review-session--prerender session)))
+
 (defun review-session--pane-buffer (session index side)
   "Create the pane buffer for file INDEX, SIDE of SESSION."
   (let* ((file (review-session-file session index))
@@ -190,9 +240,7 @@ Every line carries a `review-row' property with its row index."
         (erase-buffer)
         (if (plist-get file :binary)
             (insert (propertize "binary file, nothing to compare" 'face 'shadow))
-          (insert (review-session-pane-text (plist-get file :rows) side
-                                            (plist-get file (if (eq side 'old) :old-text :new-text))
-                                            (plist-get file (if (eq side 'old) :old-path :path))))))
+          (insert (review-session--pane-string session index side))))
       (review-pane-mode)
       (setq default-directory (review-session-directory session))
       (setq review-pane--session session review-pane--side side review-pane--file-index index)
@@ -315,7 +363,8 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
                (when (buffer-live-p buffer) (kill-buffer buffer)))
              (when viewed (review-session--mark-viewed session viewed))
              (review-session--paint-hunk session)
-             (review-session--notify session))))))))
+             (review-session--notify session)
+             (review-session--schedule-prerender session))))))))
 
 ;;;; Commands
 
@@ -373,28 +422,56 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
     (review-session--notify s)))
 
 (defun review-session-quit ()
-  "Close the panes and the panel, restore the window layout."
+  "Close review buffers and owned frames, restoring an in-place layout."
   (interactive)
   (when-let ((s review-session--current))
     (setq review-session--current nil)
     (review-session--kill-panes s)
     (when (buffer-live-p (review-session-panel s)) (kill-buffer (review-session-panel s)))
-    (when (and (frame-live-p (review-session-frame s)) (review-session-layout s))
-      (set-window-configuration (review-session-layout s)))
+    (when (frame-live-p (review-session-panel-frame s))
+      (delete-frame (review-session-panel-frame s)))
+    (if (review-session-own-frame s)
+        (when (frame-live-p (review-session-frame s))
+          (delete-frame (review-session-frame s)))
+      (when (and (frame-live-p (review-session-frame s)) (review-session-layout s))
+        (set-window-configuration (review-session-layout s))))
     (run-hook-with-args 'review-session-update-hook nil)))
+
+(defun review-session--frame-deleted (frame)
+  "Clean up a review when either of its frames is closed manually."
+  (when-let ((s review-session--current))
+    (when (memq frame (list (review-session-frame s) (review-session-panel-frame s)))
+      ;; The caller is already deleting FRAME; do not delete it recursively
+      ;; or restore a layout into it.
+      (if (eq frame (review-session-frame s))
+          (setf (review-session-frame s) nil)
+        (setf (review-session-panel-frame s) nil))
+      (review-session-quit))))
+
+(add-hook 'delete-frame-functions #'review-session--frame-deleted)
 
 (defun review-session-start (source)
   "Start reviewing SOURCE and return the session."
   (let ((files (vconcat (copy-tree (funcall (review-source-files source))))))
     (when (zerop (length files)) (user-error "Nothing to review: no changed files"))
     (when review-session--current (review-session-quit))
-    (let ((session (make-review-session
+    (let* ((pop-out (and review-session-pop-out (display-graphic-p)))
+           (layout (unless pop-out (current-window-configuration)))
+           (frame (if pop-out
+                      (save-selected-window
+                        (make-frame '((name . "Review diff") (title . "Review diff") (width . 160)
+                                      (height . 45) (no-focus-on-map . t))))
+                    (selected-frame)))
+           (session (make-review-session
                     :source source :files files :current 0 :hunk 0 :viewed nil
                     :directory (or (review-source-directory source) default-directory)
-                    :layout (current-window-configuration) :frame (selected-frame))))
+                    :layout layout :frame frame :own-frame pop-out)))
       (setq review-session--current session)
       (condition-case err
-          (review-session-show 0)
+          (progn
+            (review-session-show 0)
+            (when pop-out (review-frame-place frame review-session-display))
+            (when pop-out (select-frame-set-input-focus frame)))
         (error (review-session-quit) (signal (car err) (cdr err))))
       session)))
 

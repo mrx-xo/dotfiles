@@ -4255,6 +4255,7 @@ Falls back to a one-liner if fastfetch isn't installed."
          ((derived-mode-p 'ibuffer-mode) (hydra-ibuffer/body))
          ((derived-mode-p 'Info-mode) (hydra-info/body))
          ((derived-mode-p 'ediff-mode) (hydra-ediff/body))
+         ((derived-mode-p 'review-pane-mode 'review-panel-mode) (hydra-review/body))
          ((derived-mode-p 'prog-mode) (hydra-fold/body))
          (t (message "No hydra for %s" major-mode))))
 

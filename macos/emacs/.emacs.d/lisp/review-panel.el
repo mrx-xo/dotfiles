@@ -13,6 +13,11 @@
 (defconst review-panel-pending-label "pending" "Label for a pending file.")
 (defcustom review-panel-width 42 "Columns for the expanded panel." :type 'integer :group 'review)
 (defcustom review-panel-strip-width 7 "Columns for the collapsed strip." :type 'integer :group 'review)
+(defcustom review-panel-pop-out t
+  "Open new reviews' file panels in their own graphical frames.
+When nil, attach the panel to the compare frame's left side.
+Independent of `review-session-pop-out'; terminals always use a side window."
+  :type 'boolean :group 'review)
 
 (defface review-panel-current '((t :inherit highlight :extend t)) "Current file row.")
 (defface review-panel-viewed '((t :inherit shadow)) "Viewed file row.")
@@ -25,6 +30,8 @@
 (defvar-local review-panel--session nil)
 (defvar-local review-panel--folded nil "File indices whose hunks are hidden.")
 (defvar-local review-panel--collapsed nil "Non-nil when shown as the strip.")
+(defvar-local review-panel--render-width nil "Width used by the last render.")
+(defvar review-panel--refreshing nil)
 
 (defun review-panel--kind (file)
   (pcase (plist-get file :kind)
@@ -44,23 +51,24 @@
 
 (defun review-panel--fit (left right width)
   "Return LEFT padded so RIGHT ends at WIDTH, truncating LEFT if needed."
-  (let* ((room (- width (length right) 1))
-         (left (if (> (length left) room) (concat (substring left 0 (max 0 (- room 1))) "\u2026") left)))
-    (concat left (make-string (max 1 (- width (length left) (length right))) ?\s) right)))
+  (let* ((right (truncate-string-to-width right (max 0 (- width 2))))
+         (room (max 0 (- width (string-width right) 1)))
+         (left (truncate-string-to-width left room nil nil "\u2026")))
+    (concat left (make-string (max 1 (- width (string-width left) (string-width right))) ?\s) right)))
 
 (defun review-panel--bar (viewed total width)
   (let ((fill (if (zerop total) 0 (round (* width (/ (float viewed) total))))))
     (concat (propertize (make-string fill ?\u2501) 'face 'review-panel-bar)
             (propertize (make-string (- width fill) ?\u2501) 'face 'shadow))))
 
-(defun review-panel-render (session folded collapsed)
+(defun review-panel-render (session folded collapsed &optional width)
   "Render SESSION as panel text.  FOLDED hides hunks per file; COLLAPSED is the strip."
   (let* ((source (review-session-source session))
          (files (review-session-files session))
          (current (review-session-current session))
          (viewed (review-session-viewed session))
          (progress (review-session-progress session))
-         (width (if collapsed review-panel-strip-width review-panel-width))
+         (width (or width (if collapsed review-panel-strip-width review-panel-width)))
          (lines nil))
     (cl-flet ((row (text &rest props) (push (apply #'propertize text props) lines)))
       (if collapsed
@@ -144,7 +152,8 @@
 
 (define-derived-mode review-panel-mode special-mode "ReviewFiles"
   "Files panel of a review session."
-  (setq truncate-lines t cursor-type nil))
+  (setq truncate-lines t cursor-type nil)
+  (setq-local popper-popup-status 'raised))
 
 (with-eval-after-load 'evil
   (evil-define-key 'normal review-panel-mode-map
@@ -157,14 +166,21 @@
 
 (defun review-panel--refresh (&optional session)
   "Re-render SESSION's panel, preserving its selected file or hunk."
-  (let ((s (or session review-session--current)))
+  (let ((s (or session review-session--current))
+        (review-panel--refreshing t))
     (when (and s (buffer-live-p (review-session-panel s)))
+      (review-panel--display s)
       (with-current-buffer (review-session-panel s)
         (let ((inhibit-read-only t)
               (file (get-text-property (point) 'review-file))
               (hunk (get-text-property (point) 'review-hunk)))
           (erase-buffer)
-          (insert (review-panel-render s review-panel--folded review-panel--collapsed))
+          (setq review-panel--render-width
+                (if-let ((window (get-buffer-window (current-buffer) t)))
+                    (window-body-width window)
+                  review-panel-width))
+          (insert (review-panel-render s review-panel--folded review-panel--collapsed
+                                       review-panel--render-width))
           (goto-char (point-min))
           (when file
             (let ((pos (text-property-any (point-min) (point-max) 'review-file file)))
@@ -175,26 +191,60 @@
                   (while (and (< (point) (point-max))
                               (eq (get-text-property (point) 'review-file) file)
                               (not (eq (get-text-property (point) 'review-hunk) hunk)))
-                    (forward-line))))))))
-      (review-panel--display s))))
+                    (forward-line)))))))))))
+
+(defun review-panel--resized (frame)
+  "Reflow the panel when its window in FRAME changes width."
+  (when-let* ((s review-session--current)
+              (buffer (review-session-panel s))
+              (_ (buffer-live-p buffer))
+              (window (get-buffer-window buffer frame)))
+    (unless (or review-panel--refreshing
+                (equal (window-body-width window)
+                       (buffer-local-value 'review-panel--render-width buffer)))
+      (review-panel--refresh s))))
+
+(add-hook 'window-size-change-functions #'review-panel--resized)
 
 (defun review-panel--on-update (session)
   (if session (review-panel--refresh session)))
 
 (defun review-panel--display (session)
-  "Display SESSION's panel with enough room left for both panes."
+  "Display SESSION's panel in its own frame or beside the compare panes."
   (when (and (frame-live-p (review-session-frame session))
              (buffer-live-p (review-session-panel session)))
-    (with-selected-frame (review-session-frame session)
+    (with-selected-frame (or (review-session-panel-frame session)
+                             (review-session-frame session))
       (let* ((buffer (review-session-panel session))
              (width (with-current-buffer buffer
                       (if review-panel--collapsed review-panel-strip-width
-                        (min review-panel-width
-                             (max 12 (/ (frame-width) 3)))))))
-        (let ((window (display-buffer-in-side-window
-                       buffer `((side . left) (slot . 0) (window-width . ,width)))))
-          (when (/= width (window-total-width window))
-            (window-resize window (- width (window-total-width window)) t t)))))))
+                        (if (review-session-panel-frame session) review-panel-width
+                          (min review-panel-width
+                               (max 12 (/ (frame-width) 3))))))))
+        (if (review-session-panel-frame session)
+            (let ((window (or (get-buffer-window buffer (selected-frame))
+                              (frame-selected-window))))
+              ;; A fresh frame can inherit *scratch*'s popup window.  This
+              ;; frame belongs to the panel: give it one ordinary window.
+              (select-window window)
+              (set-window-dedicated-p window nil)
+              (dolist (parameter '(window-side window-slot no-other-window
+                                   no-delete-other-windows quit-restore))
+                (set-window-parameter window parameter nil))
+              (let ((ignore-window-parameters t)) (delete-other-windows window))
+              (set-window-buffer window buffer))
+          (let ((window (display-buffer-in-side-window
+                         buffer `((side . left) (slot . 0) (window-width . ,width)))))
+            (when (/= width (window-total-width window))
+              (window-resize window (- width (window-total-width window)) t t))))))))
+
+(defun review-panel--make-frame ()
+  "Create a frame for review files without taking input focus."
+  (save-selected-window
+    (make-frame `((name . "Review files") (title . "Review files")
+                  (width . ,review-panel-width)
+                  (height . 45) (min-width . ,review-panel-strip-width)
+                  (no-focus-on-map . t)))))
 
 (defun review-panel--preload (session index)
   "Fill SESSION's hunk map incrementally, starting at INDEX."
@@ -224,7 +274,14 @@
     (setf (review-session-panel session) buffer)
     (add-hook 'review-session-update-hook #'review-panel--on-update)
     (add-hook 'review-session-display-hook #'review-panel--display)
-    (review-panel--refresh session)
+    (condition-case err
+        (progn
+          (when (and review-panel-pop-out
+                     (display-graphic-p (review-session-frame session)))
+            (setf (review-session-panel-frame session) (review-panel--make-frame))
+            (review-frame-place (review-session-panel-frame session) review-panel-display))
+          (review-panel--refresh session))
+      (error (review-session-quit) (signal (car err) (cdr err))))
     (run-at-time 0 nil #'review-panel--preload session 0)
     buffer))
 
