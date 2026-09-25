@@ -138,7 +138,17 @@
         (accept-process-output nil 0.01)))
     (should (plist-get (review-session-file s 1) :hunks))
     (with-current-buffer (review-session-panel s)
-      (should (string-match-p (regexp-quote "@@ -2,2 +2,3 @@") (buffer-string))))))
+      ;; Narrow attached panels truncate the end of a hunk label.
+      (should (string-match-p (regexp-quote "@@ -2,2") (buffer-string))))
+    (should (equal (plist-get (car (plist-get (review-session-file s 1) :hunks))
+                             :new-count) 3))))
+
+(ert-deftest review-panel-render-uses-the-window-width ()
+  (review-panel-test--with s
+    (dolist (width '(42 90 130))
+      (let ((lines (split-string (review-panel-render s nil nil width) "\n")))
+        (should (= (string-width (nth 4 lines)) width))
+        (should (= (string-width (nth 6 lines)) width))))))
 
 (ert-deftest review-panel-strip-resizes-and-restores-expanded-width ()
   (review-panel-test--with s

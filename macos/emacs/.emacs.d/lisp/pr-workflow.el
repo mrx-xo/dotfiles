@@ -292,7 +292,9 @@ Empty input means the working tree against HEAD; \"--staged\" the index."
     ("r" "PR list" mr-x/pr-list)
     ("v" "PR details" mr-x/pr-view)
     ("d" "Full diff" mr-x/pr-diff)
-    ("s" "Review session (files + side by side)" mr-x/pr-review-session
+    ("s" "MR-X diff (current PR)" mr-x/pr-review-session
+     :if mr-x/forgejo-ediff-available-p)
+    ("X" "Review session" mr-x/pr-review-session
      :if mr-x/forgejo-ediff-available-p)
     ("G" "Review a git range" mr-x/review-git-range)
     ("e" "Compare this file (Ediff)" mr-x/forgejo-diff-ediff
