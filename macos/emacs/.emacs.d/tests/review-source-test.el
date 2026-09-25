@@ -230,6 +230,28 @@
         (should (equal (cadr (car calls)) '(("ref" . "head1"))))
         (should (string-match-p "contents/a.el" (car (car calls))))))))
 
+(ert-deftest review-source-forgejo-fills-title-and-branches-from-metadata ()
+  (review-source-test--with-patch
+    (let* ((files (review-source-forgejo-patch-files))
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files))
+           (updated nil)
+           (review-source-updated-functions (list (lambda (s) (push s updated)))))
+      (should (equal (review-source-number src) 41))
+      (cl-letf (((symbol-function 'forgejo-api-get)
+                 (lambda (_host path _params cb &rest _args)
+                   (if (string-suffix-p "pulls/41" path)
+                       (funcall cb '((title . "Cache the PR list") (merge_base . "base1")
+                                     (base . ((ref . "main")))
+                                     (head . ((sha . "head1") (ref . "feat/cache"))))
+                                nil)
+                     (funcall cb `((sha . "2222222abc") (encoding . "base64")
+                                   (content . ,(base64-encode-string "new\n")))
+                              nil)))))
+        (funcall (review-source-text src) (car files) 'new #'ignore)
+        (should (equal (review-source-title src) "Cache the PR list"))
+        (should (equal (review-source-subtitle src) "team / project   feat/cache -> main"))
+        (should (equal updated (list src)))))))
+
 (ert-deftest review-source-forgejo-text-rejects-drifted-blob ()
   (review-source-test--with-patch
     (let* ((files (review-source-forgejo-patch-files))

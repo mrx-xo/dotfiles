@@ -8,6 +8,7 @@
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
+(require 'pulse)
 (require 'review-diff)
 (require 'review-source)
 
@@ -21,6 +22,10 @@
   "Open new reviews' side-by-side panes in a separate graphical frame.
 When nil, use the invoking frame and restore its layout on quit.
 Terminal sessions always use the invoking frame."
+  :type 'boolean :group 'review)
+
+(defcustom review-session-pulse t
+  "Flash the current hunk in both panes after every jump."
   :type 'boolean :group 'review)
 
 (defface review-gutter '((t :inherit shadow)) "Line numbers in a pane.")
@@ -247,7 +252,10 @@ Best effort: any user input abandons the work."
       (setq header-line-format
             (format " %s  %s  %s"
                     (upcase (symbol-name side))
-                    (plist-get file (if (eq side 'old) :old-path :path))
+                    (pcase (list side (plist-get file :kind))
+                      ('(old added) "(new file)")
+                      ('(new deleted) "(deleted)")
+                      (_ (plist-get file (if (eq side 'old) :old-path :path))))
                     (review-source-range-label (review-session-source session))))
       (set-buffer-modified-p nil)
       (goto-char (point-min)))
@@ -279,9 +287,12 @@ Best effort: any user input abandons the work."
             (unless (overlayp review-pane--rail)
               (setq review-pane--rail (make-overlay start end)))
             (move-overlay review-pane--rail start end)
+            (when review-session-pulse
+              (let ((pulse-flag t)) (pulse-momentary-highlight-region start end)))
             (overlay-put review-pane--rail 'line-prefix (propertize " " 'face 'review-rail))
             (goto-char start)
-            (when-let ((w (get-buffer-window buffer)))
+            ;; Commands also run from the files frame; search every frame.
+            (when-let ((w (get-buffer-window buffer t)))
               (set-window-point w start)
               (set-window-start w (review-session--row-position buffer (max 0 (- (plist-get hunk :start) 3)))))))))))
 
@@ -292,7 +303,7 @@ Best effort: any user input abandons the work."
       (let* ((s review-pane--session)
              (other (if (eq review-pane--side 'old) (review-session-new-buffer s) (review-session-old-buffer s)))
              (row (save-excursion (goto-char start) (1- (line-number-at-pos)))))
-        (when-let ((ow (and (buffer-live-p other) (get-buffer-window other))))
+        (when-let ((ow (and (buffer-live-p other) (get-buffer-window other t))))
           (with-current-buffer other
             (setq-local review-pane--syncing t)
             (unwind-protect
@@ -390,27 +401,25 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
     (review-session-show (1- i))))
 
 (defun review-session-next-hunk ()
-  "Move to the next hunk, spilling into the next file at the end."
+  "Move to the next hunk of this file.  Only file keys change files."
   (interactive)
   (let* ((s (review-session--require))
          (hunks (plist-get (review-session-file s) :hunks)))
-    (if (< (1+ (review-session-hunk s)) (length hunks))
-        (progn (cl-incf (review-session-hunk s))
-               (review-session--paint-hunk s)
-               (review-session--notify s))
-      (review-session-next-file))))
+    (unless (< (1+ (review-session-hunk s)) (length hunks))
+      (user-error "Last hunk in this file"))
+    (cl-incf (review-session-hunk s))
+    (review-session--paint-hunk s)
+    (review-session--notify s)))
 
 (defun review-session-prev-hunk ()
-  "Move to the previous hunk, spilling into the previous file at the start."
+  "Move to the previous hunk of this file.  Only file keys change files."
   (interactive)
   (let ((s (review-session--require)))
-    (if (> (review-session-hunk s) 0)
-        (progn (cl-decf (review-session-hunk s))
-               (review-session--paint-hunk s)
-               (review-session--notify s))
-      (let ((index (review-session-current s)))
-        (when (zerop index) (user-error "First file of the review"))
-        (review-session-show (1- index) -1)))))
+    (unless (> (review-session-hunk s) 0)
+      (user-error "First hunk in this file"))
+    (cl-decf (review-session-hunk s))
+    (review-session--paint-hunk s)
+    (review-session--notify s)))
 
 (defun review-session-toggle-viewed ()
   "Toggle the viewed mark on the current file."
@@ -455,12 +464,13 @@ HUNK -1 selects its last hunk.  Mark VIEWED only after navigation succeeds."
   (let ((files (vconcat (copy-tree (funcall (review-source-files source))))))
     (when (zerop (length files)) (user-error "Nothing to review: no changed files"))
     (when review-session--current (review-session-quit))
-    (let* ((pop-out (and review-session-pop-out (display-graphic-p)))
+    (let* ((pop-out (and review-session-pop-out (review-frame-graphic-p)))
            (layout (unless pop-out (current-window-configuration)))
            (frame (if pop-out
                       (save-selected-window
-                        (make-frame '((name . "Review diff") (title . "Review diff") (width . 160)
-                                      (height . 45) (no-focus-on-map . t))))
+                        (make-frame (review-frame-parameters
+                                     '((name . "Review diff") (title . "Review diff") (width . 160)
+                                       (height . 45) (no-focus-on-map . t)))))
                     (selected-frame)))
            (session (make-review-session
                     :source source :files files :current 0 :hunk 0 :viewed nil

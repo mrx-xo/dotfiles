@@ -12,7 +12,11 @@
 (cl-defstruct review-source
   "A review backend.  TEXT calls CALLBACK with text on success.
 For asynchronous failures, it calls CALLBACK with nil and an error string."
-  name title range-label files text origin directory)
+  name title range-label files text origin directory
+  number subtitle)
+
+(defvar review-source-updated-functions nil
+  "Called with a source after its title or subtitle arrive late.")
 
 (defun review-source--git (directory &rest args)
   "Run Git ARGS in DIRECTORY, returning stdout or signalling an error."
@@ -216,12 +220,21 @@ Revisions and index blobs are pinned when the file list is first read."
 (defun review-source-forgejo-pr (host owner repo number files &optional title)
   "Return a source for PR NUMBER of OWNER/REPO on HOST with FILES from the patch."
   (require 'forgejo-api)
-  (let ((revisions nil))
+  (let ((revisions nil) source)
     (cl-flet ((with-revisions (k failure)
                 (if revisions (funcall k revisions)
                   (forgejo-api-get
                    host (format "repos/%s/%s/pulls/%d" owner repo number) nil
                    (lambda (data _headers)
+                     ;; The header shows the PR's title and branches.
+                     (when-let ((pr-title (alist-get 'title data)))
+                       (setf (review-source-title source) pr-title))
+                     (let ((head (alist-get 'ref (alist-get 'head data)))
+                           (base (alist-get 'ref (alist-get 'base data))))
+                       (when (and head base)
+                         (setf (review-source-subtitle source)
+                               (format "%s / %s   %s -> %s" owner repo head base))))
+                     (run-hook-with-args 'review-source-updated-functions source)
                      (let ((revs (list (or (alist-get 'merge_base data)
                                            (alist-get 'sha (alist-get 'base data)))
                                        (alist-get 'sha (alist-get 'head data)))))
@@ -232,8 +245,10 @@ Revisions and index blobs are pinned when the file list is first read."
                    (lambda (error)
                      (funcall failure (format "Cannot load PR metadata: %s"
                                               (plist-get error :message))))))))
-      (make-review-source
-       :name "forgejo" :title (or title (format "PR #%d" number))
+      (setq source
+       (make-review-source
+       :name "forgejo" :title (or title (format "PR #%d" number)) :number number
+       :subtitle (format "%s / %s" owner repo)
        :directory default-directory
        :range-label (format "%s/%s#%d" owner repo number)
        :files (lambda () files)
@@ -257,7 +272,8 @@ Revisions and index blobs are pinned when the file list is first read."
                                       (if (eq (plist-get file :side) 'old) " (old)" ""))
                        :side (or (plist-get file :side) 'new)
                        :link (format "forgejo:%s/%s#%d" owner repo number)
-                       :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))))
+                       :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))
+      source)))
 
 (provide 'review-source)
 ;;; review-source.el ends here

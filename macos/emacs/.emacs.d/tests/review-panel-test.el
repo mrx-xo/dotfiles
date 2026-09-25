@@ -1,4 +1,6 @@
 ;;; review-panel-test.el --- Files panel rendering -*- lexical-binding: t; -*-
+;; The panel follows Figma file FCZk2pGQidWPYfSWzu4qUk, frames
+;; "Files panel / expanded (default)" and "Files strip / collapsed".
 (require 'ert)
 (require 'review-panel)
 (require 'review-session-test)
@@ -27,46 +29,134 @@
      (let ((,var (review-session-start (review-session-test--source review-session-test--spec))))
        (unwind-protect (progn ,@body) (review-session-quit)))))
 
-(ert-deftest review-panel-render-header-and-progress ()
+(defun review-panel-test--line (text regexp)
+  "The line of TEXT matching REGEXP."
+  (seq-find (lambda (l) (string-match-p regexp l)) (split-string text "\n")))
+
+(ert-deftest review-panel-header-shows-number-title-and-subtitle ()
   (review-panel-test--with s
     (let ((text (review-panel-render s nil nil)))
-      (should (string-match-p "^Fake" text))
+      (should (string-match-p "Fake" text))
       (should (string-match-p "x -> y" text))
-      (should (string-match-p "0 of 3 viewed" text))
-      (should (string-match-p "a\\.el" text))
-      (should (string-match-p "bin\\.dat" text)))))
+      (should-not (string-match-p "#" text)))
+    (setf (review-source-number (review-session-source s)) 41
+          (review-source-subtitle (review-session-source s)) "team / project   feat -> main")
+    (let ((text (review-panel-render s nil nil)))
+      (should (string-match-p "#41.*Fake" text))
+      (should (string-match-p "team / project   feat -> main" text)))))
 
-(ert-deftest review-panel-render-expanded-shows-hunks-of-every-file ()
+(ert-deftest review-panel-progress-shows-viewed-totals-and-hunk-position ()
+  (review-panel-test--with s
+    (let ((text (review-panel-render s nil nil)))
+      (should (string-match-p "0 of 3 viewed.*\\+1  -1" text))
+      (should (string-match-p "hunk 1 of 1 in this file.*1 of 1 hunks total" text)))))
+
+(ert-deftest review-panel-marks-viewed-current-and-pending-with-icons ()
+  (review-panel-test--with s
+    (review-session-next-file)
+    (let ((text (review-panel-render s nil nil)))
+      (should (string-match-p "●" (review-panel-test--line text "a\\.el")))
+      (should (string-match-p "❯" (review-panel-test--line text "b\\.el")))
+      (should (string-match-p "○" (review-panel-test--line text "bin\\.dat")))
+      (should-not (string-match-p "done\\|pending\\|current" text)))))
+
+(ert-deftest review-panel-viewed-rows-are-faded ()
+  (review-panel-test--with s
+    (review-session-next-file)
+    (let* ((text (review-panel-render s nil nil))
+           (line (review-panel-test--line text "a\\.el"))
+           (face (get-text-property (string-match "M" line) 'face line)))
+      (should (equal (plist-get face :foreground) (review-panel--hex 'yellow t)))
+      (should-not (equal (review-panel--hex 'yellow t) (review-panel--hex 'yellow))))))
+
+(ert-deftest review-panel-expands-only-the-current-file-by-default ()
   (review-panel-test--with s
     (review-session-next-file)
     (let ((text (review-panel-render s nil nil)))
       (should (string-match-p "@@ -2,2 \\+2,3 @@" text))
-      (should (string-match-p "hunk 1/1" text)))))
+      (should-not (string-match-p "@@ -2,1 \\+2,1 @@" text))
+      (should (string-match-p "1 hunk" (review-panel-test--line text "a\\.el")))
+      (should (string-match-p "hunk 1/1" (review-panel-test--line text "b\\.el"))))))
 
-(ert-deftest review-panel-render-folded-hides-hunks ()
-  (review-panel-test--with s
-    (let ((text (review-panel-render s '(0 1 2) nil)))
-      (should-not (string-match-p "@@" text))
-      (should (string-match-p "1 hunk" text)))))
-
-(ert-deftest review-panel-render-marks-current-and-viewed ()
+(ert-deftest review-panel-toggles-expand-others-and-fold-current ()
   (review-panel-test--with s
     (review-session-next-file)
-    (let* ((text (review-panel-render s '(0 1 2) nil))
-           (lines (split-string text "\n")))
-      (should (seq-find (lambda (l) (and (string-match-p "a\\.el" l)
-                                          (string-match-p review-panel-viewed-label l)))
-                        lines))
-      (should (seq-find (lambda (l) (and (string-match-p "b\\.el" l)
-                                          (string-match-p review-panel-current-label l)))
-                        lines)))))
+    (let ((text (review-panel-render s '(0) nil)))
+      (should (string-match-p "@@ -2,1 \\+2,1 @@" text))
+      (should (string-match-p "@@ -2,2 \\+2,3 @@" text)))
+    (let ((text (review-panel-render s '(1) nil)))
+      (should-not (string-match-p "@@" text)))))
 
-(ert-deftest review-panel-render-collapsed-is-narrow ()
+(ert-deftest review-panel-hunk-rows-mark-done-current-and-pending ()
+  (let* ((old (mapconcat (lambda (i) (format "l%d" i)) (number-sequence 1 20) "\n"))
+         (new (replace-regexp-in-string
+               "^l18$" "L18" (replace-regexp-in-string "^l2$" "L2" old))))
+    (save-window-excursion
+      (let ((s (review-session-start
+                (review-session-test--source `(("two.txt" modified ,old ,new))))))
+        (unwind-protect
+            (let ((text (review-panel-render s nil nil)))
+              (should (string-match-p "❯.*@@ -2,1" text))
+              (should (string-match-p "○.*@@ -18,1" text))
+              (review-session-next-hunk)
+              (setq text (review-panel-render s nil nil))
+              (should (string-match-p "●.*@@ -2,1" text))
+              (should (string-match-p "❯.*@@ -18,1" text)))
+          (review-session-quit))))))
+
+(ert-deftest review-panel-right-column-reports-binary-and-failures ()
   (review-panel-test--with s
-    (let ((lines (split-string (review-panel-render s nil t) "\n")))
-      (should (seq-every-p (lambda (l) (<= (length l) 8)) lines))
-      (should (seq-find (lambda (l) (string-match-p "0" l)) lines))
-      (should (equal (cl-count-if (lambda (l) (string-match-p review-panel-pending-label l)) lines) 2)))))
+    (review-session-next-file)
+    (review-session-next-file)
+    (let ((text (review-panel-render s nil nil)))
+      (should (string-match-p "binary" (review-panel-test--line text "bin\\.dat"))))
+    (setf (plist-get (aref (review-session-files s) 0) :error) "boom")
+    (should (string-match-p "failed" (review-panel-test--line (review-panel-render s nil nil) "a\\.el")))))
+
+(ert-deftest review-panel-long-paths-are-truncated-to-the-width ()
+  (review-panel-test--with s
+    (setf (plist-get (aref (review-session-files s) 2) :path)
+          "services/really/deeply/nested/configuration/with-a-long-file-name.yaml")
+    (let ((line (review-panel-test--line (review-panel-render s nil nil 40) "with-a-long")))
+      (should (string-match-p "…" line))
+      (should (<= (string-width line) 40)))))
+
+(ert-deftest review-panel-long-paths-keep-the-file-name-and-cut-folders-first ()
+  (review-panel-test--with s
+    (setf (plist-get (aref (review-session-files s) 2) :path)
+          "services/really/deeply/nested/configuration/directory/with-a-long-file-name.yaml")
+    (let ((wide (review-panel-test--line (review-panel-render s nil nil 75) "with-a-long"))
+          (narrow (review-panel-test--line (review-panel-render s nil nil 30) "with-")))
+      ;; Folders go from the left, whole, behind an ellipsis.
+      (should (string-match-p "…/\\(?:[^/ ]+/\\)*directory/with-a-long-file-name\\.yaml" wide))
+      (should-not (string-match-p "services" wide))
+      ;; With no room for any folder, only the name remains, cut at its end.
+      (should-not (string-match-p "/" narrow))
+      (should (string-match-p "with-[^ ]*…" narrow)))))
+
+(ert-deftest review-panel-right-text-never-overlaps-left ()
+  (should (string-match-p "right" (review-panel--flush "left" "right" 40)))
+  (should (equal (review-panel--flush "a long left side" "right side" 20) "a long left side")))
+
+(ert-deftest review-panel-collapsed-strip-is-narrow-and-iconic ()
+  (review-panel-test--with s
+    (review-session-next-file)
+    (let* ((text (review-panel-render s nil t))
+           (lines (split-string text "\n")))
+      (should (seq-every-p (lambda (l) (<= (string-width l) review-panel-strip-width)) lines))
+      (should (seq-find (lambda (l) (string-match-p "\\`[[:space:]]*1\\'" l)) lines))
+      (should (seq-find (lambda (l) (string-match-p "of" l)) lines))
+      (should (= 1 (cl-count-if (lambda (l) (string-match-p "●" l)) lines)))
+      (should (= 1 (cl-count-if (lambda (l) (string-match-p "❯" l)) lines)))
+      (should (= 1 (cl-count-if (lambda (l) (string-match-p "○" l)) lines)))
+      (should-not (string-match-p "a\\.el" text)))))
+
+(ert-deftest review-panel-strip-fits-real-pr-and-git-labels ()
+  (review-panel-test--with s
+    (dolist (number '(12345 nil))
+      (setf (review-source-number (review-session-source s)) number)
+      (dolist (line (split-string (review-panel-render s nil t) "\n"))
+        (should (<= (string-width line) review-panel-strip-width))))))
 
 (ert-deftest review-panel-rows-carry-file-and-hunk-properties ()
   (review-panel-test--with s
@@ -76,7 +166,19 @@
       (should (null (get-text-property pos 'review-hunk text)))
       (let ((h (string-match "@@" text)))
         (should (eq (get-text-property h 'review-file text) 0))
-        (should (eq (get-text-property h 'review-hunk text) 0))))))
+        (should (eq (get-text-property h 'review-hunk text) 0)))
+      (should (get-text-property (string-match "Fake" text) 'review-header text)))))
+
+(ert-deftest review-panel-key-hints-live-in-the-footer ()
+  (review-panel-test--with s
+    (review-panel-open s)
+    (with-current-buffer (review-session-panel s)
+      (let ((footer (substring-no-properties (apply (function concat) mode-line-format))))
+        (dolist (hint '("C-j/k" "file" "M-j/k" "hunk" "TAB" "fold" "RET" "open" "viewed" "park"))
+          (should (string-match-p (regexp-quote hint) footer))))
+      (setq review-panel--collapsed t)
+      (review-panel--refresh s)
+      (should (equal (string-trim (substring-no-properties (apply (function concat) mode-line-format))) "TAB")))))
 
 (ert-deftest review-panel-open-tracks-session ()
   (review-panel-test--with s
@@ -89,6 +191,14 @@
       (review-session-next-file)
       (with-current-buffer panel
         (should (string-match-p "1 of 3" (buffer-string)))))))
+
+(ert-deftest review-panel-refreshes-when-the-source-title-arrives ()
+  (review-panel-test--with s
+    (review-panel-open s)
+    (setf (review-source-title (review-session-source s)) "Late title")
+    (run-hook-with-args 'review-source-updated-functions (review-session-source s))
+    (with-current-buffer (review-session-panel s)
+      (should (string-match-p "Late title" (buffer-string))))))
 
 (ert-deftest review-panel-survives-next-file-from-its-own-window ()
   (review-panel-test--with s
@@ -107,11 +217,12 @@
     (with-current-buffer (review-session-panel s)
       (goto-char (point-min))
       (re-search-forward "a\\.el")
+      (should (string-match-p "@@ -2,1 \\+2,1" (buffer-string)))
       (review-panel-fold)
-      (should (equal review-panel--folded '(0)))
+      (should (equal review-panel--toggled '(0)))
       (should-not (string-match-p "@@ -2,1 \\+2,1" (buffer-string)))
       (review-panel-fold)
-      (should (null review-panel--folded)))))
+      (should (null review-panel--toggled)))))
 
 (ert-deftest review-panel-visit-shows-file-at-point ()
   (review-panel-test--with s
@@ -122,13 +233,6 @@
       (review-panel-visit)
       (should (equal (review-session-current s) 1)))))
 
-(ert-deftest review-panel-strip-fits-real-pr-and-git-labels ()
-  (review-panel-test--with s
-    (dolist (label '("team/project#12345" "feature/long-name...main"))
-      (setf (review-source-range-label (review-session-source s)) label)
-      (dolist (line (split-string (review-panel-render s nil t) "\n"))
-        (should (<= (string-width line) review-panel-strip-width))))))
-
 (ert-deftest review-panel-loads-the-entire-hunk-map ()
   (review-panel-test--with s
     (review-panel-open s)
@@ -138,17 +242,9 @@
         (accept-process-output nil 0.01)))
     (should (plist-get (review-session-file s 1) :hunks))
     (with-current-buffer (review-session-panel s)
-      ;; Narrow attached panels truncate the end of a hunk label.
-      (should (string-match-p (regexp-quote "@@ -2,2") (buffer-string))))
+      (should (string-match-p "1 hunk" (review-panel-test--line (buffer-string) "b\\.el"))))
     (should (equal (plist-get (car (plist-get (review-session-file s 1) :hunks))
                              :new-count) 3))))
-
-(ert-deftest review-panel-render-uses-the-window-width ()
-  (review-panel-test--with s
-    (dolist (width '(42 90 130))
-      (let ((lines (split-string (review-panel-render s nil nil width) "\n")))
-        (should (= (string-width (nth 4 lines)) width))
-        (should (= (string-width (nth 6 lines)) width))))))
 
 (ert-deftest review-panel-strip-resizes-and-restores-expanded-width ()
   (review-panel-test--with s
