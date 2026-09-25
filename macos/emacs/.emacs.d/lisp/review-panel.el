@@ -110,9 +110,11 @@ FACTOR is the tallest text height on the line, relative to the frame font."
     (when props (add-text-properties 0 (length line) props line))
     line))
 
-(defun review-panel--spacer (design)
-  "An empty line DESIGN pixels tall."
-  (propertize " \n" 'face '(:height 0.1) 'line-height (review-panel--px design)))
+(defun review-panel--spacer (design &optional bg)
+  "An empty line DESIGN pixels tall, filled with palette token BG if given."
+  (propertize " \n" 'face (if bg `(:height 0.1 :background ,(review-panel--hex bg) :extend t)
+                            '(:height 0.1))
+              'line-height (review-panel--px design)))
 
 (defun review-panel--divider ()
   "A hairline across the panel, like the design's 1 px divider."
@@ -615,18 +617,30 @@ renders the strip."
               (unless (derived-mode-p 'special-mode) (special-mode))
               (setq mode-line-format nil header-line-format nil cursor-type nil truncate-lines t)
               (setq-local cursor-in-non-selected-windows nil)
+              ;; Opening other windows (Quick Ask's input) resized it; the
+              ;; height is fixed, and restored whenever the layout changes.
+              (setq-local window-size-fixed 'height)
+              (add-hook 'window-configuration-change-hook #'review-panel--fit-bar nil t)
               (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
               (let ((inhibit-read-only t)
                     (text (review-panel--bar-text session (window-body-width window))))
                 (erase-buffer)
                 (insert text)
                 (goto-char (point-min))
-                ;; One padded line: size the window to it exactly.
-                (let ((height (cadr (get-text-property (1- (length text)) 'line-height text)))
-                      (window-resize-pixelwise t))
-                  (when (and (integerp height) (display-graphic-p frame))
-                    (ignore-errors
-                      (window-resize window (- height (window-body-height window t)) nil t t))))))))))))
+                (review-panel--fit-bar window)))))))))
+
+(defun review-panel--fit-bar (&optional window)
+  "Size the top bar's WINDOW to exactly its one padded line."
+  (let ((window (or window (get-buffer-window (current-buffer) t))))
+    (when (and (window-live-p window) (display-graphic-p (window-frame window)))
+      (with-current-buffer (window-buffer window)
+        (let ((height (and (> (buffer-size) 0)
+                           (cadr (get-text-property (1- (point-max)) 'line-height))))
+              (window-resize-pixelwise t)
+              (window-size-fixed nil))
+          (when (and (integerp height) (/= height (window-body-height window t)))
+            (ignore-errors
+              (window-resize window (- height (window-body-height window t)) nil t t))))))))
 
 (defun review-panel--style-compare (session)
   "Dress SESSION's compare frame in the design: panes, bands and top bar."
@@ -741,7 +755,9 @@ renders the strip."
                      (display-graphic-p (review-session-frame session)))
             (setf (review-session-panel-frame session) (review-panel--make-frame))
             (review-frame-place (review-session-panel-frame session) review-panel-display))
-          (review-panel--refresh session))
+          (review-panel--refresh session)
+          ;; The first file was displayed before these hooks existed.
+          (review-panel--style-compare session))
       (error (review-session-quit) (signal (car err) (cdr err))))
     (run-at-time 0 nil #'review-panel--preload session 0)
     buffer))
@@ -766,6 +782,57 @@ renders the strip."
         (h (get-text-property (point) 'review-hunk)))
     (unless i (user-error "Put point on a file"))
     (review-session-show i h)))
+
+;;;; Quick Ask card
+;; Figma "Compare / quick ask", card 13:386: a dark context row with a
+;; yellow ASK tag, the question, the answer in dim paragraphs, and a dark
+;; row of exits.  Quick Ask draws every answer with it, in reviews or not.
+
+(defun review-panel--ask-exits ()
+  (let ((cap (lambda (key)
+               (propertize (concat " " key " ")
+                           'face `(:background ,(review-panel--hex 'bg-2) :foreground ,(review-panel--hex 'fg)
+                                               :weight bold :height 0.83)))))
+    (concat (review-panel--gap 12)
+            (mapconcat (lambda (exit)
+                         (concat (funcall cap (nth 0 exit)) (review-panel--gap 5)
+                                 (review-panel--txt (nth 1 exit) (nth 2 exit) :height 0.83)))
+                       '(("q" "dismiss" dim) ("c" "continue in chat" fg) ("u" "park it" yellow)
+                         ("y" "copy" dim) ("r" "again" dim))
+                       (review-panel--gap 14)))))
+
+(defun review-panel-ask-card (origin question answer &optional style-answer)
+  "Insert the Quick Ask card at point: ORIGIN, QUESTION, ANSWER and the exits.
+STYLE-ANSWER, when non-nil, is called with the buffer narrowed to the
+answer, so markdown styling never touches the question."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0))
+        (indent (lambda () (review-panel--gap 12))))
+    (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
+    (insert (review-panel--row
+             (concat (funcall indent) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
+                     (review-panel--gap 8) (review-panel--txt (or origin "") 'dim :height 0.83))
+             :bg 'bg-hard :pad '(8 8)))
+    (let ((start (point)))
+      (insert (review-panel--row (review-panel--txt question 'fg :weight 'medium) :pad '(10 10)))
+      (put-text-property start (point) 'line-prefix (funcall indent))
+      (put-text-property start (point) 'wrap-prefix (funcall indent)))
+    (insert (review-panel--divider) (review-panel--spacer 10))
+    (let ((start (point)))
+      (insert answer "\n")
+      (save-restriction
+        (narrow-to-region start (point))
+        (when style-answer (save-excursion (funcall style-answer)))
+        (add-face-text-property (point-min) (point-max)
+                                `(:foreground ,(review-panel--hex 'dim)) t)
+        (put-text-property (point-min) (point-max) 'line-prefix (funcall indent))
+        (put-text-property (point-min) (point-max) 'wrap-prefix (funcall indent))
+        (goto-char (point-max))))
+    (insert (review-panel--spacer 12) (review-panel--divider))
+    ;; Padding comes from spacer lines: extra line height on the row itself
+    ;; would stretch every keycap's background to the full row.
+    (insert (review-panel--spacer 8 'bg-hard)
+            (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
+            (review-panel--spacer 8 'bg-hard))))
 
 (provide 'review-panel)
 ;;; review-panel.el ends here

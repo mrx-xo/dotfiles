@@ -327,4 +327,25 @@
       (review-session-quit)
       (should-not (buffer-live-p bar)))))
 
+(ert-deftest review-panel-ask-card-follows-the-design ()
+  (with-temp-buffer
+    (let (styled)
+      (review-panel-ask-card "a.el 3-4  /  PR #41" "# why let*?" "Because **cur**.\n\nSecond."
+                             (lambda () (setq styled (buffer-string))))
+      (let ((text (buffer-string)))
+        (should (string-match-p "ASK.*a\\.el 3-4  /  PR #41" text))
+        (let ((faces (get-text-property (string-match "ASK" text) 'face text)))
+          (should (seq-find (lambda (f) (and (consp f) (equal (plist-get f :foreground)
+                                                              (review-panel--hex 'yellow))))
+                            (if (keywordp (car-safe faces)) (list faces) faces))))
+        ;; Markdown styling sees only the answer, never the question.
+        (should (equal styled "Because **cur**.\n\nSecond.\n"))
+        (should (string-match-p "# why let\\*\\?" text))
+        (let ((faces (get-text-property (string-match "Second" text) 'face text)))
+          (should (seq-find (lambda (f) (and (consp f) (equal (plist-get f :foreground)
+                                                              (review-panel--hex 'dim))))
+                            (if (keywordp (car-safe faces)) (list faces) faces))))
+        (dolist (exit '("q.*dismiss" "c.*continue in chat" "u.*park it" "y.*copy" "r.*again"))
+          (should (string-match-p exit text)))))))
+
 (provide 'review-panel-test)
