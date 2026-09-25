@@ -1189,9 +1189,10 @@ Falls back to the project's TODO file when no org files are declared."
   "Open the project dashboard for PROJECT-ROOT.
 If PROJECT-ROOT is nil, use current projectile project."
   (interactive)
-  (let* ((root (or project-root
-                   (projectile-project-root)
-                   default-directory))
+  (let* ((root (file-name-as-directory
+                (expand-file-name (or project-root
+                                      (projectile-project-root)
+                                      default-directory))))
          (buf-name (format "*Project: %s*"
                            (file-name-nondirectory (directory-file-name root))))
          (buf (get-buffer-create buf-name)))
@@ -1199,6 +1200,7 @@ If PROJECT-ROOT is nil, use current projectile project."
       (unless (eq major-mode 'project-dashboard-mode)
         (project-dashboard-mode))
       (setq project-dashboard--project-root root)
+      (setq-local default-directory root)
       (project-dashboard--render)
       (project-dashboard--start-auto-refresh))
     (switch-to-buffer buf)))
