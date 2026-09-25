@@ -119,6 +119,21 @@
         (when (get-buffer "*quick-ask*") (kill-buffer "*quick-ask*"))
         (delete-file syzygy-park-file)))))
 
+(ert-deftest quick-ask-response-is-the-design-card ()
+  (let ((buf (get-buffer-create "*quick-ask*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+          (with-current-buffer buf
+            (mr-x/quick-ask-mode)
+            (setq-local mr-x/quick-ask--source-origin '(:label "a.el 3-4"))
+            (mr-x/quick-ask--show-response "why?" "Because **cur**.")
+            (should-not header-line-format)
+            (should (string-match-p "ASK.*a\\.el 3-4" (buffer-string)))
+            (should (string-match-p "Because cur\\." (buffer-string)))
+            (should (string-match-p "continue in chat" (buffer-string)))
+            (should (equal mr-x/quick-ask--response "Because **cur**."))))
+      (kill-buffer buf))))
+
 (ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
   (review-session-test--with s
     (select-window (review-session-new-window s))

@@ -12245,7 +12245,8 @@ silent context-only capture with no marker."
                       (posframe-show
                        buf :position anchor
                        :poshandler #'posframe-poshandler-point-bottom-left-corner
-                       :width (min 72 (- (frame-width) 4))
+                       ;; The design's card is 520 px at 6 px per character.
+                       :width (min 86 (- (frame-width) 4))
                        :min-width (min 40 (- (frame-width) 4)) :max-height 24
                        :border-width 1 :border-color "#504945"
                        :background-color "#282828" :accept-focus t)))
@@ -12369,24 +12370,13 @@ silent context-only capture with no marker."
             (let ((clean-response (mr-x/quick-ask--strip-thinking response)))
               (setq mr-x/quick-ask--question question)
               (setq mr-x/quick-ask--response clean-response)
-              ;; Header
-              (setq-local header-line-format
-                          (propertize " q dismiss  c chat  u park  y copy  r again"
-                                      'face '(:weight bold)))
-              (when mr-x/quick-ask--source-origin
-                (insert (propertize
-                         (concat (plist-get mr-x/quick-ask--source-origin :label) "\n")
-                         'face 'shadow)))
-              ;; Question echo
-              (insert (propertize question 'face '(:weight bold :foreground "#88c0d0")))
-              (insert "\n")
-              (insert (propertize "────────────────────────────────────────"
-                                  'face 'shadow))
-              (insert "\n\n")
-              ;; Response body
-              (insert clean-response)
-              (insert "\n")
-              (mr-x/quick-ask--render-markdown)
+              ;; The design's card (Figma "Compare / quick ask"): origin,
+              ;; question, answer, and the exits as keycaps along the bottom.
+              (setq-local header-line-format nil)
+              (require 'review-panel)
+              (review-panel-ask-card (plist-get mr-x/quick-ask--source-origin :label)
+                                     question clean-response
+                                     #'mr-x/quick-ask--render-markdown)
               (goto-char (point-min))))
           ;; Switch to response phase
           (setq mr-x/quick-ask--phase 'response)
