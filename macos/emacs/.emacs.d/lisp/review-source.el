@@ -13,7 +13,8 @@
   "A review backend.  TEXT calls CALLBACK with text on success.
 For asynchronous failures, it calls CALLBACK with nil and an error string."
   name title range-label files text origin directory
-  number subtitle)
+  number subtitle
+  old-label new-label)                  ; e.g. "main @ 9c1e2f4" for each side
 
 (defvar review-source-updated-functions nil
   "Called with a source after its title or subtitle arrive late.")
@@ -124,6 +125,25 @@ Parse NUL-delimited output so spaces, tabs, newlines and renames are safe."
   "Read PATH at REV in DIRECTORY.  Errors must never look like empty files."
   (review-source--git directory "show" (format "%s:%s" rev path)))
 
+(defun review-source--git-labels (directory range revs)
+  "(OLD . NEW) labels like \"main @ 9c1e2f4\" for RANGE resolved to REVS.
+A bare or empty HEAD reads as the branch it points at."
+  (cl-flet* ((name (ref)
+               (if (member ref '("" "HEAD"))
+                   (let ((branch (string-trim (ignore-errors
+                                                (review-source--git directory "symbolic-ref"
+                                                                    "--short" "-q" "HEAD")))))
+                     (if (string-empty-p branch) "HEAD" branch))
+                 ref))
+             (label (ref rev) (format "%s @ %s" (name ref) (substring rev 0 (min 7 (length rev))))))
+    (cond
+     ((null range) (cons (label "HEAD" (car revs)) "working tree"))
+     ((equal range "--staged") (cons (label "HEAD" (car revs)) "index"))
+     ((string-match "\\`\\(.*?\\)\\.\\.\\.?\\(.*\\)\\'" range)
+      (let ((left (match-string 1 range)) (right (match-string 2 range)))
+        (cons (label left (car revs)) (label right (cdr revs)))))
+     (t (cons (label (concat (name range) "^") (car revs)) (label range (cdr revs)))))))
+
 (defun review-source-git-range (directory &optional range)
   "Create a source for Git RANGE in DIRECTORY.
 Nil reviews the working tree against HEAD; --staged reviews the index.
@@ -134,14 +154,18 @@ Revisions and index blobs are pinned when the file list is first read."
          (label (cond ((null range) "working tree vs HEAD")
                       ((equal range "--staged") "staged vs HEAD")
                       (t range)))
-         revs files loaded)
+         revs files loaded source)
     (cl-labels ((ensure-files ()
                   (unless loaded
                     (setq revs (review-source--git-revs directory range)
                           files (review-source--git-files directory revs)
-                          loaded t))
+                          loaded t)
+                    (let ((labels (review-source--git-labels directory range revs)))
+                      (setf (review-source-old-label source) (car labels)
+                            (review-source-new-label source) (cdr labels))))
                   files))
-      (make-review-source
+      (setq source
+       (make-review-source
        :name "git" :title (abbreviate-file-name directory)
        :directory directory :range-label label
        :files #'ensure-files
@@ -180,7 +204,8 @@ Revisions and index blobs are pinned when the file list is first read."
                  :link (format "file:%s::%d"
                                (abbreviate-file-name
                                 (expand-file-name (concat "./" path) directory)) start)
-                 :url nil)))))))
+                 :url nil)))))
+      source)))
 
 (declare-function mr-x/forgejo-ediff--entry-at-point "forgejo-review-ediff")
 (declare-function forgejo-api-get "forgejo-api")
@@ -257,7 +282,17 @@ Revisions and index blobs are pinned when the file list is first read."
                            (base (alist-get 'ref (alist-get 'base data))))
                        (when (and head base)
                          (setf (review-source-subtitle source)
-                               (format "%s / %s   %s -> %s" owner repo head base))))
+                               (format "%s / %s   %s -> %s" owner repo head base)))
+                       ;; Pane headers: each side's branch and commit.
+                       (let ((old-sha (or (alist-get 'merge_base data)
+                                          (alist-get 'sha (alist-get 'base data))))
+                             (new-sha (alist-get 'sha (alist-get 'head data))))
+                         (when (and base (stringp old-sha))
+                           (setf (review-source-old-label source)
+                                 (format "%s @ %s" base (substring old-sha 0 (min 7 (length old-sha))))))
+                         (when (and head (stringp new-sha))
+                           (setf (review-source-new-label source)
+                                 (format "%s @ %s" head (substring new-sha 0 (min 7 (length new-sha))))))))
                      (run-hook-with-args 'review-source-updated-functions source)
                      (let ((revs (list (or (alist-get 'merge_base data)
                                            (alist-get 'sha (alist-get 'base data)))

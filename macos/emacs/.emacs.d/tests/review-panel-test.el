@@ -280,4 +280,51 @@
       (should (> (window-total-width (get-buffer-window (current-buffer)))
                  review-panel-strip-width)))))
 
+(defun review-panel-test--header (buffer)
+  (with-current-buffer buffer
+    (let ((h header-line-format)) (if (stringp h) h (apply #'concat (flatten-list h))))))
+
+(ert-deftest review-panel-compare-panes-have-design-headers-and-no-mode-lines ()
+  (review-panel-test--with s
+    (review-panel-open s)
+    (setf (review-source-old-label (review-session-source s)) "main @ 9c1e2f4"
+          (review-source-new-label (review-session-source s)) "feat @ 41d0aa7")
+    (review-session-next-file)
+    (let ((old (review-panel-test--header (review-session-old-buffer s)))
+          (new (review-panel-test--header (review-session-new-buffer s))))
+      (should (string-match-p "OLD +main @ 9c1e2f4" old))
+      (should (string-match-p "NEW +feat @ 41d0aa7" new))
+      (should (equal (plist-get (get-text-property (string-match "OLD" old) 'face old) :foreground)
+                     (review-panel--hex 'red))))
+    (dolist (b (list (review-session-old-buffer s) (review-session-new-buffer s)))
+      (should-not (buffer-local-value 'mode-line-format b)))))
+
+(ert-deftest review-panel-compare-panes-mark-each-hunk-with-a-band ()
+  (review-panel-test--with s
+    (review-panel-open s)
+    (review-session-next-file)
+    (dolist (b (list (review-session-old-buffer s) (review-session-new-buffer s)))
+      (with-current-buffer b
+        (let ((bands (seq-filter (lambda (o) (overlay-get o 'review-band))
+                                 (overlays-in (point-min) (point-max)))))
+          (should (= (length bands) 1))
+          (should (string-match-p "@@ -2,2 \\+2,3 @@  hunk 1 of 1"
+                                  (overlay-get (car bands) 'before-string))))))))
+
+(ert-deftest review-panel-compare-top-bar-tracks-file-and-hunk ()
+  (review-panel-test--with s
+    (review-panel-open s)
+    (let ((bar (get-buffer "*review bar*")))
+      (should (buffer-live-p bar))
+      (should (eq (window-parameter (get-buffer-window bar t) 'window-side) 'top))
+      (with-current-buffer bar
+        (should (string-match-p "a\\.el" (buffer-string)))
+        (should (string-match-p "file 1 of 3.*hunk 1 of 1.*\\+1.*-1" (buffer-string))))
+      (review-session-next-file)
+      (with-current-buffer bar
+        (should (string-match-p "b\\.el" (buffer-string)))
+        (should (string-match-p "file 2 of 3" (buffer-string))))
+      (review-session-quit)
+      (should-not (buffer-live-p bar)))))
+
 (provide 'review-panel-test)

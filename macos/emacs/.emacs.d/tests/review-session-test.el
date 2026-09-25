@@ -203,8 +203,10 @@
           (review-session-quit))))))
 
 (ert-deftest review-session-headers-name-added-and-deleted-sides ()
+  ;; The session's own plain header, without the panel's design hooks.
   (save-window-excursion
-    (let ((s (review-session-start
+    (let* ((review-session-display-hook nil) (review-session-update-hook nil)
+           (s (review-session-start
               (review-session-test--source
                '(("new.py" added "" "x\n") ("gone.txt" deleted "y\n" ""))))))
       (unwind-protect
