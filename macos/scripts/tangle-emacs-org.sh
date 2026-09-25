@@ -22,7 +22,8 @@ EMACS="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
 # without /opt/homebrew/bin (ssh, launchd), which used to read as "daemon not
 # running" and silently took the batch path.  The daemon is started with
 # --fg-daemon=server, so name the socket the same way emacs-daemon-start.sh does.
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient --socket-name=server"
+# Allow isolated testing without evaluating anything in the main daemon.
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient --socket-name=${TANGLE_EMACS_SOCKET:-server}"
 
 if $EMACSCLIENT --eval t >/dev/null 2>&1; then
   result=$($EMACSCLIENT --eval "(let ((buf (find-buffer-visiting \"$ORG\")))
