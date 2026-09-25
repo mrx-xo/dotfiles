@@ -503,7 +503,148 @@ renders the strip."
     (when (eq source (review-session-source s)) (review-panel--refresh s))))
 
 (defun review-panel--on-update (session)
-  (if session (review-panel--refresh session)))
+  (if session
+      (progn (review-panel--refresh session)
+             (review-panel--show-bar session))
+    (when-let ((bar (get-buffer review-panel--bar-name))) (kill-buffer bar))))
+
+;;;; Compare frame chrome
+;; Figma frame "Compare / side by side": a top bar across both panes, a
+;; header per pane, a band above each hunk, the hard background, and no
+;; mode lines.
+
+(defconst review-panel--bar-name "*review bar*")
+(defvar-local review-panel--pane-styled nil "Face remaps are in place.")
+
+(defun review-panel--pane-header (session side)
+  "OLD in red or NEW in green, then the side's branch and commit."
+  (let* ((source (review-session-source session))
+         (kind (plist-get (review-session-file session) :kind))
+         (label (cond ((and (eq side 'old) (eq kind 'added)) "(new file)")
+                      ((and (eq side 'new) (eq kind 'deleted)) "(deleted)")
+                      ((if (eq side 'old) (review-source-old-label source)
+                         (review-source-new-label source)))
+                      (t (review-source-range-label source)))))
+    (concat (review-panel--gap 16)
+            (review-panel--txt (if (eq side 'old) "OLD" "NEW") (if (eq side 'old) 'red 'green)
+                               :weight 'bold :height 0.83)
+            (review-panel--gap 8)
+            ;; Header lines read %-constructs.
+            (review-panel--txt (string-replace "%" "%%" label) 'mute :height 0.83))))
+
+(defun review-panel--band (hunk index total column)
+  "The band shown above HUNK: its range and position, on the raised surface."
+  (let ((band (concat (make-string column ?\s)
+                      (review-panel--txt (format "@@ -%d,%d +%d,%d @@  hunk %d of %d"
+                                                 (plist-get hunk :old-start) (plist-get hunk :old-count)
+                                                 (plist-get hunk :new-start) (plist-get hunk :new-count)
+                                                 index total)
+                                         'dim :height 0.92)
+                      "\n")))
+    (add-face-text-property 0 (length band)
+                            `(:background ,(review-panel--hex 'bg-0) :extend t) t band)
+    band))
+
+(defun review-panel--style-pane (session buffer side)
+  "Give pane BUFFER the design's surface, header and hunk bands."
+  (with-current-buffer buffer
+    (setq mode-line-format nil
+          header-line-format (review-panel--pane-header session side))
+    ;; The design's rows are 20 px for 17 px of text.
+    (setq-local line-spacing 0.17)
+    (unless review-panel--pane-styled
+      (setq review-panel--pane-styled t)
+      (let ((pad (max 1 (round (* 6 review-panel--scale)))))
+        (face-remap-add-relative 'default :background (review-panel--hex 'bg-hard))
+        (face-remap-add-relative 'fringe :background (review-panel--hex 'bg-hard))
+        (dolist (face '(header-line header-line-active header-line-inactive))
+          (when (facep face)
+            (face-remap-add-relative
+             face `(:background ,(review-panel--hex 'bg-hard) :foreground ,(review-panel--hex 'mute)
+                    :box (:line-width (0 . ,pad) :color ,(review-panel--hex 'bg-hard))
+                    :underline nil :overline nil :inherit nil))))))
+    (remove-overlays (point-min) (point-max) 'review-band t)
+    (let* ((hunks (plist-get (review-session-file session review-pane--file-index) :hunks))
+           (total (length hunks)) (index 0))
+      (dolist (hunk hunks)
+        (cl-incf index)
+        (let ((o (make-overlay (review-session--row-position buffer (plist-get hunk :start))
+                               (review-session--row-position buffer (plist-get hunk :start)))))
+          (overlay-put o 'review-band t)
+          (overlay-put o 'before-string
+                       (review-panel--band hunk index total review-pane--text-column)))))))
+
+(defun review-panel--bar-text (session width)
+  "The top bar: kind and path on the left; file, hunk and counts on the right."
+  (let* ((file (review-session-file session))
+         (path (plist-get file :path))
+         (hunks (plist-get file :hunks))
+         (tally (and (plist-get file :rows) (review-panel--tally (plist-get file :rows))))
+         (left (concat (review-panel--gap 16) (review-panel--kind file nil) (review-panel--gap 12)
+                       (review-panel--txt (or (file-name-directory path) "") 'mute :height 1.08)
+                       (review-panel--txt (file-name-nondirectory path) 'fg :weight 'medium :height 1.08)))
+         (right (concat (review-panel--txt (format "file %d of %d" (1+ (review-session-current session))
+                                                   (length (review-session-files session)))
+                                           'dim :height 0.92)
+                        (if hunks
+                            (concat (review-panel--gap 12)
+                                    (review-panel--txt (format "hunk %d of %d" (1+ (review-session-hunk session))
+                                                               (length hunks))
+                                                       'fg :weight 'medium :height 0.92))
+                          "")
+                        (if tally
+                            (concat (review-panel--gap 12) (review-panel--counts tally nil 0.92))
+                          ""))))
+    (review-panel--row (review-panel--flush left right width) :bg 'bg-0 :pad '(10 10) :factor 1.08)))
+
+(defun review-panel--show-bar (session)
+  "Show or refresh the top bar across SESSION's compare frame."
+  (let ((frame (review-session-frame session)))
+    (when (frame-live-p frame)
+      (with-selected-frame frame
+        (let* ((review-panel--scale (/ (frame-char-width) 6.0))
+               (buffer (get-buffer-create review-panel--bar-name))
+               (window (or (get-buffer-window buffer frame)
+                           (display-buffer-in-side-window
+                            buffer '((side . top) (slot . 0) (window-height . 1)
+                                     (window-parameters (no-other-window . t)
+                                                        (no-delete-other-windows . t)))))))
+          (when (window-live-p window)
+            (set-window-dedicated-p window t)
+            (with-current-buffer buffer
+              (unless (derived-mode-p 'special-mode) (special-mode))
+              (setq mode-line-format nil header-line-format nil cursor-type nil truncate-lines t)
+              (setq-local cursor-in-non-selected-windows nil)
+              (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
+              (let ((inhibit-read-only t)
+                    (text (review-panel--bar-text session (window-body-width window))))
+                (erase-buffer)
+                (insert text)
+                (goto-char (point-min))
+                ;; One padded line: size the window to it exactly.
+                (let ((height (cadr (get-text-property (1- (length text)) 'line-height text)))
+                      (window-resize-pixelwise t))
+                  (when (and (integerp height) (display-graphic-p frame))
+                    (ignore-errors
+                      (window-resize window (- height (window-body-height window t)) nil t t))))))))))))
+
+(defun review-panel--style-compare (session)
+  "Dress SESSION's compare frame in the design: panes, bands and top bar."
+  (dolist (side '(old new))
+    (let ((buffer (if (eq side 'old) (review-session-old-buffer session)
+                    (review-session-new-buffer session))))
+      (when (buffer-live-p buffer)
+        (let ((window (get-buffer-window buffer t)))
+          (if window
+              (with-selected-window window
+                (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+                  (review-panel--style-pane session buffer side)))
+            (review-panel--style-pane session buffer side))))))
+  ;; Only our own frame gets a recoloured divider between the panes.
+  (when (and (review-session-own-frame session) (frame-live-p (review-session-frame session)))
+    (set-face-attribute 'vertical-border (review-session-frame session)
+                        :foreground (review-panel--hex 'bg-1)))
+  (review-panel--show-bar session))
 
 (defun review-panel--display (session)
   "Display SESSION's panel in its own frame or beside the compare panes."
@@ -592,6 +733,7 @@ renders the strip."
     (setf (review-session-panel session) buffer)
     (add-hook 'review-session-update-hook #'review-panel--on-update)
     (add-hook 'review-session-display-hook #'review-panel--display)
+    (add-hook 'review-session-display-hook #'review-panel--style-compare)
     (add-hook 'review-source-updated-functions #'review-panel--source-updated)
     (condition-case err
         (progn
