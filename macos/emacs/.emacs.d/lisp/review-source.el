@@ -81,7 +81,17 @@ Parse NUL-delimited output so spaces, tabs, newlines and renames are safe."
          (stats (split-string
                  (apply #'review-source--git directory
                         (append args '("--numstat" "-z" "--"))) "\0"))
-         binaries files)
+         (raw (split-string
+               (apply #'review-source--git directory
+                      (append args '("--raw" "-z" "--"))) "\0" t))
+         binaries unchanged modes files)
+    ;; --raw: ":OLDMODE NEWMODE OLDSHA NEWSHA STATUS" then one or two paths.
+    (while raw
+      (let* ((meta (split-string (substring (pop raw) 1) " "))
+             (two (memq (aref (nth 4 meta) 0) '(?R ?C)))
+             (path (progn (when two (pop raw)) (pop raw))))
+        (unless (equal (nth 0 meta) (nth 1 meta))
+          (push (cons path (cons (nth 0 meta) (nth 1 meta))) modes))))
     (while stats
       (let ((stat (pop stats)))
         (when (string-match "\\`\\([0-9-]+\\)\t\\([0-9-]+\\)\t" stat)
@@ -90,7 +100,9 @@ Parse NUL-delimited output so spaces, tabs, newlines and renames are safe."
             (when (string-empty-p path)
               (pop stats)
               (setq path (pop stats)))
-            (when binary (push path binaries))))))
+            (when binary (push path binaries))
+            (when (and (equal (match-string 1 stat) "0") (equal (match-string 2 stat) "0"))
+              (push path unchanged))))))
     (while fields
       (let* ((status (pop fields))
              (kind (review-source--git-kind status))
@@ -99,6 +111,8 @@ Parse NUL-delimited output so spaces, tabs, newlines and renames are safe."
         (push (list :path path
                     :old-path (unless (eq kind 'added) (or from path))
                     :kind kind :binary (and (member path binaries) t)
+                    :unchanged (and (memq kind '(modified renamed)) (member path unchanged) t)
+                    :mode (cdr (assoc path modes))
                     :index-blob
                     (when (and (eq new :index) (not (eq kind 'deleted)))
                       (string-trim (review-source--git directory "rev-parse"
@@ -183,10 +197,18 @@ Revisions and index blobs are pinned when the file list is first read."
                (kind (cond ((plist-get old :empty) 'added)
                            ((plist-get new :empty) 'deleted)
                            ((equal (plist-get old :path) (plist-get new :path)) 'modified)
-                           (t 'renamed))))
+                           (t 'renamed)))
+               (body (buffer-substring-no-properties (plist-get entry :start) (plist-get entry :end)))
+               (mode (and (string-match "^old mode \\([0-7]+\\)\nnew mode \\([0-7]+\\)" body)
+                          (cons (match-string 1 body) (match-string 2 body))))
+               ;; No hunk and no binary marker: a mode change or a pure
+               ;; rename, whose content is the same on both sides.
+               (unchanged (and (plist-get entry :binary) (memq kind '(modified renamed))
+                               (not (string-match-p "^\\(?:Binary files\\|GIT binary patch\\)" body)))))
           (push (list :path (if (eq kind 'deleted) (plist-get old :path) (plist-get new :path))
                       :old-path (and (not (eq kind 'added)) (plist-get old :path))
-                      :kind kind :binary (plist-get entry :binary)
+                      :kind kind :binary (and (plist-get entry :binary) (not unchanged))
+                      :unchanged unchanged :mode mode
                       :blobs (list (plist-get old :blob) (plist-get new :blob)))
                 files)
           (goto-char (plist-get entry :end))))

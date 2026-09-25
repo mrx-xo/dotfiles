@@ -113,6 +113,28 @@
     (setf (plist-get (aref (review-session-files s) 0) :error) "boom")
     (should (string-match-p "failed" (review-panel-test--line (review-panel-render s nil nil) "a\\.el")))))
 
+(ert-deftest review-panel-and-panes-name-a-mode-only-change ()
+  (save-window-excursion
+    (let* ((source (review-session-test--source '(("a.txt" modified "a\n" "b\n") ("run.sh" modified "x\n" "x\n"))))
+           (files (review-source-files source)))
+      (setf (review-source-files source)
+            (lambda () (let ((fs (funcall files)))
+                         (plist-put (nth 1 fs) :unchanged t)
+                         (plist-put (nth 1 fs) :mode '("100644" . "100755"))
+                         fs)))
+      (let ((s (review-session-start source)) (fetched nil))
+        (unwind-protect
+            (let ((text (review-source-text source)))
+              (setf (review-source-text source)
+                    (lambda (file side cb) (when (equal (plist-get file :path) "run.sh") (setq fetched t))
+                      (funcall text file side cb)))
+              (should (string-match-p "mode \\+x" (review-panel-test--line (review-panel-render s nil nil) "run\\.sh")))
+              (review-session-next-file)
+              (should-not fetched)
+              (with-current-buffer (review-session-new-buffer s)
+                (should (string-match-p "mode 100644 -> 100755, content unchanged" (buffer-string)))))
+          (review-session-quit))))))
+
 (ert-deftest review-panel-long-paths-are-truncated-to-the-width ()
   (review-panel-test--with s
     (setf (plist-get (aref (review-session-files s) 2) :path)

@@ -210,7 +210,9 @@
     (let ((files (review-source-forgejo-patch-files)))
       (should (equal (length files) 5))
       (should (equal (plist-get (nth 4 files) :kind) 'renamed))
-      (should (plist-get (nth 4 files) :binary)))))
+      ;; Same content on both sides: nothing to load, and not binary either.
+      (should (plist-get (nth 4 files) :unchanged))
+      (should-not (plist-get (nth 4 files) :binary)))))
 
 (ert-deftest review-source-forgejo-text-checks-blob-and-decodes ()
   (review-source-test--with-patch
@@ -318,5 +320,35 @@
       (should (equal (mapcar (lambda (f) (plist-get f :path)) files)
                      '("a/img.png" "tab\timg.png" "empty.txt")))
       (should (eq (plist-get (nth 2 files) :kind) 'added)))))
+
+(ert-deftest review-source-forgejo-mode-only-is-unchanged-not-binary ()
+  (with-temp-buffer
+    (insert "diff --git a/script.sh b/script.sh\nold mode 100644\nnew mode 100755\n"
+            "diff --git a/img.png b/img.png\nindex 1111111..2222222\nBinary files differ\n")
+    (let ((files (review-source-forgejo-patch-files)))
+      (should-not (plist-get (nth 0 files) :binary))
+      (should (plist-get (nth 0 files) :unchanged))
+      (should (equal (plist-get (nth 0 files) :mode) '("100644" . "100755")))
+      (should (plist-get (nth 1 files) :binary))
+      (should-not (plist-get (nth 1 files) :unchanged)))))
+
+(ert-deftest review-source-git-mode-only-is-unchanged-with-modes ()
+  (let ((dir (make-temp-file "review-mode" t)))
+    (unwind-protect
+        (progn
+          (review-source-test--git dir "init" "-q" "-b" "main")
+          (review-source-test--git dir "config" "user.email" "t@example.com")
+          (review-source-test--git dir "config" "user.name" "t")
+          (with-temp-file (expand-file-name "run.sh" dir) (insert "echo hi\n"))
+          (review-source-test--git dir "add" ".")
+          (review-source-test--git dir "commit" "-q" "-m" "base")
+          (set-file-modes (expand-file-name "run.sh" dir) #o755)
+          (review-source-test--git dir "commit" "-q" "-am" "exec")
+          (let ((file (car (funcall (review-source-files (review-source-git-range dir "HEAD~1..HEAD"))))))
+            (should (equal (plist-get file :path) "run.sh"))
+            (should-not (plist-get file :binary))
+            (should (plist-get file :unchanged))
+            (should (equal (plist-get file :mode) '("100644" . "100755")))))
+      (delete-directory dir t))))
 
 (provide 'review-source-test)

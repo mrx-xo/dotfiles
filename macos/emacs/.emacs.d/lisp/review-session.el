@@ -74,7 +74,7 @@ Concurrent consumers share one load; stale completions cannot alter its cache."
          (source (review-session-source session))
          (pending (plist-get file :loading)))
     (cond
-     ((or (plist-get file :loaded) (plist-get file :binary))
+     ((or (plist-get file :loaded) (plist-get file :binary) (plist-get file :unchanged))
       (when (eq session review-session--current) (funcall callback)))
      (pending (setcdr pending (append (cdr pending) (list callback))))
      (t
@@ -261,7 +261,8 @@ Best effort: any user input abandons the work."
     (let ((i (review-session-current session)))
       (dolist (index (list (1+ i) (1- i)))
         (when (and (< -1 index (length (review-session-files session)))
-                   (not (plist-get (review-session-file session index) :binary)))
+                   (not (plist-get (review-session-file session index) :binary))
+                   (not (plist-get (review-session-file session index) :unchanged)))
           (ignore-errors
             (review-session-load
              session index
@@ -285,9 +286,15 @@ Best effort: any user input abandons the work."
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (if (plist-get file :binary)
-            (insert (propertize "binary file, nothing to compare" 'face 'shadow))
-          (insert (review-session--pane-string session index side))))
+        (cond
+         ((plist-get file :binary)
+          (insert (propertize "binary file, nothing to compare" 'face 'shadow)))
+         ((plist-get file :unchanged)
+          (insert (propertize (if-let ((mode (plist-get file :mode)))
+                                  (format "mode %s -> %s, content unchanged" (car mode) (cdr mode))
+                                "renamed, content unchanged")
+                              'face 'shadow)))
+         (t (insert (review-session--pane-string session index side)))))
       (review-pane-mode)
       (setq review-pane--text-column
             (+ 3 (review-session--gutter-width
