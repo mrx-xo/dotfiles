@@ -528,7 +528,28 @@ renders the strip."
                                    no-delete-other-windows quit-restore))
                 (set-window-parameter window parameter nil))
               (let ((ignore-window-parameters t)) (delete-other-windows window))
-              (set-window-buffer window buffer))
+              (set-window-buffer window buffer)
+              ;; The strip is a narrow column: shrink its own frame to fit,
+              ;; and widen it again on expand.  Only on a toggle, so a
+              ;; width the user chose is otherwise left alone.
+              (let ((frame (selected-frame))
+                    (collapsed (buffer-local-value 'review-panel--collapsed buffer)))
+                (unless (eq collapsed (frame-parameter frame 'review-collapsed))
+                  (set-frame-parameter frame 'review-collapsed collapsed)
+                  ;; Float while a strip, or a tiling space stretches it back.
+                  ;; Collapse: float, then shrink.  Expand: widen while still
+                  ;; floating, then tile; resizing a freshly tiled window let
+                  ;; yabai move it to another display, so place it again.
+                  (if collapsed
+                      (review-frame-set-floating
+                       frame t (lambda ()
+                                 (when (frame-live-p frame)
+                                   (set-frame-width frame review-panel-strip-width))))
+                    (set-frame-width frame review-panel-width)
+                    (review-frame-set-floating
+                     frame nil (lambda ()
+                                 (when (frame-live-p frame)
+                                   (review-frame-place frame review-panel-display))))))))
           (let ((window (display-buffer-in-side-window
                          buffer `((side . left) (slot . 0) (window-width . ,width)))))
             (when (/= width (window-total-width window))
