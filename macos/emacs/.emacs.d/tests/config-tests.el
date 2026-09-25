@@ -2362,6 +2362,48 @@ Together these hid 106 lines of roaming/notes/homelab.org."
       (should (mr-x/arca-caldav-sync))
       (should called))))
 
+(ert-deftest config-test-arca-caldav-idle-sync-never-prompts ()
+  "The idle sync resumes, skips deletions, and turns a prompt into an error."
+  (let (seen)
+    (cl-letf (((symbol-function 'mr-x/arca-caldav--refresh-buffers) (lambda () nil))
+              ((symbol-function 'mr-x/arca-caldav-sync)
+               (lambda ()
+                 (setq seen (list org-caldav-resume-aborted
+                                  org-caldav-delete-org-entries
+                                  org-caldav-delete-calendar-entries
+                                  (condition-case nil (progn (y-or-n-p "Resume? ") 'asked)
+                                    (error 'refused)))))))
+      (mr-x/arca-caldav-idle-sync))
+    (should (equal seen '(always never never refused)))
+    (should (eq org-caldav-resume-aborted 'ask))))
+
+(ert-deftest config-test-arca-caldav-idle-sync-skips-on-conflict ()
+  "Unsaved edits in a file changed on disk skip the idle sync."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'mr-x/arca-caldav--refresh-buffers)
+               (lambda () (list "/tmp/arca-tasks.org")))
+              ((symbol-function 'mr-x/arca-caldav-sync) (lambda () (setq called t))))
+      (mr-x/arca-caldav-idle-sync)
+      (should-not called))))
+
+(ert-deftest config-test-arca-caldav-refresh-reverts-stale-buffer ()
+  "A clean buffer whose file changed on disk is reverted; a dirty one is reported."
+  (let* ((f (make-temp-file "arca-" nil ".org" "* TODO a\n"))
+         (org-caldav-calendars `((:calendar-id "t" :files (,f)))))
+    (unwind-protect
+        (let ((b (find-file-noselect f)))
+          (with-temp-file f (insert "* DONE a\n"))
+          (set-file-times f (time-add nil 5))
+          (should-not (mr-x/arca-caldav--refresh-buffers))
+          (should (string= (with-current-buffer b (buffer-string)) "* DONE a\n"))
+          (with-current-buffer b (insert "x"))
+          (with-temp-file f (insert "* TODO b\n"))
+          (set-file-times f (time-add nil 10))
+          (should (equal (mr-x/arca-caldav--refresh-buffers) (list f)))
+          (with-current-buffer b (set-buffer-modified-p nil))
+          (kill-buffer b))
+      (delete-file f))))
+
 (ert-deftest config-test-arca-caldav-no-url-file-means-no-sync ()
   "Without ~/.config/org-caldav/url the wrapper is a no-op even on mrx."
   (let ((called nil))

@@ -2080,6 +2080,54 @@ Elsewhere do nothing and return nil; say so when called INTERACTIVE-ly."
                  mr-x/arca-caldav-machine (mr-x/machine-id)))
       nil))
 
+  ;; The idle sync must never prompt. A question asked from a timer in the
+  ;; daemon can land on a frame nobody is looking at and freeze Emacs;
+  ;; quitting it leaves an aborted sync, and the next run asks "resume?",
+  ;; which freezes it again. (Found 2026-09-25.) So the timer resumes
+  ;; without asking, skips deletions on both sides (a manual
+  ;; `mr-x/arca-caldav-sync' still asks), and turns any other prompt into
+  ;; an error. The files live in Syncthing'd ~/roaming, so a stale buffer
+  ;; is reverted first rather than tripping the changed-on-disk prompt.
+  (defun mr-x/arca-caldav--files ()
+    "Absolute paths of every Org file synced with ARCA."
+    (mapcar #'expand-file-name
+            (apply #'append (mapcar (lambda (c) (plist-get c :files))
+                                    org-caldav-calendars))))
+
+  (defun mr-x/arca-caldav--refresh-buffers ()
+    "Revert ARCA buffers whose file changed on disk.
+Return the files that changed on disk AND have unsaved edits; those are
+left alone."
+    (let (conflicts)
+      (dolist (f (mr-x/arca-caldav--files))
+        (let ((b (find-buffer-visiting f)))
+          (when (and b (not (verify-visited-file-modtime b)))
+            (if (buffer-modified-p b)
+                (push f conflicts)
+              (with-current-buffer b
+                (revert-buffer :ignore-auto :noconfirm))))))
+      (nreverse conflicts)))
+
+  (defun mr-x/arca-caldav--refuse-prompt (&rest args)
+    "Signal an error instead of prompting; ARGS are the prompt's arguments."
+    (error "org-caldav idle sync refused to prompt: %S" (car args)))
+
+  (defun mr-x/arca-caldav-idle-sync ()
+    "Sync with ARCA from the idle timer, never prompting."
+    (require 'org-caldav)
+    (let ((conflicts (mr-x/arca-caldav--refresh-buffers)))
+      (if conflicts
+          (message "org-caldav: idle sync skipped, unsaved edits in a file changed on disk: %s"
+                   (mapconcat #'abbreviate-file-name conflicts ", "))
+        (let ((org-caldav-resume-aborted 'always)
+              (org-caldav-delete-org-entries 'never)
+              (org-caldav-delete-calendar-entries 'never))
+          (cl-letf (((symbol-function 'y-or-n-p) #'mr-x/arca-caldav--refuse-prompt)
+                    ((symbol-function 'yes-or-no-p) #'mr-x/arca-caldav--refuse-prompt)
+                    ((symbol-function 'ask-user-about-supersession-threat)
+                     #'mr-x/arca-caldav--refuse-prompt))
+            (mr-x/arca-caldav-sync))))))
+
   (defvar mr-x/arca-caldav-timer nil
     "Idle timer that runs `mr-x/arca-caldav-sync', or nil.")
 
@@ -2103,7 +2151,7 @@ Elsewhere do nothing and return nil; say so when called INTERACTIVE-ly."
             (run-with-idle-timer (* 60 mr-x/arca-caldav-idle-minutes) t
                                  (lambda ()
                                    (condition-case err
-                                       (mr-x/arca-caldav-sync)
+                                       (mr-x/arca-caldav-idle-sync)
                                      (error (message "org-caldav idle sync failed: %s"
                                                      (error-message-string err)))))))))
   ;; Enabled 2026-09-09 after the Phase 2 round trip passed. No-op off MrX.
