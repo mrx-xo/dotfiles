@@ -8,7 +8,7 @@ SOURCE_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
 EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
 EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
 SOCKET_NAME="sandbox"
-AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; DISPLAY_IDX=""
+AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; DISPLAY_IDX=""; NO_FRAME=""
 RUNTIME_ARGS=()
 [[ -z "${EMACS_RUNTIME_DIRECTORY:-}" ]] || RUNTIME_ARGS=(--runtime-directory "$EMACS_RUNTIME_DIRECTORY")
 for arg in "$@"; do
@@ -17,6 +17,7 @@ for arg in "$@"; do
         --restart) RESTART=yes ;;
         --kill) KILL_DAEMON=yes ;;
         --test) AUTO_TEST=yes ;;
+        --no-frame) NO_FRAME=yes ;;  # daemon only, e.g. for review-pr
         *) echo "Unknown sandbox option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -148,7 +149,9 @@ else
     "$SCRIPT_DIR/emacs-daemon-run.sh" --server "$SOCKET_NAME" --init-directory "$SANDBOX_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" --timeout "${EMACS_START_TIMEOUT:-120}" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
 fi
 
-if [[ -n "$AUTO_TEST" ]]; then
+if [[ -n "$NO_FRAME" ]]; then
+    exit 0
+elif [[ -n "$AUTO_TEST" ]]; then
     timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n --eval "(run-with-timer 1 nil #'mr-x/sandbox-test-env)"
 else
     timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n
