@@ -397,5 +397,57 @@
             (git "add" "a.txt")
             (should (equal (labels "--staged") (list (format "feature @ %s" head) "index")))))
       (delete-directory dir t))))
+(defmacro review-source-test--with-merged-pr (dir base head &rest body)
+  "A repo where branch topic changed a.txt and was merged back into main.
+BASE and HEAD are bound to the PR's base and head commits."
+  (declare (indent 3))
+  `(let ((,dir (make-temp-file "review-gh" t)))
+     (unwind-protect
+         (progn
+           (review-source-test--git ,dir "init" "-q" "-b" "main")
+           (review-source-test--git ,dir "config" "user.email" "t@example.com")
+           (review-source-test--git ,dir "config" "user.name" "t")
+           (with-temp-file (expand-file-name "a.txt" ,dir) (insert "one\ntwo\n"))
+           (review-source-test--git ,dir "add" ".")
+           (review-source-test--git ,dir "commit" "-q" "-m" "base")
+           (let ((,base (review-source-test--git ,dir "rev-parse" "HEAD")))
+             (review-source-test--git ,dir "switch" "-q" "-c" "topic")
+             (with-temp-file (expand-file-name "a.txt" ,dir) (insert "one\nTWO\n"))
+             (review-source-test--git ,dir "commit" "-q" "-am" "change")
+             (let ((,head (review-source-test--git ,dir "rev-parse" "HEAD")))
+               (review-source-test--git ,dir "switch" "-q" "main")
+               (review-source-test--git ,dir "merge" "-q" "--no-ff" "-m" "merge" "topic")
+               ,@body)))
+       (delete-directory ,dir t))))
+
+(ert-deftest review-source-github-reviews-a-merged-pr-by-its-shas ()
+  ;; Forge's own range, main...refs/pullreqs/N, is empty once main has the
+  ;; head; the recorded base and head commits still describe the PR.
+  (review-source-test--with-merged-pr dir base head
+    (let ((src (review-source-github-pr dir "team" "project" 11
+                                        :title "Fix navigation" :base-ref "main" :head-ref "topic"
+                                        :base-rev base :head-rev head)))
+      (should (equal (review-source-test--git dir "diff" "--name-only" (concat "main..." head)) ""))
+      (should (equal (review-source-name src) "github"))
+      (should (equal (review-source-number src) 11))
+      (should (equal (review-source-title src) "Fix navigation"))
+      (should (equal (review-source-subtitle src) "team / project   topic -> main"))
+      (should (equal (review-source-range-label src) "team/project#11"))
+      (let ((files (funcall (review-source-files src))))
+        (should (equal (mapcar (lambda (f) (plist-get f :path)) files) '("a.txt")))
+        (let (old new)
+          (funcall (review-source-text src) (car files) 'old (lambda (s) (setq old s)))
+          (funcall (review-source-text src) (car files) 'new (lambda (s) (setq new s)))
+          (should (equal old "one\ntwo\n"))
+          (should (equal new "one\nTWO\n")))
+        (let ((origin (funcall (review-source-origin src) (car files) 2 2)))
+          (should (string-match-p "team/project#11 a\\.txt:2" (plist-get origin :label)))
+          (should (equal (plist-get origin :url) "https://github.com/team/project/pull/11/files")))))))
+
+(ert-deftest review-source-github-missing-commit-asks-for-a-refresh ()
+  (review-source-test--with-merged-pr dir base _head
+    (should-error (review-source-github-pr dir "team" "project" 11
+                                           :base-rev base :head-rev (make-string 40 ?a))
+                  :type 'user-error)))
 
 (provide 'review-source-test)
