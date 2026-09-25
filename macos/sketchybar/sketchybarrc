@@ -240,9 +240,13 @@ sketchybar --add item codex_b_usage left                                     \
                       label.padding_left=0                                   \
                       click_script='open https://chatgpt.com/codex/settings/usage'
 
+# Emacs daemon status: the cacodemon, narrating startup. Last on the left so
+# its label has room to grow toward the centered title.
+bash ./plugins/emacs-status-setup.sh
+
 # One continuous background per display, spanning the entire left section.
 # Stable end items keep it intact when middle items hide or are recreated.
-sketchybar --add bracket left_group '/space\..*/' new_space codex_b_usage \
+sketchybar --add bracket left_group '/space\..*/' new_space emacs_status \
            --set left_group background.color=0xbf000000               \
                             background.corner_radius=10               \
                             background.height=25

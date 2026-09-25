@@ -1,7 +1,7 @@
 ;;; -*- lexical-binding: t; -*-
 
-
-
+(load (expand-file-name "lisp/mr-x-boot-status" user-emacs-directory) nil t)
+(mr-x/boot-status-start)
 
 (defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
