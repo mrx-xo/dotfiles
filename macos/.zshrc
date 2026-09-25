@@ -213,6 +213,7 @@ alias gsc="git switch -c"
 alias gco="git checkout"
 alias grb="git rebase"
 alias gcan="git commit --amend --no-edit"
+alias rv="$HOME/.dotfiles/macos/scripts/review-pr"   # open a Forgejo PR in the Emacs review viewer
 alias gprn="git fetch --prune && git branch -vv | grep ': gone]' | awk '{print \$1}' | xargs git branch -D"
 
 
