@@ -136,4 +136,16 @@
           (should (= (line-number-at-pos (window-start w)) 57))
           (should (= (line-number-at-pos (window-point w)) 60)))))))
 
+(ert-deftest review-frame-strip-shrinks-and-restores-its-own-frame ()
+  (review-frame-test--with
+    (let* ((review-session-pop-out t) (review-panel-pop-out t)
+           (s (review-session-start (review-session-test--source review-session-test--spec))))
+      (review-panel-open s)
+      (let ((frame (review-session-panel-frame s)))
+        (should (>= (frame-width frame) review-panel-width))
+        (review-hydra-strip)
+        (should (<= (frame-width frame) (+ 2 review-panel-strip-width)))
+        (review-hydra-strip)
+        (should (>= (frame-width frame) review-panel-width))))))
+
 (provide 'review-frame-test)

@@ -86,6 +86,28 @@ Only a unique title belonging to this Emacs process is eligible."
                 (run-at-time 0.25 nil #'review-frame--move frame display (1+ (or attempt 0))))
                (t (message "Review: could not identify a unique window for %s" title)))))))))))
 
+(defun review-frame-set-floating (frame floating then)
+  "Make FRAME's yabai window FLOATING or tiled, then call THEN.
+A tiling space stretches a managed window to fill it, so a frame that
+wants its own size must float first.  Without yabai, just call THEN."
+  (if (not (and (eq system-type 'darwin) (display-graphic-p frame)
+                (frame-visible-p frame) (executable-find "yabai")))
+      (funcall then)
+    (review-frame--yabai
+     '("query" "--windows")
+     (lambda (output)
+       (let* ((title (frame-parameter frame 'title))
+              (matches (cl-remove-if-not
+                        (lambda (w) (and (eql (alist-get 'pid w) (emacs-pid))
+                                         (review-frame--title-p title (alist-get 'title w))))
+                        (review-frame--json output)))
+              (window (and (= 1 (length matches)) (car matches))))
+         (if (and window (not (eq (eq (alist-get 'is-floating window) t) (and floating t))))
+             (review-frame--yabai
+              (list "window" (number-to-string (alist-get 'id window)) "--toggle" "float")
+              (lambda (_) (funcall then)))
+           (funcall then)))))))
+
 (defun review-frame-place (frame display)
   "Move a new graphical review FRAME onto yabai DISPLAY, without blocking."
   (when (and display (eq system-type 'darwin) (display-graphic-p frame)

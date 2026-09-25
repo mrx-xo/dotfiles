@@ -65,4 +65,26 @@ The format receives this Emacs's pid and the pid of another process."
                  (review-frame--move 'test 3 20))))
     (should-not (seq-find (lambda (args) (equal (car args) "window")) calls))))
 
+(ert-deftest review-placement-strip-floats-its-tiled-window-then-resizes ()
+  ;; A tiling space would stretch the strip's frame back to full width.
+  (dolist (case '((t :false t) (t t nil) (nil t t) (nil :false nil)))
+    (pcase-let ((`(,floating ,now ,toggles) case))
+      (let (calls resized)
+        (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+                  ((symbol-function 'frame-visible-p) (lambda (_) t))
+                  ((symbol-function 'executable-find) (lambda (&rest _) "/bin/yabai"))
+                  ((symbol-function 'frame-parameter) (lambda (&rest _) "Review files"))
+                  ((symbol-function 'review-frame--yabai)
+                   (lambda (args callback)
+                     (push args calls)
+                     (funcall callback
+                              (if (equal args '("query" "--windows"))
+                                  (format "[{\"id\":7,\"pid\":%d,\"title\":\"Review files\",\"is-floating\":%s}]"
+                                          (emacs-pid) (if (eq now t) "true" "false"))
+                                "")))))
+          (let ((system-type 'darwin))
+            (review-frame-set-floating 'test floating (lambda () (setq resized t))))
+          (should resized)
+          (should (eq toggles (and (member '("window" "7" "--toggle" "float") calls) t))))))))
+
 (provide 'review-placement-test)
