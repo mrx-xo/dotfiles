@@ -37,7 +37,8 @@ Terminal sessions always use the invoking frame."
 (defface review-mark-del '((t :foreground "#fb4934" :weight bold)) "Minus mark.")
 (defface review-del-word '((t :background "#5c2e28")) "Changed words in a removed row.")
 (defface review-add-word '((t :background "#4a4d22")) "Changed words in an added row.")
-(defface review-flash '((t :background "#665c54" :extend t)) "Brief highlight after a jump.")
+(defface review-flash '((t :background "#7a4a1f" :extend t))
+  "Start colour of the highlight after a jump: the design's orange, muted.")
 (defface review-mark-add '((t :foreground "#b8bb26" :weight bold)) "Plus mark.")
 
 (cl-defstruct review-session
@@ -325,12 +326,27 @@ Best effort: any user input abandons the work."
   (buffer-local-value 'review-pane--text-column buffer))
 
 (defun review-session--flash (start end)
-  "Highlight START..END in the current buffer briefly.
-Emacs's pulse keeps one global overlay, so a second pane would cancel the first."
-  (let ((o (make-overlay start end)))
-    (overlay-put o 'face 'review-flash)
+  "Pulse START..END in the current buffer: hold, then fade out.
+Emacs's pulse keeps one global overlay, so a second pane would cancel the
+first; each pane gets its own overlay here."
+  (let* ((o (make-overlay start end))
+         (from (or (face-background 'review-flash nil t) "#7a4a1f"))
+         (to "#1d2021") (hold 0.2) (step 0.05) (steps 8)
+         (rgb (lambda (hex) (mapcar (lambda (i) (string-to-number (substring hex i (+ i 2)) 16))
+                                    '(1 3 5)))))
+    (overlay-put o 'review-flash t)
     (overlay-put o 'priority 100)
-    (run-at-time 0.35 nil #'delete-overlay o)))
+    (overlay-put o 'face `(:background ,from :extend t))
+    (when (and (string-prefix-p "#" from) (= (length from) 7))
+      (dotimes (i steps)
+        (let* ((a (/ (float (1+ i)) steps))
+               (color (apply #'format "#%02x%02x%02x"
+                             (cl-mapcar (lambda (f b) (round (+ (* (- 1 a) f) (* a b))))
+                                        (funcall rgb from) (funcall rgb to)))))
+          (run-at-time (+ hold (* i step)) nil
+                       (lambda () (when (overlay-buffer o)
+                                    (overlay-put o 'face `(:background ,color :extend t))))))))
+    (run-at-time (+ hold (* steps step) step) nil #'delete-overlay o)))
 
 (defun review-session--hunk-column (file hunk)
   "Column of the first change in HUNK of FILE, 0 when a row changes whole."
