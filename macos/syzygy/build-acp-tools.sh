@@ -107,7 +107,8 @@ ACP_MULTIPLEX_COMMIT="39e79c8e83d2d1335e3a61de6741e261e2718433"
 # + local 7da5dd6 (mode words and alert set loaded from the rig via /api/mode-words; mode colour keyed on the word)
 # + local b43ee79 (scrollable chat toolbar with pin, turn-nav and kill actions; header overflow menu removed)
 # + local 00a6da1 (New chat stepper: Home combos with provider icons, Project, Agent, Prompt steps)
-ACP_MOBILE_COMMIT="00a6da14fed17eca85df9b5da57346d2b3e19957"
+# + local d34f21b (New chat stepper review fixes: load order, pin focus, resume edges)
+ACP_MOBILE_COMMIT="d34f21b808401b3f24ab5cdc1166b1ec2196f7d7"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
