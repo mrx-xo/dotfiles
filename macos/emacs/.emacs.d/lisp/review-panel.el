@@ -788,7 +788,8 @@ renders the strip."
 ;; yellow ASK tag, the question, the answer in dim paragraphs, and a dark
 ;; row of exits.  Quick Ask draws every answer with it, in reviews or not.
 
-(defun review-panel--ask-exits ()
+(defun review-panel--ask-exits (&optional exits)
+  "The keycap row for EXITS, a list of (KEY LABEL TOKEN); the answer's by default."
   (let ((cap (lambda (key)
                (propertize (concat " " key " ")
                            'face `(:background ,(review-panel--hex 'bg-2) :foreground ,(review-panel--hex 'fg)
@@ -797,9 +798,59 @@ renders the strip."
             (mapconcat (lambda (exit)
                          (concat (funcall cap (nth 0 exit)) (review-panel--gap 5)
                                  (review-panel--txt (nth 1 exit) (nth 2 exit) :height 0.83)))
-                       '(("q" "dismiss" dim) ("c" "continue in chat" fg) ("u" "park it" yellow)
-                         ("y" "copy" dim) ("r" "again" dim))
+                       (or exits
+                           '(("q" "dismiss" dim) ("c" "continue in chat" fg) ("u" "park it" yellow)
+                             ("y" "copy" dim) ("r" "again" dim)))
                        (review-panel--gap 14)))))
+
+(defun review-panel-ask-context (origin)
+  "The card's dark context row: a yellow ASK tag, then ORIGIN."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (review-panel--row
+     (concat (review-panel--gap 12) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
+             (review-panel--gap 8) (review-panel--txt (or origin "") 'dim :height 0.83))
+     :bg 'bg-hard :pad '(8 8))))
+
+(defun review-panel-ask-footer (exits)
+  "The card's dark footer: keycaps for EXITS, each (KEY LABEL TOKEN)."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (concat (review-panel--divider)
+            (review-panel--spacer 8 'bg-hard)
+            (review-panel--row (review-panel--ask-exits exits) :bg 'bg-hard)
+            (review-panel--spacer 8 'bg-hard))))
+
+(defun review-panel-ask-indent ()
+  "The card's 12 px text indent, for line and wrap prefixes."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (review-panel--gap 12)))
+
+(defun review-panel-ask-waiting (origin question)
+  "Insert the card shown while an answer is on its way.
+The status line's first character carries `review-ask-anim', for a spinner."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
+    (insert (review-panel-ask-context origin))
+    (let ((start (point)))
+      (insert (review-panel--row (review-panel--txt question 'fg :weight 'medium) :pad '(10 10)))
+      (put-text-property start (point) 'line-prefix (review-panel--gap 12))
+      (put-text-property start (point) 'wrap-prefix (review-panel--gap 12)))
+    (insert (review-panel--divider) (review-panel--spacer 10))
+    (insert (review-panel--row
+             (concat (review-panel--gap 12)
+                     (propertize "*" 'review-ask-anim t 'face `(:foreground ,(review-panel--hex 'orange)))
+                     (review-panel--gap 8)
+                     (review-panel--txt "thinking" 'dim))))
+    (insert (review-panel--spacer 12))
+    (insert (review-panel-ask-footer '(("q" "abort" dim) ("C-c C-q" "hide" dim)
+                                       ("C-c C-t" "dock" dim))))))
+
+(defun review-panel-ask-style (start end)
+  "Give START..END the card's padded answer look: dim text, 12 px indent."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
+    (add-face-text-property start end `(:foreground ,(review-panel--hex 'dim)) t)
+    (put-text-property start end 'line-prefix (review-panel--gap 12))
+    (put-text-property start end 'wrap-prefix (review-panel--gap 12))))
 
 (defun review-panel-ask-card (origin question answer &optional style-answer)
   "Insert the Quick Ask card at point: ORIGIN, QUESTION, ANSWER and the exits.

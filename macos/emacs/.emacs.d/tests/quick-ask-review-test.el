@@ -204,6 +204,152 @@
               (should (= (window-start w) 5))))
         (kill-buffer buf)))))
 
+(defmacro quick-ask-test--posframes (calls hidden &rest body)
+  "Run BODY with posframe stubbed: shows pushed on CALLS, hides on HIDDEN."
+  (declare (indent 2))
+  `(cl-letf (((symbol-function 'posframe-show) (lambda (b &rest args) (push (cons b args) ,calls) nil))
+             ((symbol-function 'posframe-hide) (lambda (b) (push b ,hidden)))
+             ((symbol-function 'posframe-workable-p) (lambda () t))
+             ((symbol-function 'mr-x/quick-ask--content-lines) (lambda (&rest _) 10))
+             ((symbol-function 'mr-x/quick-ask--content-pixels) (lambda (&rest _) nil)))
+     ,@body))
+
+(defun quick-ask-test--answer-buffer (source)
+  (let ((buf (get-buffer-create "*quick-ask*")))
+    (with-current-buffer buf
+      (mr-x/quick-ask-mode)
+      (setq-local mr-x/quick-ask--source-buffer source
+                  mr-x/quick-ask--source-region nil
+                  mr-x/quick-ask--placement nil
+                  mr-x/quick-ask--hidden nil))
+    buf))
+
+(ert-deftest quick-ask-floats-over-any-buffer-by-default ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (switch-to-buffer source) (insert "code\n") (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf))
+            (should (eq (car (car calls)) buf))
+            (should (integer-or-marker-p (plist-get (cdr (car calls)) :position)))
+            (should-not (get-buffer-window buf)))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-docks-at-the-bottom-when-asked ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'bottom))
+              (mr-x/quick-ask--show buf))
+            (should-not calls)
+            (should (window-live-p (get-buffer-window buf))))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-hides-and-comes-back-with-its-state ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (with-current-buffer buf (insert "typed so far"))
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf)
+              (mr-x/quick-ask-toggle)
+              (should (equal hidden (list buf)))
+              (should (buffer-local-value 'mr-x/quick-ask--hidden buf))
+              (setq calls nil)
+              (mr-x/quick-ask-toggle)
+              (should (eq (car (car calls)) buf))
+              (should-not (buffer-local-value 'mr-x/quick-ask--hidden buf))
+              (should (equal (with-current-buffer buf (buffer-string)) "typed so far"))))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-switches-between-float-and-bottom ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf)
+              (with-current-buffer buf (mr-x/quick-ask-toggle-placement))
+              (should (memq buf hidden))
+              (should (window-live-p (get-buffer-window buf)))
+              (should (eq (buffer-local-value 'mr-x/quick-ask--placement buf) 'bottom))
+              (setq calls nil)
+              (with-current-buffer buf (mr-x/quick-ask-toggle-placement))
+              (should (eq (car (car calls)) buf))
+              (should-not (get-buffer-window buf))))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-answer-waits-while-hidden-and-notifies ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden notes
+           (mr-x/quick-ask-notify-functions (list (lambda (note) (push note notes))))
+           (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (with-current-buffer buf
+              (setq mr-x/quick-ask--hidden t)
+              (mr-x/quick-ask--show-response "why?" "because"))
+            (should-not calls)
+            (should (eq (car notes) 'ready))
+            (should (eq mr-x/quick-ask-notification 'ready))
+            (mr-x/quick-ask-toggle)
+            (should calls)
+            (should-not mr-x/quick-ask-notification))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-question-box-is-a-card ()
+  (save-window-excursion
+    (switch-to-buffer (get-buffer-create " *qa-code*"))
+    (insert "code\n")
+    (let (calls hidden)
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (mr-x/quick-ask)
+            (with-current-buffer "*quick-ask*"
+              (should-not header-line-format)
+              (should (string-match-p "ASK" (buffer-string)))
+              (dolist (hint '("RET" "ask" "C-c C-q" "hide" "C-c C-t" "dock"))
+                (should (string-match-p (regexp-quote hint) (buffer-string))))
+              (should (eq (lookup-key mr-x/quick-ask-input-map (kbd "C-c C-q")) #'mr-x/quick-ask-hide))
+              (should (eq (lookup-key mr-x/quick-ask-input-map (kbd "C-c C-t")) #'mr-x/quick-ask-toggle-placement))))
+        (when (get-buffer "*quick-ask*") (kill-buffer "*quick-ask*"))
+        (kill-buffer " *qa-code*")))))
+
+(ert-deftest quick-ask-popup-stays-inside-the-frame ()
+  ;; A card anchored near the right edge was clipped; near the bottom it
+  ;; belongs above the selection.
+  (cl-letf (((symbol-function 'posframe-poshandler-point-bottom-left-corner)
+             (lambda (_info) '(700 . 300)))
+            ((symbol-function 'posframe-poshandler-point-bottom-left-corner-upward)
+             (lambda (_info) '(700 . 50))))
+    (should (equal (mr-x/quick-ask--poshandler
+                    '(:parent-frame-width 1000 :parent-frame-height 800
+                      :posframe-width 600 :posframe-height 200))
+                   '(396 . 300)))
+    (should (equal (mr-x/quick-ask--poshandler
+                    '(:parent-frame-width 2000 :parent-frame-height 400
+                      :posframe-width 600 :posframe-height 200))
+                   '(700 . 50)))))
+
+(ert-deftest quick-ask-strips-agent-notices-and-thinking ()
+  ;; A project's first question goes to a fresh session, whose output
+  ;; starts with agent-shell's session notice.
+  (should (equal (mr-x/quick-ask--strip-thinking
+                  "\n▶ Notices\n\n[session/create] sessionId=6989 phase=register\n\n\nThe answer.\n\nNext: more.\n\n")
+                 "The answer.\n\nNext: more."))
+  (should (equal (mr-x/quick-ask--strip-thinking
+                  "▶ Thinking\n\nreasoning here\n\n▶ Notices\n\n[session/create] x\n\nThe answer.")
+                 "The answer."))
+  (should (equal (mr-x/quick-ask--strip-thinking "▶ A heading the model wrote\n\nkeep this")
+                 "▶ A heading the model wrote\n\nkeep this")))
+
 (ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
   (review-session-test--with s
     (select-window (review-session-new-window s))
