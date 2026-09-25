@@ -42,6 +42,20 @@ class SandboxCopyTest(unittest.TestCase):
         self.assertGreater(len(result["skipped"]), 5)
         self.assertEqual(self.dest.stat().st_mode & 0o777, 0o700)
 
+    def test_copies_keep_modification_times_so_bytecode_stays_current(self):
+        # With load-prefer-newer, a copied .el that lands newer than its .elc
+        # makes the sandbox load the package as slow interpreted source.
+        build = self.source / "elpaca/builds/fixture"
+        build.mkdir(parents=True)
+        (build / "fixture.el").write_text("; source")
+        (build / "fixture.elc").write_text("; bytecode")
+        os.utime(build / "fixture.el", (1_000_000_000, 1_000_000_000))
+        os.utime(build / "fixture.elc", (1_000_000_100, 1_000_000_100))
+        self.module.provision(self.source, self.dest)
+        copied = self.dest / "elpaca/builds/fixture"
+        self.assertEqual((copied / "fixture.el").stat().st_mtime, 1_000_000_000)
+        self.assertEqual((copied / "fixture.elc").stat().st_mtime, 1_000_000_100)
+
     def test_internal_package_links_rebased_external_and_runtime_links_excluded(self):
         package = self.source / "elpaca/sources/fixture"
         package.mkdir(parents=True)

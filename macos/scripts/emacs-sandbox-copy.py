@@ -71,6 +71,10 @@ def provision(source, destination, replace=False):
                 elif stat.S_ISREG(mode):
                     shutil.copyfile(str(entry), str(output))
                     output.chmod(0o600 | (mode & 0o100))
+                    # Keep .elc newer than .el, or load-prefer-newer loads
+                    # the sandbox's packages as slow interpreted source.
+                    times = entry.stat()
+                    os.utime(str(output), ns=(times.st_atime_ns, times.st_mtime_ns))
                 else:
                     skipped.append(str(rel))
             except FileNotFoundError:
