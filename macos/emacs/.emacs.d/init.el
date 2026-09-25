@@ -2125,6 +2125,8 @@ left alone."
           (cl-letf (((symbol-function 'y-or-n-p) #'mr-x/arca-caldav--refuse-prompt)
                     ((symbol-function 'yes-or-no-p) #'mr-x/arca-caldav--refuse-prompt)
                     ((symbol-function 'ask-user-about-supersession-threat)
+                     #'mr-x/arca-caldav--refuse-prompt)
+                    ((symbol-function 'ask-user-about-lock)
                      #'mr-x/arca-caldav--refuse-prompt))
             (mr-x/arca-caldav-sync))))))
 

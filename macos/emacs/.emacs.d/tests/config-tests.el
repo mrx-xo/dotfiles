@@ -2372,9 +2372,12 @@ Together these hid 106 lines of roaming/notes/homelab.org."
                                   org-caldav-delete-org-entries
                                   org-caldav-delete-calendar-entries
                                   (condition-case nil (progn (y-or-n-p "Resume? ") 'asked)
+                                    (error 'refused))
+                                  (condition-case nil
+                                      (progn (ask-user-about-lock "f" "someone") 'asked)
                                     (error 'refused)))))))
       (mr-x/arca-caldav-idle-sync))
-    (should (equal seen '(always never never refused)))
+    (should (equal seen '(always never never refused refused)))
     (should (eq org-caldav-resume-aborted 'ask))))
 
 (ert-deftest config-test-arca-caldav-idle-sync-skips-on-conflict ()
