@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Open a Forgejo PR straight in the Emacs review viewer, skipping the PR list,
+# detail and diff views.  Alias: rv.
+#
+#   review-pr                 the review-fixtures test PR (review-fixture-repo.sh)
+#   review-pr <PR web URL>    any Forgejo PR, e.g. https://HOST/OWNER/REPO/pulls/N
+#
+# Targets the sandbox daemon; REVIEW_EMACS_SOCKET=server targets the main one.
+set -euo pipefail
+
+URL="${1:-https://omphalos.io/mr-x/review-fixtures/pulls/1}"
+SOCKET="${REVIEW_EMACS_SOCKET:-sandbox}"
+EMACSCLIENT=/opt/homebrew/opt/emacs-plus@30/bin/emacsclient
+
+case "$URL" in
+  *'"'* | *'\'*) echo "review-pr: unexpected characters in URL" >&2; exit 1 ;;
+esac
+
+# Start the sandbox when it is down; never start or restart the main daemon.
+if ! "$EMACSCLIENT" --socket-name="$SOCKET" --eval t >/dev/null 2>&1; then
+  if [ "$SOCKET" != sandbox ]; then
+    echo "review-pr: the $SOCKET daemon is not running" >&2
+    exit 1
+  fi
+  echo "Starting the sandbox daemon..."
+  "$(dirname "$0")/emacs-sandbox.sh" --no-frame >/dev/null
+fi
+
+"$EMACSCLIENT" --socket-name="$SOCKET" \
+  --eval "(progn (require 'pr-workflow) (mr-x/pr-review-open \"$URL\") nil)" >/dev/null
+echo "Opening $URL in the $SOCKET daemon"
