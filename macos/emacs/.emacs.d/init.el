@@ -4006,6 +4006,26 @@ Falls back to a one-liner if fastfetch isn't installed."
 
 
 
+(use-package evil
+  :ensure t
+  :demand t
+  :init (setq evil-want-integration t)
+  (setq evil-want-keybinding nil)
+  (setq evil-want-C-u-scroll t)
+  (setq evil-want-C-i-jump nil)
+  (setq evil-respect-visual-line-mode t)
+  (setq evil-undo-system 'undo-redo)
+  :config
+  (evil-mode 1)
+  ;; ESC in normal state → progressive escape instead of evil-force-normal-state
+  (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
+  ;; Make M-backspace delete word without saving to register (like normal editors)
+  (define-key evil-insert-state-map (kbd "M-<backspace>")
+    (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
+
+
+
+
     (use-package general
       :ensure t
       :demand t
@@ -6335,26 +6355,6 @@ made is deleted and the evidence stays; the review shows why."
 
   ;; Hide noisy digit-argument entries (0-9)
   (push '(("\\`[0-9]\\'" . "digit-argument") . t) which-key-replacement-alist))
-
-
-
-(use-package evil
-  :ensure t
-  :demand t
-  :init (setq evil-want-integration t)
-  (setq evil-want-keybinding nil)
-  (setq evil-want-C-u-scroll t)
-  (setq evil-want-C-i-jump nil)
-  (setq evil-respect-visual-line-mode t)
-  (setq evil-undo-system 'undo-redo)
-  :config
-  (evil-mode 1)
-  ;; ESC in normal state → progressive escape instead of evil-force-normal-state
-  (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
-  ;; Make M-backspace delete word without saving to register (like normal editors)
-  (define-key evil-insert-state-map (kbd "M-<backspace>")
-    (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
-
 
 
 

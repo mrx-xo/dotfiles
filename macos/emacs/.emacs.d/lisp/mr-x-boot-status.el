@@ -1,7 +1,8 @@
 ;;; mr-x-boot-status.el --- Report daemon startup to sketchybar -*- lexical-binding: t; -*-
 
-;; The main daemon takes ~40s to come up, almost all of it Elpaca working
-;; through its queue after init.el returns.  This pushes what it is doing
+;; Almost all of daemon startup is Elpaca working through its queue after
+;; init.el returns (49s until 2026-09-25, ~7s after loading evil before
+;; general; see the Evil section of emacs.org).  This pushes what it is doing
 ;; to the `emacs_status' sketchybar item (the cacodemon) once a second:
 ;; loading init, then the package Elpaca is on with a done/total count,
 ;; then any workspace restore, then "ready in Ns".
@@ -106,8 +107,9 @@ FORMS is an Elpaca queue's form list: newest first, run after `nreverse'."
 
 (defun mr-x/boot-status--before-queue-finalize (q)
   "Instrument Q's queued config bodies while a boot is being reported.
-Elpaca evals every package's config in one synchronous loop (about 45s
-here); without this the label freezes for all of it."
+Elpaca evals every package's config in one synchronous loop, so without
+this the label freezes for all of it.  The per-package times it records
+are what found the 42s evil stall."
   (when mr-x/boot-status--timer
     (ignore-errors (mr-x/boot-status--instrument-forms (elpaca-q<-forms q)))))
 

@@ -4208,6 +4208,38 @@ Falls back to a one-liner if fastfetch isn't installed."
 
 #+end_src
 
+*** Evil
+
+Evil loads before general, on purpose. Every =mr-x/leader-def= binding
+carries five evil states, and general defers each one with its own
+=eval-after-load 'evil= when evil is not loaded yet: about 2,300
+callbacks. Emacs queues those through =after-load-functions= with a
+depth sort that grows roughly with the cube of their number, which cost
+42 of a 49 second boot (found 2026-09-25). With evil already loaded,
+general binds on the spot.
+
+#+begin_src emacs-lisp
+
+  (use-package evil
+    :ensure t
+    :demand t
+    :init (setq evil-want-integration t)
+    (setq evil-want-keybinding nil)
+    (setq evil-want-C-u-scroll t)
+    (setq evil-want-C-i-jump nil)
+    (setq evil-respect-visual-line-mode t)
+    (setq evil-undo-system 'undo-redo)
+    :config
+    (evil-mode 1)
+    ;; ESC in normal state → progressive escape instead of evil-force-normal-state
+    (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
+    ;; Make M-backspace delete word without saving to register (like normal editors)
+    (define-key evil-insert-state-map (kbd "M-<backspace>")
+      (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
+
+
+#+end_src
+
 *** Keybindings
 
 #+begin_src emacs-lisp
@@ -6620,29 +6652,6 @@ made is deleted and the evidence stays; the review shows why."
     (push '(("\\`[0-9]\\'" . "digit-argument") . t) which-key-replacement-alist))
 
 #+end_src
-*** Evil
-#+begin_src emacs-lisp
-
-  (use-package evil
-    :ensure t
-    :demand t
-    :init (setq evil-want-integration t)
-    (setq evil-want-keybinding nil)
-    (setq evil-want-C-u-scroll t)
-    (setq evil-want-C-i-jump nil)
-    (setq evil-respect-visual-line-mode t)
-    (setq evil-undo-system 'undo-redo)
-    :config
-    (evil-mode 1)
-    ;; ESC in normal state → progressive escape instead of evil-force-normal-state
-    (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
-    ;; Make M-backspace delete word without saving to register (like normal editors)
-    (define-key evil-insert-state-map (kbd "M-<backspace>")
-      (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
-
-
-#+end_src
-
 *** Undo
 #+begin_src emacs-lisp
 
