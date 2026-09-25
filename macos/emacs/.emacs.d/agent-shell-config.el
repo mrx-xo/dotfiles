@@ -2466,15 +2466,32 @@ silent context-only capture with no marker."
         (mr-x/quick-ask--update-context-display)
         (message "All context detached"))
 
+      (defvar-local mr-x/quick-ask--context-end nil
+        "End of the question card's context row, which attaching rewrites.")
+
+      (defun mr-x/quick-ask--context-label ()
+        "What the question is about: attached items, then where the agent runs."
+        (string-join
+         (delq nil (list (and mr-x/quick-ask--context-items
+                              (mapconcat (lambda (item) (plist-get item :label))
+                                         (reverse mr-x/quick-ask--context-items) ", "))
+                         (abbreviate-file-name
+                          (directory-file-name
+                           (mr-x/quick-ask--project-directory default-directory)))))
+         "  /  "))
+
       (defun mr-x/quick-ask--update-context-display ()
-        "Update header line to reflect attached context."
-        (let* ((count (length mr-x/quick-ask--context-items))
-               (base (if (> count 0)
-                         (format " Quick Question  [%d attached]  (RET send · C-c d detach · C-g cancel)"
-                                 count)
-                       " Quick Question  (RET send · C-c f file · C-c b buffer · C-g cancel)")))
-          (setq-local header-line-format
-                      (propertize base 'face '(:weight bold)))))
+        "Rewrite the card's context row to show what is attached."
+        (require 'review-panel)
+        (setq-local header-line-format nil)
+        (let ((inhibit-read-only t))
+          (save-excursion
+            (when (markerp mr-x/quick-ask--context-end)
+              (delete-region (point-min) mr-x/quick-ask--context-end))
+            (goto-char (point-min))
+            (insert (review-panel-ask-context (mr-x/quick-ask--context-label)))
+            (setq mr-x/quick-ask--context-end (point-marker))))
+        (mr-x/quick-ask--refit (current-buffer)))
 
       (defun mr-x/quick-ask--format-context-preamble ()
         "Build context string from attached items."
@@ -2509,6 +2526,9 @@ silent context-only capture with no marker."
           (define-key map (kbd "C-c r") #'mr-x/quick-ask--attach-region)
           (define-key map (kbd "C-c h") #'mr-x/quick-ask--attach-recall)
           (define-key map (kbd "C-c d") #'mr-x/quick-ask--detach-all)
+          ;; Hide and bring back (SPC Q), or move between popup and bottom.
+          (define-key map (kbd "C-c C-q") #'mr-x/quick-ask-hide)
+          (define-key map (kbd "C-c C-t") #'mr-x/quick-ask-toggle-placement)
           map)
         "Keymap for the text input field.")
 
@@ -2517,6 +2537,8 @@ silent context-only capture with no marker."
         (let ((map (make-keymap)))
           (suppress-keymap map t)
           (define-key map (kbd "C-g") #'mr-x/quick-ask--abort)
+          (define-key map (kbd "C-c C-q") #'mr-x/quick-ask-hide)
+          (define-key map (kbd "C-c C-t") #'mr-x/quick-ask-toggle-placement)
           (define-key map (kbd "q") #'mr-x/quick-ask--abort)
           (define-key map (kbd "C-c C-c") #'mr-x/quick-ask--abort)
           (define-key map (kbd "<escape>") #'mr-x/quick-ask--abort)
@@ -2547,6 +2569,8 @@ silent context-only capture with no marker."
           (define-key map (kbd "c") #'mr-x/quick-ask--surface-session)
           (define-key map (kbd "u") #'mr-x/quick-ask--park)
           (define-key map (kbd "y") #'mr-x/quick-ask--copy)
+          (define-key map (kbd "C-c C-q") #'mr-x/quick-ask-hide)
+          (define-key map (kbd "C-c C-t") #'mr-x/quick-ask-toggle-placement)
           map)
         "Keymap for response viewing. q dismiss, r again, R reset+again, C surface agent-shell.")
 
@@ -2627,11 +2651,20 @@ silent context-only capture with no marker."
                        (when (buffer-live-p (get-buffer "*quick-ask*"))
                          (with-current-buffer "*quick-ask*"
                            (setq mr-x/quick-ask--anim-tick (mod (1+ mr-x/quick-ask--anim-tick) 8))
+                           (if-let ((pos (text-property-any (point-min) (point-max) 'review-ask-anim t)))
+                               (let ((inhibit-read-only t)
+                                     (props (text-properties-at pos)))
+                                 (save-excursion
+                                   (goto-char pos)
+                                   (delete-char 1)
+                                   (insert (apply #'propertize
+                                                  (aref mr-x/quick-ask--anim-frames mr-x/quick-ask--anim-tick)
+                                                  props))))
                            (setq-local header-line-format
                                        (concat (propertize (format " %s " (aref mr-x/quick-ask--anim-frames mr-x/quick-ask--anim-tick))
                                                            'face '(:weight bold))
                                                (propertize "Thinking (Claude)"
-                                                           'face '(:weight bold)))))))))
+                                                           'face '(:weight bold))))))))))
 
       ;; Commands
       (defun mr-x/quick-ask--cancel ()
@@ -2747,60 +2780,176 @@ silent context-only capture with no marker."
           (when (and mr-x/quick-ask--fits (> start (point-min)))
             (set-window-start window (point-min) t))))
 
-      (defun mr-x/quick-ask--display-response (buf)
-        "Display BUF beside its review selection, or in the bottom window."
+      (defcustom mr-x/quick-ask-placement 'float
+        "Where Quick Ask opens: `float', a card popup at point, or `bottom', a window.
+      \\<mr-x/quick-ask-input-map>\\[mr-x/quick-ask-toggle-placement] switches an open one."
+        :type '(choice (const :tag "Popup at point" float) (const :tag "Bottom window" bottom))
+        :group 'convenience)
+
+      (defvar-local mr-x/quick-ask--placement nil
+        "Where this Quick Ask is shown now; nil means `mr-x/quick-ask-placement'.")
+      (defvar-local mr-x/quick-ask--hidden nil
+        "Non-nil while this Quick Ask is hidden with its state kept.")
+
+      (defvar mr-x/quick-ask-notification nil
+        "What hidden Quick Ask has to say: `thinking', `ready', or nil.")
+      (defvar mr-x/quick-ask-notify-functions nil
+        "Called with the new `mr-x/quick-ask-notification' whenever it changes.")
+
+      (defun mr-x/quick-ask--notify (note)
+        "Set the hidden Quick Ask NOTE and tell `mr-x/quick-ask-notify-functions'."
+        (setq mr-x/quick-ask-notification note)
+        (pcase note
+          ('ready (message "Quick Ask: answer ready (SPC Q)"))
+          ('thinking (message "Quick Ask: still thinking; SPC Q brings it back")))
+        (run-hook-with-args 'mr-x/quick-ask-notify-functions note))
+
+      (defun mr-x/quick-ask--posframe-frame (buf)
+        (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
+
+      (defun mr-x/quick-ask--fit-float (buf cap)
+        "Size BUF's popup to its card, at most CAP lines, pinned when it fits.
+      posframe sizes by line count, but the card pads rows in pixels."
+        (let ((lines (min cap (mr-x/quick-ask--content-lines buf)))
+              (frame (mr-x/quick-ask--posframe-frame buf))
+              (px (mr-x/quick-ask--content-pixels buf)))
+          (when (and (frame-live-p frame) px)
+            ;; Lines round up and leave a gap: settle on the exact height.
+            (let ((fits (<= px (* cap (frame-char-height frame)))))
+              (with-current-buffer buf
+                (setq mr-x/quick-ask--fits fits)
+                (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
+              (when fits (set-frame-height frame px nil t))))
+          lines))
+
+      (defun mr-x/quick-ask--poshandler (info)
+        "Below the anchor, or above it when the card would run off the bottom;
+      shifted left so it never runs past the frame's right edge."
+        (let* ((below (posframe-poshandler-point-bottom-left-corner info))
+               (pos (if (> (+ (cdr below) (plist-get info :posframe-height))
+                           (plist-get info :parent-frame-height))
+                        (posframe-poshandler-point-bottom-left-corner-upward info)
+                      below))
+               (right (- (plist-get info :parent-frame-width) (plist-get info :posframe-width) 4)))
+          (cons (max 0 (min (car pos) right)) (cdr pos))))
+
+      (defun mr-x/quick-ask--show-float (buf source-window)
+        "Show BUF as a card popup anchored at its source in SOURCE-WINDOW."
+        (with-current-buffer buf
+          (setq mr-x/quick-ask--posframe t)
+          (dolist (window (get-buffer-window-list buf nil t))
+            (unless (or (frame-parameter (window-frame window) 'parent-frame)
+                        (eq window (frame-root-window (window-frame window))))
+              (delete-window window)))
+          (let ((source mr-x/quick-ask--source-buffer)
+                (region mr-x/quick-ask--source-region))
+            ;; posframe resolves integer anchors in the selected window.
+            (with-selected-window source-window
+              (let* ((anchor (with-current-buffer source
+                               (min (point-max) (max (point-min)
+                                                    (if region (cdr region) (point))))))
+                     (cap (max 10 (- (frame-height) 4)))
+                     (show (lambda (&rest size)
+                             (apply #'posframe-show
+                                    buf :position anchor
+                                    :poshandler #'mr-x/quick-ask--poshandler
+                                    ;; The design's card is 520 px at 6 px per character.
+                                    :width (min 86 (- (frame-width) 4))
+                                    :min-width (min 40 (- (frame-width) 4))
+                                    :border-width 1 :border-color "#504945"
+                                    :background-color "#282828" :accept-focus t
+                                    (append size (list :max-height cap))))))
+                (funcall show)
+                (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
+                  (funcall show :height lines :min-height lines))
+                (mr-x/quick-ask--fit-float buf cap))))
+          (let ((frame (mr-x/quick-ask--posframe-frame buf)))
+            (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
+
+      (defun mr-x/quick-ask--show-bottom (buf)
+        "Show BUF in a window at the bottom of the frame."
+        (with-current-buffer buf (setq mr-x/quick-ask--posframe nil))
+        (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buf)))
+        (let ((window (or (get-buffer-window buf)
+                          (display-buffer buf '((display-buffer-at-bottom)
+                                                (window-height . 0.4)
+                                                (preserve-size . (nil . t)))))))
+          (when (window-live-p window) (select-window window))))
+
+      (defun mr-x/quick-ask--show (buf)
+        "Show Quick Ask BUF where it belongs: a popup at its source, or the bottom."
         (with-current-buffer buf
           (let* ((source mr-x/quick-ask--source-buffer)
-                 (source-window (and (buffer-live-p source)
-                                     (get-buffer-window source t)))
-                 (region mr-x/quick-ask--source-region))
-            (if (and (window-live-p source-window)
-                     (with-current-buffer source (derived-mode-p 'review-pane-mode))
+                 (source-window (and (buffer-live-p source) (get-buffer-window source t)))
+                 (placement (or mr-x/quick-ask--placement mr-x/quick-ask-placement)))
+            (setq mr-x/quick-ask--placement placement
+                  mr-x/quick-ask--hidden nil)
+            (when mr-x/quick-ask-notification (mr-x/quick-ask--notify nil))
+            (if (and (eq placement 'float) (window-live-p source-window)
                      (require 'posframe nil t) (posframe-workable-p))
-                (progn
-                  (setq mr-x/quick-ask--posframe t)
-                  (when-let ((window (get-buffer-window buf)))
-                    (unless (eq window (frame-root-window (window-frame window)))
-                      (delete-window window)))
-                  ;; posframe resolves integer anchors in the selected window.
-                  (with-selected-window source-window
-                    (let* ((anchor (with-current-buffer source
-                                     (min (point-max) (max (point-min)
-                                                          (if region (cdr region) (point))))))
-                           (cap (max 10 (- (frame-height) 4)))
-                           (show (lambda (&rest size)
-                                   (apply #'posframe-show
-                                          buf :position anchor
-                                          :poshandler #'posframe-poshandler-point-bottom-left-corner
-                                          ;; The design's card is 520 px at 6 px per character.
-                                          :width (min 86 (- (frame-width) 4))
-                                          :min-width (min 40 (- (frame-width) 4))
-                                          :border-width 1 :border-color "#504945"
-                                          :background-color "#282828" :accept-focus t
-                                          (append size (list :max-height cap))))))
-                      ;; posframe sizes by line count, but the card pads rows in
-                      ;; pixels: measure the rendered card, then show it again at
-                      ;; that height so nothing hides below a scroll.
-                      (funcall show)
-                      (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
-                        (funcall show :height lines :min-height lines))
-                      ;; Lines round up and leave a gap: settle on the exact
-                      ;; pixel height, and pin the view when it all fits.
-                      (let ((frame (and (boundp 'posframe--frame)
-                                        (buffer-local-value 'posframe--frame buf)))
-                            (px (mr-x/quick-ask--content-pixels buf)))
-                        (when (and (frame-live-p frame) px)
-                          (let ((fits (<= px (* cap (frame-char-height frame)))))
-                            (with-current-buffer buf
-                              (setq mr-x/quick-ask--fits fits)
-                              (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
-                            (when fits (set-frame-height frame px nil t)))))))
-                  (let ((frame (and (boundp 'posframe--frame)
-                                    (buffer-local-value 'posframe--frame buf))))
-                    (when (frame-live-p frame) (select-frame-set-input-focus frame))))
-              (unless (get-buffer-window buf t)
-                (pop-to-buffer buf '((display-buffer-at-bottom)
-                                     (window-height . 0.4))))))))
+                (mr-x/quick-ask--show-float buf source-window)
+              (mr-x/quick-ask--show-bottom buf))
+            (when (and (eq mr-x/quick-ask--phase 'input) (markerp mr-x/quick-ask--input-start))
+              (goto-char mr-x/quick-ask--input-start)
+              (when-let ((window (get-buffer-window buf t)))
+                (set-window-point window mr-x/quick-ask--input-start))
+              (when (fboundp 'evil-insert-state) (evil-insert-state))))))
+
+      (defun mr-x/quick-ask--display-response (buf)
+        "Show the answer in BUF, unless Quick Ask is hidden: then say it is ready."
+        (if (buffer-local-value 'mr-x/quick-ask--hidden buf)
+            (mr-x/quick-ask--notify 'ready)
+          (mr-x/quick-ask--show buf)))
+
+      (defun mr-x/quick-ask--refit (buf)
+        "Resize BUF's popup after its content changed."
+        (when (and (buffer-live-p buf) (buffer-local-value 'mr-x/quick-ask--posframe buf)
+                   (not (buffer-local-value 'mr-x/quick-ask--hidden buf)))
+          (let ((frame (mr-x/quick-ask--posframe-frame buf)))
+            (when (frame-live-p frame)
+              (let ((parent (frame-parent frame)))
+                (mr-x/quick-ask--fit-float
+                 buf (max 10 (- (if (frame-live-p parent) (frame-height parent) 40) 4))))))))
+
+      (defun mr-x/quick-ask-hide ()
+        "Hide Quick Ask, keeping the question, the wait or the answer. SPC Q brings it back."
+        (interactive)
+        (let ((buf (get-buffer "*quick-ask*")))
+          (unless (buffer-live-p buf) (user-error "No Quick Ask open"))
+          (with-current-buffer buf
+            (setq mr-x/quick-ask--hidden t)
+            (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buf)))
+            (dolist (window (get-buffer-window-list buf nil t))
+              (unless (frame-parameter (window-frame window) 'parent-frame)
+                (delete-window window)))
+            (when (eq mr-x/quick-ask--phase 'waiting) (mr-x/quick-ask--notify 'thinking))
+            (let ((source-window (and (buffer-live-p mr-x/quick-ask--source-buffer)
+                                      (get-buffer-window mr-x/quick-ask--source-buffer t))))
+              (when (window-live-p source-window)
+                (select-window source-window)
+                (when (display-graphic-p (window-frame source-window))
+                  (select-frame-set-input-focus (window-frame source-window))))))))
+
+      (defun mr-x/quick-ask-toggle ()
+        "Hide the open Quick Ask, or bring a hidden one back."
+        (interactive)
+        (let ((buf (get-buffer "*quick-ask*")))
+          (cond ((not (buffer-live-p buf)) (user-error "No Quick Ask open; SPC q asks one"))
+                ((buffer-local-value 'mr-x/quick-ask--hidden buf) (mr-x/quick-ask--show buf))
+                (t (mr-x/quick-ask-hide)))))
+
+      (defun mr-x/quick-ask-toggle-placement ()
+        "Move the open Quick Ask between a popup at point and the bottom window."
+        (interactive)
+        (let ((buf (get-buffer "*quick-ask*")))
+          (unless (buffer-live-p buf) (user-error "No Quick Ask open"))
+          (with-current-buffer buf
+            (let ((next (if (eq (or mr-x/quick-ask--placement mr-x/quick-ask-placement) 'float)
+                            'bottom 'float)))
+              (mr-x/quick-ask-hide)
+              (setq mr-x/quick-ask--placement next)
+              (mr-x/quick-ask--show buf)
+              (message "Quick Ask: %s" (if (eq next 'float) "popup" "bottom window"))))))
 
       (defun mr-x/quick-ask--restart ()
         "Start a new question (same session — conversation memory preserved)."
@@ -2848,13 +2997,14 @@ silent context-only capture with no marker."
             ;; Check if shell is busy
             (when (with-current-buffer shell-buf (shell-maker-busy))
               (user-error "Claude is still thinking about the previous question"))
-            ;; Show thinking state
-            (let ((inhibit-read-only t))
+            ;; Show thinking state: the card, with a spinner where the answer goes.
+            (let ((inhibit-read-only t)
+                  (label (mr-x/quick-ask--context-label)))
+              (setq-local after-change-functions nil)
               (erase-buffer)
               (remove-overlays)
-              (insert (propertize question 'face '(:weight bold :foreground "#88c0d0")))
-              (insert "\n\n")
-              (insert (propertize "Waiting for Claude...  (q / C-g / C-c C-c to abort)" 'face 'shadow)))
+              (review-panel-ask-waiting label question))
+            (mr-x/quick-ask--refit popup-buf)
             (setq buffer-read-only t)
             ;; Activate waiting keymap so user can abort
             (setq mr-x/quick-ask--phase 'waiting)
@@ -2890,16 +3040,16 @@ silent context-only capture with no marker."
   The agent-shell output includes collapsible thinking fragments that render
   as: ▶ Thinking\\n\\n[reasoning content]\\n\\n[actual response]
   Strip everything up to and including the thinking block."
-        (if (and text (string-match "\\`[ \t\n]*▶[^\n]*[Tt]hinking[^\n]*\n\n" text))
+        (let ((text (or text "")))
+          ;; Leading fragments, in any order: thinking, and the session notice
+          ;; a fresh (per-project) session prints on its first turn.
+          (while (string-match "\\`[ \t\n]*▶[^\n]*\\(?:[Tt]hinking\\|[Nn]otices\\)[^\n]*\n\n" text)
             (let ((after-header (match-end 0)))
-              ;; The thinking content continues until we hit a double newline
-              ;; followed by the actual response. Thinking blocks from agent-shell
-              ;; are a single contiguous block, so find the first \n\n boundary.
-              (if (string-match "\n\n" text after-header)
-                  (string-trim (substring text (match-end 0)))
-                ;; No double newline found — entire text is thinking, return empty
-                ""))
-          (or text "")))
+              ;; A fragment is one contiguous block: it ends at the next blank line.
+              (setq text (if (string-match "\n\n" text after-header)
+                             (substring text (match-end 0))
+                           ""))))
+          (string-trim text)))
 
       (defun mr-x/quick-ask--show-response (question response)
         "Render QUESTION and RESPONSE in the popup buffer."
@@ -2982,30 +3132,23 @@ silent context-only capture with no marker."
                     (push (list :type 'region :label label :content content)
                           mr-x/quick-ask--context-items)))
 
-                ;; Header
+                ;; The design's card: context row, the question, keycaps.
+                (require 'review-panel)
+                (face-remap-set-base 'default :background "#282828")
+                (setq mr-x/quick-ask--context-end nil)
                 (mr-x/quick-ask--update-context-display)
-
-                ;; Prompt label
-                (insert (propertize "Ask anything:" 'face '(:weight bold)))
-                (insert "\n")
-                (insert (propertize "────────────────────────────────────────"
-                                    'face 'shadow))
+                (goto-char (point-max))
                 (insert "\n")
 
-                ;; Context indicator
-                (when mr-x/quick-ask--context-items
-                  (insert (propertize
-                           (format "  attached: %s"
-                                   (mapconcat (lambda (item) (plist-get item :label))
-                                              mr-x/quick-ask--context-items ", "))
-                           'face 'shadow))
-                  (insert "\n"))
-
-                ;; Editable text region
+                ;; Editable text region, then the footer after it.
                 (setq mr-x/quick-ask--input-start (point-marker))
                 (set-marker-insertion-type mr-x/quick-ask--input-start nil)
                 (insert "\n")
-                (setq mr-x/quick-ask--input-end (point-marker))
+                (let ((end (point)))
+                  (insert "\n" (review-panel-ask-footer
+                                '(("RET" "ask" fg) ("S-RET" "newline" dim) ("C-c f" "file" dim)
+                                  ("C-c C-t" "dock" dim) ("C-c C-q" "hide" dim) ("C-g" "cancel" dim))))
+                  (setq mr-x/quick-ask--input-end (copy-marker end)))
                 (set-marker-insertion-type mr-x/quick-ask--input-end t)
 
                 ;; Field overlay — sparse keymap so typing works naturally
@@ -3014,17 +3157,16 @@ silent context-only capture with no marker."
                                     (marker-position mr-x/quick-ask--input-end)
                                     nil nil t))
                 (overlay-put mr-x/quick-ask--field-overlay 'local-map mr-x/quick-ask-input-map)
-                (overlay-put mr-x/quick-ask--field-overlay 'face '(:extend t))))
+                (overlay-put mr-x/quick-ask--field-overlay 'face '(:extend t :foreground "#ebdbb2"))
+                (overlay-put mr-x/quick-ask--field-overlay 'line-prefix (review-panel-ask-indent))
+                (overlay-put mr-x/quick-ask--field-overlay 'wrap-prefix (review-panel-ask-indent))
+                ;; A popup grows with the question as it is typed.
+                (add-hook 'after-change-functions
+                          (lambda (&rest _) (mr-x/quick-ask--refit (current-buffer))) nil t)))
 
-            ;; Display at bottom
-            (let ((win (display-buffer buf
-                                       '((display-buffer-at-bottom)
-                                         (window-height . 0.4)
-                                         (preserve-size . (nil . t))))))
-              (select-window win)
-              (goto-char mr-x/quick-ask--input-start)
-              (when (fboundp 'evil-insert-state)
-                (evil-insert-state))))))
+            ;; A popup at point, or the bottom window (C-c C-t switches).
+            (setq mr-x/quick-ask--placement nil)
+            (mr-x/quick-ask--show buf))))
 
 
 

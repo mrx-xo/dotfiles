@@ -5367,7 +5367,8 @@ background, and inheriting them whole paints text over itself."
         "? t" '(mr-x/tldr :wk "tldr (examples)")
         "? m" '(consult-man :wk "Man (search all pages)")
         "F" '(mr-x/copy-file-path :wk "Copy file path")
-        "q" '(mr-x/quick-ask :wk "Quick question (AI)"))
+        "q" '(mr-x/quick-ask :wk "Quick question (AI)")
+        "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask show/hide"))
 
       ;; Search commands under SPC C-s
       (mr-x/leader-def
