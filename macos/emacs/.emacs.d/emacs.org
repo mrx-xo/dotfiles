@@ -11800,17 +11800,37 @@ silent context-only capture with no marker."
             (kill-buffer buf)))
         (setq mr-x/quick-ask--shell-buffer nil))
 
-      (defun mr-x/quick-ask--ensure-session ()
-        "Return a healthy agent-shell buffer, creating one if needed."
-        (let ((buf mr-x/quick-ask--shell-buffer))
-          (if (mr-x/quick-ask--session-healthy-p buf)
-              buf
-            (mr-x/quick-ask--kill-zombie buf)
-            (mr-x/quick-ask--start-session))))
+      (defvar mr-x/quick-ask--sessions (make-hash-table :test #'equal)
+        "Hidden Quick Ask sessions, one per project root.")
 
-      (defun mr-x/quick-ask--start-session ()
-        "Create the hidden agent-shell session. Returns the buffer."
-        (let ((default-directory (expand-file-name "~")))
+      (defun mr-x/quick-ask--project-directory (&optional dir)
+        "The root of DIR's project, else DIR; home for remote or missing DIR.
+      Quick Ask's agent runs there, so it can read the project it is asked about."
+        (let ((dir (and dir (not (file-remote-p dir)) (file-directory-p dir) dir)))
+          (file-name-as-directory
+           (file-truename
+            (or (and dir (ignore-errors
+                           (when-let ((project (project-current nil dir)))
+                             (project-root project))))
+                dir
+                "~")))))
+
+      (defun mr-x/quick-ask--ensure-session (&optional dir)
+        "Return a healthy agent-shell buffer for DIR's project, creating one if needed.
+      It also becomes `mr-x/quick-ask--shell-buffer', the session abort and
+      continue-in-chat act on."
+        (let* ((root (mr-x/quick-ask--project-directory dir))
+               (buf (gethash root mr-x/quick-ask--sessions)))
+          (setq mr-x/quick-ask--shell-buffer
+                (if (mr-x/quick-ask--session-healthy-p buf)
+                    buf
+                  (when buf (mr-x/quick-ask--kill-zombie buf))
+                  (mr-x/quick-ask--start-session root)))))
+
+      (defun mr-x/quick-ask--start-session (&optional dir)
+        "Create a hidden agent-shell session in DIR's project. Returns the buffer."
+        (let* ((root (mr-x/quick-ask--project-directory dir))
+               (default-directory root))
           (condition-case err
               (setq mr-x/quick-ask--shell-buffer
                     (agent-shell--start
@@ -11827,10 +11847,21 @@ silent context-only capture with no marker."
               ;; renaming breaks shell-maker--process lookup
               ;; Hide this background session from the agent panel buffer list.
               (major-pane-exclude-buffer)
-              (add-hook 'kill-buffer-hook
-                        (lambda () (setq mr-x/quick-ask--shell-buffer nil))
-                        nil t)))
+              (puthash root (current-buffer) mr-x/quick-ask--sessions)
+              (setq-local mr-x/quick-ask--session-root root)
+              (add-hook 'kill-buffer-hook #'mr-x/quick-ask--forget-session nil t)))
           mr-x/quick-ask--shell-buffer))
+
+      (defvar-local mr-x/quick-ask--session-root nil
+        "Project root of this hidden Quick Ask session.")
+
+      (defun mr-x/quick-ask--forget-session ()
+        "Drop the current buffer from the Quick Ask session table."
+        (let ((buf (current-buffer)))
+          (when (eq (gethash mr-x/quick-ask--session-root mr-x/quick-ask--sessions) buf)
+            (remhash mr-x/quick-ask--session-root mr-x/quick-ask--sessions))
+          (when (eq mr-x/quick-ask--shell-buffer buf)
+            (setq mr-x/quick-ask--shell-buffer nil))))
 
       ;; Pre-warm session on startup for instant first response
       (add-hook 'elpaca-after-init-hook #'mr-x/quick-ask--start-session)
@@ -12222,6 +12253,22 @@ silent context-only capture with no marker."
         (mr-x/quick-ask--dismiss)
         (message "Response copied"))
 
+      (defun mr-x/quick-ask--content-lines (buf)
+        "Lines of frame height BUF's posframe needs to show all of it.
+      Measured after a redisplay: a child frame not yet drawn reports 0 px.
+      Never less than twice the buffer's line count, the card's worst case."
+        (let* ((frame (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
+               (window (and (frame-live-p frame) (frame-root-window frame)))
+               (estimate (* 2 (with-current-buffer buf (count-lines (point-min) (point-max))))))
+          (if (not (window-live-p window))
+              estimate
+            (redisplay t)
+            ;; nil FROM/TO: the whole of the posframe's own buffer.
+            (let ((px (cdr (window-text-pixel-size window nil nil))))
+              (if (and (integerp px) (> px 0))
+                  (ceiling (/ (float px) (frame-char-height frame)))
+                estimate)))))
+
       (defun mr-x/quick-ask--display-response (buf)
         "Display BUF beside its review selection, or in the bottom window."
         (with-current-buffer buf
@@ -12239,17 +12286,26 @@ silent context-only capture with no marker."
                       (delete-window window)))
                   ;; posframe resolves integer anchors in the selected window.
                   (with-selected-window source-window
-                    (let ((anchor (with-current-buffer source
-                                    (min (point-max) (max (point-min)
-                                                         (if region (cdr region) (point)))))))
-                      (posframe-show
-                       buf :position anchor
-                       :poshandler #'posframe-poshandler-point-bottom-left-corner
-                       ;; The design's card is 520 px at 6 px per character.
-                       :width (min 86 (- (frame-width) 4))
-                       :min-width (min 40 (- (frame-width) 4)) :max-height 24
-                       :border-width 1 :border-color "#504945"
-                       :background-color "#282828" :accept-focus t)))
+                    (let* ((anchor (with-current-buffer source
+                                     (min (point-max) (max (point-min)
+                                                          (if region (cdr region) (point))))))
+                           (cap (max 10 (- (frame-height) 4)))
+                           (show (lambda (&rest size)
+                                   (apply #'posframe-show
+                                          buf :position anchor
+                                          :poshandler #'posframe-poshandler-point-bottom-left-corner
+                                          ;; The design's card is 520 px at 6 px per character.
+                                          :width (min 86 (- (frame-width) 4))
+                                          :min-width (min 40 (- (frame-width) 4))
+                                          :border-width 1 :border-color "#504945"
+                                          :background-color "#282828" :accept-focus t
+                                          (append size (list :max-height cap))))))
+                      ;; posframe sizes by line count, but the card pads rows in
+                      ;; pixels: measure the rendered card, then show it again at
+                      ;; that height so nothing hides below a scroll.
+                      (funcall show)
+                      (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
+                        (funcall show :height lines :min-height lines))))
                   (let ((frame (and (boundp 'posframe--frame)
                                     (buffer-local-value 'posframe--frame buf))))
                     (when (frame-live-p frame) (select-frame-set-input-focus frame))))
@@ -12278,6 +12334,10 @@ silent context-only capture with no marker."
           (if (and shell-buf (buffer-live-p shell-buf))
               (progn
                 (setq mr-x/quick-ask--shell-buffer nil)
+                ;; It is a normal chat now; the next question starts afresh.
+                (maphash (lambda (root buf)
+                           (when (eq buf shell-buf) (remhash root mr-x/quick-ask--sessions)))
+                         mr-x/quick-ask--sessions)
                 (pop-to-buffer shell-buf))
             (message "No active Quick Ask session to surface"))))
 
@@ -12295,7 +12355,7 @@ silent context-only capture with no marker."
           (let* ((preamble (mr-x/quick-ask--format-context-preamble))
                  (full-prompt (concat preamble question))
                  (popup-buf (current-buffer))
-                 (shell-buf (mr-x/quick-ask--ensure-session)))
+                 (shell-buf (mr-x/quick-ask--ensure-session default-directory)))
             ;; Check if shell is busy
             (when (with-current-buffer shell-buf (shell-maker-busy))
               (user-error "Claude is still thinking about the previous question"))
