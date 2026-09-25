@@ -55,36 +55,87 @@ resizes a frame, and the suffix can stay."
        (string-match-p (concat "\\`" (regexp-quote title) "\\(?:  —  (.*)\\)?\\'")
                        window-title)))
 
-(defun review-frame--move (frame display &optional attempt)
-  "Move FRAME to DISPLAY once yabai has discovered its native window.
+(defcustom review-frame-fallback-space "review"
+  "Label of the space on display 1 that takes review frames whose display is gone.
+Created on first use, so a missing monitor never drops a review on top
+of the space you are working in."
+  :type 'string :group 'review)
+
+(defvar review-frame--space-pending nil
+  "Non-nil while the fallback space is being created.")
+
+(defun review-frame--with-window (frame then &optional attempt)
+  "Call THEN with FRAME's yabai window once yabai has discovered it.
 Only a unique title belonging to this Emacs process is eligible."
+  (review-frame--yabai
+   '("query" "--windows")
+   (lambda (output)
+     (let* ((title (frame-parameter frame 'title))
+            (matches (cl-remove-if-not
+                      (lambda (w) (and (eql (alist-get 'pid w) (emacs-pid))
+                                       (review-frame--title-p title (alist-get 'title w))))
+                      (review-frame--json output))))
+       (cond
+        ((= (length matches) 1) (funcall then (car matches)))
+        ;; Yabai reports a blank title until it finishes adopting it.
+        ((< (or attempt 0) 20)
+         (run-at-time 0.25 nil #'review-frame--with-window frame then (1+ (or attempt 0))))
+        (t (message "Review: could not identify a unique window for %s" title)))))))
+
+(defun review-frame--to-space (window label)
+  "Move yabai WINDOW to the space labelled LABEL and show that space.
+The space is created at the end of display 1 the first time."
+  (let ((move (lambda ()
+                (review-frame--yabai
+                 (list "window" (number-to-string (alist-get 'id window)) "--space" label)
+                 (lambda (_) (review-frame--yabai (list "space" "--focus" label) #'ignore))))))
+    (review-frame--yabai
+     '("query" "--spaces")
+     (lambda (output)
+       (cond
+        ((cl-find label (review-frame--json output)
+                  :key (lambda (s) (alist-get 'label s)) :test #'equal)
+         (funcall move))
+        ;; The other review frame is creating it: try again shortly.
+        (review-frame--space-pending
+         (run-at-time 0.3 nil #'review-frame--to-space window label))
+        (t
+         (setq review-frame--space-pending t)
+         (review-frame--yabai
+          '("space" "--create" "1")
+          (lambda (_)
+            (review-frame--yabai
+             '("query" "--spaces")
+             (lambda (output)
+               (let ((new (car (last (cl-remove-if-not
+                                      (lambda (s) (eql (alist-get 'display s) 1))
+                                      (review-frame--json output))))))
+                 (review-frame--yabai
+                  (list "space" (number-to-string (alist-get 'index new)) "--label" label)
+                  (lambda (_)
+                    (setq review-frame--space-pending nil)
+                    (funcall move))))))))))))))
+
+(defun review-frame--move (frame display &optional attempt)
+  "Move FRAME to DISPLAY, or to the fallback space when DISPLAY is gone."
   (when (and (frame-live-p frame) (frame-visible-p frame))
     (review-frame--yabai
      '("query" "--displays")
      (lambda (output)
-       (if (not (cl-find display (review-frame--json output)
-                         :key (lambda (d) (alist-get 'index d))))
-           (message "Review: display %s is unavailable; leaving frame in place" display)
-         (review-frame--yabai
-          '("query" "--windows")
-          (lambda (output)
-            (let* ((title (frame-parameter frame 'title))
-                   (matches (cl-remove-if-not
-                             (lambda (w) (and (eql (alist-get 'pid w) (emacs-pid))
-                                              (review-frame--title-p title (alist-get 'title w))))
-                             (review-frame--json output))))
-              (cond
-               ((= (length matches) 1)
-                (let ((window (car matches)))
-                  (unless (eql (alist-get 'display window) display)
-                    (review-frame--yabai
-                     (list "window" (number-to-string (alist-get 'id window))
-                           "--display" (number-to-string display))
-                     #'ignore))))
-               ;; Yabai reports a blank title until it finishes adopting it.
-               ((< (or attempt 0) 20)
-                (run-at-time 0.25 nil #'review-frame--move frame display (1+ (or attempt 0))))
-               (t (message "Review: could not identify a unique window for %s" title)))))))))))
+       (let ((present (cl-find display (review-frame--json output)
+                               :key (lambda (d) (alist-get 'index d)))))
+         (review-frame--with-window
+          frame
+          (lambda (window)
+            (cond
+             ((not present)
+              (review-frame--to-space window review-frame-fallback-space))
+             ((not (eql (alist-get 'display window) display))
+              (review-frame--yabai
+               (list "window" (number-to-string (alist-get 'id window))
+                     "--display" (number-to-string display))
+               #'ignore))))
+          attempt))))))
 
 (defun review-frame-set-floating (frame floating then)
   "Make FRAME's yabai window FLOATING or tiled, then call THEN.
