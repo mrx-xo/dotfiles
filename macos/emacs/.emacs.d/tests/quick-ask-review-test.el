@@ -184,6 +184,26 @@
               (should (>= (plist-get last :max-height) 12))))
         (when (buffer-live-p buf) (kill-buffer buf))))))
 
+(ert-deftest quick-ask-popup-that-fits-cannot-scroll ()
+  ;; Emacs lets any window scroll its last line to the top; a card that
+  ;; fits whole stays pinned at its start.
+  (save-window-excursion
+    (let ((buf (get-buffer-create " *qa-pin*")))
+      (unwind-protect
+          (progn
+            (switch-to-buffer buf)
+            (insert (mapconcat #'number-to-string (number-sequence 1 5) "\n"))
+            (setq-local mr-x/quick-ask--fits t)
+            (let ((w (selected-window)))
+              (set-window-start w (save-excursion (goto-char (point-min)) (forward-line 3) (point)))
+              (mr-x/quick-ask--pin-start w (window-start w))
+              (should (= (window-start w) (point-min)))
+              (setq-local mr-x/quick-ask--fits nil)
+              (set-window-start w 5)
+              (mr-x/quick-ask--pin-start w 5)
+              (should (= (window-start w) 5))))
+        (kill-buffer buf)))))
+
 (ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
   (review-session-test--with s
     (select-window (review-session-new-window s))

@@ -12253,21 +12253,34 @@ silent context-only capture with no marker."
         (mr-x/quick-ask--dismiss)
         (message "Response copied"))
 
+      (defvar-local mr-x/quick-ask--fits nil
+        "Non-nil when the whole card fits its popup, which then cannot scroll.")
+
+      (defun mr-x/quick-ask--content-pixels (buf)
+        "Pixel height of BUF's card in its posframe, or nil if not measurable.
+      Measured after a redisplay: a child frame not yet drawn reports 0 px."
+        (let* ((frame (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
+               (window (and (frame-live-p frame) (frame-root-window frame))))
+          (when (window-live-p window)
+            (redisplay t)
+            ;; To the end: the last row's padding lives on its newline.
+            (let ((px (cdr (window-text-pixel-size window nil nil))))
+              (and (integerp px) (> px 0) px)))))
+
       (defun mr-x/quick-ask--content-lines (buf)
         "Lines of frame height BUF's posframe needs to show all of it.
-      Measured after a redisplay: a child frame not yet drawn reports 0 px.
-      Never less than twice the buffer's line count, the card's worst case."
-        (let* ((frame (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
-               (window (and (frame-live-p frame) (frame-root-window frame)))
-               (estimate (* 2 (with-current-buffer buf (count-lines (point-min) (point-max))))))
-          (if (not (window-live-p window))
-              estimate
-            (redisplay t)
-            ;; nil FROM/TO: the whole of the posframe's own buffer.
-            (let ((px (cdr (window-text-pixel-size window nil nil))))
-              (if (and (integerp px) (> px 0))
-                  (ceiling (/ (float px) (frame-char-height frame)))
-                estimate)))))
+      Never less than twice the buffer's line count when it cannot be measured."
+        (let ((px (mr-x/quick-ask--content-pixels buf))
+              (frame (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf))))
+          (if (and px (frame-live-p frame))
+              (ceiling (/ (float px) (frame-char-height frame)))
+            (* 2 (with-current-buffer buf (count-lines (point-min) (point-max)))))))
+
+      (defun mr-x/quick-ask--pin-start (window start)
+        "Keep WINDOW at the card's start while the whole card fits."
+        (with-current-buffer (window-buffer window)
+          (when (and mr-x/quick-ask--fits (> start (point-min)))
+            (set-window-start window (point-min) t))))
 
       (defun mr-x/quick-ask--display-response (buf)
         "Display BUF beside its review selection, or in the bottom window."
@@ -12305,7 +12318,18 @@ silent context-only capture with no marker."
                       ;; that height so nothing hides below a scroll.
                       (funcall show)
                       (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
-                        (funcall show :height lines :min-height lines))))
+                        (funcall show :height lines :min-height lines))
+                      ;; Lines round up and leave a gap: settle on the exact
+                      ;; pixel height, and pin the view when it all fits.
+                      (let ((frame (and (boundp 'posframe--frame)
+                                        (buffer-local-value 'posframe--frame buf)))
+                            (px (mr-x/quick-ask--content-pixels buf)))
+                        (when (and (frame-live-p frame) px)
+                          (let ((fits (<= px (* cap (frame-char-height frame)))))
+                            (with-current-buffer buf
+                              (setq mr-x/quick-ask--fits fits)
+                              (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
+                            (when fits (set-frame-height frame px nil t)))))))
                   (let ((frame (and (boundp 'posframe--frame)
                                     (buffer-local-value 'posframe--frame buf))))
                     (when (frame-live-p frame) (select-frame-set-input-focus frame))))
