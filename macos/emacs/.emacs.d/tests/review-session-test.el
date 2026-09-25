@@ -148,21 +148,59 @@
     (should (memq 'review-eol (ensure-list (get-text-property cr 'face text))))
     (should-not (string-match "\r" (review-session-pane-text rows 'new new "crlf.txt")))))
 
-(ert-deftest review-session-pulses-the-hunk-in-both-panes ()
-  (let (pulses)
-    (cl-letf (((symbol-function 'pulse-momentary-highlight-region)
-               (lambda (start end &rest _)
-                 (push (list (current-buffer) (buffer-substring-no-properties start end)) pulses))))
+;; Emacs's pulse keeps one global overlay, so pulsing the second pane
+;; cancelled the first: only one side ever flashed.
+(ert-deftest review-session-flashes-the-hunk-in-both-panes ()
+  (cl-flet ((flashed (buffer)
+              (with-current-buffer buffer
+                (seq-find (lambda (o) (eq (overlay-get o 'face) 'review-flash))
+                          (overlays-in (point-min) (point-max))))))
+    (cl-letf (((symbol-function 'run-at-time) #'ignore))
       (review-session-test--with s
-        (setq pulses nil)
         (review-session-next-file)
-        (should (equal (sort (mapcar #'car pulses) (lambda (a b) (string< (buffer-name a) (buffer-name b))))
-                       (list (review-session-new-buffer s) (review-session-old-buffer s))))
-        (should (seq-every-p (lambda (p) (string-match-p "[yY]" (cadr p))) pulses))
+        (let ((old (flashed (review-session-old-buffer s)))
+              (new (flashed (review-session-new-buffer s))))
+          (should old)
+          (should new)
+          (should (string-match-p "Y" (with-current-buffer (review-session-new-buffer s)
+                                        (buffer-substring (overlay-start new) (overlay-end new))))))
         (let ((review-session-pulse nil))
-          (setq pulses nil)
           (review-session-prev-file)
-          (should-not pulses))))))
+          (should-not (flashed (review-session-new-buffer s))))))))
+
+(ert-deftest review-session-highlights-only-the-changed-words ()
+  (let* ((old "keep this OLDWORD and this\n") (new "keep this NEWWORD and this\n")
+         (rows (review-diff-rows (review-diff-ops old new))))
+    (dolist (side '(old new))
+      (let* ((text (review-session-pane-text rows side (if (eq side 'old) old new) "f.txt"))
+             (word (string-match (if (eq side 'old) "OLDWORD" "NEWWORD") text))
+             (face (if (eq side 'old) 'review-del-word 'review-add-word)))
+        (should (memq face (ensure-list (get-text-property word 'face text))))
+        (should-not (memq face (ensure-list (get-text-property (string-match "keep" text) 'face text))))
+        (should-not (memq face (ensure-list (get-text-property (string-match "and" text) 'face text))))))))
+
+(ert-deftest review-session-scrolls-sideways-to-a-change-far-right ()
+  (let* ((far (concat (make-string 300 ?x) " old tail\n"))
+         (far-new (concat (make-string 300 ?x) " new tail\n")))
+    (save-window-excursion
+      (let ((s (review-session-start
+                (review-session-test--source
+                 `(("far.txt" modified ,far ,far-new) ("near.txt" modified "a b\n" "a c\n"))))))
+        (unwind-protect
+            (progn
+              (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
+                (let ((col (+ (review-session--text-column (window-buffer w)) 301)))
+                  ;; Point sits on the change, or `auto-hscroll-mode' would
+                  ;; scroll back to column 0 on the next redisplay.
+                  (should (= col (with-current-buffer (window-buffer w)
+                                   (save-excursion (goto-char (window-point w)) (current-column)))))
+                  (should (> (window-hscroll w) 0))
+                  (should (<= (window-hscroll w) col))
+                  (should (< col (+ (window-hscroll w) (window-body-width w))))))
+              (review-session-next-file)
+              (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
+                (should (= (window-hscroll w) 0))))
+          (review-session-quit))))))
 
 (ert-deftest review-session-headers-name-added-and-deleted-sides ()
   (save-window-excursion

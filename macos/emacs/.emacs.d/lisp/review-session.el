@@ -8,7 +8,6 @@
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
-(require 'pulse)
 (require 'review-diff)
 (require 'review-source)
 
@@ -35,6 +34,9 @@ Terminal sessions always use the invoking frame."
 (defface review-blank '((t :background "#232323" :extend t)) "Placeholder row.")
 (defface review-rail '((t :background "#fe8019")) "Current hunk rail.")
 (defface review-mark-del '((t :foreground "#fb4934" :weight bold)) "Minus mark.")
+(defface review-del-word '((t :background "#5c2e28")) "Changed words in a removed row.")
+(defface review-add-word '((t :background "#4a4d22")) "Changed words in an added row.")
+(defface review-flash '((t :background "#665c54" :extend t)) "Brief highlight after a jump.")
 (defface review-mark-add '((t :foreground "#b8bb26" :weight bold)) "Plus mark.")
 
 (cl-defstruct review-session
@@ -144,13 +146,33 @@ Without it a CRLF-to-LF change shows as rows that look identical."
               (propertize "\r" 'display "\u240d" 'face 'review-eol))
     line))
 
+(defun review-session--changed-span (old new)
+  "Return (START OLD-END NEW-END), the differing middle of OLD and NEW.
+Widened to whole words so a highlight never splits one."
+  (let ((lo (length old)) (ln (length new)) (p 0) (s 0))
+    (while (and (< p lo) (< p ln) (eq (aref old p) (aref new p))) (cl-incf p))
+    (while (and (< s (- lo p)) (< s (- ln p))
+                (eq (aref old (- lo 1 s)) (aref new (- ln 1 s))))
+      (cl-incf s))
+    (cl-flet ((word (str i) (and (<= 0 i) (< i (length str))
+                                 (string-match-p "[[:alnum:]_]" (string (aref str i))))))
+      (while (and (> p 0) (word old (1- p)) (or (word old p) (word new p))) (cl-decf p))
+      (while (and (> s 0) (word old (- lo s))
+                  (or (word old (- lo s 1)) (word new (- ln s 1))))
+        (cl-decf s)))
+    (list p (- lo s) (- ln s))))
+
+(defun review-session--gutter-width (text)
+  "Digits in the line-number gutter for TEXT."
+  (max 3 (length (number-to-string (max 1 (length (review-diff--lines text)))))))
+
 (defun review-session-pane-text (rows side text &optional path)
   "Render ROWS for SIDE (old or new) of TEXT as one string, gutter included.
 Every line carries a `review-row' property with its row index."
   (let* ((path (or path "file.txt"))
          (lines (vconcat (unless (string-empty-p text)
                            (review-session--fontified-lines text path))))
-         (width (max 3 (length (number-to-string (max 1 (length lines))))))
+         (width (review-session--gutter-width text))
          (no-key (if (eq side 'old) :old-no :new-no))
          (text-key (if (eq side 'old) :old :new))
          (out nil) (i 0))
@@ -169,6 +191,16 @@ Every line carries a `review-row' property with its row index."
                          (t " ")))
              (gutter (propertize (format (format "%%%ds " width) (if no (number-to-string no) "")) 'face 'review-gutter))
              (body (concat gutter mark " " (or line ""))))
+        ;; A modified row: mark just the words that changed.
+        (when (and (eq kind 'both) no (stringp (plist-get row :old)) (stringp (plist-get row :new)))
+          (pcase-let* ((`(,from ,old-end ,new-end)
+                        (review-session--changed-span (plist-get row :old) (plist-get row :new)))
+                       (end (if (eq side 'old) old-end new-end))
+                       (offset (- (length body) (length (or line "")))))
+            (when (and (< from end) (or (> from 0) (< end (length (or line "")))))
+              (add-face-text-property (+ offset from) (min (length body) (+ offset end))
+                                      (if (eq side 'old) 'review-del-word 'review-add-word)
+                                      nil body))))
         (when row-face
           (add-face-text-property 0 (length body) row-face t body))
         (push (propertize body 'review-row i) out)
@@ -257,6 +289,9 @@ Best effort: any user input abandons the work."
             (insert (propertize "binary file, nothing to compare" 'face 'shadow))
           (insert (review-session--pane-string session index side))))
       (review-pane-mode)
+      (setq review-pane--text-column
+            (+ 3 (review-session--gutter-width
+                  (or (plist-get file (if (eq side 'old) :old-text :new-text)) ""))))
       (setq default-directory (review-session-directory session))
       (setq review-pane--session session review-pane--side side review-pane--file-index index)
       (setq header-line-format
@@ -276,6 +311,29 @@ Best effort: any user input abandons the work."
     (when (buffer-live-p b) (kill-buffer b))))
 
 (defvar-local review-pane--rail nil "Overlay marking the current hunk.")
+(defvar-local review-pane--text-column 0 "Column where a pane's text starts, after the gutter.")
+
+(defun review-session--text-column (buffer)
+  (buffer-local-value 'review-pane--text-column buffer))
+
+(defun review-session--flash (start end)
+  "Highlight START..END in the current buffer briefly.
+Emacs's pulse keeps one global overlay, so a second pane would cancel the first."
+  (let ((o (make-overlay start end)))
+    (overlay-put o 'face 'review-flash)
+    (overlay-put o 'priority 100)
+    (run-at-time 0.35 nil #'delete-overlay o)))
+
+(defun review-session--hunk-column (file hunk)
+  "Column of the first change in HUNK of FILE, 0 when a row changes whole."
+  (let ((rows (cl-subseq (plist-get file :rows) (plist-get hunk :start)
+                         (min (length (plist-get file :rows)) (1+ (plist-get hunk :end))))))
+    (apply #'min (mapcar (lambda (row)
+                           (if (and (eq (plist-get row :kind) 'both)
+                                    (stringp (plist-get row :old)) (stringp (plist-get row :new)))
+                               (car (review-session--changed-span (plist-get row :old) (plist-get row :new)))
+                             0))
+                         rows))))
 
 (defun review-session--row-position (buffer row)
   "Return the buffer position of ROW in BUFFER."
@@ -297,14 +355,22 @@ Best effort: any user input abandons the work."
             (unless (overlayp review-pane--rail)
               (setq review-pane--rail (make-overlay start end)))
             (move-overlay review-pane--rail start end)
-            (when review-session-pulse
-              (let ((pulse-flag t)) (pulse-momentary-highlight-region start end)))
+            (when review-session-pulse (review-session--flash start end))
             (overlay-put review-pane--rail 'line-prefix (propertize " " 'face 'review-rail))
             (goto-char start)
             ;; Commands also run from the files frame; search every frame.
             (when-let ((w (get-buffer-window buffer t)))
-              (set-window-point w start)
-              (set-window-start w (review-session--row-position buffer (max 0 (- (plist-get hunk :start) 3)))))))))))
+              (set-window-start w (review-session--row-position buffer (max 0 (- (plist-get hunk :start) 3))))
+              ;; Long lines: scroll sideways so the change itself is on screen.
+              ;; Point goes to the change too, or `auto-hscroll-mode' scrolls
+              ;; back to show it at column 0.
+              (let* ((column (+ review-pane--text-column (review-session--hunk-column file hunk)))
+                     (width (window-body-width w))
+                     (at (save-excursion (goto-char start) (move-to-column column) (point))))
+                (goto-char at)
+                (set-window-point w at)
+                (set-window-hscroll w (if (< (+ column 8) width) 0
+                                        (max 0 (- column (/ width 3)))))))))))))
 
 (defun review-session--sync-scroll (window start)
   "Keep the other pane level with WINDOW after it scrolls to START."
