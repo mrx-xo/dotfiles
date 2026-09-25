@@ -28,6 +28,7 @@ Terminal sessions always use the invoking frame."
   "Flash the current hunk in both panes after every jump."
   :type 'boolean :group 'review)
 
+(defface review-eol '((t :inherit shadow)) "Carriage-return marker in a pane.")
 (defface review-gutter '((t :inherit shadow)) "Line numbers in a pane.")
 (defface review-del '((t :background "#372523" :extend t)) "Removed row.")
 (defface review-add '((t :background "#303322" :extend t)) "Added row.")
@@ -135,6 +136,14 @@ Concurrent consumers share one load; stale completions cannot alter its cache."
     ;; enable font-lock, so it renders as is.
     (review-diff--lines (buffer-string))))
 
+(defun review-session--mark-cr (line)
+  "Show LINE's trailing carriage return as a muted \u240d instead of ^M.
+Without it a CRLF-to-LF change shows as rows that look identical."
+  (if (and line (string-suffix-p "\r" line))
+      (concat (substring line 0 -1)
+              (propertize "\r" 'display "\u240d" 'face 'review-eol))
+    line))
+
 (defun review-session-pane-text (rows side text &optional path)
   "Render ROWS for SIDE (old or new) of TEXT as one string, gutter included.
 Every line carries a `review-row' property with its row index."
@@ -149,7 +158,8 @@ Every line carries a `review-row' property with its row index."
       (let* ((no (plist-get row no-key))
              (kind (plist-get row :kind))
              (present (plist-get row text-key))
-             (line (and no (or (and (<= no (length lines)) (aref lines (1- no))) present "")))
+             (line (review-session--mark-cr
+                    (and no (or (and (<= no (length lines)) (aref lines (1- no))) present ""))))
              (row-face (cond ((null no) 'review-blank)
                              ((and (eq side 'old) (memq kind '(del both))) 'review-del)
                              ((and (eq side 'new) (memq kind '(add both))) 'review-add)))

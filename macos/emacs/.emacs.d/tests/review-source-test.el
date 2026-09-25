@@ -252,6 +252,23 @@
         (should (equal (review-source-subtitle src) "team / project   feat/cache -> main"))
         (should (equal updated (list src)))))))
 
+;; Decoding with plain utf-8 guessed the line endings and turned CRLF into
+;; LF, so a line-ending-only change compared as identical text.
+(ert-deftest review-source-forgejo-text-keeps-crlf ()
+  (review-source-test--with-patch
+    (let* ((files (review-source-forgejo-patch-files))
+           (src (review-source-forgejo-pr "https://forge.example" "team" "project" 41 files))
+           got)
+      (cl-letf (((symbol-function 'forgejo-api-get)
+                 (lambda (_host path _params cb &rest _args)
+                   (if (string-suffix-p "pulls/41" path)
+                       (funcall cb '((merge_base . "base1") (head . ((sha . "head1")))) nil)
+                     (funcall cb `((sha . "2222222abc") (encoding . "base64")
+                                   (content . ,(base64-encode-string "a\r\nb\r\n")))
+                              nil)))))
+        (funcall (review-source-text src) (car files) 'new (lambda (s) (setq got s)))
+        (should (equal got "a\r\nb\r\n"))))))
+
 (ert-deftest review-source-forgejo-text-rejects-drifted-blob ()
   (review-source-test--with-patch
     (let* ((files (review-source-forgejo-patch-files))

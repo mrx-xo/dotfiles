@@ -208,7 +208,9 @@ Revisions and index blobs are pinned when the file list is first read."
              (unless (and (equal (alist-get 'encoding source) "base64")
                           (stringp (alist-get 'content source)))
                (user-error "The API did not return source text for %s" path))
-             (setq text (decode-coding-string (base64-decode-string (alist-get 'content source)) 'utf-8))
+             (setq text (decode-coding-string (base64-decode-string (alist-get 'content source))
+                                              ;; -unix keeps CRLF: line endings are content.
+                                              'utf-8-unix))
              (when (string-match-p "\0" text)
                (user-error "Cannot compare binary source %s as text" path)))
          (error (setq failure (error-message-string err))))

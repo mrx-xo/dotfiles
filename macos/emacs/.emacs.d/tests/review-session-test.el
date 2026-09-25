@@ -136,6 +136,18 @@
         (with-current-buffer (review-session-new-buffer s)
           (should (string-match-p "Y" (buffer-string))))))))
 
+(ert-deftest review-session-panes-show-carriage-returns ()
+  ;; A CRLF-to-LF change is invisible unless the old side marks its CRs.
+  (let* ((old "first\r\nsecond\r\n") (new "first\nsecond\n")
+         (rows (review-diff-rows (review-diff-ops old new)))
+         (text (review-session-pane-text rows 'old old "crlf.txt"))
+         (cr (string-match "\r" text)))
+    (should (seq-every-p (lambda (r) (memq (plist-get r :kind) '(del add both))) rows))
+    (should cr)
+    (should (equal (get-text-property cr 'display text) "\u240d"))
+    (should (memq 'review-eol (ensure-list (get-text-property cr 'face text))))
+    (should-not (string-match "\r" (review-session-pane-text rows 'new new "crlf.txt")))))
+
 (ert-deftest review-session-pulses-the-hunk-in-both-panes ()
   (let (pulses)
     (cl-letf (((symbol-function 'pulse-momentary-highlight-region)
