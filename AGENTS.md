@@ -22,8 +22,9 @@ See `README.md` for the full repository map and bootstrap instructions.
 
 Never use emojis in this repository or anything produced for it. This covers
 UI text, code, comments, logs, commits, pull requests, documentation, and chat
-responses. Use plain text status words such as `done`, `failed`, and `pending`,
-or a real icon font where an interface genuinely needs an icon.
+responses. Emoji means colour pictographs (✅ ❌ ⚠️ 🎉 🚀). Icons are welcome,
+especially in UI: icon fonts (Nerd Font, SF Symbols) and monochrome symbols
+(● ○ › ✓ ✗). When a design shows an icon, build the icon.
 
 ## Preserve Existing Work
 
