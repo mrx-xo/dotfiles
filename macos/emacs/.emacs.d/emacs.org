@@ -3324,22 +3324,26 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   (defvar mr-x/frame-counter 0)
   (defun mr-x/decorate-secondary-frame ()
     "Sole GUI frame: clean + marked MAIN + pane home.
-Secondary frames: title bar + frame number."
-    (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
-        (progn
-          (cl-incf mr-x/frame-counter)
-          (set-frame-parameter nil 'undecorated-round nil)
-          (set-frame-parameter nil 'title
-                               (format "Emacs #%d" mr-x/frame-counter)))
-      ;; This IS the main frame: queryable identity marker + the
-      ;; major-pane soft-locks here (convos from scratch frames land in
-      ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
-      ;; darker #1d2021 background so it's tellable apart from scratch
-      ;; frames at a glance (agent-shell panes go a shade darker still).
-      (set-frame-parameter nil 'mr-x-main-frame t)
-      (set-frame-parameter nil 'background-color "#1d2021")
-      (when (boundp 'major-pane-home-frame)
-        (setq major-pane-home-frame (selected-frame)))))
+Secondary frames: title bar + frame number.  tty clients are neither."
+    ;; tty clients (CALLIOPE's emx) aren't counted by the GUI-frame filter,
+    ;; so with one GUI frame up they'd pass as "sole" and claim MAIN: dark
+    ;; background on the e-ink and the major-pane home moved to the tablet.
+    (when (display-graphic-p)
+      (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
+          (progn
+            (cl-incf mr-x/frame-counter)
+            (set-frame-parameter nil 'undecorated-round nil)
+            (set-frame-parameter nil 'title
+                                 (format "Emacs #%d" mr-x/frame-counter)))
+        ;; This IS the main frame: queryable identity marker + the
+        ;; major-pane soft-locks here (convos from scratch frames land in
+        ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
+        ;; darker #1d2021 background so it's tellable apart from scratch
+        ;; frames at a glance (agent-shell panes go a shade darker still).
+        (set-frame-parameter nil 'mr-x-main-frame t)
+        (set-frame-parameter nil 'background-color "#1d2021")
+        (when (boundp 'major-pane-home-frame)
+          (setq major-pane-home-frame (selected-frame))))))
   (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
 
 #+end_src
