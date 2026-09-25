@@ -153,7 +153,7 @@
 (ert-deftest review-session-flashes-the-hunk-in-both-panes ()
   (cl-flet ((flashed (buffer)
               (with-current-buffer buffer
-                (seq-find (lambda (o) (eq (overlay-get o 'face) 'review-flash))
+                (seq-find (lambda (o) (overlay-get o 'review-flash))
                           (overlays-in (point-min) (point-max))))))
     (cl-letf (((symbol-function 'run-at-time) #'ignore))
       (review-session-test--with s
@@ -167,6 +167,19 @@
         (let ((review-session-pulse nil))
           (review-session-prev-file)
           (should-not (flashed (review-session-new-buffer s))))))))
+
+(ert-deftest review-session-flash-fades-before-it-goes ()
+  ;; A 0.35 s grey blink was too faint to notice: hold, then fade out.
+  (let (timers)
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (time _repeat fn &rest args) (push (list time fn args) timers))))
+      (with-temp-buffer
+        (insert "changed line\n")
+        (review-session--flash (point-min) (point-max))
+        (should (> (length timers) 4))
+        (should (>= (apply #'max (mapcar #'car timers)) 0.5))
+        (should (eq (cadr (car (sort (copy-sequence timers) (lambda (a b) (> (car a) (car b))))))
+                    #'delete-overlay))))))
 
 (ert-deftest review-session-highlights-only-the-changed-words ()
   (let* ((old "keep this OLDWORD and this\n") (new "keep this NEWWORD and this\n")
