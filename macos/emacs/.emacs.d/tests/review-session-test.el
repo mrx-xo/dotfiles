@@ -136,6 +136,56 @@
         (with-current-buffer (review-session-new-buffer s)
           (should (string-match-p "Y" (buffer-string))))))))
 
+(ert-deftest review-session-pulses-the-hunk-in-both-panes ()
+  (let (pulses)
+    (cl-letf (((symbol-function 'pulse-momentary-highlight-region)
+               (lambda (start end &rest _)
+                 (push (list (current-buffer) (buffer-substring-no-properties start end)) pulses))))
+      (review-session-test--with s
+        (setq pulses nil)
+        (review-session-next-file)
+        (should (equal (sort (mapcar #'car pulses) (lambda (a b) (string< (buffer-name a) (buffer-name b))))
+                       (list (review-session-new-buffer s) (review-session-old-buffer s))))
+        (should (seq-every-p (lambda (p) (string-match-p "[yY]" (cadr p))) pulses))
+        (let ((review-session-pulse nil))
+          (setq pulses nil)
+          (review-session-prev-file)
+          (should-not pulses))))))
+
+(ert-deftest review-session-headers-name-added-and-deleted-sides ()
+  (save-window-excursion
+    (let ((s (review-session-start
+              (review-session-test--source
+               '(("new.py" added "" "x\n") ("gone.txt" deleted "y\n" ""))))))
+      (unwind-protect
+          (cl-flet ((header (side) (with-current-buffer
+                                       (if (eq side 'old) (review-session-old-buffer s)
+                                         (review-session-new-buffer s))
+                                     header-line-format)))
+            (setf (plist-get (aref (review-session-files s) 0) :old-path) nil)
+            (review-session-show 0)
+            (should (string-match-p "OLD  (new file)  " (header 'old)))
+            (should (string-match-p "NEW  new\\.py  " (header 'new)))
+            (review-session-show 1)
+            (should (string-match-p "OLD  gone\\.txt  " (header 'old)))
+            (should (string-match-p "NEW  (deleted)  " (header 'new))))
+        (review-session-quit)))))
+
+(ert-deftest review-session-frameless-daemon-still-pops-out ()
+  ;; rv starts the sandbox without frames, so only its terminal frame exists.
+  (let ((featurep (symbol-function 'featurep)) params)
+    (cl-letf (((symbol-function 'daemonp) (lambda () "sandbox"))
+              ((symbol-function 'featurep)
+               (lambda (feature &rest args) (or (eq feature 'ns) (apply featurep feature args))))
+              ((symbol-function 'make-frame) (lambda (&optional p) (setq params p) (selected-frame)))
+              ((symbol-function 'delete-frame) #'ignore)
+              ((symbol-function 'select-frame-set-input-focus) #'ignore)
+              ((symbol-function 'review-frame-place) #'ignore))
+      (let ((review-session-pop-out t))
+        (review-session-test--with s
+          (should (review-session-own-frame s))
+          (should (eq (alist-get 'window-system params) 'ns)))))))
+
 (ert-deftest review-session-prerenders-neighbours ()
   (review-session-test--with s
     (should-not (plist-get (review-session-file s 1) :new-pane))
@@ -147,16 +197,29 @@
     (review-session--prerender s)
     (should-not (plist-get (review-session-file s 2) :new-pane))))
 
-(ert-deftest review-session-hunks-walk-then-spill-into-next-file ()
-  (review-session-test--with s
-    (review-session-next-file)
-    (should (equal (length (plist-get (aref (review-session-files s) 1) :hunks)) 1))
-    (review-session-next-hunk)
-    (should (equal (review-session-current s) 2))
-    (should-error (review-session-next-hunk) :type 'user-error)
-    (review-session-prev-hunk)
-    (should (equal (review-session-current s) 1))
-    (should (equal (review-session-hunk s) 0))))
+(ert-deftest review-session-hunk-keys-stay-inside-the-file ()
+  ;; Hunk keys only walk hunks; only file keys change files.
+  (let* ((old (mapconcat (lambda (i) (format "l%d" i)) (number-sequence 1 20) "\n"))
+         (new (replace-regexp-in-string
+               "^l18$" "L18" (replace-regexp-in-string "^l2$" "L2" old))))
+    (save-window-excursion
+      (let ((s (review-session-start
+                (review-session-test--source
+                 `(("a.txt" modified "a\n" "b\n") ("two.txt" modified ,old ,new)
+                   ("c.txt" modified "c\n" "d\n"))))))
+        (unwind-protect
+            (cl-flet ((at () (list (review-session-current s) (review-session-hunk s))))
+              (review-session-next-file)
+              (should (= (length (plist-get (review-session-file s) :hunks)) 2))
+              (review-session-next-hunk)
+              (should (equal (at) '(1 1)))
+              (should-error (review-session-next-hunk) :type 'user-error)
+              (should (equal (at) '(1 1)))
+              (review-session-prev-hunk)
+              (should-error (review-session-prev-hunk) :type 'user-error)
+              (should (equal (at) '(1 0)))
+              (should (equal (review-session-viewed s) '(0))))
+          (review-session-quit))))))
 
 (ert-deftest review-session-toggle-viewed ()
   (review-session-test--with s

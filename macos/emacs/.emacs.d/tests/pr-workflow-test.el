@@ -195,6 +195,37 @@
         (should (equal (review-source-range-label started) "team/project#41"))
         (should (equal (length (funcall (review-source-files started))) 4))))))
 
+(ert-deftest pr-workflow-review-open-fetches-diff-and-starts-session ()
+  (let (requested token-host reviewed)
+    (cl-letf (((symbol-function 'forgejo-token) (lambda (host) (setq token-host host) "tok"))
+              ((symbol-function 'url-retrieve)
+               (lambda (url callback &rest _)
+                 (setq requested (list url url-request-method
+                                       (cdr (assoc "Authorization" url-request-extra-headers))))
+                 (with-temp-buffer
+                   (insert "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\ndiff --git a/x b/x\n")
+                   (funcall callback nil))))
+              ((symbol-function 'mr-x/pr-review-session)
+               (lambda () (setq reviewed (list (buffer-name) forgejo-repo--host forgejo-repo--owner
+                                               forgejo-repo--name forgejo-diff--pr-number
+                                               (buffer-string))))))
+      (unwind-protect
+          (save-window-excursion
+            (let ((shown (window-buffer (selected-window))))
+              (mr-x/pr-review-open "https://forge.example/team/project/pulls/7")
+              ;; Only the review frames appear; the invoking window keeps its buffer.
+              (should (eq (window-buffer (selected-window)) shown)))
+            (should (equal requested '("https://forge.example/api/v1/repos/team/project/pulls/7.diff"
+                                       "GET" "token tok")))
+            (should (equal token-host "https://forge.example"))
+            (should (equal reviewed '("*forgejo-diff: team/project#7*" "https://forge.example"
+                                      "team" "project" 7 "diff --git a/x b/x\n"))))
+        (when (get-buffer "*forgejo-diff: team/project#7*")
+          (kill-buffer "*forgejo-diff: team/project#7*"))))))
+
+(ert-deftest pr-workflow-review-open-rejects-non-pr-url ()
+  (should-error (mr-x/pr-review-open "https://forge.example/team/project") :type 'user-error))
+
 (ert-deftest pr-workflow-review-session-rejects-non-forgejo-buffer ()
   (with-temp-buffer
     (should-error (mr-x/pr-review-session) :type 'user-error)))

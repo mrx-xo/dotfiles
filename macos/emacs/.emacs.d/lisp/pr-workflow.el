@@ -245,6 +245,42 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
 
+(defun mr-x/pr-review-open (url)
+  "Start a review session for the Forgejo PR at URL, skipping the PR views.
+URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
+  (interactive "sForgejo PR URL: ")
+  (unless (string-match "\\`\\(https?://[^/]+\\)/\\([^/]+\\)/\\([^/]+\\)/pulls/\\([0-9]+\\)/?\\'"
+                        url)
+    (user-error "Not a Forgejo PR URL: %s" url))
+  (let* ((host (match-string 1 url)) (owner (match-string 2 url))
+         (repo (match-string 3 url)) (number (string-to-number (match-string 4 url)))
+         (url-request-method "GET")
+         (url-request-extra-headers
+          `(("Authorization" . ,(encode-coding-string
+                                 (concat "token " (forgejo-token host)) 'ascii)))))
+    ;; Same request and diff buffer as `forgejo-pull-view-diff', so the
+    ;; session sees exactly what SPC g v would have shown.
+    (url-retrieve
+     (format "%s/api/v1/repos/%s/%s/pulls/%d.diff" host owner repo number)
+     (lambda (status)
+       (let ((response (current-buffer)))
+         (unwind-protect
+             (condition-case err
+                 (if-let ((failure (plist-get status :error)))
+                     (message "PR review: fetching %s failed: %S" url failure)
+                   (goto-char (point-min))
+                   (re-search-forward "\r?\n\r?\n" nil t)
+                   (let ((text (buffer-substring-no-properties (point) (point-max)))
+                         (name (format "*forgejo-diff: %s/%s#%d*" owner repo number)))
+                     ;; It also switches the selected window to the diff;
+                     ;; only the review frames should appear.
+                     (save-window-excursion
+                       (forgejo-view--show-diff-buffer name text host owner repo number))
+                     (with-current-buffer name (mr-x/pr-review-session))))
+               (error (message "PR review: %s" (error-message-string err))))
+           (when (buffer-live-p response) (kill-buffer response)))))
+     nil t)))
+
 (defvar mr-x/review-git-range-history nil
   "History of review presets and manually entered Git ranges.")
 

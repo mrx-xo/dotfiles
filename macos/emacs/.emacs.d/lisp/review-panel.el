@@ -1,17 +1,19 @@
 ;;; review-panel.el --- The files panel beside a review session -*- lexical-binding: t; -*-
 ;;; Commentary:
-;; One buffer, three shapes: expanded (files with their hunks, the default),
-;; folded per file, and a 44 px strip.  It re-renders from the session on
-;; `review-session-update-hook' and never holds state the session has.
+;; Drawn from Figma file FCZk2pGQidWPYfSWzu4qUk, page "PR review (Emacs)":
+;; "Files panel / expanded (default)" and "Files strip / collapsed".
+;; Design pixels are scaled to the frame font (Iosevka at 12 px is 6 px
+;; wide), so spacing keeps the design's proportions at any font size.
+;; The panel re-renders from the session on `review-session-update-hook'
+;; and never holds state the session has.
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
 (require 'review-session)
 
-(defconst review-panel-viewed-label "done" "Label for a viewed file.")
-(defconst review-panel-current-label "current" "Label for the current file.")
-(defconst review-panel-pending-label "pending" "Label for a pending file.")
-(defcustom review-panel-width 42 "Columns for the expanded panel." :type 'integer :group 'review)
+(defcustom review-panel-width 70
+  "Columns for the expanded panel: the design's 420 px at 6 px per character."
+  :type 'integer :group 'review)
 (defcustom review-panel-strip-width 7 "Columns for the collapsed strip." :type 'integer :group 'review)
 (defcustom review-panel-pop-out t
   "Open new reviews' file panels in their own graphical frames.
@@ -19,120 +21,381 @@ When nil, attach the panel to the compare frame's left side.
 Independent of `review-session-pop-out'; terminals always use a side window."
   :type 'boolean :group 'review)
 
-(defface review-panel-current '((t :inherit highlight :extend t)) "Current file row.")
-(defface review-panel-viewed '((t :inherit shadow)) "Viewed file row.")
-(defface review-panel-kind-add '((t :foreground "#b8bb26" :weight bold)) "A")
-(defface review-panel-kind-mod '((t :foreground "#fabd2f" :weight bold)) "M")
-(defface review-panel-kind-del '((t :foreground "#fb4934" :weight bold)) "D")
-(defface review-panel-dir '((t :foreground "#504945")) "Directory part of a path.")
-(defface review-panel-bar '((t :foreground "#fabd2f")) "Progress bar fill.")
+(defcustom review-panel-palette
+  '((bg-hard . "#1d2021") (bg-0 . "#282828") (bg-1 . "#3c3836") (bg-2 . "#504945")
+    (fg . "#ebdbb2") (dim . "#a89984") (mute . "#928374")
+    (orange . "#fe8019") (yellow . "#fabd2f") (green . "#b8bb26") (red . "#fb4934"))
+  "Gruvbox tokens of the panel's Figma design."
+  :type '(alist :key-type symbol :value-type color) :group 'review)
 
 (defvar-local review-panel--session nil)
-(defvar-local review-panel--folded nil "File indices whose hunks are hidden.")
+(defvar-local review-panel--toggled nil
+  "Files whose hunk list is flipped: the current file shows its hunks
+unless toggled; any other file shows them only when toggled.")
 (defvar-local review-panel--collapsed nil "Non-nil when shown as the strip.")
 (defvar-local review-panel--render-width nil "Width used by the last render.")
 (defvar review-panel--refreshing nil)
+(defvar review-panel--scale 1.0 "Screen pixels per design pixel during a render.")
 
-(defun review-panel--kind (file)
-  (pcase (plist-get file :kind)
-    ('added (propertize "A" 'face 'review-panel-kind-add))
-    ('deleted (propertize "D" 'face 'review-panel-kind-del))
-    (_ (propertize "M" 'face 'review-panel-kind-mod))))
+;;;; Design primitives
 
-(defun review-panel--counts (file)
-  "Return \"+n -m\" for FILE from its rows, or \"\" before it is loaded."
-  (if-let ((rows (plist-get file :rows)))
-      (let ((add (cl-count-if (lambda (r) (memq (plist-get r :kind) '(add both))) rows))
-            (del (cl-count-if (lambda (r) (memq (plist-get r :kind) '(del both))) rows)))
-        (concat (if (> add 0) (propertize (format "+%d" add) 'face 'review-panel-kind-add) "")
-                (if (and (> add 0) (> del 0)) " " "")
-                (if (> del 0) (propertize (format "-%d" del) 'face 'review-panel-kind-del) "")))
-    ""))
+(defun review-panel--hex (token &optional faded)
+  "Palette TOKEN's colour; FADED blends it like the design's 62% opacity."
+  (let ((hex (alist-get token review-panel-palette)))
+    (if (not faded) hex
+      (let ((bg (alist-get 'bg-hard review-panel-palette)))
+        (apply #'format "#%02x%02x%02x"
+               (cl-loop for i in '(1 3 5)
+                        collect (round (+ (* 0.62 (string-to-number (substring hex i (+ i 2)) 16))
+                                          (* 0.38 (string-to-number (substring bg i (+ i 2)) 16))))))))))
 
-(defun review-panel--fit (left right width)
-  "Return LEFT padded so RIGHT ends at WIDTH, truncating LEFT if needed."
-  (let* ((right (truncate-string-to-width right (max 0 (- width 2))))
-         (room (max 0 (- width (string-width right) 1)))
-         (left (truncate-string-to-width left room nil nil "\u2026")))
-    (concat left (make-string (max 1 (- width (string-width left) (string-width right))) ?\s) right)))
+(cl-defun review-panel--txt (text token &key faded weight height)
+  "TEXT in palette TOKEN's colour."
+  (propertize text 'face `(:foreground ,(review-panel--hex token faded)
+                           ,@(and weight `(:weight ,weight))
+                           ,@(and height `(:height ,height)))))
+
+(defun review-panel--px (design)
+  "Screen pixels for DESIGN pixels."
+  (max 1 (round (* design review-panel--scale))))
+
+(defun review-panel--gap (design)
+  "Horizontal space of DESIGN pixels."
+  (propertize " " 'display `(space :width (,(review-panel--px design)))))
+
+(defun review-panel--pixels (string)
+  "Estimated pixel width of STRING: pixel spaces plus scaled characters.
+Computed rather than measured, so batch tests and frames agree."
+  (let ((cw (frame-char-width)) (px 0.0))
+    (dotimes (i (length string))
+      (let* ((display (get-text-property i 'display string))
+             (width (and (eq (car-safe display) 'space) (plist-get (cdr display) :width)))
+             (face (get-text-property i 'face string))
+             (height (or (and (consp face) (keywordp (car face))
+                              (numberp (plist-get face :height)) (plist-get face :height))
+                         1.0)))
+        (setq px (+ px (if (consp width) (car width)
+                         (* cw height (char-width (aref string i))))))))
+    (round px)))
+
+(defun review-panel--flush (left right &optional width pad)
+  "LEFT, then RIGHT ending PAD design pixels (default 16) from the edge.
+When both do not fit in WIDTH columns, RIGHT is dropped rather than
+drawn over LEFT."
+  (let ((edge (+ (review-panel--px (or pad 16)) (review-panel--pixels right))))
+    (if (and width (> (+ (review-panel--pixels left) edge (review-panel--px 10))
+                      (* width (frame-char-width))))
+        left
+      (concat left (propertize " " 'display `(space :align-to (- right (,edge)))) right))))
+
+(defun review-panel--center (text)
+  "TEXT centred in the window."
+  (concat (propertize " " 'display
+                      `(space :align-to (- center (,(/ (review-panel--pixels text) 2)))))
+          text))
+
+(cl-defun review-panel--row (content &key bg pad (factor 1.0) props)
+  "CONTENT as one line.  BG fills to the edge; PAD is (TOP BOTTOM) design px.
+FACTOR is the tallest text height on the line, relative to the frame font."
+  (let ((line (concat content "\n")))
+    (when bg
+      (add-face-text-property 0 (length line)
+                              `(:background ,(review-panel--hex bg) :extend t) t line))
+    (when pad
+      (let ((text (round (* factor (frame-char-height))))
+            (top (review-panel--px (car pad))))
+        (put-text-property (1- (length line)) (length line) 'line-height
+                           (list (+ text top) (+ text top (review-panel--px (cadr pad))))
+                           line)))
+    (when props (add-text-properties 0 (length line) props line))
+    line))
+
+(defun review-panel--spacer (design)
+  "An empty line DESIGN pixels tall."
+  (propertize " \n" 'face '(:height 0.1) 'line-height (review-panel--px design)))
+
+(defun review-panel--divider ()
+  "A hairline across the panel, like the design's 1 px divider."
+  (propertize " \n" 'face `(:background ,(review-panel--hex 'bg-1) :height 0.1 :extend t)))
+
+(defun review-panel--status (state &optional height)
+  "The design's icon for STATE: viewed, current or pending."
+  (pcase state
+    ('viewed (review-panel--txt "●" 'green :faded t :height height))
+    ('current (review-panel--txt "❯" 'orange :height height))
+    (_ (review-panel--txt "○" 'mute :height height))))
+
+(defun review-panel--kind (file faded)
+  (pcase-let ((`(,letter . ,token) (pcase (plist-get file :kind)
+                                     ('added '("A" . green)) ('deleted '("D" . red))
+                                     ('renamed '("R" . orange)) (_ '("M" . yellow)))))
+    (review-panel--txt letter token :faded faded :weight 'bold :height 0.92)))
+
+(defun review-panel--tally (rows)
+  "(ADDED . DELETED) among ROWS."
+  (cons (cl-count-if (lambda (r) (memq (plist-get r :kind) '(add both))) rows)
+        (cl-count-if (lambda (r) (memq (plist-get r :kind) '(del both))) rows)))
+
+(defun review-panel--counts (counts faded height)
+  "COUNTS as green +N and red -N, omitting zeros."
+  (string-join
+   (delq nil (list (and (> (car counts) 0)
+                        (review-panel--txt (format "+%d" (car counts)) 'green :faded faded :height height))
+                   (and (> (cdr counts) 0)
+                        (review-panel--txt (format "-%d" (cdr counts)) 'red :faded faded :height height))))
+   (review-panel--gap 6)))
+
+(defun review-panel--room (width used-px height)
+  "Columns of HEIGHT-scaled text left in WIDTH columns after USED-PX pixels."
+  (let ((cw (frame-char-width)))
+    (max 0 (floor (/ (- (* width cw) used-px) (* cw height))))))
+
+(defun review-panel--fit-path (path room)
+  "Split PATH into (DIR . NAME) fitting ROOM columns.
+The file name wins: whole folders are dropped from the left behind
+\"…/\", and the name itself is cut at its end only when no folder fits."
+  (let* ((dir (or (file-name-directory path) ""))
+         (name (file-name-nondirectory path))
+         (dir-room (- room (string-width name))))
+    (cond
+     ((<= (string-width dir) dir-room) (cons dir name))
+     ((< dir-room 2) (cons "" (truncate-string-to-width name room nil nil "…")))
+     (t (let ((kept "") (full t))
+          (dolist (part (reverse (split-string dir "/" t)))
+            (let ((next (concat part "/" kept)))
+              (if (and full (<= (+ 2 (string-width next)) dir-room))
+                  (setq kept next)
+                (setq full nil))))
+          (cons (concat "…/" kept) name))))))
+
+;;;; Sections
+
+(defun review-panel--header (session width)
+  (let* ((source (review-session-source session))
+         (number (review-source-number source))
+         (lead (concat (review-panel--gap 16)
+                       (if number
+                           (concat (review-panel--txt (format "#%d" number) 'orange
+                                                      :weight 'bold :height 1.08)
+                                   (review-panel--gap 8))
+                         "")))
+         (room (review-panel--room width (+ (review-panel--pixels lead) (review-panel--px 16)) 1.17))
+         (title (truncate-string-to-width (or (review-source-title source) "") room nil nil "…"))
+         (subtitle (or (review-source-subtitle source) (review-source-range-label source))))
+    (concat
+     (review-panel--row (concat lead (review-panel--txt title 'fg :weight 'bold :height 1.17))
+                        :bg 'bg-0 :pad '(14 2) :factor 1.17 :props '(review-header t))
+     (review-panel--row (concat (review-panel--gap 16)
+                                (review-panel--txt (truncate-string-to-width
+                                                    subtitle (review-panel--room width (review-panel--px 32) 0.92)
+                                                    nil nil "…")
+                                                   'dim :height 0.92))
+                        :bg 'bg-0 :pad '(2 12) :props '(review-header t)))))
 
 (defun review-panel--bar (viewed total width)
-  (let ((fill (if (zerop total) 0 (round (* width (/ (float viewed) total))))))
-    (concat (propertize (make-string fill ?\u2501) 'face 'review-panel-bar)
-            (propertize (make-string (- width fill) ?\u2501) 'face 'shadow))))
+  "The design's 3 px progress bar: yellow fill on a dark track."
+  (let* ((track (max 0 (- (* width (frame-char-width)) (* 2 (review-panel--px 16)))))
+         (fill (if (zerop total) 0 (round (* track (/ (float viewed) total))))))
+    (concat (propertize " " 'display `(space :width (,(review-panel--px 16))) 'face '(:height 0.2))
+            (propertize " " 'display `(space :width (,fill))
+                        'face `(:background ,(review-panel--hex 'yellow) :height 0.2))
+            (propertize " " 'display `(space :align-to (- right (,(review-panel--px 16))))
+                        'face `(:background ,(review-panel--hex 'bg-1) :height 0.2))
+            (propertize "\n" 'face '(:height 0.2) 'review-header t))))
 
-(defun review-panel-render (session folded collapsed &optional width)
-  "Render SESSION as panel text.  FOLDED hides hunks per file; COLLAPSED is the strip."
+(defun review-panel--progress (session width expanded)
+  "Viewed count, totals, the hunk position when EXPANDED, and the bar."
+  (let* ((files (append (review-session-files session) nil))
+         (index (review-session-current session))
+         (progress (review-session-progress session))
+         (totals (cl-reduce (lambda (acc file)
+                              (if-let ((rows (plist-get file :rows)))
+                                  (let ((c (review-panel--tally rows)))
+                                    (cons (+ (car acc) (car c)) (+ (cdr acc) (cdr c))))
+                                acc))
+                            files :initial-value '(0 . 0)))
+         (hunks (plist-get (nth index files) :hunks))
+         (hunk (review-session-hunk session))
+         (all (apply #'+ (mapcar (lambda (f) (length (plist-get f :hunks))) files)))
+         (before (apply #'+ (mapcar (lambda (f) (length (plist-get f :hunks)))
+                                    (cl-subseq files 0 index))))
+         (lead (review-panel--gap 16)))
+    (concat
+     (review-panel--row
+      (review-panel--flush
+       (concat lead (review-panel--txt (format "%d of %d viewed" (car progress) (cdr progress))
+                                       'fg :weight 'medium))
+       (review-panel--txt (format "+%d  -%d" (car totals) (cdr totals)) 'dim)
+       width)
+      :pad '(10 3) :props '(review-header t))
+     (if (and expanded hunks)
+         (review-panel--row
+          (review-panel--flush
+           (concat lead (review-panel--txt (format "hunk %d of %d in this file" (1+ hunk) (length hunks))
+                                           'dim :height 0.92))
+           (review-panel--txt (format "%d of %d hunks total" (+ before hunk 1) all) 'mute :height 0.92)
+           width)
+          :pad '(3 3) :props '(review-header t))
+       "")
+     (review-panel--spacer 6)
+     (review-panel--bar (car progress) (cdr progress) width)
+     (review-panel--spacer 10))))
+
+(defun review-panel--file-row (session i width)
+  (let* ((file (review-session-file session i))
+         (current (= i (review-session-current session)))
+         (viewed (and (not current) (memq i (review-session-viewed session)) t))
+         (hunks (plist-get file :hunks))
+         (tally (and (plist-get file :rows) (review-panel--tally (plist-get file :rows))))
+         (status (cond ((plist-get file :error) (review-panel--txt "failed" 'red :height 0.92))
+                       ((plist-get file :binary) (review-panel--txt "binary" 'mute :faded viewed :height 0.92))
+                       ((not (plist-get file :loaded)) (review-panel--txt "loading" 'mute :height 0.92))
+                       ((and current hunks)
+                        (review-panel--txt (format "hunk %d/%d" (1+ (review-session-hunk session)) (length hunks))
+                                           'dim :height 0.92))
+                       (hunks (review-panel--txt (format "%d hunk%s" (length hunks) (if (cdr hunks) "s" ""))
+                                                 'mute :faded viewed :height 0.92))
+                       (t "")))
+         (counts (if tally (review-panel--counts tally viewed 0.92) ""))
+         (right (concat status (if (and (> (length status) 0) (> (length counts) 0)) (review-panel--gap 10) "")
+                        counts))
+         (lead (concat (review-panel--gap 12)
+                       (if current
+                           (propertize " " 'display `(space :width (,(review-panel--px 3)))
+                                       'face `(:background ,(review-panel--hex 'orange)))
+                         (review-panel--gap 3))
+                       (review-panel--gap 10) (review-panel--status (cond (current 'current) (viewed 'viewed)))
+                       (review-panel--gap 10) (review-panel--kind file viewed) (review-panel--gap 10)))
+         (room (review-panel--room width (+ (review-panel--pixels lead) (review-panel--pixels right)
+                                            (review-panel--px 26))
+                                   1.0))
+         (fit (review-panel--fit-path (plist-get file :path) room))
+         (text (concat (review-panel--txt (car fit) 'mute :faded viewed)
+                       (review-panel--txt (cdr fit) (if viewed 'dim 'fg)
+                                          :faded viewed :weight (and current 'medium)))))
+    (review-panel--row (review-panel--flush (concat lead text) right)
+                       :bg (and current 'bg-1) :pad '(7 7) :props `(review-file ,i))))
+
+(defun review-panel--hunk-rows (session i width)
+  "Hunk rows of file I: done, current, or pending, as in the design."
+  (let* ((file (review-session-file session i))
+         (rows (plist-get file :rows))
+         (current (= i (review-session-current session)))
+         (viewed (memq i (review-session-viewed session)))
+         (h -1))
+    (mapconcat
+     (lambda (hunk)
+       (cl-incf h)
+       (let* ((state (cond ((not current) (if viewed 'done 'pending))
+                           ((< h (review-session-hunk session)) 'done)
+                           ((= h (review-session-hunk session)) 'current)
+                           (t 'pending)))
+              (faded (eq state 'done))
+              (right (review-panel--counts
+                      (review-panel--tally (cl-subseq rows (plist-get hunk :start)
+                                                      (min (length rows) (1+ (plist-get hunk :end)))))
+                      faded 0.83))
+              (lead (concat (review-panel--gap 44)
+                            (review-panel--status (pcase state ('done 'viewed) ('current 'current)) 0.83)
+                            (review-panel--gap 10)
+                            (review-panel--txt (format "@@ -%d,%d +%d,%d @@"
+                                                       (plist-get hunk :old-start) (plist-get hunk :old-count)
+                                                       (plist-get hunk :new-start) (plist-get hunk :new-count))
+                                               'mute :faded faded :height 0.92)
+                            (review-panel--gap 10)))
+              (room (review-panel--room width (+ (review-panel--pixels lead) (review-panel--pixels right)
+                                                 (review-panel--px 26))
+                                        0.92))
+              (label (truncate-string-to-width (or (plist-get hunk :label) "") room nil nil "…")))
+         (review-panel--row
+          (review-panel--flush
+           (concat lead (review-panel--txt label (if faded 'dim 'fg) :faded faded
+                                           :weight (and (eq state 'current) 'medium) :height 0.92))
+           right)
+          :bg (and (eq state 'current) 'bg-0) :pad '(5 5) :props `(review-file ,i review-hunk ,h))))
+     (plist-get file :hunks) "")))
+
+(defun review-panel--strip (session)
+  "The collapsed strip: PR number, viewed count, a vertical bar, one icon per file."
   (let* ((source (review-session-source session))
-         (files (review-session-files session))
+         (number (review-source-number source))
+         (progress (review-session-progress session))
          (current (review-session-current session))
          (viewed (review-session-viewed session))
-         (progress (review-session-progress session))
-         (width (or width (if collapsed review-panel-strip-width review-panel-width)))
-         (lines nil))
-    (cl-flet ((row (text &rest props) (push (apply #'propertize text props) lines)))
-      (if collapsed
-          (progn
-            (row (truncate-string-to-width
-                  (let ((label (review-source-range-label source)))
-                    (if (string-match "#[0-9]+" label) (match-string 0 label)
-                      (review-source-name source))) width) 'review-header t)
-            (row (format " %d" (car progress)) 'review-header t)
-            (row "  of" 'review-header t)
-            (row (format " %d" (cdr progress)) 'review-header t)
-            (row "")
-            (dotimes (i (length files))
-              (row (format "%s" (cond ((= i current) review-panel-current-label)
-                                        ((memq i viewed) review-panel-viewed-label)
-                                        (t review-panel-pending-label)))
-                   'review-file i
-                   'face (cond ((= i current) 'review-panel-current) ((memq i viewed) 'review-panel-viewed)))))
-        (row (review-source-title source) 'review-header t 'face 'bold)
-        (row (propertize (review-source-range-label source) 'face 'shadow) 'review-header t)
-        (row "")
-        (row (review-panel--fit (format "%d of %d viewed" (car progress) (cdr progress))
-                                (let ((cur (aref files current)))
-                                  (if (plist-get cur :hunks)
-                                      (format "hunk %d/%d" (1+ (review-session-hunk session)) (length (plist-get cur :hunks)))
-                                    ""))
-                                width)
-             'review-header t)
-        (row (review-panel--bar (car progress) (cdr progress) width) 'review-header t)
-        (row "")
-        (dotimes (i (length files))
-          (let* ((file (aref files i))
-                 (path (plist-get file :path))
-                 (dir (file-name-directory path)) (base (file-name-nondirectory path))
-                 (glyph (cond ((= i current) review-panel-current-label)
-                              ((memq i viewed) review-panel-viewed-label)
-                              (t review-panel-pending-label)))
-                 (hunks (plist-get file :hunks))
-                 (left (concat (format "%s %s " glyph (review-panel--kind file))
-                               (if dir (propertize dir 'face 'review-panel-dir) "") base))
-                 (right (cond ((plist-get file :error) "failed")
-                              ((plist-get file :binary) "no text")
-                              ((not (plist-get file :loaded)) "loading")
-                              ((and (memq i folded) hunks) (format "%d hunk%s  %s" (length hunks) (if (= 1 (length hunks)) "" "s") (review-panel--counts file)))
-                              (t (review-panel--counts file))))
-                 (text (review-panel--fit left right width)))
-            (row (if (= i current) (concat (propertize text 'face 'review-panel-current)) (if (memq i viewed) (propertize text 'face 'review-panel-viewed) text))
-                 'review-file i)
-            (unless (memq i folded)
-              (let ((h 0))
-                (dolist (hunk hunks)
-                  (let* ((is-cur (and (= i current) (= h (review-session-hunk session))))
-                         (g (cond (is-cur review-panel-current-label)
-                                  ((and (= i current) (< h (review-session-hunk session))) review-panel-viewed-label)
-                                  ((memq i viewed) review-panel-viewed-label)
-                                  (t review-panel-pending-label)))
-                         (range (format "@@ -%d,%d +%d,%d @@" (plist-get hunk :old-start) (plist-get hunk :old-count)
-                                        (plist-get hunk :new-start) (plist-get hunk :new-count)))
-                         (label (plist-get hunk :label)))
-                    (row (review-panel--fit (format "  %s %s  %s" g (propertize range 'face 'shadow) label) "" width)
-                         'review-file i 'review-hunk h
-                         'face (cond (is-cur 'review-panel-current) ((memq i viewed) 'review-panel-viewed))))
-                  (cl-incf h)))))))
-      (mapconcat #'identity (nreverse lines) "\n"))))
+         (filled (if (zerop (cdr progress)) 0 (round (* 6 (/ (float (car progress)) (cdr progress)))))))
+    (concat
+     (review-panel--row (review-panel--center
+                         (review-panel--txt (if number (format "#%d" number)
+                                              (truncate-string-to-width (review-source-name source) 5))
+                                            'orange :weight 'bold :height 0.92))
+                        :bg 'bg-0 :pad '(14 12) :props '(review-header t))
+     (review-panel--row (review-panel--center
+                         (review-panel--txt (number-to-string (car progress)) 'fg :weight 'bold :height 1.08))
+                        :pad '(10 0) :factor 1.08 :props '(review-header t))
+     (review-panel--row (review-panel--center (review-panel--txt "of" 'mute :height 0.75))
+                        :props '(review-header t))
+     (review-panel--row (review-panel--center
+                         (review-panel--txt (number-to-string (cdr progress)) 'dim :height 1.08))
+                        :pad '(0 8) :factor 1.08 :props '(review-header t))
+     (mapconcat (lambda (k)
+                  (concat (review-panel--center
+                           (propertize " " 'display `(space :width (,(review-panel--px 3))
+                                                            :height (,(review-panel--px 10)))
+                                       'face `(:background ,(review-panel--hex (if (< k filled) 'yellow 'bg-1))
+                                                           :height 0.1)))
+                          (propertize "\n" 'face '(:height 0.1))))
+                (number-sequence 0 5) "")
+     (review-panel--spacer 10)
+     (review-panel--divider)
+     (review-panel--spacer 6)
+     (mapconcat (lambda (i)
+                  (review-panel--row
+                   (concat (if (= i current)
+                               (propertize " " 'display `(space :width (,(review-panel--px 3)))
+                                           'face `(:background ,(review-panel--hex 'orange)))
+                             "")
+                           (review-panel--center
+                            (review-panel--status (cond ((= i current) 'current)
+                                                        ((memq i viewed) 'viewed))
+                                                  0.92)))
+                   :bg (and (= i current) 'bg-1) :pad '(6 6) :props `(review-file ,i)))
+                (number-sequence 0 (1- (length (review-session-files session)))) ""))))
+
+(defun review-panel-render (session toggled collapsed &optional width)
+  "Render SESSION as panel text in WIDTH columns.
+TOGGLED flips files' hunk lists (see `review-panel--toggled'); COLLAPSED
+renders the strip."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0))
+        (width (or width (if collapsed review-panel-strip-width review-panel-width))))
+    (if collapsed
+        (review-panel--strip session)
+      (let* ((current (review-session-current session))
+             (expanded (lambda (i) (if (memq i toggled) (/= i current) (= i current)))))
+        (concat (review-panel--header session width)
+                (review-panel--progress session width (funcall expanded current))
+                (review-panel--divider)
+                (review-panel--spacer 4)
+                (mapconcat (lambda (i)
+                             (concat (review-panel--file-row session i width)
+                                     (if (funcall expanded i) (review-panel--hunk-rows session i width) "")))
+                           (number-sequence 0 (1- (length (review-session-files session)))) ""))))))
+
+(defun review-panel--footer (collapsed)
+  "Key hints for the mode line, as the design's footer; COLLAPSED shows TAB only."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0))
+        (cap (lambda (key)
+               (propertize (concat " " key " ")
+                           'face `(:background ,(review-panel--hex 'bg-2) :foreground ,(review-panel--hex 'fg)
+                                               :weight bold :height 0.75))))
+        (label (lambda (text) (review-panel--txt text 'dim :height 0.75))))
+    (if collapsed
+        (list (review-panel--center (funcall cap "TAB")))
+      (list (review-panel--gap 16)
+            (mapconcat (lambda (hint) (concat (funcall cap (car hint)) (review-panel--gap 4)
+                                              (funcall label (cdr hint))))
+                       '(("C-j/k" . "file") ("M-j/k" . "hunk") ("TAB" . "fold")
+                         ("RET" . "open") ("v" . "viewed") ("u" . "park"))
+                       (review-panel--gap 10))))))
 
 ;;;; Buffer
 
@@ -153,7 +416,18 @@ Independent of `review-session-pop-out'; terminals always use a side window."
 (define-derived-mode review-panel-mode special-mode "ReviewFiles"
   "Files panel of a review session."
   (setq truncate-lines t cursor-type nil)
-  (setq-local popper-popup-status 'raised))
+  (setq-local cursor-in-non-selected-windows nil)
+  (setq-local popper-popup-status 'raised)
+  ;; The design's surfaces: a hard background, and a footer bar that holds
+  ;; the key hints above a 1 px divider.
+  (let ((pad (max 1 (round (* 10 (/ (frame-char-width) 6.0))))))
+    (face-remap-add-relative 'default :background (review-panel--hex 'bg-hard))
+    (face-remap-add-relative 'fringe :background (review-panel--hex 'bg-hard))
+    (dolist (face '(mode-line mode-line-active mode-line-inactive))
+      (face-remap-add-relative
+       face `(:background ,(review-panel--hex 'bg-0) :foreground ,(review-panel--hex 'dim)
+              :box (:line-width (0 . ,pad) :color ,(review-panel--hex 'bg-0))
+              :overline ,(review-panel--hex 'bg-1) :underline nil)))))
 
 (with-eval-after-load 'evil
   (evil-define-key 'normal review-panel-mode-map
@@ -171,23 +445,28 @@ Independent of `review-session-pop-out'; terminals always use a side window."
     (when (and s (buffer-live-p (review-session-panel s)))
       (review-panel--display s)
       (with-current-buffer (review-session-panel s)
-        (let ((inhibit-read-only t)
-              (file (get-text-property (point) 'review-file))
-              (hunk (get-text-property (point) 'review-hunk)))
-          (erase-buffer)
+        (let* ((inhibit-read-only t)
+               (file (get-text-property (point) 'review-file))
+               (hunk (get-text-property (point) 'review-hunk))
+               (window (get-buffer-window (current-buffer) t))
+               (render (lambda ()
+                         ;; Measure in the panel's own frame and font.
+                         (cons (review-panel-render s review-panel--toggled review-panel--collapsed
+                                                    review-panel--render-width)
+                               (review-panel--footer review-panel--collapsed)))))
           (setq review-panel--render-width
-                (if-let ((window (get-buffer-window (current-buffer) t)))
-                    (window-body-width window)
-                  review-panel-width))
-          (insert (review-panel-render s review-panel--folded review-panel--collapsed
-                                       review-panel--render-width))
+                (if window (window-body-width window) review-panel-width))
+          (pcase-let ((`(,text . ,footer)
+                       (if window (with-selected-window window (funcall render)) (funcall render))))
+            (erase-buffer)
+            (insert text)
+            (setq mode-line-format footer))
           (goto-char (point-min))
           (when file
             (let ((pos (text-property-any (point-min) (point-max) 'review-file file)))
               (when pos
                 (goto-char pos)
-                (when (and hunk (not review-panel--collapsed)
-                           (not (memq file review-panel--folded)))
+                (when (and hunk (not review-panel--collapsed))
                   (while (and (< (point) (point-max))
                               (eq (get-text-property (point) 'review-file) file)
                               (not (eq (get-text-property (point) 'review-hunk) hunk)))
@@ -205,6 +484,11 @@ Independent of `review-session-pop-out'; terminals always use a side window."
       (review-panel--refresh s))))
 
 (add-hook 'window-size-change-functions #'review-panel--resized)
+
+(defun review-panel--source-updated (source)
+  "Re-render when the live session's SOURCE learns its title late."
+  (when-let ((s review-session--current))
+    (when (eq source (review-session-source s)) (review-panel--refresh s))))
 
 (defun review-panel--on-update (session)
   (if session (review-panel--refresh session)))
@@ -241,10 +525,11 @@ Independent of `review-session-pop-out'; terminals always use a side window."
 (defun review-panel--make-frame ()
   "Create a frame for review files without taking input focus."
   (save-selected-window
-    (make-frame `((name . "Review files") (title . "Review files")
-                  (width . ,review-panel-width)
-                  (height . 45) (min-width . ,review-panel-strip-width)
-                  (no-focus-on-map . t)))))
+    (make-frame (review-frame-parameters
+                 `((name . "Review files") (title . "Review files")
+                   (width . ,review-panel-width)
+                   (height . 45) (min-width . ,review-panel-strip-width)
+                   (no-focus-on-map . t))))))
 
 (defun review-panel--preload (session index)
   "Fill SESSION's hunk map incrementally, starting at INDEX."
@@ -274,6 +559,7 @@ Independent of `review-session-pop-out'; terminals always use a side window."
     (setf (review-session-panel session) buffer)
     (add-hook 'review-session-update-hook #'review-panel--on-update)
     (add-hook 'review-session-display-hook #'review-panel--display)
+    (add-hook 'review-source-updated-functions #'review-panel--source-updated)
     (condition-case err
         (progn
           (when (and review-panel-pop-out
@@ -292,9 +578,9 @@ Independent of `review-session-pop-out'; terminals always use a side window."
     (cond
      ((get-text-property (point) 'review-header)
       (setq review-panel--collapsed (not review-panel--collapsed)))
-     (i (setq review-panel--folded (if (memq i review-panel--folded)
-                                       (delq i review-panel--folded)
-                                     (cons i review-panel--folded))))
+     (i (setq review-panel--toggled (if (memq i review-panel--toggled)
+                                        (delq i review-panel--toggled)
+                                      (cons i review-panel--toggled))))
      (t (user-error "Put point on a file or the header")))
     (review-panel--refresh review-panel--session)))
 

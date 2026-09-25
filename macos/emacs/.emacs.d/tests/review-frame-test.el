@@ -112,6 +112,28 @@
             (should (> width 42))
             (with-current-buffer buffer
               (should (= review-panel--render-width width))
-              (should (= (string-width (nth 4 (split-string (buffer-string) "\n"))) width)))))))))
+              ;; Right-hand text is aligned to the window's own right edge.
+              (goto-char (point-min))
+              (should (text-property-search-forward
+                       'display nil (lambda (_ v) (eq (car-safe (plist-get (cdr-safe v) :align-to)) '-))))
+              (should (<= (car (window-text-pixel-size (get-buffer-window buffer frame)))
+                          (window-body-width (get-buffer-window buffer frame) t))))))))))
+
+(ert-deftest review-frame-navigation-from-files-frame-scrolls-panes-to-hunk ()
+  (review-frame-test--with
+    (let* ((review-session-pop-out t) (review-panel-pop-out t)
+           (old (mapconcat (lambda (i) (format "line %d" i)) (number-sequence 1 80) "\n"))
+           (new (replace-regexp-in-string "^line 60$" "line sixty" old))
+           (s (review-session-start (review-session-test--source
+                                     `(("a.txt" modified "a\n" "b\n")
+                                       ("long.txt" modified ,old ,new))))))
+      (review-panel-open s)
+      ;; C-j from the files frame: the panes live in another frame.
+      (with-selected-window (get-buffer-window (review-session-panel s) t)
+        (review-session-next-file))
+      (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
+        (with-current-buffer (window-buffer w)
+          (should (= (line-number-at-pos (window-start w)) 57))
+          (should (= (line-number-at-pos (window-point w)) 60)))))))
 
 (provide 'review-frame-test)
