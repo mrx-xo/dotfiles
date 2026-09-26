@@ -2388,6 +2388,9 @@ silent context-only capture with no marker."
 
       (defvar-local mr-x/quick-ask--context-items nil
         "List of context plists: ((:type TYPE :label LABEL :content CONTENT) ...)")
+      (defvar mr-x/quick-ask-context-functions nil
+        "Called with no arguments in the buffer Quick Ask starts from.
+Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.")
       (defvar-local mr-x/quick-ask--source-buffer nil
         "The buffer that was current when Quick Ask was invoked.")
       (defvar-local mr-x/quick-ask--source-region nil
@@ -3147,6 +3150,19 @@ silent context-only capture with no marker."
                       (when region-active (cons region-beg region-end)))
                 (setq mr-x/quick-ask--context-items nil)
 
+                ;; Context the source buffer offers, e.g. the walkthrough step.
+                ;; One failing function must not break Quick Ask: report it
+                ;; and keep the rest.
+                (dolist (item (with-current-buffer source-buf
+                                (delq nil (mapcar (lambda (fn)
+                                                    (condition-case err (funcall fn)
+                                                      (error
+                                                       (message "Quick Ask: context from %s failed: %s"
+                                                                fn (error-message-string err))
+                                                       nil)))
+                                                  mr-x/quick-ask-context-functions))))
+                  (push item mr-x/quick-ask--context-items))
+
                 ;; Auto-attach region if active
                 (when region-active
                   (let* ((content (or source-diff source-context))
@@ -3200,4 +3216,53 @@ silent context-only capture with no marker."
 
 ;; Pinned @-file aliases (@rig, @emacs-org, …) — see lisp/agent-shell-pins.el
 (require 'agent-shell-pins)
+
+
+
+;; Prompt divider: a short heavy rule in the prompt's yellow, then a
+;; half-height gap, above the live input prompt.
+(defface mr-x/agent-shell-prompt-divider
+  '((t :foreground "#fabd2f"))
+  "Rule drawn above the live agent-shell prompt.")
+
+(defvar-local mr-x/agent-shell-prompt-divider--ov nil)
+
+(defvar mr-x/agent-shell-prompt-divider--string
+  (concat (propertize (make-string 24 ?━) 'face 'mr-x/agent-shell-prompt-divider)
+          "\n"
+          (propertize "\n" 'face '(:height 0.5)))
+  "Before-string for the divider overlay.")
+
+(defun mr-x/agent-shell-prompt-divider--sync (&rest _)
+  "Move the divider to the live prompt, or hide it when there is none."
+  (when (overlayp mr-x/agent-shell-prompt-divider--ov)
+    (let ((start (and (fboundp 'agent-shell--live-input-prompt-p)
+                      comint-last-prompt
+                      (ignore-errors
+                        (agent-shell--live-input-prompt-p comint-last-prompt))
+                      (marker-position (car comint-last-prompt)))))
+      (if start
+          (move-overlay mr-x/agent-shell-prompt-divider--ov start start
+                        (current-buffer))
+        (delete-overlay mr-x/agent-shell-prompt-divider--ov)))))
+
+(define-minor-mode mr-x/agent-shell-prompt-divider-mode
+  "Draw a divider above the live agent-shell prompt."
+  :lighter nil
+  (if mr-x/agent-shell-prompt-divider-mode
+      (progn
+        (unless (overlayp mr-x/agent-shell-prompt-divider--ov)
+          (setq mr-x/agent-shell-prompt-divider--ov (make-overlay 1 1 nil t t))
+          (overlay-put mr-x/agent-shell-prompt-divider--ov 'before-string
+                       mr-x/agent-shell-prompt-divider--string))
+        (add-hook 'after-change-functions
+                  #'mr-x/agent-shell-prompt-divider--sync nil t)
+        (mr-x/agent-shell-prompt-divider--sync))
+    (remove-hook 'after-change-functions
+                 #'mr-x/agent-shell-prompt-divider--sync t)
+    (when (overlayp mr-x/agent-shell-prompt-divider--ov)
+      (delete-overlay mr-x/agent-shell-prompt-divider--ov))
+    (setq mr-x/agent-shell-prompt-divider--ov nil)))
+
+(add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 

@@ -190,7 +190,27 @@ doing while Elpaca works through its queue (see =lisp/mr-x-boot-status.el=).
 ** Garbage Collection
 #+begin_src emacs-lisp
   (setq gc-cons-threshold (* 100 1024 1024)) ;; 100MB
-  (run-with-idle-timer 5 t #'garbage-collect)
+
+  ;; "Idle" only means no keypress, so a plain idle GC fires while you
+  ;; watch an agent stream and freezes the reply for ~130ms.  Skip the
+  ;; pass while any agent-shell is busy; the next idle period retries.
+  (defun mr-x/agent-shell-busy-p ()
+    "Non-nil when any agent-shell buffer has a request in flight."
+    (and (fboundp 'agent-shell--active-requests-p)
+         (seq-some (lambda (buf)
+                     (with-current-buffer buf
+                       (and (derived-mode-p 'agent-shell-mode)
+                            (bound-and-true-p agent-shell--state)
+                            (ignore-errors
+                              (agent-shell--active-requests-p agent-shell--state)))))
+                   (buffer-list))))
+
+  (defun mr-x/idle-garbage-collect ()
+    "Collect garbage when idle, unless an agent is streaming."
+    (unless (mr-x/agent-shell-busy-p)
+      (garbage-collect)))
+
+  (run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 #+end_src
 
 ** Local lisp load-path
@@ -5075,6 +5095,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g P" '(magit-pull-branch :wk "pull branch")
         "g r" '(mr-x/review :wk "review (PR here, else a range)")
         "g R" '(mr-x/pr-list :wk "pull requests")
+        "g w" '(review-session-resume :wk "review: back / resume (C-u pick)")
         "g f" '(magit-fetch :wk "fetch"))
 
       ;; Bind after agent-shell loads
@@ -5247,6 +5268,14 @@ TASK-ID is the ID shown when Claude runs a background command."
         (agent-shell)
         ;; Balance windows
         (balance-windows))
+
+      ;; SANDBOX badge on every mode line, only in the sandbox daemon.
+      ;; Loaded from here, not appended to the sandbox's init.el, so a
+      ;; fresh copy of init.el into ~/.emacs-sandbox keeps it.
+      (when (equal (daemonp) "sandbox")
+        (with-eval-after-load 'doom-modeline
+          (require 'mr-x-sandbox-badge)
+          (mr-x/sandbox-badge-enable)))
 
       (defface mr-x/tldr-title
         '((t :inherit outline-1 :weight bold :height 1.2))
@@ -7044,12 +7073,21 @@ TRAMP can't match under a PTY — both need pipe mode."
   ;; teleports the vertico session there.
   (setq minibuffer-follows-selected-frame nil)
 
+  ;; Keep the echo area from getting stuck tall.  The default (grow-only)
+  ;; never shrinks until the echo area is fully cleared, so one multi-line
+  ;; eldoc doc left the strip at a quarter of the frame.  Eldoc stays on one
+  ;; line; the full doc is in M-x eldoc-doc-buffer.
+  (setq resize-mini-windows t)
+  (setq eldoc-echo-area-use-multiline-p nil)
+
   (use-package vertico
     :ensure t
     :init
     (vertico-mode 1)
     :config
     (setq vertico-count 15)
+    ;; Shrink with the candidate list instead of holding the tallest height.
+    (setq vertico-resize t)
     (setq vertico-cycle t)
     ;; Evil-friendly navigation in minibuffer
     (define-key vertico-map (kbd "C-j") #'vertico-next)
@@ -7389,17 +7427,16 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :config
 
     ;; ── Window Management Hydra ──────────────────────────────────
-    ;; SPC w enters evil-window-map; press W from there to enter this hydra.
-    ;; Stay in the hydra to resize/split/navigate repeatedly with single keys.
+    ;; Entered with SPC W (leader, capital W). Stay in the hydra to
+    ;; resize/split/navigate repeatedly with single keys.
     (defhydra hydra-window (:hint nil :foreign-keys run)
       "
-  ╭─── Window ─────────────────────────────────────────╮
-   Navigate      Resize           Split/Layout
-   _h_: ←  _l_: →    _H_: shrink-h  _L_: grow-h  _s_: horizontal  _=_: balance
-   _j_: ↓  _k_: ↑    _J_: shrink-v  _K_: grow-v  _v_: vertical    _o_: only
-                                               _d_: delete     _u_: undo layout
-                                               _r_: rotate     _R_: rotate ←
-  ╰────────────────────────────── _q_: quit ────────────╯"
+  ╭─ Window ─────────────────────────────────────────────────────────────────╮
+   Navigate    Resize                  Split/Layout
+   _h_: ←  _l_: →  _H_: shrink-h  _L_: grow-h  _s_: horizontal  _d_: delete  _=_: balance
+   _j_: ↓  _k_: ↑  _J_: shrink-v  _K_: grow-v  _v_: vertical    _r_: rotate  _R_: rotate ←
+                                                      _u_: undo    _o_: only
+  ╰──────────────────────────────── _q_: quit ─────────────────────────────────╯"
       ("h" evil-window-left)
       ("j" evil-window-down)
       ("k" evil-window-up)
@@ -7922,7 +7959,7 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   (use-package pr-workflow
     :ensure nil
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
-               mr-x/pr-review-session mr-x/review-git-range))
+               mr-x/pr-review-session mr-x/review-git-range review-session-resume))
 
 #+end_src
 
@@ -9232,8 +9269,7 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
     :init
     (setq lsp-keymap-prefix "C-c l")
     :config
-    ;; Performance tuning
-    (setq gc-cons-threshold 100000000)
+    ;; Performance tuning (gc-cons-threshold is set globally above)
     (setq read-process-output-max (* 1024 1024)) ;; 1mb
     (setq lsp-idle-delay 0.500)
     
@@ -11946,6 +11982,9 @@ silent context-only capture with no marker."
 
       (defvar-local mr-x/quick-ask--context-items nil
         "List of context plists: ((:type TYPE :label LABEL :content CONTENT) ...)")
+      (defvar mr-x/quick-ask-context-functions nil
+        "Called with no arguments in the buffer Quick Ask starts from.
+Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.")
       (defvar-local mr-x/quick-ask--source-buffer nil
         "The buffer that was current when Quick Ask was invoked.")
       (defvar-local mr-x/quick-ask--source-region nil
@@ -12705,6 +12744,19 @@ silent context-only capture with no marker."
                       (when region-active (cons region-beg region-end)))
                 (setq mr-x/quick-ask--context-items nil)
 
+                ;; Context the source buffer offers, e.g. the walkthrough step.
+                ;; One failing function must not break Quick Ask: report it
+                ;; and keep the rest.
+                (dolist (item (with-current-buffer source-buf
+                                (delq nil (mapcar (lambda (fn)
+                                                    (condition-case err (funcall fn)
+                                                      (error
+                                                       (message "Quick Ask: context from %s failed: %s"
+                                                                fn (error-message-string err))
+                                                       nil)))
+                                                  mr-x/quick-ask-context-functions))))
+                  (push item mr-x/quick-ask--context-items))
+
                 ;; Auto-attach region if active
                 (when region-active
                   (let* ((content (or source-diff source-context))
@@ -12766,6 +12818,61 @@ mentions — so the agent receives the actual file content.  Lives in
 
 ;; Pinned @-file aliases (@rig, @emacs-org, …) — see lisp/agent-shell-pins.el
 (require 'agent-shell-pins)
+
+#+end_src
+
+A thin divider above the live prompt, so the place to type stays easy to
+find while a reply streams in above it.  One overlay per shell, re-synced
+to the live prompt after every buffer change; hidden when no prompt is live.
+
+#+begin_src emacs-lisp :tangle agent-shell-config.el
+
+;; Prompt divider: a short heavy rule in the prompt's yellow, then a
+;; half-height gap, above the live input prompt.
+(defface mr-x/agent-shell-prompt-divider
+  '((t :foreground "#fabd2f"))
+  "Rule drawn above the live agent-shell prompt.")
+
+(defvar-local mr-x/agent-shell-prompt-divider--ov nil)
+
+(defvar mr-x/agent-shell-prompt-divider--string
+  (concat (propertize (make-string 24 ?━) 'face 'mr-x/agent-shell-prompt-divider)
+          "\n"
+          (propertize "\n" 'face '(:height 0.5)))
+  "Before-string for the divider overlay.")
+
+(defun mr-x/agent-shell-prompt-divider--sync (&rest _)
+  "Move the divider to the live prompt, or hide it when there is none."
+  (when (overlayp mr-x/agent-shell-prompt-divider--ov)
+    (let ((start (and (fboundp 'agent-shell--live-input-prompt-p)
+                      comint-last-prompt
+                      (ignore-errors
+                        (agent-shell--live-input-prompt-p comint-last-prompt))
+                      (marker-position (car comint-last-prompt)))))
+      (if start
+          (move-overlay mr-x/agent-shell-prompt-divider--ov start start
+                        (current-buffer))
+        (delete-overlay mr-x/agent-shell-prompt-divider--ov)))))
+
+(define-minor-mode mr-x/agent-shell-prompt-divider-mode
+  "Draw a divider above the live agent-shell prompt."
+  :lighter nil
+  (if mr-x/agent-shell-prompt-divider-mode
+      (progn
+        (unless (overlayp mr-x/agent-shell-prompt-divider--ov)
+          (setq mr-x/agent-shell-prompt-divider--ov (make-overlay 1 1 nil t t))
+          (overlay-put mr-x/agent-shell-prompt-divider--ov 'before-string
+                       mr-x/agent-shell-prompt-divider--string))
+        (add-hook 'after-change-functions
+                  #'mr-x/agent-shell-prompt-divider--sync nil t)
+        (mr-x/agent-shell-prompt-divider--sync))
+    (remove-hook 'after-change-functions
+                 #'mr-x/agent-shell-prompt-divider--sync t)
+    (when (overlayp mr-x/agent-shell-prompt-divider--ov)
+      (delete-overlay mr-x/agent-shell-prompt-divider--ov))
+    (setq mr-x/agent-shell-prompt-divider--ov nil)))
+
+(add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 
 #+end_src
 
