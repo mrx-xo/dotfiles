@@ -10,6 +10,7 @@
 (require 'json)
 (require 'review-session)
 (require 'review-store)
+(require 'review-panel)
 
 (defvar review-walkthrough-render-function #'ignore
   "Called with the session to draw the current step.  Set by the renderer.")
@@ -343,6 +344,63 @@ Target keys: kind, directory, range, host, owner, repo, name, number."
 
 (setq review-walkthrough-render-function #'review-walkthrough--render)
 (add-hook 'review-session-layout-hook #'review-walkthrough--render)
+
+;;;; Panel and bar
+;; Figma "Files panel / walkthrough" (37:407).
+
+(defun review-walkthrough--panel-row (content bg)
+  (review-panel--row content :bg bg :pad '(4 4)))
+
+(defun review-walkthrough--panel-section (session _width)
+  (when-let ((w (review-session-walkthrough session)))
+    (let ((steps (plist-get w :steps)) (index (plist-get w :index))
+          (head (lambda (right)
+                  (review-panel--row (concat (review-panel--gap 16)
+                                             (review-panel--txt "◆ WALKTHROUGH" 'purple :weight 'bold :height 0.92)
+                                             (review-panel--gap 10) right)
+                                     :bg 'bg-0 :pad '(12 6)))))
+      (concat
+       (cond
+        ((eq (plist-get w :status) 'planning)
+         (funcall head (review-panel--txt "Planning route…" 'dim :height 0.92)))
+        ((eq (plist-get w :status) 'no-route)
+         (funcall head (review-panel--txt "no route returned · W shows the answer" 'yellow :height 0.92)))
+        (t
+         (concat
+          (funcall head (review-panel--txt (format "%d of %d" (1+ index) (length steps)) 'dim :height 0.92))
+          (mapconcat
+           (lambda (i)
+             (let* ((step (aref steps i))
+                    (state (cond ((< i index) 'done) ((= i index) 'current) (t 'pending)))
+                    (bg (if (eq state 'current) 'bg-1 'bg-0))
+                    (text (concat
+                           (review-walkthrough--panel-row
+                            (concat (review-panel--gap 25)
+                                    (review-panel--txt (pcase state ('done "●") ('current "❯") (_ "○"))
+                                                       (if (eq state 'pending) 'dim 'purple))
+                                    (review-panel--gap 10)
+                                    (review-panel--txt (number-to-string (1+ i)) 'dim :height 0.92)
+                                    (review-panel--gap 10)
+                                    (review-panel--txt (plist-get step :title) (if (eq state 'done) 'dim 'fg)
+                                                       :weight (and (eq state 'current) 'medium)))
+                            bg)
+                           (review-walkthrough--panel-row
+                            (concat (review-panel--gap 60)
+                                    (review-panel--txt (format "%s:%d" (plist-get step :path) (plist-get step :line-start))
+                                                       'mute :height 0.83))
+                            bg))))
+               (propertize text 'review-walk-step i
+                           'review-action (lambda () (review-walkthrough--go session i)))))
+           (number-sequence 0 (1- (length steps))) ""))))
+       (review-panel--divider)))))
+
+(defun review-walkthrough--bar (session)
+  (when-let* ((w (review-session-walkthrough session)) (steps (plist-get w :steps)))
+    (review-panel--txt (format "WALK %d/%d" (1+ (plist-get w :index)) (length steps))
+                       'purple :weight 'bold :height 0.92)))
+
+(add-hook 'review-panel-section-functions #'review-walkthrough--panel-section)
+(add-hook 'review-panel-bar-functions #'review-walkthrough--bar)
 
 (provide 'review-walkthrough)
 ;;; review-walkthrough.el ends here
