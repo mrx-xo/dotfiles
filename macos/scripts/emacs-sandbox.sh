@@ -96,42 +96,9 @@ if [[ ! -d "$SANDBOX_DIR" || -n "$FRESH" ]]; then
     # 1. Enable title bar (comment out undecorated-round)
     sed -i '' "s/(add-to-list 'default-frame-alist '(undecorated-round . t))/;; SANDBOX: (add-to-list 'default-frame-alist '(undecorated-round . t))/" "$SANDBOX_DIR/early-init.el"
 
-    # 2. Create sandbox indicator file
-    cat > "$SANDBOX_DIR/sandbox-indicator.el" << 'EOF'
-;;; sandbox-indicator.el --- Visual indicator for sandbox Emacs -*- lexical-binding: t; -*-
+    # The SANDBOX mode-line badge needs no step here: emacs.org loads
+    # lisp/mr-x-sandbox-badge.el whenever (daemonp) is "sandbox".
 
-;; Title bar shows SANDBOX
-(setq frame-title-format '("SANDBOX - " "%b"))
-
-;; Doom modeline custom segment
-(with-eval-after-load 'doom-modeline
-  (doom-modeline-def-segment sandbox
-    "Sandbox indicator segment."
-    (propertize " SANDBOX " 'face '(:background "#ff6b6b" :foreground "white" :weight bold)))
-
-  (doom-modeline-def-modeline 'main
-    '(bar workspace-name window-number sandbox modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
-    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time))
-
-  ;; This file loads AFTER doom-modeline has already installed its default
-  ;; modeline, so redefining `main' above does not take effect on its own.
-  ;; Re-activate it now, and again once startup settles (doom-modeline-mode
-  ;; can re-apply the default modeline late in init). Without this the
-  ;; SANDBOX badge silently vanishes on a fresh sandbox.
-  (doom-modeline-set-modeline 'main t)
-  (run-at-time 1 nil (lambda () (doom-modeline-set-modeline 'main t))))
-
-(message "Running in SANDBOX mode - your real config is safe!")
-
-(provide 'sandbox-indicator)
-;;; sandbox-indicator.el ends here
-EOF
-
-    # 3. Add loader to init.el
-    echo '' >> "$SANDBOX_DIR/init.el"
-    echo ';; Sandbox visual indicator' >> "$SANDBOX_DIR/init.el"
-    echo '(load (expand-file-name "sandbox-indicator.el" user-emacs-directory) t)' >> "$SANDBOX_DIR/init.el"
-    # tab-lab: major-pane styling playground (C-c l to build the scene).
     # The file rides along in the .emacs.d copy; only sandbox init loads it.
     echo ';; Sandbox tab-lab (major-pane styling playground)' >> "$SANDBOX_DIR/init.el"
     echo '(load (expand-file-name "sandbox/tab-lab.el" user-emacs-directory) t)' >> "$SANDBOX_DIR/init.el"
