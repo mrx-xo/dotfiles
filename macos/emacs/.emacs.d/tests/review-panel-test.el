@@ -327,6 +327,18 @@ progress block and the file list is still drawn."
           (should (string-match-p "@@ -2,2 \\+2,3 @@  hunk 1 of 1"
                                   (overlay-get (car bands) 'before-string))))))))
 
+(ert-deftest review-panel-band-sits-above-extra-lines ()
+  ;; Band, then the extra lines (the walkthrough card), then the hunk.
+  (review-session-test--with-extras s '((1 new "NOTE\n"))
+    (review-panel-open s)
+    (let ((new (review-session-new-buffer s)))
+      (with-current-buffer new
+        (let ((band (seq-find (lambda (o) (overlay-get o 'review-band))
+                              (overlays-in (point-min) (point-max)))))
+          (should (= (overlay-start band) (review-session--row-position new 1)))
+          (should (save-excursion (goto-char (overlay-start band)) (looking-at-p "NOTE")))
+          (should (< (overlay-start band) (review-session--source-position new 1))))))))
+
 (ert-deftest review-panel-compare-top-bar-tracks-file-and-hunk ()
   (review-panel-test--with s
     (review-panel-open s)

@@ -572,6 +572,185 @@ Return (OLD-LINES NEW-LINES STARTS)."
                      (1- (line-number-at-pos (window-start nw))))
                    3))))))
 
+;;;; Extra lines: read-only text before a row, filler facing it
+
+(defun review-session-test--layout-extras (old new extras)
+  "Lay out texts OLD and NEW in wrap mode with EXTRAS.
+Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS)."
+  (let* ((rows (review-diff-rows (review-diff-ops old new)))
+         (o (review-session-pane-render rows 'old old))
+         (n (review-session-pane-render rows 'new new)))
+    (review-session-pane-layout o n 'wrap 40 40 0 extras)))
+
+(ert-deftest review-session-layout-extras-insert-aligned-lines ()
+  ;; Extra lines go before a row on one side and blank filler on the
+  ;; other, so every row still starts on the same line in both panes.
+  (pcase-let* ((`(,old ,new ,starts ,sources)
+                (review-session-test--layout-extras
+                 "a\nb\nc\n" "a\nB\nc\n"
+                 (list (list 1 'new (propertize "NOTE one\nNOTE two\n" 'face 'bold)))))
+               (old-lines (split-string old "\n")) (new-lines (split-string new "\n")))
+    (should (= (length old-lines) (length new-lines)))
+    ;; STARTS is where each row's block begins, extra lines included;
+    ;; SOURCE-STARTS where its source lines begin.
+    (should (equal starts [0 1 4]))
+    (should (equal sources [0 3 4]))
+    (should (equal (nth 1 new-lines) "NOTE one"))
+    (should (equal (nth 2 new-lines) "NOTE two"))
+    (should (string-match-p "\\`  *2 \\+ B\\'" (nth 3 new-lines)))
+    (should (string-match-p "\\`  *2 - b\\'" (nth 3 old-lines)))
+    (should (string-match-p "\\`[[:space:]]*\\'" (nth 1 old-lines)))
+    (should (string-match-p "\\`[[:space:]]*\\'" (nth 2 old-lines)))
+    (let ((note (string-search "NOTE one" new))
+          (filler (1+ (length (nth 0 old-lines)))))
+      ;; Extra and filler lines belong to their row, marked as extra.
+      (should (eq (get-text-property note 'review-row new) 1))
+      (should (get-text-property note 'review-extra new))
+      (should (memq 'bold (ensure-list (get-text-property note 'face new))))
+      (should (eq (get-text-property filler 'review-row old) 1))
+      (should (get-text-property filler 'review-extra old))
+      (should (memq 'review-extra-filler (ensure-list (get-text-property filler 'face old)))))
+    (should-not (get-text-property (string-search "B" new) 'review-extra new)))
+  ;; Extra lines on both sides of one row: the shorter side is padded.
+  (pcase-let* ((`(,old ,new ,starts ,sources)
+                (review-session-test--layout-extras
+                 "a\nb\n" "a\nB\n" (list (list 1 'new "N1\nN2") (list 1 'old "O1\n")
+                                         (list 7 'new "out of range\n"))))
+               (old-lines (split-string old "\n")) (new-lines (split-string new "\n")))
+    (should (equal starts [0 1]))
+    (should (equal sources [0 3]))
+    (should (equal (seq-take new-lines 3) (list (car new-lines) "N1" "N2")))
+    (should (equal (nth 1 old-lines) "O1"))
+    (should (string-match-p "\\`[[:space:]]*\\'" (nth 2 old-lines)))
+    (should (= (length old-lines) (length new-lines) 4))
+    (should-not (string-search "out of range" new))))
+
+(defconst review-session-test--note
+  (let ((chrome (propertize "| " 'review-extra-chrome t)))
+    (list (list 1 'new (concat chrome "NOTE about y\n" chrome "second line\n"))))
+  "Two extra lines before b.el's row 1 (y -> Y); the bar and its space are chrome.")
+
+(defmacro review-session-test--with-extras (var extras &rest body)
+  "BODY with VAR a session showing b.el, which gets EXTRAS before its rows."
+  (declare (indent 2))
+  `(let ((review-session-layout-extras-functions
+          (list (lambda (session index)
+                  (and (equal (plist-get (review-session-file session index) :path) "b.el")
+                       ,extras)))))
+     (review-session-test--with ,var
+       (review-session-next-file)
+       ,@body)))
+
+(ert-deftest review-session-extra-lines-are-not-source-lines ()
+  (review-session-test--with-extras s review-session-test--note
+    (let ((new (review-session-new-buffer s)) (old (review-session-old-buffer s)))
+      (with-current-buffer new
+        (let* ((note (save-excursion (goto-char (point-min)) (search-forward "NOTE")
+                                     (line-beginning-position)))
+               (second (save-excursion (goto-char note) (forward-line 1) (point)))
+               (source (review-session--source-position new 1)))
+          ;; The row's block begins at its first extra line; its source
+          ;; line comes after them, level with the old pane's.
+          (should (= (review-session--row-position new 1) note))
+          (should (= source (save-excursion (goto-char note) (forward-line 2) (point))))
+          (should (save-excursion (goto-char source) (looking-at-p "  *2 \\+ Y")))
+          (should (eq (review-session--row-at note) 1))
+          (should (= (line-number-at-pos source)
+                     (with-current-buffer old (line-number-at-pos (review-session--source-position old 1)))))
+          (should (= (count-lines (point-min) (point-max))
+                     (with-current-buffer old (count-lines (point-min) (point-max)))))
+          ;; A selection inside the extra lines is their text, chrome
+          ;; left out, with no diff; its lines are its row's.
+          (let ((selection (review-session-pane-selection
+                            note (save-excursion (goto-char second) (line-end-position)))))
+            (should (equal (plist-get selection :text) "NOTE about y\nsecond line"))
+            (should-not (plist-get selection :diff))
+            (should (equal (list (plist-get selection :start) (plist-get selection :end)) '(2 2))))
+          (let* ((from (save-excursion (goto-char note) (search-forward "about") (match-beginning 0)))
+                 (selection (review-session-pane-selection from (+ from 7))))
+            (should (equal (plist-get selection :text) "about y")))
+          ;; Point alone on an extra line: that line.
+          (should (equal (plist-get (review-session-pane-selection second second) :text) "second line"))
+          ;; Mixed: only the source rows count.
+          (let ((selection (review-session-pane-selection note (review-session--row-position new 3))))
+            (should (equal (plist-get selection :text) "Y\nz"))
+            (should (string-match-p "- y\n\\+ Y" (plist-get selection :diff))))
+          ;; Ending inside the extra lines stops at the row before them.
+          (should (equal (plist-get (review-session-pane-selection (point-min) (+ note 3)) :text) "x"))))
+      ;; The filler facing them has nothing to ask about.
+      (with-current-buffer old
+        (let ((filler (review-session--row-position old 1)))
+          (should (get-text-property filler 'review-extra))
+          (should-error (review-session-pane-selection filler (1- (review-session--source-position old 1)))
+                        :type 'user-error))))))
+
+(ert-deftest review-session-extra-lines-keep-point-and-pane-state ()
+  (review-session-test--with-extras s review-session-test--note
+    (let* ((new (review-session-new-buffer s)) (w (get-buffer-window new t)))
+      (cl-flet ((relayout ()
+                  (dolist (b (list new (review-session-old-buffer s)))
+                    (with-current-buffer b (setq review-pane--layout '(stale 0 0))))
+                  (should (review-session--ensure-layout s)))
+                (line-at (pos) (with-current-buffer new
+                                 (save-excursion (goto-char pos)
+                                                 (buffer-substring (line-beginning-position)
+                                                                   (line-end-position))))))
+        ;; On the second extra line, a relayout keeps point there.
+        (set-window-point w (with-current-buffer new
+                              (save-excursion (goto-char (review-session--row-position new 1))
+                                              (forward-line 1) (point))))
+        (relayout)
+        (should (equal (line-at (window-point w)) "| second line"))
+        ;; On a source line below extra lines, point stays on the source.
+        (set-window-point w (review-session--source-position new 1))
+        (relayout)
+        (should (= (window-point w) (review-session--source-position new 1)))
+        ;; Pane state round-trips through an extra line.
+        (set-window-point w (review-session--row-position new 1))
+        (let ((state (review-session-pane-state s)))
+          (set-window-point w (with-current-buffer new (point-max)))
+          (review-session-restore-pane-state s state)
+          (should (= (window-point w) (review-session--row-position new 1))))
+        (set-window-point w (review-session--source-position new 1))
+        (let ((state (review-session-pane-state s)))
+          (set-window-point w (with-current-buffer new (point-max)))
+          (review-session-restore-pane-state s state)
+          (should (= (window-point w) (review-session--source-position new 1))))))))
+
+(ert-deftest review-session-hunk-jumps-land-below-extra-lines ()
+  ;; b.el's hunk starts at row 1, under its extra lines: point, the flash
+  ;; and the rail start at the source line, not at the extra lines.
+  (cl-letf (((symbol-function 'run-at-time) #'ignore))
+    (review-session-test--with-extras s review-session-test--note
+      (let* ((new (review-session-new-buffer s)) (w (get-buffer-window new t))
+             (source (review-session--source-position new 1)))
+        (should (< (review-session--row-position new 1) source))
+        (with-current-buffer new
+          (should (= (save-excursion (goto-char (window-point w)) (line-beginning-position)) source))
+          (should (= (overlay-start review-pane--rail) source))
+          (should (= (overlay-start (seq-find (lambda (o) (overlay-get o 'review-flash))
+                                              (overlays-in (point-min) (point-max))))
+                     source)))))))
+
+(ert-deftest review-session-changed-extras-lay-the-panes-out-again ()
+  (let* ((note "NOTE one\n")
+         (review-session-layout-extras-functions
+          (list (lambda (_s _i) (and note (list (list 1 'new note)))))))
+    (review-session-test--with s
+      (cl-flet ((text () (with-current-buffer (review-session-new-buffer s) (buffer-string))))
+        (should (string-search "NOTE one" (text)))
+        (setq note "NOTE two\n")
+        (should (review-session--ensure-layout s))
+        (should (string-search "NOTE two" (text)))
+        (should-not (string-search "NOTE one" (text)))
+        ;; Nothing changed: no second layout.
+        (should-not (review-session--ensure-layout s))
+        (setq note nil)
+        (should (review-session--ensure-layout s))
+        (should-not (string-search "NOTE" (text)))
+        (should (= (with-current-buffer (review-session-new-buffer s) (count-lines (point-min) (point-max)))
+                   (with-current-buffer (review-session-old-buffer s) (count-lines (point-min) (point-max)))))))))
+
 (ert-deftest review-session-pane-keeps-source-directory ()
   (save-window-excursion
     (let ((src (review-session-test--source review-session-test--spec)))
