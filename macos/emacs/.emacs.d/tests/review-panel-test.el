@@ -196,7 +196,7 @@
     (review-panel-open s)
     (with-current-buffer (review-session-panel s)
       (let ((footer (substring-no-properties (apply (function concat) mode-line-format))))
-        (dolist (hint '("C-j/k" "file" "M-j/k" "hunk" "TAB" "fold" "RET" "open" "viewed" "park"))
+        (dolist (hint '("C-j/k" "hunk" "J/K" "file" "TAB" "fold" "RET" "open" "x" "viewed" "park"))
           (should (string-match-p (regexp-quote hint) footer))))
       (setq review-panel--collapsed t)
       (review-panel--refresh s)
