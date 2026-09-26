@@ -1,6 +1,9 @@
 ;;; review-session-visit-test.el --- Visit the real file and come back -*- lexical-binding: t; -*-
 (require 'ert)
 (require 'review-session)
+;; Loaded up front so the store variables below bind dynamically: pause
+;; style visits save records, and they must land in a temp directory.
+(require 'review-store)
 
 (defun review-visit-test--git (dir &rest args)
   (let ((default-directory dir))
@@ -89,5 +92,40 @@
                 (review-session-visit))
               (should (equal called '("a.txt" new 3))))
           (review-session-quit))))))
+
+(defmacro review-visit-test--with-store (&rest body)
+  `(let ((review-store-directory (file-name-as-directory (make-temp-file "review-visit-store" t)))
+         (review-store--memory (make-hash-table :test #'equal)))
+     (unwind-protect (save-window-excursion ,@body)
+       (when review-session--current (review-session-quit))
+       (delete-directory review-store-directory t))))
+
+(ert-deftest review-session-visit-pause-style-keeps-review-when-it-cannot-open ()
+  ;; No visit function and no file link: nothing can open, so the review
+  ;; is never paused.
+  (review-visit-test--with-store
+   (let* ((review-session-visit-style 'pause) (review-session-visit-functions nil)
+          (s (review-session-start
+              (make-review-source
+               :name "fake" :title "Fake" :range-label "x -> y" :recipe '(:kind fake :id "visit")
+               :files (lambda () (list (list :path "a.el" :old-path "a.el" :kind 'modified)))
+               :text (lambda (_file side cb) (funcall cb (if (eq side 'old) "1\n2\n" "1\nTWO\n")))
+               :origin (lambda (file start _end) (list :label (format "%s:%d" (plist-get file :path) start)))))))
+     (with-selected-window (review-session-new-window s)
+       (goto-char (review-session--row-position (review-session-new-buffer s) 1))
+       (should-error (review-session-visit) :type 'user-error))
+     (should (eq review-session--current s)))))
+
+(ert-deftest review-session-visit-pause-style-resumes-when-opening-fails ()
+  (review-visit-test--with-repo dir
+    (review-visit-test--with-store
+     (let* ((review-session-visit-style 'pause)
+            (review-session-visit-functions (list (lambda (&rest _) (error "Open failed"))))
+            (s (review-session-start (review-source-git-range dir))))
+       (with-selected-window (review-session-new-window s)
+         (goto-char (review-session--row-position (review-session-new-buffer s) 2))
+         (should-error (review-session-visit)))
+       (should review-session--current)
+       (should (equal (plist-get (review-session-file review-session--current) :path) "a.txt"))))))
 
 (provide 'review-session-visit-test)

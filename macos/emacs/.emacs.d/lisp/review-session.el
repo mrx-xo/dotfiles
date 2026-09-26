@@ -1009,25 +1009,31 @@ Wrapped panes have nothing to scroll, so there it does nothing."
         (when-let ((top (plist-get one :top)))
           (set-window-start w (review-session--row-position buffer top)))))))
 
-(defun review-session--open-location (session file side line)
-  "Open FILE's SIDE at LINE in the selected window."
+(defun review-session--file-link (session file side line)
+  "The real file SESSION's origin names for FILE's SIDE at LINE, or nil."
+  (let* ((origin-file (plist-put (plist-put (copy-sequence file) :side side)
+                                 :origin-path (if (eq side 'old)
+                                                  (or (plist-get file :old-path) (plist-get file :path))
+                                                (plist-get file :path))))
+         (link (plist-get (funcall (review-source-origin (review-session-source session))
+                                   origin-file line line)
+                          :link)))
+    (and (stringp link) (string-match "\\`file:\\(.*\\)::[0-9]+\\'" link)
+         (expand-file-name (match-string 1 link)))))
+
+(defun review-session--open-location (session file side line &optional path)
+  "Open FILE's SIDE at LINE in the selected window.
+`review-session-visit-functions' go first; then the file SESSION's origin
+links to, or PATH when the caller has already resolved it."
   (or (run-hook-with-args-until-success 'review-session-visit-functions session file side line)
-      (let* ((origin-file (plist-put (plist-put (copy-sequence file) :side side)
-                                     :origin-path (if (eq side 'old)
-                                                      (or (plist-get file :old-path) (plist-get file :path))
-                                                    (plist-get file :path))))
-             (link (plist-get (funcall (review-source-origin (review-session-source session))
-                                       origin-file line line)
-                              :link)))
-        (unless (and (stringp link) (string-match "\\`file:\\(.*\\)::[0-9]+\\'" link))
-          (user-error "This review cannot open %s" (plist-get file :path)))
-        (let ((path (expand-file-name (match-string 1 link))))
-          (switch-to-buffer (find-file-noselect path))
-          (goto-char (point-min))
-          (forward-line (1- line))
-          (when (eq side 'old)
-            (message "Line %d is from the old side; the file on disk may differ" line))
-          t))))
+      (let ((path (or path (review-session--file-link session file side line)
+                      (user-error "This review cannot open %s" (plist-get file :path)))))
+        (switch-to-buffer (find-file-noselect path))
+        (goto-char (point-min))
+        (forward-line (1- line))
+        (when (eq side 'old)
+          (message "Line %d is from the old side; the file on disk may differ" line))
+        t)))
 
 (defun review-session--other-frame (session)
   "A visible frame that is not one of SESSION's review frames."
@@ -1061,8 +1067,16 @@ Wrapped panes have nothing to scroll, so there it does nothing."
          (select-frame-set-input-focus frame)
          (review-session--open-location s file side line)))
       (_
-       (review-session-pause)
-       (review-session--open-location s file side line)))))
+       ;; Pause only once opening can proceed.  Visit functions can only
+       ;; be asked by running them, so one failing after the pause
+       ;; resumes the review before the error goes on.
+       (let ((path (review-session--file-link s file side line)))
+         (unless (or path review-session-visit-functions)
+           (user-error "This review cannot open %s" (plist-get file :path)))
+         (review-session-pause)
+         (condition-case err
+             (review-session--open-location s file side line path)
+           (error (review-session-resume) (signal (car err) (cdr err)))))))))
 
 (defun review-session-return ()
   "Bring the live review's panes back after `review-session-visit'."
