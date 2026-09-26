@@ -1,8 +1,9 @@
 ;;; review-walkthrough-agent.el --- Ask the project agent for a walkthrough -*- lexical-binding: t; -*-
 ;;; Commentary:
-;; Glue, not core: the per-project Quick Ask agent reads the diff, writes a
-;; route as JSON, and sends it back with emacsclient.  Emacs never parses
-;; the chat reply.  Also gives Quick Ask the current step as context.
+;; Glue, not core: the per-project Quick Ask agent reads the diff and
+;; replies in chat with a fenced json block holding the route.  Emacs
+;; extracts and validates it itself, so the hidden agent never needs tool
+;; permissions.  Also gives Quick Ask the current step as context.
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
@@ -63,37 +64,96 @@
             (plist-put big :cut t)))))
     (mapconcat (lambda (c) (plist-get c :text)) chunks "\n")))
 
-(defun review-walkthrough-agent--prompt (session file)
-  "The request for SESSION's walkthrough; the agent writes its route to FILE."
+(defun review-walkthrough-agent--prompt (session)
+  "The request for SESSION's walkthrough; the agent replies with a json block."
   (let* ((instructions (expand-file-name review-walkthrough-agent-instructions))
-         (socket (if (and (boundp 'server-name) (not (equal server-name "server")))
-                     (format " --socket-name=%s" server-name) ""))
          (recipe (review-source-recipe (review-session-source session))))
     (concat
      (if (file-readable-p instructions)
          (with-temp-buffer (insert-file-contents instructions) (buffer-string))
        "Walk me through this change like a senior engineer reviewing it.")
      "\n\n## Deliver it as a walkthrough in my Emacs review viewer\n\n"
-     "Do not answer in chat. Build a route of 3 to 10 steps in execution order, write it as JSON to "
-     file ", then run exactly:\n\n"
-     (format "emacsclient%s --eval \"(progn (require 'review-walkthrough) (review-walkthrough-start-file \\\"%s\\\"))\"\n\n"
-             socket file)
-     "JSON shape: {\"steps\": [{\"path\": \"repo/relative/path\", \"side\": \"new\", \"line_start\": 12, "
-     "\"line_end\": 18, \"title\": \"short title\", \"body\": \"1-3 sentences\", \"question\": \"one review question\"}]}\n"
+     "You may read files in this repository to understand the change, but do not edit any file "
+     "and do not run any command.\n"
+     "Build a route of 3 to 10 steps in execution order. Reply with exactly one fenced block "
+     "tagged json, holding the route, and nothing outside that block that matters:\n\n"
+     "```json\n{\"steps\": [{\"path\": \"repo/relative/path\", \"side\": \"new\", \"line_start\": 12, "
+     "\"line_end\": 18, \"title\": \"short title\", \"body\": \"1-3 sentences\", "
+     "\"question\": \"one review question\"}]}\n```\n\n"
      "side is \"new\" unless the lines exist only on the old side. Line numbers are that side's real file "
      "lines, and each step must include at least one changed line from the hunks below.\n"
-     "The command prints a report. If it starts with retry:, run it again after 5 seconds. If it lists "
-     "rejected steps, fix them in the file and run it again.\n"
      (format "Review: %s\n\n" (review-source-key recipe))
      "## The diff\n\n"
      (review-walkthrough-agent--diff session))))
+
+(defun review-walkthrough-agent--route-json (text)
+  "The contents of the last ```json fenced block in TEXT, or nil."
+  (when text
+    (let ((start 0) last)
+      (while (string-match "```json\n\\(\\(?:.\\|\n\\)*?\\)```" text start)
+        (setq last (match-string 1 text))
+        (setq start (match-end 0)))
+      last)))
+
+(defun review-walkthrough-agent--apply-route (session shell json-text retries corrected)
+  "Start SESSION's walkthrough from JSON-TEXT.
+RETRIES counts `retry:' attempts already made against this route.
+CORRECTED is non-nil once SHELL has already been asked once to fix a
+rejected route; a second rejection then gives up rather than asking again."
+  (when (eq session review-session--current)
+    (let* ((file (make-temp-file "review-walkthrough" nil ".json" json-text))
+           (report (unwind-protect (review-walkthrough-start-file file)
+                     (delete-file file))))
+      (cond
+       ((string-prefix-p "ok" report)
+        (when (string-match-p "\n" report) (message "%s" report)))
+       ((string-prefix-p "retry:" report)
+        (if (< retries 5)
+            (run-at-time 3 nil #'review-walkthrough-agent--apply-route
+                         session shell json-text (1+ retries) corrected)
+          (setq review-walkthrough-agent--last-output
+                (concat review-walkthrough-agent--last-output "\n" report))
+          (setf (review-session-walkthrough session) (list :status 'no-route))
+          (review-session--notify session)))
+       ((string-prefix-p "error:" report)
+        (if corrected
+            (progn
+              (setf (review-session-walkthrough session) (list :status 'no-route))
+              (review-session--notify session))
+          (review-walkthrough-agent--request-correction session shell report)))))))
+
+(defun review-walkthrough-agent--request-correction (session shell report)
+  "Ask SHELL once to fix the walkthrough route rejected with REPORT."
+  (let (token)
+    (setq token
+          (agent-shell-subscribe-to
+           :shell-buffer shell :event 'turn-complete
+           :on-event (lambda (_event)
+                       (agent-shell-unsubscribe :subscription token)
+                       (review-walkthrough-agent--on-reply session shell t))))
+    (agent-shell--insert-to-shell-buffer
+     :shell-buffer shell
+     :text (format "Your walkthrough route was rejected:\n%s\nReply again with only the corrected json block."
+                    report)
+     :submit t :no-focus t)))
+
+(defun review-walkthrough-agent--on-reply (session shell corrected)
+  "Handle SHELL's reply to a walkthrough request for SESSION.
+CORRECTED is non-nil when this reply follows a correction request."
+  (setq review-walkthrough-agent--last-output (with-current-buffer shell (shell-maker-last-output)))
+  (when (eq session review-session--current)
+    (let ((json-text (review-walkthrough-agent--route-json review-walkthrough-agent--last-output)))
+      (if (not json-text)
+          (progn
+            (setf (review-session-walkthrough session) (list :status 'no-route))
+            (review-session--notify session))
+        (review-walkthrough-agent--apply-route session shell json-text 0 corrected)))))
 
 (defun review-walkthrough-request ()
   "Ask this project's agent to build a walkthrough of the review."
   (interactive)
   (let* ((session (review-session--require))
          (shell (mr-x/quick-ask--ensure-session (review-session-directory session)))
-         (file (make-temp-file "review-walkthrough" nil ".json"))
          token)
     (when (with-current-buffer shell (shell-maker-busy))
       (user-error "The project agent is busy; try again when it finishes"))
@@ -104,14 +164,9 @@
            :shell-buffer shell :event 'turn-complete
            :on-event (lambda (_event)
                        (agent-shell-unsubscribe :subscription token)
-                       (setq review-walkthrough-agent--last-output
-                             (with-current-buffer shell (shell-maker-last-output)))
-                       (when (and (eq session review-session--current)
-                                  (not (plist-get (review-session-walkthrough session) :steps)))
-                         (setf (review-session-walkthrough session) (list :status 'no-route))
-                         (review-session--notify session)))))
+                       (review-walkthrough-agent--on-reply session shell nil))))
     (agent-shell--insert-to-shell-buffer
-     :shell-buffer shell :text (review-walkthrough-agent--prompt session file) :submit t :no-focus t)
+     :shell-buffer shell :text (review-walkthrough-agent--prompt session) :submit t :no-focus t)
     (message "Asked the project agent for a walkthrough")))
 
 (defun review-walkthrough-show-answer ()
@@ -127,11 +182,14 @@
 (defun review-walkthrough-agent-dwim ()
   "Request a walkthrough, end the running one, or show why none came back."
   (interactive)
-  (let ((w (review-session-walkthrough (review-session--require))))
+  (let* ((session (review-session--require))
+         (w (review-session-walkthrough session)))
     (cond ((plist-get w :steps)
            (when (y-or-n-p "End this walkthrough? ") (review-walkthrough-quit)))
           ((eq (plist-get w :status) 'no-route) (review-walkthrough-show-answer))
-          ((eq (plist-get w :status) 'planning) (message "The agent is still planning the route"))
+          ((eq (plist-get w :status) 'planning)
+           (when (y-or-n-p "The agent is still planning. Show its session? ")
+             (pop-to-buffer (mr-x/quick-ask--ensure-session (review-session-directory session)))))
           (t (review-walkthrough-request)))))
 
 (defun review-walkthrough-agent--ask-context ()
