@@ -218,5 +218,131 @@ Target keys: kind, directory, range, host, owner, repo, name, number."
 
 (add-hook 'review-store-restored-functions #'review-walkthrough--restored)
 
+;;;; Rendering
+;; Figma "Walkthrough / compare" (37:2): a purple-railed card above the
+;; step's lines, a filler of the same height in the other pane so rows stay
+;; level, purple line numbers on the step, everything else dimmed.
+
+(defcustom review-walkthrough-dim t
+  "Dim every line outside the current walkthrough step."
+  :type 'boolean :group 'review)
+
+(defface review-walk-accent '((t :foreground "#d3869b" :weight bold)) "Walkthrough purple.")
+(defface review-walk-card '((t :background "#322830" :extend t)) "Card background.")
+(defface review-walk-filler '((t :background "#232627" :extend t)) "Filler facing the card.")
+(defface review-walk-rail '((t :background "#d3869b")) "Card rail.")
+(defface review-walk-title '((t :foreground "#ebdbb2" :weight bold)) "Step title.")
+(defface review-walk-body '((t :foreground "#a89984")) "Step explanation.")
+(defface review-walk-question '((t :foreground "#fabd2f")) "Review question.")
+(defface review-walk-step-number '((t :foreground "#d3869b" :weight bold)) "Line numbers of the step.")
+(defface review-walk-dim '((t :foreground "#5a524c")) "Text outside the step.")
+(defface review-walk-dim-added '((t :foreground "#5a524c" :background "#23241b" :extend t))
+  "Added rows outside the step.  Faces cannot be translucent, so this is a muted copy.")
+(defface review-walk-dim-removed '((t :foreground "#5a524c" :background "#281f1e" :extend t))
+  "Removed rows outside the step.")
+
+(defun review-walkthrough--wrap (text width)
+  (with-temp-buffer
+    (insert text)
+    (let ((fill-column width)) (fill-region (point-min) (point-max)))
+    (split-string (buffer-string) "\n")))
+
+(defun review-walkthrough--card (step n total width)
+  "The card for STEP, number N of TOTAL, WIDTH columns wide, as a before-string."
+  (let* ((width (max 30 (- (or width 80) 8)))
+         (rail (propertize " " 'face 'review-walk-rail))
+         (wrap (lambda (text face)
+                 (mapcar (lambda (l) (propertize l 'face face)) (review-walkthrough--wrap text width))))
+         (lines (append
+                 (list (propertize "◆ AGENT WALKTHROUGH" 'face 'review-walk-accent)
+                       (concat (propertize (format "%d/%d" n total) 'face 'review-walk-accent) "  "
+                               (propertize (plist-get step :title) 'face 'review-walk-title)))
+                 (when (plist-get step :body) (funcall wrap (plist-get step :body) 'review-walk-body))
+                 (when (plist-get step :question)
+                   (funcall wrap (concat "? " (plist-get step :question)) 'review-walk-question))))
+         (card (mapconcat (lambda (line) (concat rail "   " line "\n")) lines "")))
+    (add-face-text-property 0 (length card) 'review-walk-card t card)
+    card))
+
+(defun review-walkthrough--overlay (buffer kind start-row &optional end-row)
+  (let* ((start (review-session--row-position buffer start-row))
+         (end (if end-row (review-session--row-position buffer end-row) start))
+         (o (make-overlay start end buffer)))
+    (overlay-put o 'review-walk t)
+    (overlay-put o 'review-walk-kind kind)
+    (overlay-put o 'priority 90)
+    o))
+
+(defun review-walkthrough--mark (buffer first last)
+  "Purple line numbers on every line of rows FIRST..LAST in BUFFER."
+  (with-current-buffer buffer
+    (let ((digits (max 0 (- review-pane--text-column 3))))
+      (save-excursion
+        (goto-char (review-session--row-position buffer first))
+        (let ((end (review-session--row-position buffer (1+ last))))
+          (while (< (point) end)
+            (let ((o (make-overlay (point) (min (line-end-position) (+ (point) digits)))))
+              (overlay-put o 'review-walk t)
+              (overlay-put o 'review-walk-kind 'mark)
+              (overlay-put o 'priority 95)
+              (overlay-put o 'face 'review-walk-step-number))
+            (forward-line 1)))))))
+
+(defun review-walkthrough--dim (session buffer first last)
+  "Dim every row of BUFFER outside FIRST..LAST, keeping a muted diff colour."
+  (with-current-buffer buffer
+    (let* ((side review-pane--side)
+           (rows (vconcat (plist-get (review-session-file session review-pane--file-index) :rows)))
+           (face-of (lambda (row)
+                      (let ((kind (plist-get row :kind)))
+                        (cond ((and (eq side 'old) (memq kind '(del both)) (plist-get row :old-no))
+                               'review-walk-dim-removed)
+                              ((and (eq side 'new) (memq kind '(add both)) (plist-get row :new-no))
+                               'review-walk-dim-added)
+                              (t 'review-walk-dim)))))
+           (count (length rows)) (i 0))
+      (while (< i count)
+        (if (<= first i last) (setq i (1+ last))
+          (let ((face (funcall face-of (aref rows i))) (j i))
+            (while (and (< (1+ j) count) (not (<= first (1+ j) last))
+                        (eq face (funcall face-of (aref rows (1+ j)))))
+              (cl-incf j))
+            (overlay-put (review-walkthrough--overlay buffer 'dim i (1+ j)) 'face face)
+            (setq i (1+ j))))))))
+
+(defun review-walkthrough--render (session)
+  "Draw SESSION's current step in its panes, replacing any earlier drawing."
+  (let ((old (review-session-old-buffer session)) (new (review-session-new-buffer session)))
+    (dolist (b (list old new))
+      (when (buffer-live-p b)
+        (with-current-buffer b (remove-overlays (point-min) (point-max) 'review-walk t))))
+    (when-let* ((step (review-walkthrough--step session))
+                (_ (equal (plist-get step :path) (plist-get (review-session-file session) :path)))
+                (_ (and (buffer-live-p old) (buffer-live-p new) (buffer-local-value 'review-pane--diff new)))
+                (rows (review-walkthrough--rows (review-session-file session) (plist-get step :side)
+                                                (plist-get step :line-start) (plist-get step :line-end))))
+      (let* ((w (review-session-walkthrough session))
+             (first (car rows)) (last (car (last rows)))
+             (here (if (eq (plist-get step :side) 'old) old new))
+             (there (if (eq here old) new old))
+             (window (get-buffer-window here t))
+             (card (review-walkthrough--card step (1+ (plist-get w :index)) (length (plist-get w :steps))
+                                             (and window (window-body-width window)))))
+        (overlay-put (review-walkthrough--overlay here 'card first) 'before-string card)
+        (overlay-put (review-walkthrough--overlay there 'filler first) 'before-string
+                     (propertize (apply #'concat (make-list (cl-count ?\n card) "\n"))
+                                 'face 'review-walk-filler))
+        (review-walkthrough--mark here first last)
+        (when review-walkthrough-dim
+          (review-walkthrough--dim session old first last)
+          (review-walkthrough--dim session new first last))
+        (dolist (b (list old new))
+          (when-let ((win (get-buffer-window b t)))
+            (set-window-start win (review-session--row-position b (max 0 (- first 2))))
+            (set-window-point win (review-session--row-position b first))))))))
+
+(setq review-walkthrough-render-function #'review-walkthrough--render)
+(add-hook 'review-session-layout-hook #'review-walkthrough--render)
+
 (provide 'review-walkthrough)
 ;;; review-walkthrough.el ends here

@@ -106,4 +106,48 @@
                                      (review-walkthrough-start review-walk-test--steps)))
           (review-session-quit))))))
 
+(defun review-walk-test--overlays (buffer kind)
+  (with-current-buffer buffer
+    (seq-filter (lambda (o) (eq (overlay-get o 'review-walk-kind) kind))
+                (overlays-in (point-min) (point-max)))))
+
+(ert-deftest review-walkthrough-render-draws-card-filler-and-dim ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (let ((new (review-session-new-buffer s)) (old (review-session-old-buffer s)))
+      (should (= (length (review-walk-test--overlays new 'card)) 1))
+      (should (= (length (review-walk-test--overlays old 'filler)) 1))
+      (let ((card (overlay-get (car (review-walk-test--overlays new 'card)) 'before-string))
+            (filler (overlay-get (car (review-walk-test--overlays old 'filler)) 'before-string)))
+        (should (string-match-p "AGENT WALKTHROUGH" card))
+        (should (string-match-p "1/3  Three" card))
+        (should (= (cl-count ?\n card) (cl-count ?\n filler))))
+      (should (review-walk-test--overlays new 'mark))
+      (should (review-walk-test--overlays new 'dim)))))
+
+(ert-deftest review-walkthrough-render-survives-relayout ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (with-current-buffer (review-session-new-buffer s) (setq review-pane--layout nil))
+    (review-session--ensure-layout s)
+    (should (= (length (review-walk-test--overlays (review-session-new-buffer s) 'card)) 1))
+    (should (= (length (review-walk-test--overlays (review-session-old-buffer s) 'filler)) 1))))
+
+(ert-deftest review-walkthrough-quit-clears-overlays ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (review-walkthrough-quit)
+    (dolist (b (list (review-session-new-buffer s) (review-session-old-buffer s)))
+      (with-current-buffer b
+        (should-not (seq-find (lambda (o) (overlay-get o 'review-walk)) (overlays-in (point-min) (point-max))))))))
+
+(ert-deftest review-walkthrough-question-and-no-dim-option ()
+  (review-walk-test--with s
+    (let ((review-walkthrough-dim nil))
+      (review-walkthrough-start review-walk-test--steps)
+      (review-walkthrough-goto 3)
+      (let ((card (overlay-get (car (review-walk-test--overlays (review-session-new-buffer s) 'card)) 'before-string)))
+        (should (string-match-p "\\? Is eleven right\\?" card)))
+      (should-not (review-walk-test--overlays (review-session-new-buffer s) 'dim)))))
+
 (provide 'review-walkthrough-test)
