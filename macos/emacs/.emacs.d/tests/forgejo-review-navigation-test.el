@@ -241,4 +241,13 @@
   (let ((session (make-review-session :source (make-review-source :recipe '(:kind git-range)))))
     (should-not (mr-x/forgejo-review-visit session '(:path "a") 'new 1))))
 
+(ert-deftest forgejo-review-visit-errors-on-missing-side ()
+  (require 'review-session)
+  (let* ((source (make-review-source :name "forgejo" :directory "/tmp/"
+                                     :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 2
+                                               :revs ("base" "head"))))
+         (session (make-review-session :source source :directory "/tmp/"))
+         (file '(:path "a.el" :kind added :blobs (nil "b2"))))
+    (should-error (mr-x/forgejo-review-visit session file 'old 12) :type 'user-error)))
+
 (provide 'forgejo-review-navigation-test)
