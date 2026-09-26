@@ -87,10 +87,16 @@
      (review-walkthrough-agent--diff session))))
 
 (defun review-walkthrough-agent--route-json (text)
-  "The contents of the last ```json fenced block in TEXT, or nil."
+  "The contents of the last ```json fenced block in TEXT, or nil.
+The closing fence must sit right after a newline of its own: JSON strings
+cannot contain a raw newline, so a ``` directly after one inside the block
+can only be the real fence, never one quoted inside a step's title, body,
+or question.  (Emacs regexps only treat ^ as an anchor at the start of the
+pattern or right after \\( or \\|, so this matches the newline literally
+instead of relying on ^ mid-pattern.)"
   (when text
     (let ((start 0) last)
-      (while (string-match "```json\n\\(\\(?:.\\|\n\\)*?\\)```" text start)
+      (while (string-match "```json\n\\(\\(?:.\\|\n\\)*?\\)\n```" text start)
         (setq last (match-string 1 text))
         (setq start (match-end 0)))
       last)))

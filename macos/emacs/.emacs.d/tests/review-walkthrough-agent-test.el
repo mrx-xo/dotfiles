@@ -26,6 +26,14 @@
                  "{\"steps\": []}"))
   (should-not (review-walkthrough-agent--route-json "no fence here")))
 
+(ert-deftest review-walkthrough-agent-route-json-keeps-embedded-backticks ()
+  ;; A step body quoting code in backticks must not truncate the block: the
+  ;; closing fence has to start a line, and this ``` sits mid-line.
+  (let* ((json (concat "{\"steps\": [{\"path\": \"a.el\", \"line_start\": 3, \"line_end\": 3, "
+                       "\"title\": \"Three\", \"body\": \"use ```x``` here\"}]}"))
+         (text (concat "prose\n```json\n" json "\n```\ntrailing")))
+    (should (equal (string-trim (review-walkthrough-agent--route-json text)) json))))
+
 (ert-deftest review-walkthrough-agent-request-round-trip ()
   (review-walk-test--with s
     (review-panel-open s)

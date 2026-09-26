@@ -79,6 +79,13 @@
                            "It's three")))
         (delete-file file)))))
 
+(ert-deftest review-walkthrough-start-file-reports-bad-json ()
+  (review-walk-test--with _s
+    (let ((file (make-temp-file "walk" nil ".json" "{\"steps\": [")))
+      (unwind-protect
+          (should (string-prefix-p "error: invalid route file" (review-walkthrough-start-file file)))
+        (delete-file file)))))
+
 (ert-deftest review-walkthrough-survives-pause-and-resume ()
   (review-walk-test--with s
     (review-panel-open s)
