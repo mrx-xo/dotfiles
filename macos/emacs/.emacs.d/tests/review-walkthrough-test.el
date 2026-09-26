@@ -140,6 +140,56 @@
     (should (= (length (review-walk-test--overlays (review-session-new-buffer s) 'card)) 1))
     (should (= (length (review-walk-test--overlays (review-session-old-buffer s) 'filler)) 1))))
 
+(defun review-walk-test--top (buffer)
+  "The row at the top of BUFFER's window."
+  (with-current-buffer buffer (review-session--row-at (window-start (get-buffer-window buffer t)))))
+
+(defun review-walk-test--scroll (buffer row)
+  (let ((w (get-buffer-window buffer t)))
+    (set-window-start w (review-session--row-position buffer row))
+    (set-window-point w (review-session--row-position buffer row))))
+
+(ert-deftest review-walkthrough-relayout-does-not-scroll ()
+  ;; Every relayout (a resize, zw, zh/zl in scroll mode) redraws the step;
+  ;; it must not snap the panes back to it.
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (let ((new (review-session-new-buffer s)) (old (review-session-old-buffer s)))
+      (review-walk-test--scroll new 8)
+      (review-walk-test--scroll old 8)
+      (dolist (b (list new old)) (with-current-buffer b (setq review-pane--layout '(stale 0 0))))
+      (review-session--ensure-layout s)
+      (should (= (review-walk-test--top new) 8))
+      (should (= (length (review-walk-test--overlays new 'card)) 1))
+      ;; Explicit navigation still scrolls to the step.
+      (review-walkthrough-goto 3)
+      (should (= (review-walk-test--top (review-session-new-buffer s)) 8))
+      (review-walkthrough-goto 1)
+      (should (= (review-walk-test--top (review-session-new-buffer s)) 0)))))
+
+(ert-deftest review-walkthrough-resume-keeps-saved-file ()
+  ;; Paused on another file than the step's: resume shows the saved file
+  ;; and keeps the walkthrough where it was.
+  (review-walk-test--with s
+    (review-panel-open s)
+    (review-walkthrough-start review-walk-test--steps)
+    (review-session-show 1)
+    (review-session-pause)
+    (let ((r (review-session-resume)))
+      (should (equal (plist-get (review-session-file r) :path) "b.el"))
+      (should (= (plist-get (review-session-walkthrough r) :index) 0)))))
+
+(ert-deftest review-walkthrough-resume-keeps-saved-scroll ()
+  (review-walk-test--with s
+    (review-panel-open s)
+    (review-walkthrough-start review-walk-test--steps)
+    (review-walk-test--scroll (review-session-new-buffer s) 8)
+    (review-walk-test--scroll (review-session-old-buffer s) 8)
+    (review-session-pause)
+    (let* ((r (review-session-resume)) (new (review-session-new-buffer r)))
+      (should (= (review-walk-test--top new) 8))
+      (should (= (length (review-walk-test--overlays new 'card)) 1)))))
+
 (ert-deftest review-walkthrough-quit-clears-overlays ()
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
