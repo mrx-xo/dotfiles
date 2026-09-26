@@ -93,6 +93,38 @@
               (should (equal called '("a.txt" new 3))))
           (review-session-quit))))))
 
+(defun review-visit-test--fake-source ()
+  (make-review-source
+   :name "fake" :title "Fake" :range-label "x -> y" :recipe '(:kind fake :id "visit")
+   :files (lambda () (list (list :path "a.el" :old-path "a.el" :kind 'modified)))
+   :text (lambda (_file side cb) (funcall cb (if (eq side 'old) "1\n2\n" "1\nTWO\n")))
+   :origin (lambda (file start _end) (list :label (format "%s:%d" (plist-get file :path) start)))))
+
+(ert-deftest review-session-visit-on-an-extra-line-opens-its-row ()
+  ;; RET on read-only extra lines (the walkthrough card) opens the source
+  ;; line they stand above; on the filler facing them, that row's line on
+  ;; the other side.
+  (save-window-excursion
+    (let* ((review-session-visit-style 'in-frame) (called nil)
+           (review-session-visit-functions
+            (list (lambda (_s file side line) (setq called (list (plist-get file :path) side line)) t)))
+           (review-session-layout-extras-functions (list (lambda (_s _i) (list (list 1 'new "NOTE\n")))))
+           (s (review-session-start (review-visit-test--fake-source))))
+      (unwind-protect
+          (progn
+            (with-selected-window (review-session-new-window s)
+              (goto-char (review-session--row-position (review-session-new-buffer s) 1))
+              (should (looking-at-p "NOTE"))
+              (review-session-visit))
+            (should (equal called '("a.el" new 2)))
+            (review-session-return)
+            (with-selected-window (review-session-old-window s)
+              (goto-char (review-session--row-position (review-session-old-buffer s) 1))
+              (should (get-text-property (point) 'review-extra))
+              (review-session-visit))
+            (should (equal called '("a.el" old 2))))
+        (review-session-quit)))))
+
 (defmacro review-visit-test--with-store (&rest body)
   `(let ((review-store-directory (file-name-as-directory (make-temp-file "review-visit-store" t)))
          (review-store--memory (make-hash-table :test #'equal)))

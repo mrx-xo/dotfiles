@@ -62,6 +62,8 @@ a change.
 (defface review-mark-add '((t :foreground "#b8bb26" :weight bold)) "Plus mark.")
 (defface review-edge '((t :inherit shadow))
   "‹, › or a hidden count where a line goes past a pane edge.")
+(defface review-extra-filler '((t :background "#232627" :extend t))
+  "Blank lines facing extra lines in the other pane.")
 
 (cl-defstruct review-session
   source files current hunk viewed layout frame panel
@@ -78,6 +80,16 @@ The panel subscribes here to put itself back in its side window.")
   "Run with the session after its pane text is redrawn to fit.
 Redrawing drops overlays anchored in the text; the panel puts its hunk
 bands back here.")
+(defvar review-session-layout-extras-functions nil
+  "Functions of SESSION and file INDEX returning extra lines for its panes.
+Each returns a list of (ROW SIDE STRING).  STRING's lines go into SIDE's
+pane (old or new) before ROW's lines, read-only, with as many blank
+filler lines in the other pane, so rows stay level.  Extra lines carry
+`review-row' ROW and `review-extra'; they are not source lines.
+Characters with a non-nil `review-extra-chrome' property are decoration
+left out of a selection's text.  The panes are laid out again whenever
+the returned text changes, so a function that returns new text should
+be followed by `review-session--ensure-layout'.")
 
 (defvar review-session-quit-functions nil
   "Called with the session as it quits, before its buffers and frames go.")
@@ -101,7 +113,11 @@ The first function to return non-nil wins; otherwise a `file:' origin link is op
 (defvar-local review-pane--side nil)
 (defvar-local review-pane--file-index nil)
 (defvar-local review-pane--diff nil "Non-nil when the pane shows rows, not a notice.")
-(defvar-local review-pane--starts nil "The line each row starts on, from the last layout.")
+(defvar-local review-pane--starts nil
+  "The line each row's block starts on, extra lines included.")
+(defvar-local review-pane--source-starts nil
+  "The line each row's source lines start on, after its extra lines.")
+(defvar-local review-pane--extras nil "The extra lines of the last layout.")
 (defvar-local review-pane--layout nil "(MODE WIDTH HSCROLL) of the last layout.")
 
 (defun review-session--notify (session)
@@ -421,26 +437,76 @@ they hold part of the change."
                "\n")
               'review-row row))
 
-(defun review-session-pane-layout (old new &optional mode old-width new-width hscroll)
-  "Lay out renders OLD and NEW side by side: (OLD-TEXT NEW-TEXT STARTS).
+(defun review-session--extra-lines (string row)
+  "STRING's lines as extra lines before ROW, each ending in a newline.
+Every line carries `review-row' ROW and `review-extra'.  A last line
+without a newline gets one with its last character's properties, so a
+background reaching the window edge still does."
+  (let ((len (length string)) (start 0) lines)
+    (while (< start len)
+      (let* ((nl (string-search "\n" string start))
+             (line (if nl (substring string start (1+ nl))
+                     (let ((part (substring string start)))
+                       (concat part (apply #'propertize "\n" (text-properties-at (1- (length part)) part)))))))
+        (add-text-properties 0 (length line) (list 'review-row row 'review-extra t) line)
+        (push line lines)
+        (setq start (if nl (1+ nl) len))))
+    (nreverse lines)))
+
+(defun review-session--extras-by-row (extras count)
+  "EXTRAS, a list of (ROW SIDE STRING), as a hash table.
+It maps ROW to (OLD-LINES . NEW-LINES).  Entries naming no row below
+COUNT, or no side, are left out."
+  (let ((table (make-hash-table)))
+    (pcase-dolist (`(,row ,side ,string) extras)
+      (when (and (natnump row) (< row count) (memq side '(old new)) (stringp string))
+        (let ((cell (or (gethash row table) (puthash row (cons nil nil) table)))
+              (lines (review-session--extra-lines string row)))
+          (if (eq side 'old) (setcar cell (append (car cell) lines))
+            (setcdr cell (append (cdr cell) lines))))))
+    table))
+
+(defun review-session--pad-extras (lines count row)
+  "Extra LINES of ROW padded to COUNT with blank filler lines, as one string."
+  (apply #'concat
+         (append lines
+                 (make-list (- count (length lines))
+                            (propertize "\n" 'face 'review-extra-filler 'review-row row 'review-extra t)))))
+
+(defun review-session-pane-layout (old new &optional mode old-width new-width hscroll extras)
+  "Lay out renders OLD and NEW side by side.
+Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS).
 MODE `wrap' wraps bodies to OLD-WIDTH and NEW-WIDTH columns and pads the
 shorter side, so every row starts on the same line in both texts.
-`scroll' cuts every body to its width from column HSCROLL.  STARTS holds
-the line each row starts on."
+`scroll' cuts every body to its width from column HSCROLL.
+EXTRAS is a list of (ROW SIDE STRING): STRING's lines go before ROW's
+lines on SIDE, with as many blank filler lines on the other side (see
+`review-session-layout-extras-functions').  STARTS holds the line each
+row's block starts on, extra lines included; SOURCE-STARTS the line its
+source lines start on."
   (let* ((old-cells (review-render-cells old)) (new-cells (review-render-cells new))
          (count (length old-cells)) (starts (make-vector count 0))
+         (source-starts (make-vector count 0))
+         (by-row (and extras (review-session--extras-by-row extras count)))
          (line 0) olds news)
     (dotimes (i count)
       (let* ((a (review-session--cell-lines (aref old-cells i) old 'old mode old-width (or hscroll 0)))
              (b (review-session--cell-lines (aref new-cells i) new 'new mode new-width (or hscroll 0)))
-             (n (max (length a) (length b))))
+             (n (max (length a) (length b)))
+             (extra (and by-row (gethash i by-row)))
+             (x (max (length (car extra)) (length (cdr extra)))))
         (aset starts i line)
-        (push (review-session--finish-row a n (review-render-gutter old) (review-cell-face (aref old-cells i)) i)
+        (aset source-starts i (+ line x))
+        (push (concat (if extra (review-session--pad-extras (car extra) x i) "")
+                      (review-session--finish-row a n (review-render-gutter old)
+                                                  (review-cell-face (aref old-cells i)) i))
               olds)
-        (push (review-session--finish-row b n (review-render-gutter new) (review-cell-face (aref new-cells i)) i)
+        (push (concat (if extra (review-session--pad-extras (cdr extra) x i) "")
+                      (review-session--finish-row b n (review-render-gutter new)
+                                                  (review-cell-face (aref new-cells i)) i))
               news)
-        (cl-incf line n)))
-    (list (string-join (nreverse olds) "\n") (string-join (nreverse news) "\n") starts)))
+        (cl-incf line (+ x n))))
+    (list (string-join (nreverse olds) "\n") (string-join (nreverse news) "\n") starts source-starts)))
 
 (defun review-session-pane-text (rows side text &optional path)
   "Render ROWS for SIDE (old or new) of TEXT as one string, gutter included.
@@ -628,7 +694,9 @@ first; each pane gets its own overlay here."
                               (min (length rows) (1+ (plist-get hunk :end))))))))
 
 (defun review-session--row-position (buffer row)
-  "Return the buffer position of ROW's first line in BUFFER."
+  "Return the buffer position of the first line of ROW's block in BUFFER.
+That is its first extra line when it has any, as the hunk bands and the
+walkthrough dimming want; `review-session--source-position' skips them."
   (with-current-buffer buffer
     (save-excursion
       (goto-char (point-min))
@@ -638,9 +706,48 @@ first; each pane gets its own overlay here."
           (forward-line (if starts (aref starts row) row))))
       (point))))
 
+(defun review-session--source-position (buffer row)
+  "Return the buffer position of ROW's first source line in BUFFER.
+That is past any extra lines before it."
+  (with-current-buffer buffer
+    (let ((sources review-pane--source-starts))
+      (if (and sources (< row (length sources)))
+          (save-excursion (goto-char (point-min)) (forward-line (aref sources row)) (point))
+        (review-session--row-position buffer row)))))
+
 (defun review-session--row-at (pos)
-  "The row of the line at POS in this pane.  Wrapped rows share it."
+  "The row of the line at POS in this pane.  Wrapped rows share it, and so
+do the extra lines before it."
   (save-excursion (goto-char pos) (get-text-property (line-beginning-position) 'review-row)))
+
+(defun review-session--extra-at (pos)
+  "Non-nil when the line at POS in this pane is an extra line, not a source line."
+  (save-excursion (goto-char pos) (get-text-property (line-beginning-position) 'review-extra)))
+
+(defun review-session--anchor-at (pos)
+  "Where the line at POS is in this pane, as (ROW . EXTRA), or nil.
+EXTRA is the line's index among ROW's extra lines, or nil on a source line."
+  (when-let ((row (review-session--row-at pos)))
+    (cons row (and (review-session--extra-at pos)
+                   (save-excursion
+                     (goto-char pos)
+                     (count-lines (review-session--row-position (current-buffer) row)
+                                  (line-beginning-position)))))))
+
+(defun review-session--anchor-position (buffer anchor)
+  "The position ANCHOR, from `review-session--anchor-at', has in BUFFER now.
+A source line is its row's first source line.  An extra line stays among
+its row's extra lines, or falls to the row's source when they are gone."
+  (let* ((row (car anchor)) (extra (cdr anchor))
+         (source (review-session--source-position buffer row)))
+    (if (null extra) source
+      (let ((start (review-session--row-position buffer row)))
+        (if (>= start source) source
+          (with-current-buffer buffer
+            (save-excursion
+              (goto-char start)
+              (forward-line extra)
+              (min (point) (progn (goto-char source) (line-beginning-position 0))))))))))
 
 (defun review-session--pane-width (buffer)
   "Columns BUFFER's window leaves for line text: less the gutter, the
@@ -649,25 +756,29 @@ hunk rail, the edge mark and the column Emacs keeps for its own."
     (max 10 (- (if window (window-body-width window) (/ (frame-width) 2))
                (review-session--text-column buffer) 3))))
 
-(defun review-session--fill-pane (buffer text starts layout)
-  "Replace BUFFER's text, keeping the row at its window's top and point's row."
+(defun review-session--fill-pane (buffer text starts layout &optional source-starts extras)
+  "Replace BUFFER's text, keeping the line at its window's top and point's line.
+Both are kept by row: a source line comes back to its row's source, a
+line among a row's extra lines to that line of them.  STARTS,
+SOURCE-STARTS and EXTRAS are the new layout's, LAYOUT its cache key."
   (with-current-buffer buffer
     (let* ((window (get-buffer-window buffer t))
            (pos (if window (window-point window) (point)))
-           (row (and review-pane--layout (review-session--row-at pos)))
-           (column (and row (save-excursion (goto-char pos) (current-column))))
-           (top (and row window (review-session--row-at (window-start window))))
+           (here (and review-pane--layout (review-session--anchor-at pos)))
+           (column (and here (save-excursion (goto-char pos) (current-column))))
+           (top (and here window (review-session--anchor-at (window-start window))))
            (inhibit-read-only t))
       (remove-overlays (point-min) (point-max) 'review-flash t)
       (erase-buffer)
       (insert text)
-      (setq review-pane--starts starts review-pane--layout layout)
+      (setq review-pane--starts starts review-pane--source-starts source-starts
+            review-pane--layout layout review-pane--extras extras)
       (set-buffer-modified-p nil)
-      (goto-char (review-session--row-position buffer (or row 0)))
+      (goto-char (if here (review-session--anchor-position buffer here) (point-min)))
       (when column (move-to-column column))
       (when window
         (set-window-point window (point))
-        (set-window-start window (review-session--row-position buffer (or top 0)))
+        (set-window-start window (if top (review-session--anchor-position buffer top) (point-min)))
         (set-window-hscroll window 0)))))
 
 (defun review-session--place-rail (session)
@@ -677,16 +788,33 @@ hunk rail, the edge mark and the column Emacs keeps for its own."
     (dolist (buffer (list (review-session-old-buffer session) (review-session-new-buffer session)))
       (when (and (buffer-live-p buffer) (buffer-local-value 'review-pane--diff buffer))
         (with-current-buffer buffer
-          (let ((start (review-session--row-position buffer (plist-get hunk :start)))
+          ;; From the first source line: extra lines above the hunk sit
+          ;; between its band and its rail.
+          (let ((start (review-session--source-position buffer (plist-get hunk :start)))
                 (end (review-session--row-position buffer (1+ (plist-get hunk :end)))))
             (unless (overlayp review-pane--rail)
               (setq review-pane--rail (make-overlay start end)))
             (move-overlay review-pane--rail start end)
             (overlay-put review-pane--rail 'line-prefix (propertize " " 'face 'review-rail))))))))
 
+(defun review-session--layout-extras (session index)
+  "The extra lines for file INDEX of SESSION.
+They come from `review-session-layout-extras-functions'.  A function
+that fails is reported and skipped: a layout runs on every resize, and
+must not stop there."
+  (let (extras)
+    (run-hook-wrapped 'review-session-layout-extras-functions
+                      (lambda (fn)
+                        (with-demoted-errors "Review extra lines: %S"
+                          (setq extras (append extras (funcall fn session index))))
+                        nil))
+    extras))
+
 (defun review-session--ensure-layout (session)
   "Lay SESSION's panes out again unless they already fit their windows.
-Both panes are laid out together: wrapping pads each against the other."
+Both panes are laid out together: wrapping pads each against the other.
+Changed extra lines count as not fitting.  Return non-nil when it laid
+the panes out."
   (let ((old (review-session-old-buffer session)) (new (review-session-new-buffer session)))
     (when (and (buffer-live-p old) (buffer-live-p new)
                (buffer-local-value 'review-pane--diff new))
@@ -695,18 +823,22 @@ Both panes are laid out together: wrapping pads each against the other."
              (old-width (review-session--pane-width old))
              (new-width (review-session--pane-width new))
              (want-old (list mode old-width hscroll))
-             (want-new (list mode new-width hscroll)))
+             (want-new (list mode new-width hscroll))
+             (index (buffer-local-value 'review-pane--file-index new))
+             (extras (review-session--layout-extras session index)))
         (unless (and (equal want-old (buffer-local-value 'review-pane--layout old))
-                     (equal want-new (buffer-local-value 'review-pane--layout new)))
-          (let ((index (buffer-local-value 'review-pane--file-index new)))
-            (pcase-let ((`(,old-text ,new-text ,starts)
-                         (review-session-pane-layout (review-session--pane-render session index 'old)
-                                                (review-session--pane-render session index 'new)
-                                                mode old-width new-width hscroll)))
-              (review-session--fill-pane old old-text starts want-old)
-              (review-session--fill-pane new new-text starts want-new)))
+                     (equal want-new (buffer-local-value 'review-pane--layout new))
+                     (equal extras (buffer-local-value 'review-pane--extras old))
+                     (equal extras (buffer-local-value 'review-pane--extras new)))
+          (pcase-let ((`(,old-text ,new-text ,starts ,sources)
+                       (review-session-pane-layout (review-session--pane-render session index 'old)
+                                                   (review-session--pane-render session index 'new)
+                                                   mode old-width new-width hscroll extras)))
+            (review-session--fill-pane old old-text starts want-old sources extras)
+            (review-session--fill-pane new new-text starts want-new sources extras))
           (review-session--place-rail session)
-          (run-hook-with-args 'review-session-layout-hook session))))))
+          (run-hook-with-args 'review-session-layout-hook session)
+          t)))))
 
 (defun review-session--pane-resized (window)
   "Fit the panes again after WINDOW, showing one of them, changes size."
@@ -733,7 +865,8 @@ change; they redraw instead of scrolling the window, so the gutter stays."
         (review-session--place-rail session)
         (dolist (buffer (list old new))
           (with-current-buffer buffer
-            (let ((start (review-session--row-position buffer (plist-get hunk :start)))
+            ;; The hunk's source lines, below any extra lines before it.
+            (let ((start (review-session--source-position buffer (plist-get hunk :start)))
                   (end (review-session--row-position buffer (1+ (plist-get hunk :end)))))
               (when review-session-pulse (review-session--flash start end))
               (goto-char start)
@@ -985,13 +1118,17 @@ Wrapped panes have nothing to scroll, so there it does nothing."
 ;;;; Pane state, visiting and returning
 
 (defun review-session-pane-state (session)
-  "The row at point and at the top of each of SESSION's pane windows."
+  "The row at point and at the top of each of SESSION's pane windows.
+On an extra line, :row-extra or :top-extra says which of the row's."
   (cl-flet ((one (buffer)
               (when (and (buffer-live-p buffer) (buffer-local-value 'review-pane--diff buffer))
                 (with-current-buffer buffer
-                  (let ((w (get-buffer-window buffer t)))
-                    (list :row (review-session--row-at (if w (window-point w) (point)))
-                          :top (and w (review-session--row-at (window-start w)))))))))
+                  (let* ((w (get-buffer-window buffer t))
+                         (here (review-session--anchor-at (if w (window-point w) (point))))
+                         (top (and w (review-session--anchor-at (window-start w)))))
+                    (append (list :row (car here) :top (car top))
+                            (and (cdr here) (list :row-extra (cdr here)))
+                            (and (cdr top) (list :top-extra (cdr top)))))))))
     (list :old (one (review-session-old-buffer session))
           :new (one (review-session-new-buffer session)))))
 
@@ -1004,10 +1141,12 @@ Wrapped panes have nothing to scroll, so there it does nothing."
       (when-let* ((row (plist-get one :row))
                   (_ (buffer-live-p buffer))
                   (w (get-buffer-window buffer t)))
-        (with-current-buffer buffer (goto-char (review-session--row-position buffer row)))
-        (set-window-point w (review-session--row-position buffer row))
+        (let ((pos (review-session--anchor-position buffer (cons row (plist-get one :row-extra)))))
+          (with-current-buffer buffer (goto-char pos))
+          (set-window-point w pos))
         (when-let ((top (plist-get one :top)))
-          (set-window-start w (review-session--row-position buffer top)))))))
+          (set-window-start w (review-session--anchor-position
+                               buffer (cons top (plist-get one :top-extra)))))))))
 
 (defun review-session--file-link (session file side line)
   "The real file SESSION's origin names for FILE's SIDE at LINE, or nil."
@@ -1048,7 +1187,8 @@ links to, or PATH when the caller has already resolved it."
 (autoload 'review-walkthrough-prev "review-walkthrough" nil t)
 
 (defun review-session-visit ()
-  "Open the real file at the line under point, as `review-session-visit-style' says."
+  "Open the real file at the line under point, as `review-session-visit-style' says.
+On extra lines, such as the walkthrough card, open the line they stand above."
   (interactive)
   (let* ((s (review-session--require))
          (selection (review-session-pane-selection (point) (point)))
@@ -1120,19 +1260,49 @@ links to, or PATH when the caller has already resolved it."
 
 (defvar review-panel--session)
 
+(defun review-session--extra-text (begin end)
+  "The text of extra lines from BEGIN to END, without their chrome.
+Characters with a non-nil `review-extra-chrome' property (a card's rail
+and indent) are left out, and so are trailing blanks."
+  (let ((pos begin) parts)
+    (while (< pos end)
+      (let ((next (next-single-property-change pos 'review-extra-chrome nil end)))
+        (unless (get-text-property pos 'review-extra-chrome)
+          (push (buffer-substring-no-properties pos next) parts))
+        (setq pos next)))
+    (string-trim (mapconcat #'string-trim-right
+                            (split-string (apply #'concat (nreverse parts)) "\n") "\n")
+                 "\n+" "\n+")))
+
+(defun review-session--row-line (rows row key)
+  "The source line under KEY that ROW of ROWS stands for.
+Its own, else the next row's that has one, else the last one before it."
+  (or (cl-loop for i from row below (length rows) thereis (plist-get (aref rows i) key))
+      (cl-loop for i downfrom (1- (min row (length rows))) to 0 thereis (plist-get (aref rows i) key))))
+
 (defun review-session-pane-selection (&optional begin end)
   "Map BEGIN..END in this pane to real source lines and text.
-Alignment padding and the rendered gutters are excluded.  With no
-bounds use the active region, or the source line at point."
+Alignment padding, extra lines and the rendered gutters are excluded.
+With no bounds use the active region, or the source line at point.
+A selection entirely inside one row's extra lines (the walkthrough
+card) returns their text instead, with :extra t, no :diff, and the
+line they stand above as :start and :end; point alone on one returns
+that line's text."
   (unless (and (derived-mode-p 'review-pane-mode) review-pane--session)
     (user-error "Not in a review pane"))
   (let* ((file (review-session-file review-pane--session review-pane--file-index))
          (rows (vconcat (plist-get file :rows)))
          (begin (or begin (if (use-region-p) (region-beginning) (point))))
          (end (or end (if (use-region-p) (region-end) begin)))
+         (last-pos (if (> end begin) (1- end) end))
          ;; Rows, not lines: a wrapped row spans several.
          (first (or (review-session--row-at begin) 0))
-         (last (or (review-session--row-at (if (> end begin) (1- end) end)) -1))
+         (last-row (review-session--row-at last-pos))
+         ;; Extra lines stand before their row's source lines, so a
+         ;; selection ending among them stops at the row before.
+         (last (cond ((null last-row) -1)
+                     ((review-session--extra-at last-pos) (1- last-row))
+                     (t last-row)))
          (number-key (if (eq review-pane--side 'old) :old-no :new-no))
          (text-key (if (eq review-pane--side 'old) :old :new))
          numbers text)
@@ -1141,13 +1311,24 @@ bounds use the active region, or the source line at point."
              when (plist-get row number-key)
              do (push (plist-get row number-key) numbers)
              and do (push (plist-get row text-key) text))
-    (unless numbers (user-error "Selection contains no source lines"))
-    (list :start (car (last numbers)) :end (car numbers)
-          :text (string-join (nreverse text) "\n")
-          :diff (review-session--selection-diff
-                 review-pane--session
-                 (cl-loop for i from first to (min last (1- (length rows)))
-                          collect (aref rows i))))))
+    (cond
+     (numbers
+      (list :start (car (last numbers)) :end (car numbers)
+            :text (string-join (nreverse text) "\n")
+            :diff (review-session--selection-diff
+                   review-pane--session
+                   (cl-loop for i from first to (min last (1- (length rows)))
+                            collect (aref rows i)))))
+     ((and (review-session--extra-at begin) (review-session--extra-at last-pos) (eql first last-row))
+      (let ((text (if (> end begin) (review-session--extra-text begin end)
+                    (save-excursion
+                      (goto-char begin)
+                      (review-session--extra-text (line-beginning-position) (line-end-position)))))
+            (line (review-session--row-line rows first number-key)))
+        (when (or (null line) (and (> end begin) (string-empty-p text)))
+          (user-error "Selection contains no source lines"))
+        (list :start line :end line :text text :diff nil :extra t)))
+     (t (user-error "Selection contains no source lines")))))
 
 (defun review-session--selection-diff (session rows)
   "ROWS as a small unified diff with SESSION's side labels, or nil if unchanged.
