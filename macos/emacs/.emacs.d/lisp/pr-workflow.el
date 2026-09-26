@@ -19,12 +19,20 @@
 (require 'review-session)
 (require 'review-panel)
 (require 'review-store)
+(require 'review-walkthrough)
 
 (with-eval-after-load 'review-store
   (add-to-list 'review-store-refresh-functions
                (cons 'forgejo (lambda (recipe _record)
                                 (mr-x/pr--review-forgejo (plist-get recipe :host) (plist-get recipe :owner)
                                                          (plist-get recipe :repo) (plist-get recipe :number))))))
+
+(with-eval-after-load 'review-walkthrough
+  (add-to-list 'review-walkthrough-open-functions
+               (cons 'forgejo (lambda (target)
+                                (mr-x/pr--review-forgejo (plist-get target :host) (plist-get target :owner)
+                                                         (plist-get target :repo) (plist-get target :number))
+                                nil))))
 
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")

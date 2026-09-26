@@ -455,6 +455,7 @@ with its row index."
 
 (defconst review-session-keys
   '(("C-j" . review-session-next-hunk) ("C-k" . review-session-prev-hunk)
+    ("C-n" . review-walkthrough-next) ("C-p" . review-walkthrough-prev)
     ("J" . review-session-next-file) ("K" . review-session-prev-file)
     ("x" . review-session-toggle-viewed) ("u" . syzygy-park)
     ("P" . review-session-pause)
@@ -1035,6 +1036,8 @@ Wrapped panes have nothing to scroll, so there it does nothing."
 (autoload 'review-session-pause "review-store" nil t)
 (autoload 'review-session-resume "review-store" nil t)
 (autoload 'review-session-refresh "review-store" nil t)
+(autoload 'review-walkthrough-next "review-walkthrough" nil t)
+(autoload 'review-walkthrough-prev "review-walkthrough" nil t)
 
 (defun review-session-visit ()
   "Open the real file at the line under point, as `review-session-visit-style' says."
