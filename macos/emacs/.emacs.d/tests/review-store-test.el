@@ -109,6 +109,19 @@
      (should (eq (plist-get (plist-get (review-store-load key) :walkthrough) :request) token))
      (should-not (plist-get (review-store--read (review-store--path key)) :walkthrough)))))
 
+(defun review-store-test--key (id)
+  (review-source-key (list :kind 'fake :id id)))
+
+(ert-deftest review-store-starting-another-review-keeps-the-first ()
+  (review-store-test--env
+   (review-session-start (review-store-test--source "A"))
+   (review-session-show 2 1)
+   (review-session-start (review-store-test--source "B"))
+   (let ((record (review-store-load (review-store-test--key "A"))))
+     (should record)
+     (should (equal (plist-get record :current-path) "c.el"))
+     (should (file-exists-p (review-store--path (review-store-test--key "A")))))))
+
 (defun review-store-test--git (dir &rest args)
   (let ((default-directory dir))
     (with-temp-buffer
