@@ -453,4 +453,28 @@ BASE and HEAD are bound to the PR's base and head commits."
                                            :base-rev base :head-rev (make-string 40 ?a))
                   :type 'user-error)))
 
+(ert-deftest review-source-git-range-recipe-pins-revisions ()
+  (review-source-test--with-repo dir
+    (let ((src (review-source-git-range dir "HEAD~1..HEAD")))
+      (should (equal (plist-get (review-source-recipe src) :kind) 'git-range))
+      (should (equal (plist-get (review-source-recipe src) :range) "HEAD~1..HEAD"))
+      (should-not (plist-get (review-source-recipe src) :revs))
+      (funcall (review-source-files src))
+      (let ((revs (plist-get (review-source-recipe src) :revs)))
+        (should (equal (car revs) (review-source-test--git dir "rev-parse" "HEAD~1")))
+        (should (equal (cdr revs) (review-source-test--git dir "rev-parse" "HEAD")))))))
+
+(ert-deftest review-source-key-normalises-directories ()
+  (should (equal (review-source-key '(:kind git-range :directory "/tmp/x" :range nil))
+                 (review-source-key '(:kind git-range :directory "/tmp/x/" :range nil))))
+  (should (string-match-p "worktree\\'" (review-source-key '(:kind git-range :directory "/tmp/x"))))
+  (should (equal (review-source-key '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 3))
+                 "forgejo:o/r#3"))
+  (should (equal (review-source-key '(:kind github :owner "o" :name "n" :number 9)) "github:o/n#9")))
+
+(ert-deftest review-source-forgejo-recipe ()
+  (let ((src (review-source-forgejo-pr "https://h" "o" "r" 4 nil "Title")))
+    (should (equal (review-source-recipe src)
+                   '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4 :title "Title")))))
+
 (provide 'review-source-test)
