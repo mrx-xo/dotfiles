@@ -129,27 +129,128 @@
     (seq-filter (lambda (o) (eq (overlay-get o 'review-walk-kind) kind))
                 (overlays-in (point-min) (point-max)))))
 
-(ert-deftest review-walkthrough-render-draws-card-filler-and-dim ()
+(defun review-walk-test--cards (buffer)
+  "How many walkthrough cards BUFFER's text holds."
+  (with-current-buffer buffer
+    (let ((text (buffer-string)) (n 0) (at 0))
+      (while (setq at (string-search "AGENT WALKTHROUGH" text at))
+        (cl-incf n) (cl-incf at))
+      n)))
+
+(defun review-walk-test--card-at (buffer row)
+  "Non-nil when the card starts ROW's block in BUFFER."
+  (with-current-buffer buffer
+    (save-excursion (goto-char (review-session--row-position buffer row))
+                    (looking-at-p ".*AGENT WALKTHROUGH"))))
+
+(defun review-walk-test--lines (buffer)
+  (with-current-buffer buffer (count-lines (point-min) (point-max))))
+
+(ert-deftest review-walkthrough-card-is-text-with-filler-marks-and-dim ()
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
-    (let ((new (review-session-new-buffer s)) (old (review-session-old-buffer s)))
-      (should (= (length (review-walk-test--overlays new 'card)) 1))
-      (should (= (length (review-walk-test--overlays old 'filler)) 1))
-      (let ((card (overlay-get (car (review-walk-test--overlays new 'card)) 'before-string))
-            (filler (overlay-get (car (review-walk-test--overlays old 'filler)) 'before-string)))
-        (should (string-match-p "AGENT WALKTHROUGH" card))
-        (should (string-match-p "1/3  Three" card))
-        (should (= (cl-count ?\n card) (cl-count ?\n filler))))
+    (let* ((new (review-session-new-buffer s)) (old (review-session-old-buffer s))
+           ;; Step 1 is a.el line 3: row 2.
+           (card (review-session--row-position new 2))
+           (source (review-session--source-position new 2)))
+      ;; Real text in the pane, not an overlay's before-string.
+      (should (= (review-walk-test--cards new) 1))
+      (should (= (review-walk-test--cards old) 0))
+      (should (review-walk-test--card-at new 2))
+      (with-current-buffer new
+        (should (string-match-p "1/3  Three" (buffer-string)))
+        (should (string-match-p "Why three\\." (buffer-string)))
+        (should (get-text-property card 'review-extra)))
+      (should-not (review-walk-test--overlays new 'card))
+      (should-not (review-walk-test--overlays old 'filler))
+      ;; The old pane holds as many filler lines, so the step stays level.
+      (with-current-buffer old
+        (should (get-text-property (review-session--row-position old 2) 'review-extra)))
+      (should (= (with-current-buffer new (line-number-at-pos source))
+                 (with-current-buffer old (line-number-at-pos (review-session--source-position old 2)))))
+      (should (= (review-walk-test--lines new) (review-walk-test--lines old)))
+      ;; Marks and dimming still draw, and neither touches the card.
       (should (review-walk-test--overlays new 'mark))
-      (should (review-walk-test--overlays new 'dim)))))
+      (should (review-walk-test--overlays new 'dim))
+      (dolist (o (append (review-walk-test--overlays new 'dim) (review-walk-test--overlays new 'mark)))
+        (should (or (<= (overlay-end o) card) (>= (overlay-start o) source)))))))
+
+(ert-deftest review-walkthrough-card-text-can-be-selected ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (let* ((new (review-session-new-buffer s))
+           (card (review-session--row-position new 2))
+           (source (review-session--source-position new 2)))
+      (with-selected-window (get-buffer-window new t)
+        ;; Point can sit on the card, which belongs to the step's row.
+        (goto-char card)
+        (search-forward "Why")
+        (should (eq (review-session--row-at (point)) 2))
+        ;; Part of it, as `v' selects it for Quick Ask: its text, no diff.
+        (let ((selection (review-session-pane-selection (match-beginning 0) (line-end-position))))
+          (should (equal (plist-get selection :text) "Why three."))
+          (should-not (plist-get selection :diff))
+          (should (= (plist-get selection :start) 3)))
+        ;; The whole card, without its rail.
+        (should (string-prefix-p "◆ AGENT WALKTHROUGH\n1/3  Three\nWhy three."
+                                 (plist-get (review-session-pane-selection card (1- source)) :text)))))))
+
+(ert-deftest review-walkthrough-navigation-puts-point-on-the-step-below-its-card ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (let* ((new (review-session-new-buffer s)) (w (get-buffer-window new t)))
+      (should (= (with-current-buffer new
+                   (save-excursion (goto-char (window-point w)) (line-beginning-position)))
+                 (review-session--source-position new 2)))
+      (should (<= (window-start w) (review-session--row-position new 2))))))
+
+(ert-deftest review-walkthrough-card-follows-the-step-and-goes-on-quit ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (review-walkthrough-next)
+    ;; Step 2 is b.el line 2: row 1.
+    (let ((new (review-session-new-buffer s)))
+      (should (= (review-walk-test--cards new) 1))
+      (should (review-walk-test--card-at new 1))
+      (with-current-buffer new
+        (should (string-match-p "2/3  Y" (buffer-string)))
+        (should-not (string-match-p "1/3" (buffer-string)))))
+    (review-walkthrough-next)
+    ;; Step 3 is a.el line 11: row 10.
+    (should (review-walk-test--card-at (review-session-new-buffer s) 10))
+    ;; Another step in the same file moves the one card.
+    (review-walkthrough-goto 1)
+    (let ((new (review-session-new-buffer s)))
+      (should (= (review-walk-test--cards new) 1))
+      (should (review-walk-test--card-at new 2))
+      (should-not (review-walk-test--card-at new 10)))
+    (review-walkthrough-quit)
+    (dolist (b (list (review-session-new-buffer s) (review-session-old-buffer s)))
+      (should (= (review-walk-test--cards b) 0))
+      (with-current-buffer b
+        (should-not (text-property-any (point-min) (point-max) 'review-extra t))))
+    (should (= (review-walk-test--lines (review-session-new-buffer s))
+               (review-walk-test--lines (review-session-old-buffer s))))))
 
 (ert-deftest review-walkthrough-render-survives-relayout ()
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
-    (with-current-buffer (review-session-new-buffer s) (setq review-pane--layout nil))
+    (dolist (b (list (review-session-new-buffer s) (review-session-old-buffer s)))
+      (with-current-buffer b (setq review-pane--layout nil)))
     (review-session--ensure-layout s)
-    (should (= (length (review-walk-test--overlays (review-session-new-buffer s) 'card)) 1))
-    (should (= (length (review-walk-test--overlays (review-session-old-buffer s) 'filler)) 1))))
+    (should (= (review-walk-test--cards (review-session-new-buffer s)) 1))
+    (should (review-walk-test--card-at (review-session-new-buffer s) 2))
+    (should (= (review-walk-test--lines (review-session-new-buffer s))
+               (review-walk-test--lines (review-session-old-buffer s))))))
+
+(ert-deftest review-walkthrough-dim-applies-on-the-next-render ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (should (review-walk-test--overlays (review-session-new-buffer s) 'dim))
+    (let ((review-walkthrough-dim nil))
+      (funcall review-walkthrough-render-function s)
+      (should-not (review-walk-test--overlays (review-session-new-buffer s) 'dim))
+      (should (= (review-walk-test--cards (review-session-new-buffer s)) 1)))))
 
 (defun review-walk-test--top (buffer)
   "The row at the top of BUFFER's window."
@@ -171,7 +272,7 @@
       (dolist (b (list new old)) (with-current-buffer b (setq review-pane--layout '(stale 0 0))))
       (review-session--ensure-layout s)
       (should (= (review-walk-test--top new) 8))
-      (should (= (length (review-walk-test--overlays new 'card)) 1))
+      (should (= (review-walk-test--cards new) 1))
       ;; Explicit navigation still scrolls to the step.
       (review-walkthrough-goto 3)
       (should (= (review-walk-test--top (review-session-new-buffer s)) 8))
@@ -199,7 +300,7 @@
     (review-session-pause)
     (let* ((r (review-session-resume)) (new (review-session-new-buffer r)))
       (should (= (review-walk-test--top new) 8))
-      (should (= (length (review-walk-test--overlays new 'card)) 1)))))
+      (should (= (review-walk-test--cards new) 1)))))
 
 (ert-deftest review-walkthrough-quit-clears-overlays ()
   (review-walk-test--with s
@@ -214,8 +315,8 @@
     (let ((review-walkthrough-dim nil))
       (review-walkthrough-start review-walk-test--steps)
       (review-walkthrough-goto 3)
-      (let ((card (overlay-get (car (review-walk-test--overlays (review-session-new-buffer s) 'card)) 'before-string)))
-        (should (string-match-p "\\? Is eleven right\\?" card)))
+      (with-current-buffer (review-session-new-buffer s)
+        (should (string-match-p "\\? Is eleven right\\?" (buffer-string))))
       (should-not (review-walk-test--overlays (review-session-new-buffer s) 'dim)))))
 
 (ert-deftest review-walkthrough-panel-section-lists-steps ()

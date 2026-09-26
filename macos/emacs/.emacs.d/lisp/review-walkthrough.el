@@ -14,8 +14,9 @@
 
 (defvar review-walkthrough-render-function #'ignore
   "Called with the session to draw the current step.  Set by the renderer.
-It only draws: it never moves a window, so redrawing keeps the panes where
-the user left them.  Navigation scrolls to the step itself.")
+It lays the panes out again when the step's card changed, and draws; it
+never scrolls, so redrawing keeps the panes where the user left them.
+Navigation scrolls to the step itself.")
 
 (defvar review-walkthrough-open-functions nil
   "Alist of (KIND . FUNCTION) that open a review for a TARGET recipe.
@@ -243,6 +244,9 @@ No navigation: the saved file, hunk and scroll win over the step's."
 ;; Figma "Walkthrough / compare" (37:2): a purple-railed card above the
 ;; step's lines, a filler of the same height in the other pane so rows stay
 ;; level, purple line numbers on the step, everything else dimmed.
+;; The card and its filler are real read-only lines the layout puts in
+;; (`review-session-layout-extras-functions'), so point can move into the
+;; card and `v' can select from it; the marks and dimming are overlays.
 
 (defcustom review-walkthrough-dim t
   "Dim every line outside the current walkthrough step."
@@ -250,7 +254,6 @@ No navigation: the saved file, hunk and scroll win over the step's."
 
 (defface review-walk-accent '((t :foreground "#d3869b" :weight bold)) "Walkthrough purple.")
 (defface review-walk-card '((t :background "#322830" :extend t)) "Card background.")
-(defface review-walk-filler '((t :background "#232627" :extend t)) "Filler facing the card.")
 (defface review-walk-rail '((t :background "#d3869b")) "Card rail.")
 (defface review-walk-title '((t :foreground "#ebdbb2" :weight bold)) "Step title.")
 (defface review-walk-body '((t :foreground "#a89984")) "Step explanation.")
@@ -269,9 +272,11 @@ No navigation: the saved file, hunk and scroll win over the step's."
     (split-string (buffer-string) "\n")))
 
 (defun review-walkthrough--card (step n total width)
-  "The card for STEP, number N of TOTAL, WIDTH columns wide, as a before-string."
+  "The card for STEP, number N of TOTAL, WIDTH columns wide, as pane lines.
+Its rail and indent are chrome, left out of a selection's text."
   (let* ((width (max 30 (- (or width 80) 8)))
-         (rail (propertize " " 'face 'review-walk-rail))
+         (rail (concat (propertize " " 'face 'review-walk-rail 'review-extra-chrome t)
+                       (propertize "   " 'review-extra-chrome t)))
          (wrap (lambda (text face)
                  (mapcar (lambda (l) (propertize l 'face face)) (review-walkthrough--wrap text width))))
          (lines (append
@@ -281,11 +286,12 @@ No navigation: the saved file, hunk and scroll win over the step's."
                  (when (plist-get step :body) (funcall wrap (plist-get step :body) 'review-walk-body))
                  (when (plist-get step :question)
                    (funcall wrap (concat "? " (plist-get step :question)) 'review-walk-question))))
-         (card (mapconcat (lambda (line) (concat rail "   " line "\n")) lines "")))
+         (card (mapconcat (lambda (line) (concat rail line "\n")) lines "")))
     (add-face-text-property 0 (length card) 'review-walk-card t card)
     card))
 
 (defun review-walkthrough--overlay (buffer kind start-row &optional end-row)
+  "A `review-walk' overlay of KIND in BUFFER from START-ROW's block to END-ROW's."
   (let* ((start (review-session--row-position buffer start-row))
          (end (if end-row (review-session--row-position buffer end-row) start))
          (o (make-overlay start end buffer)))
@@ -295,18 +301,20 @@ No navigation: the saved file, hunk and scroll win over the step's."
     o))
 
 (defun review-walkthrough--mark (buffer first last)
-  "Purple line numbers on every line of rows FIRST..LAST in BUFFER."
+  "Purple line numbers on every source line of rows FIRST..LAST in BUFFER.
+The card above FIRST, and any other extra lines, have no line number."
   (with-current-buffer buffer
     (let ((digits (max 0 (- review-pane--text-column 3))))
       (save-excursion
-        (goto-char (review-session--row-position buffer first))
+        (goto-char (review-session--source-position buffer first))
         (let ((end (review-session--row-position buffer (1+ last))))
           (while (< (point) end)
-            (let ((o (make-overlay (point) (min (line-end-position) (+ (point) digits)))))
-              (overlay-put o 'review-walk t)
-              (overlay-put o 'review-walk-kind 'mark)
-              (overlay-put o 'priority 95)
-              (overlay-put o 'face 'review-walk-step-number))
+            (unless (get-text-property (point) 'review-extra)
+              (let ((o (make-overlay (point) (min (line-end-position) (+ (point) digits)))))
+                (overlay-put o 'review-walk t)
+                (overlay-put o 'review-walk-kind 'mark)
+                (overlay-put o 'priority 95)
+                (overlay-put o 'face 'review-walk-step-number)))
             (forward-line 1)))))))
 
 (defun review-walkthrough--dim (session buffer first last)
@@ -341,46 +349,66 @@ No navigation: the saved file, hunk and scroll win over the step's."
                                                 (plist-get step :line-start) (plist-get step :line-end))))
       (cons step rows))))
 
+(defun review-walkthrough--extras (session index)
+  "The current step's card, before its first row, when the step is in file INDEX.
+For `review-session-layout-extras-functions': the card goes in as real
+read-only lines on the step's side, and the layout fills the other pane."
+  (when-let* ((w (review-session-walkthrough session))
+              (step (review-walkthrough--step session))
+              (file (review-session-file session index))
+              (_ (equal (plist-get step :path) (plist-get file :path)))
+              (side (plist-get step :side))
+              (rows (review-walkthrough--rows file side (plist-get step :line-start)
+                                              (plist-get step :line-end))))
+    (let* ((buffer (if (eq side 'old) (review-session-old-buffer session)
+                     (review-session-new-buffer session)))
+           (window (and (buffer-live-p buffer) (get-buffer-window buffer t))))
+      (list (list (car rows) side
+                  (review-walkthrough--card step (1+ (plist-get w :index)) (length (plist-get w :steps))
+                                            (and window (window-body-width window))))))))
+
 (defun review-walkthrough--draw (session)
   "Draw SESSION's current step in its panes, replacing any earlier drawing.
-Overlays only: the windows stay put, so a relayout (resize, zw, zh/zl) or a
-resume redraws the step without snapping the panes back to it."
+Overlays only, for the step's line numbers and the dimming; the card is
+text the layout puts in (`review-walkthrough--extras').  The windows stay
+put, so a relayout (resize, zw, zh/zl) or a resume redraws the step
+without snapping the panes back to it."
   (let ((old (review-session-old-buffer session)) (new (review-session-new-buffer session)))
     (dolist (b (list old new))
       (when (buffer-live-p b)
         (with-current-buffer b (remove-overlays (point-min) (point-max) 'review-walk t))))
     (when-let ((step-rows (review-walkthrough--step-rows session)))
       (let* ((step (car step-rows)) (rows (cdr step-rows))
-             (w (review-session-walkthrough session))
              (first (car rows)) (last (car (last rows)))
-             (here (if (eq (plist-get step :side) 'old) old new))
-             (there (if (eq here old) new old))
-             (window (get-buffer-window here t))
-             (card (review-walkthrough--card step (1+ (plist-get w :index)) (length (plist-get w :steps))
-                                             (and window (window-body-width window)))))
-        (overlay-put (review-walkthrough--overlay here 'card first) 'before-string card)
-        (overlay-put (review-walkthrough--overlay there 'filler first) 'before-string
-                     (propertize (apply #'concat (make-list (cl-count ?\n card) "\n"))
-                                 'face 'review-walk-filler))
+             (here (if (eq (plist-get step :side) 'old) old new)))
         (review-walkthrough--mark here first last)
         (when review-walkthrough-dim
           (review-walkthrough--dim session old first last)
           (review-walkthrough--dim session new first last))))))
 
+(defun review-walkthrough--refresh (session)
+  "Show SESSION's current step: lay the panes out for its card, then draw.
+A layout draws through `review-session-layout-hook'; when the card has
+not changed, draw here, so a changed `review-walkthrough-dim' shows."
+  (unless (review-session--ensure-layout session)
+    (review-walkthrough--draw session)))
+
 (defun review-walkthrough--scroll-to-step (session)
-  "Scroll SESSION's panes so the current step's card and lines show."
+  "Scroll SESSION's panes so the current step's card and lines show.
+Point goes on the step's first source line, below the card."
   (when-let ((step-rows (review-walkthrough--step-rows session)))
     (let ((first (cadr step-rows)))
       (dolist (b (list (review-session-old-buffer session) (review-session-new-buffer session)))
         (when-let ((win (get-buffer-window b t)))
           (set-window-start win (review-session--row-position b (max 0 (- first 2))))
-          (set-window-point win (review-session--row-position b first)))))))
+          (set-window-point win (review-session--source-position b first)))))))
 
-(setq review-walkthrough-render-function #'review-walkthrough--draw)
+(setq review-walkthrough-render-function #'review-walkthrough--refresh)
 ;; The draw-and-scroll renderer of earlier versions sat on this hook; drop
 ;; it so reloading this file in a live Emacs cannot leave it scrolling.
 (remove-hook 'review-session-layout-hook 'review-walkthrough--render)
 (add-hook 'review-session-layout-hook #'review-walkthrough--draw)
+(add-hook 'review-session-layout-extras-functions #'review-walkthrough--extras)
 
 ;;;; Panel and bar
 ;; Figma "Files panel / walkthrough" (37:407).
