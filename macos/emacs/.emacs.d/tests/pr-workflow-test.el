@@ -104,11 +104,53 @@
         (should (eq listed repo))
         (should (eq pulled repo)))))
   (pr-test--forgejo
-    (let (listed)
+    (let (calls)
       (cl-letf (((symbol-function 'forgejo-pull-list)
-                 (lambda (owner name) (setq listed (list forgejo-repo--host owner name)))))
+                 (lambda (owner name)
+                   (push (list 'list forgejo-repo--host owner name) calls)))
+                ((symbol-function 'forgejo-pull-refresh)
+                 (lambda () (push 'refresh calls))))
         (mr-x/pr-list)
-        (should (equal listed '("https://forge.example" "team" "project")))))))
+        ;; The forced refresh must follow the list, or merged PRs linger.
+        (should (equal (reverse calls)
+                       '((list "https://forge.example" "team" "project")
+                         refresh)))))))
+
+(defvar forgejo-db)
+(defvar forgejo-db-dir)
+
+(ert-deftest pr-forgejo-empty-open-sync-closes-cached-prs ()
+  (let* ((dir (make-temp-file "forgejo-db-test" t))
+         (forgejo-db-dir dir)
+         (forgejo-db nil)
+         (row (lambda (n state)
+                `((id . ,n) (number . ,n) (title . ,(format "PR %d" n))
+                  (state . ,state) (created_at . "2026-09-20T00:00:00Z")
+                  (updated_at . "2026-09-20T00:00:00Z"))))
+         (states (lambda (repo)
+                   (forgejo-db--select
+                    "SELECT number, state FROM issues
+                     WHERE host = ? AND owner = ? AND repo = ? ORDER BY number"
+                    (list "forge.example" "team" repo)))))
+    (unwind-protect
+        (progn
+          (forgejo-db-save-issues "forge.example" "Team" "Project"
+                                  (list (funcall row 1 "open") (funcall row 2 "open")) t)
+          (forgejo-db-save-issues "forge.example" "team" "project"
+                                  (list (funcall row 3 "open")))
+          (forgejo-db-save-issues "forge.example" "team" "other"
+                                  (list (funcall row 4 "open")) t)
+          ;; Non-empty: only the PR the server no longer lists closes.
+          (forgejo-db-close-missing "forge.example" "team" "project" '(2) t)
+          (should (equal (funcall states "project")
+                         '((1 "closed") (2 "open") (3 "open"))))
+          ;; Empty: every open PR closes; issues and other repos are untouched.
+          (forgejo-db-close-missing "forge.example" "Team" "Project" nil t)
+          (should (equal (funcall states "project")
+                         '((1 "closed") (2 "closed") (3 "open"))))
+          (should (equal (funcall states "other") '((4 "open")))))
+      (when (sqlitep forgejo-db) (sqlite-close forgejo-db))
+      (delete-directory dir t))))
 
 (ert-deftest pr-forgejo-approval-cancel-does-not-submit-empty-approval ()
   (pr-test--forgejo

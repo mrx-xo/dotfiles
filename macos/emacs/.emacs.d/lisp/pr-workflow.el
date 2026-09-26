@@ -9,6 +9,8 @@
 (require 'subr-x)
 (require 'hydra)
 (require 'forge)
+(require 'forgejo-db)
+(require 'forgejo-pull)
 (require 'forgejo-vc)
 (require 'forgejo-review)
 (require 'forgejo-merge)
@@ -77,7 +79,30 @@ REQUIRE-PR means to reject contexts without a specific PR."
          (forge-add-repository)))
       ('forgejo
        (let ((forgejo-repo--host (plist-get c :host)))
-         (forgejo-pull-list (plist-get c :owner) (plist-get c :name)))))))
+         (forgejo-pull-list (plist-get c :owner) (plist-get c :name))
+         ;; The list's own sync only asks for open PRs changed since the last
+         ;; one, so a PR merged meanwhile never comes back and stays listed.
+         ;; The forced refresh is the sync that closes what the server dropped.
+         (forgejo-pull-refresh))))))
+
+(defun mr-x/forgejo-close-missing-when-none-open
+    (orig host owner repo numbers &optional is-pull)
+  "Call ORIG, treating an empty NUMBERS as \"nothing is open\".
+Upstream skips the update entirely when NUMBERS is nil, so once a
+repository's last open PR is merged the cache keeps it open forever.
+Both callers pass NUMBERS only from a complete, open-only sync; a failed
+or partial fetch never reaches this function."
+  (if numbers
+      (funcall orig host owner repo numbers is-pull)
+    (forgejo-db--execute
+     (format "UPDATE issues SET state = 'closed'
+              WHERE host = ? AND owner = ? AND repo = ?
+              AND state = 'open' %s"
+             (if is-pull "AND is_pull = 1" "AND is_pull = 0"))
+     (list host (downcase owner) (downcase repo)))))
+
+(advice-add 'forgejo-db-close-missing :around
+            #'mr-x/forgejo-close-missing-when-none-open)
 
 (defun mr-x/pr--visit (context)
   "Visit the PR described by CONTEXT."
