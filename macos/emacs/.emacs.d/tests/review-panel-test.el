@@ -51,6 +51,20 @@
       (should (string-match-p "0 of 3 viewed.*\\+1  -1" text))
       (should (string-match-p "hunk 1 of 1 in this file.*1 of 1 hunks total" text)))))
 
+(ert-deftest review-panel-divider-survives-without-sections ()
+  "With no section functions registered, the seam divider between the
+progress block and the file list is still drawn."
+  (review-panel-test--with s
+    (let* ((review-panel-section-functions nil)
+           (text (review-panel-render s nil nil))
+           (divider-face (list :background (review-panel--hex 'bg-1) :height 0.1 :extend t))
+           (progress-end (string-match "viewed" text))
+           (file-pos (text-property-any 0 (length text) 'review-file 0 text)))
+      (should progress-end)
+      (should file-pos)
+      (should (seq-some (lambda (i) (equal (get-text-property i 'face text) divider-face))
+                        (number-sequence progress-end (1- file-pos)))))))
+
 (ert-deftest review-panel-marks-viewed-current-and-pending-with-icons ()
   (review-panel-test--with s
     (review-session-next-file)
