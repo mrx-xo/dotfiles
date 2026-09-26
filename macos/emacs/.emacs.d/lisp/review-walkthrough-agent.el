@@ -117,15 +117,79 @@ none valid means nil."
               (error nil)))
           nil)))))
 
-(defun review-walkthrough-agent--apply-route (session shell json-text retries corrected)
-  "Start SESSION's walkthrough from JSON-TEXT.
+(defvar review-walkthrough-agent--pending nil
+  "(:request TOKEN :shell SHELL :tokens SUBSCRIPTIONS) while a reply is awaited.")
+
+(defun review-walkthrough-agent--key (session)
+  "The review key of SESSION, or nil when its source has no recipe."
+  (when-let ((recipe (review-source-recipe (review-session-source session))))
+    (review-source-key recipe)))
+
+(defun review-walkthrough-agent--target (key request)
+  "The live review KEY whose walkthrough still waits on REQUEST, or nil.
+Matching by key, not by session object, lets a reply that arrives after a
+pause and resume land on the resumed session; matching REQUEST keeps a
+stale reply off a walkthrough that has moved on."
+  (when-let ((s review-session--current))
+    (and (equal (review-walkthrough-agent--key s) key)
+         (eq (plist-get (review-session-walkthrough s) :request) request)
+         s)))
+
+(defun review-walkthrough-agent--unsubscribe ()
+  "Stop waiting for the agent's reply to a walkthrough request."
+  (when-let ((pending review-walkthrough-agent--pending))
+    (setq review-walkthrough-agent--pending nil)
+    (let ((shell (plist-get pending :shell)))
+      (when (buffer-live-p shell)
+        (with-current-buffer shell
+          (dolist (token (plist-get pending :tokens))
+            (agent-shell-unsubscribe :subscription token)))))))
+
+(defun review-walkthrough-agent--no-route (session)
+  (setf (review-session-walkthrough session) (list :status 'no-route))
+  (review-session--notify session))
+
+(defun review-walkthrough-agent--send (key shell text request corrected)
+  "Send TEXT to SHELL for walkthrough REQUEST of review KEY, and await the reply.
+The turn ends in `turn-complete', or in `error' when it fails; whichever
+comes first drops both subscriptions.  CORRECTED is non-nil when TEXT asks
+for a corrected route."
+  (review-walkthrough-agent--unsubscribe)
+  (setq review-walkthrough-agent--pending
+        (list :request request :shell shell
+              :tokens (list (agent-shell-subscribe-to
+                             :shell-buffer shell :event 'turn-complete
+                             :on-event (lambda (_event)
+                                         (review-walkthrough-agent--unsubscribe)
+                                         (review-walkthrough-agent--on-reply key shell request corrected)))
+                            (agent-shell-subscribe-to
+                             :shell-buffer shell :event 'error
+                             :on-event (lambda (event)
+                                         (review-walkthrough-agent--unsubscribe)
+                                         (review-walkthrough-agent--on-error key request event))))))
+  (agent-shell--insert-to-shell-buffer :shell-buffer shell :text text :submit t :no-focus t))
+
+(defun review-walkthrough-agent--on-error (key request event)
+  "The agent's turn for REQUEST of review KEY failed with EVENT: no route."
+  (when-let ((session (review-walkthrough-agent--target key request)))
+    (setq review-walkthrough-agent--last-output
+          (concat (and review-walkthrough-agent--last-output
+                       (concat review-walkthrough-agent--last-output "\n\n"))
+                  "[agent error] The agent's turn failed: "
+                  (format "%s" (or (alist-get :message (alist-get :data event)) "no message"))))
+    (review-walkthrough-agent--no-route session)))
+
+(defun review-walkthrough-agent--apply-route (key shell json-text retries corrected request)
+  "Start the walkthrough REQUEST of review KEY from JSON-TEXT.
+Does nothing once the live review no longer waits on REQUEST, so a
+retry timer outliving a cancel or a new request stops quietly.
 RETRIES counts `retry:' attempts already made against this route.
 CORRECTED is non-nil once SHELL has already been asked once to fix a
 rejected route; a second rejection then gives up rather than asking again.
 A signal out of `review-walkthrough-start-file' is a bug, not a bad route
 from the agent, so it never triggers a correction round-trip: it just
 reports the failure and gives up."
-  (when (eq session review-session--current)
+  (when-let ((session (review-walkthrough-agent--target key request)))
     (let* ((file (make-temp-file "review-walkthrough" nil ".json" json-text))
            (result (unwind-protect
                        (condition-case err
@@ -137,8 +201,7 @@ reports the failure and gives up."
             (setq review-walkthrough-agent--last-output
                   (concat review-walkthrough-agent--last-output "\n\n[internal error] " description))
             (message "[internal error] %s" description)
-            (setf (review-session-walkthrough session) (list :status 'no-route))
-            (review-session--notify session))
+            (review-walkthrough-agent--no-route session))
         (let ((report result))
           (cond
            ((string-prefix-p "ok" report)
@@ -146,44 +209,29 @@ reports the failure and gives up."
            ((string-prefix-p "retry:" report)
             (if (< retries 5)
                 (run-at-time 3 nil #'review-walkthrough-agent--apply-route
-                             session shell json-text (1+ retries) corrected)
+                             key shell json-text (1+ retries) corrected request)
               (setq review-walkthrough-agent--last-output
                     (concat review-walkthrough-agent--last-output "\n" report))
-              (setf (review-session-walkthrough session) (list :status 'no-route))
-              (review-session--notify session)))
+              (review-walkthrough-agent--no-route session)))
            ((string-prefix-p "error:" report)
             (if corrected
-                (progn
-                  (setf (review-session-walkthrough session) (list :status 'no-route))
-                  (review-session--notify session))
-              (review-walkthrough-agent--request-correction session shell report)))))))))
+                (review-walkthrough-agent--no-route session)
+              (review-walkthrough-agent--send
+               key shell
+               (format "Your walkthrough route was rejected:\n%s\nReply again with only the corrected json block."
+                       report)
+               request t)))))))))
 
-(defun review-walkthrough-agent--request-correction (session shell report)
-  "Ask SHELL once to fix the walkthrough route rejected with REPORT."
-  (let (token)
-    (setq token
-          (agent-shell-subscribe-to
-           :shell-buffer shell :event 'turn-complete
-           :on-event (lambda (_event)
-                       (agent-shell-unsubscribe :subscription token)
-                       (review-walkthrough-agent--on-reply session shell t))))
-    (agent-shell--insert-to-shell-buffer
-     :shell-buffer shell
-     :text (format "Your walkthrough route was rejected:\n%s\nReply again with only the corrected json block."
-                    report)
-     :submit t :no-focus t)))
-
-(defun review-walkthrough-agent--on-reply (session shell corrected)
-  "Handle SHELL's reply to a walkthrough request for SESSION.
-CORRECTED is non-nil when this reply follows a correction request."
-  (setq review-walkthrough-agent--last-output (with-current-buffer shell (shell-maker-last-output)))
-  (when (eq session review-session--current)
+(defun review-walkthrough-agent--on-reply (key shell request corrected)
+  "Handle SHELL's reply to walkthrough REQUEST of review KEY.
+A reply no live review waits on is dropped whole.  CORRECTED is non-nil
+when this reply follows a correction request."
+  (when-let ((session (review-walkthrough-agent--target key request)))
+    (setq review-walkthrough-agent--last-output (with-current-buffer shell (shell-maker-last-output)))
     (let ((json-text (review-walkthrough-agent--route-json review-walkthrough-agent--last-output)))
       (if (not json-text)
-          (progn
-            (setf (review-session-walkthrough session) (list :status 'no-route))
-            (review-session--notify session))
-        (review-walkthrough-agent--apply-route session shell json-text 0 corrected)))))
+          (review-walkthrough-agent--no-route session)
+        (review-walkthrough-agent--apply-route key shell json-text 0 corrected request)))))
 
 (defun review-walkthrough-request ()
   "Ask this project's agent to build a walkthrough of the review.
@@ -194,20 +242,15 @@ since the caller has no way to know the busy turn will ever finish."
   (interactive)
   (let* ((session (review-session--require))
          (shell (mr-x/quick-ask--ensure-session (review-session-directory session)))
-         token)
+         (request (make-symbol "walk")))
     (if (with-current-buffer shell (shell-maker-busy))
         (when (y-or-n-p "The project agent is busy (maybe waiting on a prompt). Show its session? ")
           (pop-to-buffer shell))
-      (setf (review-session-walkthrough session) (list :status 'planning))
+      (setq review-walkthrough-agent--last-output nil)
+      (setf (review-session-walkthrough session) (list :status 'planning :request request))
       (review-session--notify session)
-      (setq token
-            (agent-shell-subscribe-to
-             :shell-buffer shell :event 'turn-complete
-             :on-event (lambda (_event)
-                         (agent-shell-unsubscribe :subscription token)
-                         (review-walkthrough-agent--on-reply session shell nil))))
-      (agent-shell--insert-to-shell-buffer
-       :shell-buffer shell :text (review-walkthrough-agent--prompt session) :submit t :no-focus t)
+      (review-walkthrough-agent--send (review-walkthrough-agent--key session) shell
+                                      (review-walkthrough-agent--prompt session) request nil)
       (message "Asked the project agent for a walkthrough"))))
 
 (defun review-walkthrough-show-answer ()
@@ -229,8 +272,12 @@ since the caller has no way to know the busy turn will ever finish."
            (when (y-or-n-p "End this walkthrough? ") (review-walkthrough-quit)))
           ((eq (plist-get w :status) 'no-route) (review-walkthrough-show-answer))
           ((eq (plist-get w :status) 'planning)
-           (when (y-or-n-p "The agent is still planning. Show its session? ")
-             (pop-to-buffer (mr-x/quick-ask--ensure-session (review-session-directory session)))))
+           (pcase (read-key "The agent is planning a route.  s: show its session  c: cancel planning  other: nothing")
+             (?s (pop-to-buffer (mr-x/quick-ask--ensure-session (review-session-directory session))))
+             (?c (review-walkthrough-agent--unsubscribe)
+                 (setf (review-session-walkthrough session) nil)
+                 (review-session--notify session)
+                 (message "Walkthrough planning cancelled"))))
           (t (review-walkthrough-request)))))
 
 (defun review-walkthrough-agent--ask-context ()

@@ -96,6 +96,19 @@
    (let ((r (review-session-resume)))
      (should (equal (plist-get (review-source-recipe (review-session-source r)) :id) "new")))))
 
+(ert-deftest review-store-pending-walkthrough-stays-in-memory ()
+  ;; A walkthrough request still waiting on the agent survives a pause in
+  ;; memory, token and all, so its reply can land on the resumed review.
+  ;; Nothing waits on it after a restart, so the disk copy leaves it out.
+  (review-store-test--env
+   (let* ((s (review-session-start (review-store-test--source "pending")))
+          (key (review-source-key (review-source-recipe (review-session-source s))))
+          (token (make-symbol "walk")))
+     (setf (review-session-walkthrough s) (list :status 'planning :request token))
+     (review-session-pause)
+     (should (eq (plist-get (plist-get (review-store-load key) :walkthrough) :request) token))
+     (should-not (plist-get (review-store--read (review-store--path key)) :walkthrough)))))
+
 (defun review-store-test--git (dir &rest args)
   (let ((default-directory dir))
     (with-temp-buffer
