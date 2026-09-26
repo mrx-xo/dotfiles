@@ -211,16 +211,28 @@ Every line carries a `review-row' property with its row index."
 
 ;;;; Pane buffers
 
+(defconst review-session-keys
+  '(("C-j" . review-session-next-hunk) ("C-k" . review-session-prev-hunk)
+    ("J" . review-session-next-file) ("K" . review-session-prev-file)
+    ("x" . review-session-toggle-viewed) ("u" . syzygy-park)
+    ("q" . review-session-quit))
+  "Keys shared by the panes, the files panel and `hydra-review'.
+Hunk keys match Magit and diff-mode; `v' stays Evil visual selection.")
+
+(defun review-session-key (command)
+  "The key `review-session-keys' gives COMMAND."
+  (car (rassq command review-session-keys)))
+
+(defun review-session-bind-keys (map &optional extra)
+  "Bind `review-session-keys', then EXTRA, in MAP and its Evil normal state."
+  (let ((keys (append review-session-keys extra)))
+    (dolist (k keys) (define-key map (kbd (car k)) (cdr k)))
+    (with-eval-after-load 'evil
+      (dolist (k keys) (evil-define-key* 'normal map (kbd (car k)) (cdr k)))))
+  map)
+
 (defvar review-pane-mode-map
-  (let ((m (make-sparse-keymap)))
-    (define-key m (kbd "C-j") #'review-session-next-file)
-    (define-key m (kbd "C-k") #'review-session-prev-file)
-    (define-key m (kbd "M-j") #'review-session-next-hunk)
-    (define-key m (kbd "M-k") #'review-session-prev-hunk)
-    (define-key m (kbd "v") #'review-session-toggle-viewed)
-    (define-key m (kbd "u") #'syzygy-park)
-    (define-key m (kbd "q") #'review-session-quit)
-    m)
+  (review-session-bind-keys (make-sparse-keymap))
   "Keys in a review pane.")
 
 (define-derived-mode review-pane-mode special-mode "Review"
@@ -228,16 +240,6 @@ Every line carries a `review-row' property with its row index."
   (setq truncate-lines t)
   (setq-local popper-popup-status 'raised)
   (setq-local scroll-margin 0))
-
-(with-eval-after-load 'evil
-  (evil-define-key 'normal review-pane-mode-map
-		   (kbd "C-j") #'review-session-next-file
-		   (kbd "C-k") #'review-session-prev-file
-		   (kbd "M-j") #'review-session-next-hunk
-		   (kbd "M-k") #'review-session-prev-hunk
-		   (kbd "v") #'review-session-toggle-viewed
-		   (kbd "u") #'syzygy-park
-		   (kbd "q") #'review-session-quit))
 
 (defun review-session--pane-string (session index side)
   "Return file INDEX's rendered SIDE of SESSION, rendering it only once.

@@ -334,15 +334,45 @@
       (should cancelled)
       (should-not started))))
 
-(ert-deftest pr-workflow-menu-has-session-keys-and-no-folding ()
+(ert-deftest pr-workflow-hydra-has-review-keys-and-no-folding ()
   (should (fboundp 'mr-x/pr-review-session))
   (should (fboundp 'mr-x/review-git-range))
-  (should (transient-get-suffix 'mr-x/pr-menu "s"))
-  (should (transient-get-suffix 'mr-x/pr-menu "G"))
-  ;; `g' stays Refresh; the range review must not shadow it.
-  (should (eq (plist-get (cdr (transient-get-suffix 'mr-x/pr-menu "g")) :command)
-              'mr-x/pr-refresh))
+  (should-not (fboundp 'mr-x/pr-menu))
+  (dolist (pair '(("r" . mr-x/review) ("d" . mr-x/pr-diff) ("l" . mr-x/pr-list)
+                  ("g" . mr-x/pr-refresh) ("m" . mr-x/pr-merge)))
+    (should (string-prefix-p (format "hydra-pr/%s" (cdr pair))
+                             (symbol-name (lookup-key hydra-pr/keymap (kbd (car pair)))))))
   (should-not (fboundp 'mr-x/pr-diff-files))
   (should-not (fboundp 'mr-x/pr-diff-toggle-file)))
+
+(ert-deftest pr-workflow-review-picks-pr-or-range ()
+  (let (called)
+    (cl-letf (((symbol-function 'mr-x/review-git-range) (lambda () (push 'range called)))
+              ((symbol-function 'mr-x/pr-review-session) (lambda () (push 'patch called)))
+              ((symbol-function 'mr-x/pr--review-forgejo)
+               (lambda (&rest args) (push (cons 'fetch args) called))))
+      ;; Outside a hosted repo: the range picker.
+      (cl-letf (((symbol-function 'mr-x/pr-context) (lambda (&rest _) (user-error "No repo"))))
+        (mr-x/review))
+      ;; A repo but no PR selected: still the range picker.
+      (cl-letf (((symbol-function 'mr-x/pr-context)
+                 (lambda (&rest _) (list :backend 'forgejo :host "h" :owner "o" :name "n"))))
+        (mr-x/review))
+      ;; A Forgejo PR row or details: fetch it, no raw diff needed.
+      (cl-letf (((symbol-function 'mr-x/pr-context)
+                 (lambda (&rest _) (list :backend 'forgejo :host "h" :owner "o" :name "n" :number 7)))
+                ((symbol-function 'mr-x/pr-review-available-p) #'ignore))
+        (mr-x/review))
+      ;; Already in its raw diff: review that patch.
+      (cl-letf (((symbol-function 'mr-x/pr-context)
+                 (lambda (&rest _) (list :backend 'forgejo :host "h" :owner "o" :name "n" :number 7)))
+                ((symbol-function 'mr-x/pr-review-available-p) (lambda () t)))
+        (mr-x/review))
+      ;; A GitHub PR goes to its own review source.
+      (cl-letf (((symbol-function 'mr-x/pr-context)
+                 (lambda (&rest _) (list :backend 'github :number 3)))
+                ((symbol-function 'mr-x/pr-review-available-p) #'ignore))
+        (mr-x/review))
+      (should (equal (nreverse called) '(range range (fetch "h" "o" "n" 7) patch patch))))))
 
 (provide 'pr-workflow-test)

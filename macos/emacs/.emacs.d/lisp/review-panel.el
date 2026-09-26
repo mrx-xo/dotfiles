@@ -407,25 +407,28 @@ renders the strip."
       (list (review-panel--gap 16)
             (mapconcat (lambda (hint) (concat (funcall cap (car hint)) (review-panel--gap 4)
                                               (funcall label (cdr hint))))
-                       '(("C-j/k" . "file") ("M-j/k" . "hunk") ("TAB" . "fold")
-                         ("RET" . "open") ("v" . "viewed") ("u" . "park"))
+                       (review-panel--key-hints)
                        (review-panel--gap 10))))))
 
 ;;;; Buffer
 
+(defun review-panel--key-hints ()
+  "Footer hints, read from `review-session-keys' so they cannot drift."
+  (let ((pair (lambda (next prev)
+                (let ((a (review-session-key next)) (b (review-session-key prev)))
+                  (concat a "/" (substring b (1- (length b))))))))
+    `((,(funcall pair 'review-session-next-hunk 'review-session-prev-hunk) . "hunk")
+      (,(funcall pair 'review-session-next-file 'review-session-prev-file) . "file")
+      ("TAB" . "fold") ("RET" . "open")
+      (,(review-session-key 'review-session-toggle-viewed) . "viewed")
+      (,(review-session-key 'syzygy-park) . "park"))))
+
 (defvar review-panel-mode-map
-  (let ((m (make-sparse-keymap)))
-    (define-key m (kbd "TAB") #'review-panel-fold)
-    (define-key m (kbd "<tab>") #'review-panel-fold)
-    (define-key m (kbd "RET") #'review-panel-visit)
-    (define-key m (kbd "C-j") #'review-session-next-file)
-    (define-key m (kbd "C-k") #'review-session-prev-file)
-    (define-key m (kbd "M-j") #'review-session-next-hunk)
-    (define-key m (kbd "M-k") #'review-session-prev-hunk)
-    (define-key m (kbd "v") #'review-session-toggle-viewed)
-    (define-key m (kbd "u") #'syzygy-park)
-    (define-key m (kbd "q") #'review-session-quit)
-    m))
+  (review-session-bind-keys
+   (make-sparse-keymap)
+   '(("TAB" . review-panel-fold) ("<tab>" . review-panel-fold)
+     ("RET" . review-panel-visit)))
+  "Keys in the files panel: the session's keys plus fold and open.")
 
 (define-derived-mode review-panel-mode special-mode "ReviewFiles"
   "Files panel of a review session."
@@ -442,15 +445,6 @@ renders the strip."
        face `(:background ,(review-panel--hex 'bg-0) :foreground ,(review-panel--hex 'dim)
               :box (:line-width (0 . ,pad) :color ,(review-panel--hex 'bg-0))
               :overline ,(review-panel--hex 'bg-1) :underline nil)))))
-
-(with-eval-after-load 'evil
-  (evil-define-key 'normal review-panel-mode-map
-    (kbd "TAB") #'review-panel-fold (kbd "<tab>") #'review-panel-fold
-    (kbd "RET") #'review-panel-visit
-    (kbd "C-j") #'review-session-next-file (kbd "C-k") #'review-session-prev-file
-    (kbd "M-j") #'review-session-next-hunk (kbd "M-k") #'review-session-prev-hunk
-    (kbd "v") #'review-session-toggle-viewed (kbd "q") #'review-session-quit
-    (kbd "u") #'syzygy-park))
 
 (defun review-panel--refresh (&optional session)
   "Re-render SESSION's panel, preserving its selected file or hunk."

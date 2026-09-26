@@ -49,22 +49,23 @@
 (defhydra hydra-review (:hint nil :foreign-keys run)
   "
  Review session
- Files               Hunks               View / ask
- _C-j_: next file     _M-j_: next hunk     _f_: files panel
- _C-k_: prev file     _M-k_: prev hunk     _o_: old pane   _w_: new pane
- _v_: viewed        _TAB_: fold       _a_: Quick Ask  _u_: park
-                   _z_: strip
- _Q_: quit review                    _q_: quit hydra"
-  ("C-j" review-session-next-file)
-  ("C-k" review-session-prev-file)
-  ("M-j" review-session-next-hunk)
-  ("M-k" review-session-prev-hunk)
-  ("v" review-session-toggle-viewed)
+ Hunks               Files               View / ask
+ _C-j_: next hunk     _J_: next file       _f_: files panel
+ _C-k_: prev hunk     _K_: prev file       _h_: old pane   _l_: new pane
+ _TAB_: fold          _x_: viewed          _a_: Quick Ask  _u_: park
+ _z_: strip
+ _Q_: quit review                        _q_: quit hydra"
+  ;; Same keys as `review-session-keys'; review-hydra-test keeps them equal.
+  ("C-j" review-session-next-hunk)
+  ("C-k" review-session-prev-hunk)
+  ("J" review-session-next-file)
+  ("K" review-session-prev-file)
+  ("x" review-session-toggle-viewed)
   ("TAB" review-hydra-fold)
   ("z" review-hydra-strip)
   ("f" review-hydra-files :exit t)
-  ("o" review-hydra-old :exit t)
-  ("w" review-hydra-new :exit t)
+  ("h" review-hydra-old :exit t)
+  ("l" review-hydra-new :exit t)
   ("a" mr-x/quick-ask :exit t)
   ("u" syzygy-park :exit t)
   ("Q" review-session-quit :exit t)

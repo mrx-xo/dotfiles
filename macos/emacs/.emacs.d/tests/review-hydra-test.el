@@ -29,11 +29,22 @@
               (should hydra-curr-map))
           (hydra-keyboard-quit))))))
 
-(ert-deftest review-hydra-navigation-uses-control-keys ()
-  (dolist (pair '(("C-j" . hydra-review/review-session-next-file)
-                  ("C-k" . hydra-review/review-session-prev-file)
-                  ("M-j" . hydra-review/review-session-next-hunk)
-                  ("M-k" . hydra-review/review-session-prev-hunk)))
-    (should (eq (lookup-key hydra-review/keymap (kbd (car pair))) (cdr pair)))))
+(ert-deftest review-hydra-uses-the-session-keys ()
+  "Every hydra head for a session key is the key the panes and panel use."
+  (dolist (k review-session-keys)
+    (unless (eq (cdr k) 'review-session-quit) ; `q' leaves the hydra, `Q' quits
+      (let ((head (lookup-key hydra-review/keymap (kbd (car k)))))
+        (should (symbolp head))
+        (should (string-prefix-p (format "hydra-review/%s" (cdr k))
+                                 (symbol-name head)))))))
+
+(ert-deftest review-session-keys-bind-panes-and-panel ()
+  (dolist (map (list review-pane-mode-map review-panel-mode-map))
+    (dolist (k review-session-keys)
+      (should (eq (lookup-key map (kbd (car k))) (cdr k)))
+      (should (eq (lookup-key (evil-get-auxiliary-keymap map 'normal) (kbd (car k)))
+                  (cdr k)))))
+  ;; `v' is left to Evil so panes can select text for Quick Ask.
+  (should-not (lookup-key review-pane-mode-map (kbd "v"))))
 
 (provide 'review-hydra-test)

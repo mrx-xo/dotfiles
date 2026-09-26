@@ -7,7 +7,7 @@
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
-(require 'transient)
+(require 'hydra)
 (require 'forge)
 (require 'forgejo-vc)
 (require 'forgejo-review)
@@ -267,25 +267,19 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
                                      forgejo-diff--pr-number (review-source-forgejo-patch-files)))
           ((mr-x/pr--github-review-context)
            (mr-x/pr--github-review-source (mr-x/pr--github-review-context)))
-          (t (user-error "Open a Forgejo PR diff (SPC g R d) or a GitHub PR first")))))
+          (t (user-error "Open a Forgejo PR diff (SPC , d) or a GitHub PR first")))))
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
 
-(defun mr-x/pr-review-open (url)
-  "Start a review session for the Forgejo PR at URL, skipping the PR views.
-URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
-  (interactive "sForgejo PR URL: ")
-  (unless (string-match "\\`\\(https?://[^/]+\\)/\\([^/]+\\)/\\([^/]+\\)/pulls/\\([0-9]+\\)/?\\'"
-                        url)
-    (user-error "Not a Forgejo PR URL: %s" url))
-  (let* ((host (match-string 1 url)) (owner (match-string 2 url))
-         (repo (match-string 3 url)) (number (string-to-number (match-string 4 url)))
-         (url-request-method "GET")
-         (url-request-extra-headers
-          `(("Authorization" . ,(encode-coding-string
-                                 (concat "token " (forgejo-token host)) 'ascii)))))
+(defun mr-x/pr--review-forgejo (host owner repo number)
+  "Fetch Forgejo PR NUMBER of OWNER/REPO on HOST, then review it.
+Needs no PR buffer: this is the route from a PR list row or details."
+  (let ((url-request-method "GET")
+        (url-request-extra-headers
+         `(("Authorization" . ,(encode-coding-string
+                                (concat "token " (forgejo-token host)) 'ascii)))))
     ;; Same request and diff buffer as `forgejo-pull-view-diff', so the
-    ;; session sees exactly what SPC g v would have shown.
+    ;; session sees exactly what the raw PR diff would have shown.
     (url-retrieve
      (format "%s/api/v1/repos/%s/%s/pulls/%d.diff" host owner repo number)
      (lambda (status)
@@ -293,7 +287,7 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
          (unwind-protect
              (condition-case err
                  (if-let ((failure (plist-get status :error)))
-                     (message "PR review: fetching %s failed: %S" url failure)
+                     (message "PR review: fetching %s/%s#%d failed: %S" owner repo number failure)
                    (goto-char (point-min))
                    (re-search-forward "\r?\n\r?\n" nil t)
                    (let ((text (buffer-substring-no-properties (point) (point-max)))
@@ -306,6 +300,16 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
                (error (message "PR review: %s" (error-message-string err))))
            (when (buffer-live-p response) (kill-buffer response)))))
      nil t)))
+
+(defun mr-x/pr-review-open (url)
+  "Start a review session for the Forgejo PR at URL, skipping the PR views.
+URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
+  (interactive "sForgejo PR URL: ")
+  (unless (string-match "\\`\\(https?://[^/]+\\)/\\([^/]+\\)/\\([^/]+\\)/pulls/\\([0-9]+\\)/?\\'"
+                        url)
+    (user-error "Not a Forgejo PR URL: %s" url))
+  (mr-x/pr--review-forgejo (match-string 1 url) (match-string 2 url) (match-string 3 url)
+                           (string-to-number (match-string 4 url))))
 
 (defvar mr-x/review-git-range-history nil
   "History of review presets and manually entered Git ranges.")
@@ -348,26 +352,37 @@ Empty input means the working tree against HEAD; \"--staged\" the index."
     (when-let ((session (review-session-start source)))
       (review-panel-open session))))
 
-(transient-define-prefix mr-x/pr-menu ()
-  "PR actions for the current GitHub or Forgejo repository."
-  [["Read"
-    ("r" "PR list" mr-x/pr-list)
-    ("v" "PR details" mr-x/pr-view)
-    ("d" "Full diff" mr-x/pr-diff)
-    ("s" "MR-X diff (current PR)" mr-x/pr-review-session
-     :if mr-x/pr-review-available-p)
-    ("X" "Review session" mr-x/pr-review-session
-     :if mr-x/pr-review-available-p)
-    ("G" "Review a git range" mr-x/review-git-range)
-    ("e" "Compare this file (Ediff)" mr-x/forgejo-diff-ediff
-     :if mr-x/forgejo-ediff-available-p)
-    ("g" "Refresh" mr-x/pr-refresh)]
-   ["Review"
-    ("c" "Comment" mr-x/pr-comment)
-    ("a" "Approve" mr-x/pr-approve)
-    ("x" "Request changes" mr-x/pr-request-changes)]
-   ["Merge"
-    ("m" "Merge PR (confirm)" mr-x/pr-merge)]])
+(defun mr-x/review ()
+  "Review the PR in this buffer, or else pick a git range to review.
+A PR list row, PR details and a raw PR diff all count as the PR."
+  (interactive)
+  (let ((c (ignore-errors (mr-x/pr-context))))
+    (if (not (integerp (plist-get c :number)))
+        (mr-x/review-git-range)
+      (if (or (mr-x/pr-review-available-p) (not (eq (plist-get c :backend) 'forgejo)))
+          (mr-x/pr-review-session)
+        (mr-x/pr--review-forgejo (plist-get c :host) (plist-get c :owner)
+                                 (plist-get c :name) (plist-get c :number))))))
+
+(defhydra hydra-pr (:hint nil :exit t)
+  "
+ PR
+ Review              Read                     Merge
+ _r_: review          _v_: details   _l_: list   _m_: merge (confirm)
+ _c_: comment         _d_: raw diff  _g_: refresh
+ _a_: approve         _e_: Ediff this file
+ _x_: request changes                          _q_: quit"
+  ("r" mr-x/review)
+  ("c" mr-x/pr-comment)
+  ("a" mr-x/pr-approve)
+  ("x" mr-x/pr-request-changes)
+  ("v" mr-x/pr-view)
+  ("d" mr-x/pr-diff)
+  ("e" mr-x/forgejo-diff-ediff)
+  ("l" mr-x/pr-list)
+  ("g" mr-x/pr-refresh)
+  ("m" mr-x/pr-merge)
+  ("q" nil))
 
 (provide 'pr-workflow)
 ;;; pr-workflow.el ends here

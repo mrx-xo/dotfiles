@@ -4132,6 +4132,11 @@ Falls back to a one-liner if fastfetch isn't installed."
          ((derived-mode-p 'Info-mode) (hydra-info/body))
          ((derived-mode-p 'ediff-mode) (hydra-ediff/body))
          ((derived-mode-p 'review-pane-mode 'review-panel-mode) (hydra-review/body))
+         ((or (derived-mode-p 'forgejo-pull-list-mode 'forgejo-pull-view-mode
+                              'forge-pullreq-mode 'forge-topics-mode)
+              (bound-and-true-p forgejo-diff--pr-number)
+              (bound-and-true-p mr-x/pr--diff-context))
+          (hydra-pr/body))
          ((derived-mode-p 'prog-mode) (hydra-fold/body))
          (t (message "No hydra for %s" major-mode))))
 
@@ -4831,10 +4836,8 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g b" '(magit-blame :wk "blame")
         "g p" '(magit-push-current :wk "push current")
         "g P" '(magit-pull-branch :wk "pull branch")
-        "g r" '(mr-x/pr-list :wk "review pull requests")
-        "g v" '(mr-x/pr-diff :wk "PR diff")
-        "g R" '(mr-x/pr-menu :wk "PR actions")
-        "g M" '(mr-x/pr-merge :wk "merge PR")
+        "g r" '(mr-x/review :wk "review (PR here, else a range)")
+        "g R" '(mr-x/pr-list :wk "pull requests")
         "g f" '(magit-fetch :wk "fetch"))
 
       ;; Bind after agent-shell loads
@@ -7565,7 +7568,7 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   ;; Forge, so doing both would create a recursive load on first invocation.
   (use-package pr-workflow
     :ensure nil
-    :commands (mr-x/pr-menu mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
+    :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
                mr-x/pr-review-session mr-x/review-git-range))
 
 
