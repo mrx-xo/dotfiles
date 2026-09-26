@@ -3266,3 +3266,102 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
 
 (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 
+
+
+;; Prompt follow: pull the view down so the live prompt is the bottom line.
+;; Runs just before redisplay (never a frame with the prompt floating) and
+;; picks the start pixel-exactly: `recenter -1' could clip the prompt line,
+;; and Emacs then nudged the view back up, a visible jump.
+(defvar mr-x/agent-shell-prompt-follow--dirty nil)
+
+(defun mr-x/agent-shell-prompt-follow--prompt-start ()
+  "Start of the live input prompt in the current buffer, or nil."
+  (and (fboundp 'agent-shell--live-input-prompt-p)
+       comint-last-prompt
+       (ignore-errors (agent-shell--live-input-prompt-p comint-last-prompt))
+       (marker-position (car comint-last-prompt))))
+
+(defun mr-x/agent-shell-prompt-follow--blank-below-p (window)
+  "Non-nil when WINDOW shows at least one empty line below `point-max'."
+  (let* ((content (cdr (window-text-pixel-size window (window-start window)
+                                               (point-max))))
+         (body (window-body-height window t)))
+    (> (- body content) (frame-char-height (window-frame window)))))
+
+(defun mr-x/agent-shell-prompt-follow--window (window)
+  "Pin WINDOW so the live prompt sits exactly on its bottom line.
+Runs before redisplay, so no frame shows the prompt pushed down by a
+growing reply (Emacs alone scrolls a frame late) or floated up by a fold."
+  (with-current-buffer (window-buffer window)
+    (when-let* (((bound-and-true-p mr-x/agent-shell-prompt-follow-mode))
+                (start (mr-x/agent-shell-prompt-follow--prompt-start))
+                ((>= (window-point window) start)))
+      (let* ((ws (window-start window))
+             (body (window-body-height window t))
+             (h (cdr (window-text-pixel-size window ws (point-max)))))
+        (cond
+         ;; Reply grew: advance the top line just enough to keep eob in view.
+         ((> h body)
+          (let ((new (save-excursion
+                       (goto-char ws)
+                       (while (and (> h body) (< (point) (point-max)))
+                         (vertical-motion 1 window)
+                         (setq h (cdr (window-text-pixel-size
+                                       window (point) (point-max)))))
+                       (point))))
+            (unless (= new ws)
+              (set-window-start window new t))))
+         ;; Text above shrank: pull down to fill the blank space.
+         ((and (> ws (point-min))
+               (> (- body h) (frame-char-height (window-frame window))))
+          (when-let* ((new (mr-x/agent-shell-prompt-follow--bottom-start window))
+                      ((< new ws)))
+            (set-window-start window new t))))))))
+
+(defun mr-x/agent-shell-prompt-follow--bottom-start (window)
+  "Highest window start that still shows `point-max' fully in WINDOW."
+  (let ((body (window-body-height window t))
+        (best nil))
+    (save-excursion
+      (goto-char (point-max))
+      (beginning-of-visual-line)
+      (catch 'done
+        (while t
+          (if (> (cdr (window-text-pixel-size window (point) (point-max))) body)
+              (throw 'done nil)
+            (setq best (point))
+            (when (bobp) (throw 'done nil))
+            (vertical-motion -1 window)))))
+    best))
+
+(defun mr-x/agent-shell-prompt-follow--pre-redisplay (_windows)
+  (when mr-x/agent-shell-prompt-follow--dirty
+    (setq mr-x/agent-shell-prompt-follow--dirty nil)
+    (dolist (window (window-list-1 nil 'nomini t))
+      (ignore-errors (mr-x/agent-shell-prompt-follow--window window)))))
+
+(add-hook 'pre-redisplay-functions #'mr-x/agent-shell-prompt-follow--pre-redisplay)
+
+(defun mr-x/agent-shell-prompt-follow--schedule (&rest _)
+  "Mark for a check just before the next redraw."
+  (setq mr-x/agent-shell-prompt-follow--dirty t))
+
+(define-minor-mode mr-x/agent-shell-prompt-follow-mode
+  "Keep the live agent-shell prompt on the window's bottom line."
+  :lighter nil
+  (if mr-x/agent-shell-prompt-follow-mode
+      (progn
+        (add-hook 'after-change-functions
+                  #'mr-x/agent-shell-prompt-follow--schedule nil t)
+        (add-hook 'post-command-hook
+                  #'mr-x/agent-shell-prompt-follow--schedule nil t)
+        (add-hook 'window-size-change-functions
+                  #'mr-x/agent-shell-prompt-follow--schedule)
+        (mr-x/agent-shell-prompt-follow--schedule))
+    (remove-hook 'after-change-functions
+                 #'mr-x/agent-shell-prompt-follow--schedule t)
+    (remove-hook 'post-command-hook
+                 #'mr-x/agent-shell-prompt-follow--schedule t)))
+
+(add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-follow-mode)
+
