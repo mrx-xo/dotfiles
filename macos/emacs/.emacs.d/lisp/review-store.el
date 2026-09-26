@@ -64,6 +64,7 @@
           :range-label (review-source-range-label source)
           :old-label (review-source-old-label source)
           :new-label (review-source-new-label source)
+          :directory (review-session-directory session)
           :paused-at (float-time)
           :files (mapcar #'review-store--file files)
           :viewed (mapcar (lambda (i) (plist-get (aref files i) :path)) (review-session-viewed session))
@@ -173,7 +174,7 @@ nothing waits on its reply after a restart."
        :range-label (plist-get record :range-label)
        :old-label (plist-get record :old-label) :new-label (plist-get record :new-label)
        :number (plist-get recipe :number)
-       :directory (or (plist-get recipe :directory) default-directory)
+       :directory (or (plist-get record :directory) (plist-get recipe :directory) default-directory)
        :recipe recipe
        :files (lambda () (copy-tree bare))
        :text (lambda (file side callback)
