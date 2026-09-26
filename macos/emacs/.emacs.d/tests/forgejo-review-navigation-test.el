@@ -221,4 +221,24 @@
     (goto-char (point-min))
     (should-error (mr-x/forgejo-diff-location))))
 
+(ert-deftest forgejo-review-visit-prefers-worktree ()
+  (require 'review-session)
+  (let* ((source (make-review-source :name "forgejo" :directory "/tmp/"
+                                     :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 2
+                                               :revs ("base" "head"))))
+         (session (make-review-session :source source :directory "/tmp/"))
+         (file '(:path "a.el" :old-path "a.el" :blobs ("b1" "b2")))
+         shown)
+    (cl-letf (((symbol-function 'mr-x/forgejo-source-worktree)
+               (lambda (rev path blob) (should (equal (list rev path blob) '("head" "a.el" "b2"))) "/tmp/wt/a.el"))
+              ((symbol-function 'find-file-noselect) (lambda (f) (list 'buffer f)))
+              ((symbol-function 'mr-x/forgejo-show-source) (lambda (b line) (setq shown (list b line)))))
+      (should (mr-x/forgejo-review-visit session file 'new 12))
+      (should (equal shown '((buffer "/tmp/wt/a.el") 12))))))
+
+(ert-deftest forgejo-review-visit-ignores-other-sources ()
+  (require 'review-session)
+  (let ((session (make-review-session :source (make-review-source :recipe '(:kind git-range)))))
+    (should-not (mr-x/forgejo-review-visit session '(:path "a") 'new 1))))
+
 (provide 'forgejo-review-navigation-test)
