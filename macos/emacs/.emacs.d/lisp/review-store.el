@@ -333,9 +333,17 @@ With PICK (\\[universal-argument]), choose among every paused review."
 ;;;; Quit and autosave
 
 (defun review-store--on-quit (session)
-  (unless (or review-session--pausing review-session-keep-on-quit)
-    (when-let ((recipe (review-source-recipe (review-session-source session))))
-      (review-store-drop (review-source-key recipe)))))
+  "Drop SESSION's saved record as it quits, unless it is paused or kept.
+When another review replaces it, save it instead, so it can be resumed."
+  (when-let ((recipe (review-source-recipe (review-session-source session))))
+    (cond
+     (review-session--pausing nil)
+     (review-session--replacing
+      (condition-case err (review-store-save session)
+        (error (message "Review: could not save the review being replaced: %s"
+                        (error-message-string err)))))
+     (review-session-keep-on-quit nil)
+     (t (review-store-drop (review-source-key recipe))))))
 
 (defun review-store--autosave ()
   (when-let ((s review-session--current))

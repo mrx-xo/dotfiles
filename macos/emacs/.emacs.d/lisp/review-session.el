@@ -83,6 +83,8 @@ bands back here.")
   "Called with the session as it quits, before its buffers and frames go.")
 (defvar review-session--pausing nil
   "Non-nil while a pause tears the session down, so quit hooks keep its record.")
+(defvar review-session--replacing nil
+  "Non-nil while starting a review quits the live one, so quit hooks save it.")
 
 (defcustom review-session-visit-style 'pause
   "Where \\[review-session-visit] opens the real file.
@@ -1078,7 +1080,8 @@ Wrapped panes have nothing to scroll, so there it does nothing."
   "Start reviewing SOURCE and return the session."
   (let ((files (vconcat (copy-tree (funcall (review-source-files source))))))
     (when (zerop (length files)) (user-error "Nothing to review: no changed files"))
-    (when review-session--current (review-session-quit))
+    (when review-session--current
+      (let ((review-session--replacing t)) (review-session-quit)))
     (let* ((pop-out (and review-session-pop-out (review-frame-graphic-p)))
            (layout (unless pop-out (current-window-configuration)))
            (frame (if pop-out
