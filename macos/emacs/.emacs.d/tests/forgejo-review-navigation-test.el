@@ -248,6 +248,8 @@
                                                :revs ("base" "head"))))
          (session (make-review-session :source source :directory "/tmp/"))
          (file '(:path "a.el" :kind added :blobs (nil "b2"))))
-    (should-error (mr-x/forgejo-review-visit session file 'old 12) :type 'user-error)))
+    (cl-letf (((symbol-function 'mr-x/forgejo-source-worktree)
+               (lambda (&rest _) (error "worktree lookup must not run"))))
+      (should-error (mr-x/forgejo-review-visit session file 'old 12) :type 'user-error))))
 
 (provide 'forgejo-review-navigation-test)
