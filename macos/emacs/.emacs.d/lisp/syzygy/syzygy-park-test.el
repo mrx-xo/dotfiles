@@ -44,11 +44,15 @@ The chat's project root is a fresh temp directory bound as `root'."
 
 (defmacro syzygy-park-test--with-file (&rest body)
   "Run BODY visiting a temp file inside a temp project root bound as `root'.
-No chat exists, so parking lands on the project scope."
+No chat exists, so parking lands on the project scope.
+`root' is the truename: with `find-file-visit-truename' on, the file
+buffer lives under /private/var, not the /var symlink `make-temp-file'
+returns, and the park code keys the project by the buffer's directory."
   (declare (indent 0))
   `(let* ((syzygy-park-file (make-temp-file "syzygy-park-" nil ".org"))
           (syzygy-park--project-items (make-hash-table :test #'equal))
-          (root (file-name-as-directory (make-temp-file "syzygy-park-root-" t)))
+          (root (file-name-as-directory
+                 (file-truename (make-temp-file "syzygy-park-root-" t))))
           (file (expand-file-name "notes.txt" root))
           (buf (progn (with-temp-file file (insert "alpha\nbeta\ngamma\n"))
                       (find-file-noselect file))))
