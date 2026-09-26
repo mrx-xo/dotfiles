@@ -151,13 +151,57 @@ becomes the ref."
 
 ;;; --- Clear / Remove ---
 
+(defun agent-shell-refs--input-start ()
+  "Position right after the last prompt, where the live input begins, or nil."
+  (save-excursion
+    (goto-char (point-max))
+    (when (re-search-backward comint-prompt-regexp nil t)
+      (match-end 0))))
+
+(defun agent-shell-refs--strip-input-markers (&optional n)
+  "Delete `[ref N]' reply markers from the live input, keeping typed text.
+With N, delete only markers for ref N; otherwise delete them all.
+Only the text after the last prompt is touched; sent turns keep theirs.
+Marker lines go whole, inline markers take their leading space, and the
+blank lines `agent-shell-refs-insert-marker' laid out around them
+collapse, so the reply reads as if it was typed without refs."
+  (when-let* ((beg (agent-shell-refs--input-start)))
+    (let ((num (if n (number-to-string n) "[0-9]+")))
+      (save-excursion
+        (save-restriction
+          (narrow-to-region beg (point-max))
+          (goto-char (point-min))
+          (when (re-search-forward (format "\\[ref %s\\]" num) nil t)
+            (pcase-dolist (`(,re . ,rep)
+                           `((,(format "^[ \t]*\\[ref %s\\]:?[ \t]*\n?" num) . "")
+                             (,(format "[ \t]*\\[ref %s\\]:?" num) . "")
+                             ("\n\\{3,\\}" . "\n\n")
+                             ;; edges only when no marker layout survives
+                             ,@(unless n
+                                 '(("\\`[ \t\n]+" . "")
+                                   ("\n+\\'" . "")))))
+              (goto-char (point-min))
+              (while (re-search-forward re nil t)
+                (replace-match rep t t)))))))))
+
+(defun agent-shell-refs--renumber-input-markers (n)
+  "Shift live-input markers above ref N down by one, after N was removed."
+  (when-let* ((beg (agent-shell-refs--input-start)))
+    (save-excursion
+      (goto-char beg)
+      (while (re-search-forward "\\[ref \\([0-9]+\\)\\]" nil t)
+        (let ((m (string-to-number (match-string 1))))
+          (when (> m n)
+            (replace-match (number-to-string (1- m)) t t nil 1)))))))
+
 (defun agent-shell-refs-clear ()
-  "Clear all attached references."
+  "Clear all attached references and their `[ref N]' markers in the input."
   (interactive)
   (let ((buf (agent-shell-refs--find-shell-buffer)))
     (when buf
       (with-current-buffer buf
         (setq agent-shell-refs--list nil)
+        (agent-shell-refs--strip-input-markers)
         (agent-shell-refs--update-input-preview)
         (force-mode-line-update))
       (message "%s Refs cleared" (agent-shell-refs--pill-icon)))))
@@ -170,7 +214,8 @@ becomes the ref."
     (with-current-buffer buf
       (unless agent-shell-refs--list
         (user-error "No refs attached"))
-      (let* ((candidates (cl-loop for ref in agent-shell-refs--list
+      ;; Number in queue order, like the chips and `[ref N]' markers
+      (let* ((candidates (cl-loop for ref in (reverse agent-shell-refs--list)
                                   for i from 1
                                   collect (cons (format "%d: %s %s" i
                                                         (agent-shell-refs--type-icon
@@ -179,8 +224,11 @@ becomes the ref."
                                                          (agent-shell-refs--ref-text ref) 60))
                                                 ref)))
              (choice (completing-read "Remove ref: " candidates nil t))
-             (ref (cdr (assoc choice candidates))))
-        (setq agent-shell-refs--list (delete ref agent-shell-refs--list))
+             (ref (cdr (assoc choice candidates)))
+             (n (1+ (cl-position ref candidates :key #'cdr :test #'eq))))
+        (setq agent-shell-refs--list (delq ref agent-shell-refs--list))
+        (agent-shell-refs--strip-input-markers n)
+        (agent-shell-refs--renumber-input-markers n)
         (agent-shell-refs--update-input-preview)
         (force-mode-line-update)
         (message "%s Removed (%d remaining)" (agent-shell-refs--pill-icon)
