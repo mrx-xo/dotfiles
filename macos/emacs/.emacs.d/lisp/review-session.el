@@ -66,7 +66,8 @@ a change.
 (cl-defstruct review-session
   source files current hunk viewed layout frame panel
   old-buffer new-buffer old-window new-window request directory
-  own-frame panel-frame (hscroll 0))
+  own-frame panel-frame (hscroll 0)
+  walkthrough notice return-state)
 
 (defvar review-session--current nil "The live session, or nil.")
 (defvar review-session-update-hook nil "Run with the session after every change.")
@@ -77,6 +78,22 @@ The panel subscribes here to put itself back in its side window.")
   "Run with the session after its pane text is redrawn to fit.
 Redrawing drops overlays anchored in the text; the panel puts its hunk
 bands back here.")
+
+(defvar review-session-quit-functions nil
+  "Called with the session as it quits, before its buffers and frames go.")
+(defvar review-session--pausing nil
+  "Non-nil while a pause tears the session down, so quit hooks keep its record.")
+
+(defcustom review-session-visit-style 'pause
+  "Where \\[review-session-visit] opens the real file.
+`pause': pause the review and open the file in the main frame.
+`in-frame': replace the panes in the review frame; \\[review-session-return] brings them back.
+`main-frame': open the file in another frame and leave the review up."
+  :type '(choice (const pause) (const in-frame) (const main-frame)) :group 'review)
+
+(defvar review-session-visit-functions nil
+  "Called with SESSION FILE SIDE LINE to open a source location.
+The first function to return non-nil wins; otherwise a `file:' origin link is opened.")
 
 (defvar-local review-pane--session nil)
 (defvar-local review-pane--side nil)
@@ -464,7 +481,9 @@ Hunk keys match Magit and diff-mode; `v' stays Evil visual selection.")
   "Pane keys for long lines.  Evil's sideways-scroll keys move both panes.")
 
 (defvar review-pane-mode-map
-  (review-session-bind-keys (make-sparse-keymap) review-session-long-line-keys)
+  (review-session-bind-keys (make-sparse-keymap)
+                            (append review-session-long-line-keys
+                                    '(("RET" . review-session-visit))))
   "Keys in a review pane.")
 
 (define-derived-mode review-pane-mode special-mode "Review"
@@ -932,6 +951,7 @@ Wrapped panes have nothing to scroll, so there it does nothing."
   "Close review buffers and owned frames, restoring an in-place layout."
   (interactive)
   (when-let ((s review-session--current))
+    (run-hook-with-args 'review-session-quit-functions s)
     (setq review-session--current nil)
     (review-session--kill-panes s)
     (when (buffer-live-p (review-session-panel s)) (kill-buffer (review-session-panel s)))
@@ -956,6 +976,96 @@ Wrapped panes have nothing to scroll, so there it does nothing."
       (review-session-quit))))
 
 (add-hook 'delete-frame-functions #'review-session--frame-deleted)
+
+;;;; Pane state, visiting and returning
+
+(defun review-session-pane-state (session)
+  "The row at point and at the top of each of SESSION's pane windows."
+  (cl-flet ((one (buffer)
+              (when (and (buffer-live-p buffer) (buffer-local-value 'review-pane--diff buffer))
+                (with-current-buffer buffer
+                  (let ((w (get-buffer-window buffer t)))
+                    (list :row (review-session--row-at (if w (window-point w) (point)))
+                          :top (and w (review-session--row-at (window-start w)))))))))
+    (list :old (one (review-session-old-buffer session))
+          :new (one (review-session-new-buffer session)))))
+
+(defun review-session-restore-pane-state (session state)
+  "Put SESSION's pane windows back at the rows STATE recorded."
+  (dolist (side '(old new))
+    (let ((one (plist-get state (if (eq side 'old) :old :new)))
+          (buffer (if (eq side 'old) (review-session-old-buffer session)
+                    (review-session-new-buffer session))))
+      (when-let* ((row (plist-get one :row))
+                  (_ (buffer-live-p buffer))
+                  (w (get-buffer-window buffer t)))
+        (with-current-buffer buffer (goto-char (review-session--row-position buffer row)))
+        (set-window-point w (review-session--row-position buffer row))
+        (when-let ((top (plist-get one :top)))
+          (set-window-start w (review-session--row-position buffer top)))))))
+
+(defun review-session--open-location (session file side line)
+  "Open FILE's SIDE at LINE in the selected window."
+  (or (run-hook-with-args-until-success 'review-session-visit-functions session file side line)
+      (let* ((origin-file (plist-put (plist-put (copy-sequence file) :side side)
+                                     :origin-path (if (eq side 'old)
+                                                      (or (plist-get file :old-path) (plist-get file :path))
+                                                    (plist-get file :path))))
+             (link (plist-get (funcall (review-source-origin (review-session-source session))
+                                       origin-file line line)
+                              :link)))
+        (unless (and (stringp link) (string-match "\\`file:\\(.*\\)::[0-9]+\\'" link))
+          (user-error "This review cannot open %s" (plist-get file :path)))
+        (let ((path (expand-file-name (match-string 1 link))))
+          (switch-to-buffer (find-file-noselect path))
+          (goto-char (point-min))
+          (forward-line (1- line))
+          (when (eq side 'old)
+            (message "Line %d is from the old side; the file on disk may differ" line))
+          t))))
+
+(defun review-session--other-frame (session)
+  "A visible frame that is not one of SESSION's review frames."
+  (seq-find (lambda (f) (not (memq f (list (review-session-frame session)
+                                           (review-session-panel-frame session)))))
+            (visible-frame-list)))
+
+(autoload 'review-session-pause "review-store" nil t)
+
+(defun review-session-visit ()
+  "Open the real file at the line under point, as `review-session-visit-style' says."
+  (interactive)
+  (let* ((s (review-session--require))
+         (selection (review-session-pane-selection (point) (point)))
+         (file (review-session-file s review-pane--file-index))
+         (side review-pane--side)
+         (line (plist-get selection :start)))
+    (pcase review-session-visit-style
+      ('in-frame
+       (setf (review-session-return-state s) (review-session-pane-state s))
+       (select-window (review-session-new-window s))
+       (review-session--open-location s file side line)
+       (let ((ignore-window-parameters t)) (delete-other-windows)))
+      ('main-frame
+       (setf (review-session-return-state s) (review-session-pane-state s))
+       (let ((frame (or (review-session--other-frame s) (make-frame))))
+         (select-frame-set-input-focus frame)
+         (review-session--open-location s file side line)))
+      (_
+       (review-session-pause)
+       (review-session--open-location s file side line)))))
+
+(defun review-session-return ()
+  "Bring the live review's panes back after `review-session-visit'."
+  (interactive)
+  (let ((s (review-session--require)))
+    (when (frame-live-p (review-session-frame s))
+      (select-frame-set-input-focus (review-session-frame s)))
+    (review-session--display s)
+    (review-session--ensure-layout s)
+    (when-let ((state (review-session-return-state s)))
+      (review-session-restore-pane-state s state)
+      (setf (review-session-return-state s) nil))))
 
 (defun review-session-start (source)
   "Start reviewing SOURCE and return the session."
