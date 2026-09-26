@@ -295,7 +295,8 @@ FUNCTION is called with RECIPE and the old RECORD.")
          (refresh (alist-get (plist-get recipe :kind) review-store-refresh-functions)))
     (unless refresh (user-error "This review cannot be refreshed"))
     (let ((record (review-store-record s)))
-      (review-session-quit)
+      ;; Quit as a pause: the saved record must outlive a refresher that fails.
+      (let ((review-session--pausing t)) (review-session-quit))
       (funcall refresh recipe record))))
 
 ;;;; Commands
