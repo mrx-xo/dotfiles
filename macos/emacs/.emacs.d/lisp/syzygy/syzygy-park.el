@@ -287,10 +287,16 @@ buffer, or nil."
   "Face for the parked-questions indicator in the mode line."
   :group 'syzygy-park)
 
+(defvar syzygy-park-modeline-icon-height 0.9
+  "Height of the parking sign, relative to the mode-line text.
+Matches `agent-shell-refs-modeline-icon-height' so neighbouring
+indicators line up.")
+
 (defun syzygy-park--icon ()
   "Return the parking sign glyph, or a plain P when nerd-icons is absent."
   (if (fboundp 'nerd-icons-mdicon)
-      (nerd-icons-mdicon "nf-md-parking" :face 'syzygy-park-modeline)
+      (nerd-icons-mdicon "nf-md-parking" :face 'syzygy-park-modeline
+                         :height syzygy-park-modeline-icon-height)
     (propertize "P" 'face 'syzygy-park-modeline)))
 
 (defun syzygy-park--count-here ()
