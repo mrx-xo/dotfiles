@@ -132,7 +132,27 @@
 (advice-add 'select-safe-coding-system-interactively :around #'mr-x/coding-prompt-trap)
 
 (setq gc-cons-threshold (* 100 1024 1024)) ;; 100MB
-(run-with-idle-timer 5 t #'garbage-collect)
+
+;; "Idle" only means no keypress, so a plain idle GC fires while you
+;; watch an agent stream and freezes the reply for ~130ms.  Skip the
+;; pass while any agent-shell is busy; the next idle period retries.
+(defun mr-x/agent-shell-busy-p ()
+  "Non-nil when any agent-shell buffer has a request in flight."
+  (and (fboundp 'agent-shell--active-requests-p)
+       (seq-some (lambda (buf)
+                   (with-current-buffer buf
+                     (and (derived-mode-p 'agent-shell-mode)
+                          (bound-and-true-p agent-shell--state)
+                          (ignore-errors
+                            (agent-shell--active-requests-p agent-shell--state)))))
+                 (buffer-list))))
+
+(defun mr-x/idle-garbage-collect ()
+  "Collect garbage when idle, unless an agent is streaming."
+  (unless (mr-x/agent-shell-busy-p)
+    (garbage-collect)))
+
+(run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
@@ -4848,6 +4868,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g P" '(magit-pull-branch :wk "pull branch")
         "g r" '(mr-x/review :wk "review (PR here, else a range)")
         "g R" '(mr-x/pr-list :wk "pull requests")
+        "g w" '(review-session-resume :wk "review: back / resume (C-u pick)")
         "g f" '(magit-fetch :wk "fetch"))
 
       ;; Bind after agent-shell loads
@@ -5020,6 +5041,14 @@ TASK-ID is the ID shown when Claude runs a background command."
         (agent-shell)
         ;; Balance windows
         (balance-windows))
+
+      ;; SANDBOX badge on every mode line, only in the sandbox daemon.
+      ;; Loaded from here, not appended to the sandbox's init.el, so a
+      ;; fresh copy of init.el into ~/.emacs-sandbox keeps it.
+      (when (equal (daemonp) "sandbox")
+        (with-eval-after-load 'doom-modeline
+          (require 'mr-x-sandbox-badge)
+          (mr-x/sandbox-badge-enable)))
 
       (defface mr-x/tldr-title
         '((t :inherit outline-1 :weight bold :height 1.2))
@@ -6705,12 +6734,21 @@ TRAMP can't match under a PTY — both need pipe mode."
   ;; teleports the vertico session there.
   (setq minibuffer-follows-selected-frame nil)
 
+  ;; Keep the echo area from getting stuck tall.  The default (grow-only)
+  ;; never shrinks until the echo area is fully cleared, so one multi-line
+  ;; eldoc doc left the strip at a quarter of the frame.  Eldoc stays on one
+  ;; line; the full doc is in M-x eldoc-doc-buffer.
+  (setq resize-mini-windows t)
+  (setq eldoc-echo-area-use-multiline-p nil)
+
   (use-package vertico
     :ensure t
     :init
     (vertico-mode 1)
     :config
     (setq vertico-count 15)
+    ;; Shrink with the candidate list instead of holding the tallest height.
+    (setq vertico-resize t)
     (setq vertico-cycle t)
     ;; Evil-friendly navigation in minibuffer
     (define-key vertico-map (kbd "C-j") #'vertico-next)
@@ -7046,17 +7084,16 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :config
 
     ;; ── Window Management Hydra ──────────────────────────────────
-    ;; SPC w enters evil-window-map; press W from there to enter this hydra.
-    ;; Stay in the hydra to resize/split/navigate repeatedly with single keys.
+    ;; Entered with SPC W (leader, capital W). Stay in the hydra to
+    ;; resize/split/navigate repeatedly with single keys.
     (defhydra hydra-window (:hint nil :foreign-keys run)
       "
-  ╭─── Window ─────────────────────────────────────────╮
-   Navigate      Resize           Split/Layout
-   _h_: ←  _l_: →    _H_: shrink-h  _L_: grow-h  _s_: horizontal  _=_: balance
-   _j_: ↓  _k_: ↑    _J_: shrink-v  _K_: grow-v  _v_: vertical    _o_: only
-                                               _d_: delete     _u_: undo layout
-                                               _r_: rotate     _R_: rotate ←
-  ╰────────────────────────────── _q_: quit ────────────╯"
+  ╭─ Window ─────────────────────────────────────────────────────────────────╮
+   Navigate    Resize                  Split/Layout
+   _h_: ←  _l_: →  _H_: shrink-h  _L_: grow-h  _s_: horizontal  _d_: delete  _=_: balance
+   _j_: ↓  _k_: ↑  _J_: shrink-v  _K_: grow-v  _v_: vertical    _r_: rotate  _R_: rotate ←
+                                                      _u_: undo    _o_: only
+  ╰──────────────────────────────── _q_: quit ─────────────────────────────────╯"
       ("h" evil-window-left)
       ("j" evil-window-down)
       ("k" evil-window-up)
@@ -7579,7 +7616,7 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   (use-package pr-workflow
     :ensure nil
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
-               mr-x/pr-review-session mr-x/review-git-range))
+               mr-x/pr-review-session mr-x/review-git-range review-session-resume))
 
 
 
@@ -8856,8 +8893,7 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :init
   (setq lsp-keymap-prefix "C-c l")
   :config
-  ;; Performance tuning
-  (setq gc-cons-threshold 100000000)
+  ;; Performance tuning (gc-cons-threshold is set globally above)
   (setq read-process-output-max (* 1024 1024)) ;; 1mb
   (setq lsp-idle-delay 0.500)
   
