@@ -59,15 +59,16 @@ Order matters: the modeline count groups render in this order.")
   "Where REF came from: a file path or buffer name, or nil for legacy refs."
   (and (listp ref) (plist-get ref :source)))
 
-(defun agent-shell-refs--type-icon (type)
+(defun agent-shell-refs--type-icon (type &rest icon-args)
   "Icon string for TYPE from `agent-shell-refs-types'.
+ICON-ARGS (e.g. :face, :height) go to the nerd-icons function.
 Falls back to the type's plain-text glyph without nerd-icons, and to
 the `quote' spec for unknown types."
   (let ((spec (or (alist-get type agent-shell-refs-types)
                   (alist-get 'quote agent-shell-refs-types))))
     (if (and (require 'nerd-icons nil t)
              (fboundp (plist-get spec :nerd-fn)))
-        (funcall (plist-get spec :nerd-fn) (plist-get spec :nerd-name))
+        (apply (plist-get spec :nerd-fn) (plist-get spec :nerd-name) icon-args)
       (plist-get spec :fallback))))
 
 (defun agent-shell-refs--detect-type ()
@@ -81,7 +82,7 @@ the `quote' spec for unknown types."
 ;;; --- Faces ---
 
 (defface agent-shell-refs-modeline-face
-  '((t :inherit font-lock-constant-face :weight bold))
+  '((t :inherit font-lock-constant-face))
   "Face for the refs modeline indicator."
   :group 'agent-shell)
 
@@ -218,6 +219,12 @@ becomes the ref."
 
 ;;; --- Modeline ---
 
+(defvar agent-shell-refs-modeline-icon-height 0.9
+  "Height of the modeline type icons, relative to the mode-line text.
+Matches `syzygy-park-modeline-icon-height' so neighbouring indicators
+line up.  The icons keep their nerd-icons font; replacing the whole
+segment's face would drop it and fall back to the tiny patched glyph.")
+
 (defun agent-shell-refs--modeline-indicator ()
   "Return modeline string with per-type ref counts, or empty if none.
 One icon+count group per type present, in `agent-shell-refs-types'
@@ -230,10 +237,13 @@ order — e.g. \" ❝2 📄1\"."
                                     for n = (cl-count type agent-shell-refs--list
                                                       :key #'agent-shell-refs--ref-type)
                                     when (> n 0)
-                                    collect (format "%s %d"
-                                                    (agent-shell-refs--type-icon type) n))
+                                    collect (concat
+                                             (agent-shell-refs--type-icon
+                                              type :face 'agent-shell-refs-modeline-face
+                                              :height agent-shell-refs-modeline-icon-height)
+                                             (propertize (format " %d" n)
+                                                         'face 'agent-shell-refs-modeline-face)))
                            " "))
-                  'face 'agent-shell-refs-modeline-face
                   'help-echo (format "%d reference(s) attached — click to preview"
                                      (length agent-shell-refs--list))
                   'mouse-face 'mode-line-highlight
