@@ -181,6 +181,23 @@
         (should (eq (cadr (car (sort (copy-sequence timers) (lambda (a b) (> (car a) (car b))))))
                     #'delete-overlay))))))
 
+(ert-deftest review-session-selection-carries-both-sides-as-a-diff ()
+  ;; Quick Ask on a selection used to see only this pane's side, so
+  ;; "what changed?" could not be answered.
+  (review-session-test--with s
+    (setf (review-source-old-label (review-session-source s)) "main @ abc1234"
+          (review-source-new-label (review-session-source s)) "feat @ def5678")
+    (review-session-next-file)
+    (with-current-buffer (review-session-new-buffer s)
+      (let ((selection (review-session-pane-selection (point-min) (point-max))))
+        (should (equal (plist-get selection :text) "x\nY\nz\nw"))
+        (should (equal (plist-get selection :diff)
+                       (concat "--- main @ abc1234\n+++ feat @ def5678\n"
+                               "  x\n- y\n+ Y\n  z\n+ w")))))
+    ;; No change in the selection: no diff to send.
+    (with-current-buffer (review-session-new-buffer s)
+      (should-not (plist-get (review-session-pane-selection (point-min) (1+ (point-min))) :diff)))))
+
 (ert-deftest review-session-highlights-only-the-changed-words ()
   (let* ((old "keep this OLDWORD and this\n") (new "keep this NEWWORD and this\n")
          (rows (review-diff-rows (review-diff-ops old new))))

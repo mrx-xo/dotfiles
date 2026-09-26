@@ -237,6 +237,40 @@
             (should-not (get-buffer-window buf)))
         (kill-buffer buf) (kill-buffer source)))))
 
+(ert-deftest quick-ask-popup-shows-a-cursor ()
+  ;; posframe hides the cursor unless told otherwise; typing blind is jarring.
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf))
+            (should (eq (plist-get (cdr (car calls)) :cursor) 'bar))
+            (with-current-buffer buf (setq mr-x/quick-ask--phase 'response))
+            (setq calls nil)
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf))
+            (should (eq (plist-get (cdr (car calls)) :cursor) 'box)))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-sends-both-sides-of-a-review-selection ()
+  (review-session-test--with s
+    (review-session-next-file)
+    (select-window (review-session-new-window s))
+    (let ((transient-mark-mode t) calls hidden)
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (goto-char (point-min)) (push-mark (point) t t) (goto-char (point-max))
+            (mr-x/quick-ask)
+            (with-current-buffer "*quick-ask*"
+              (let ((item (car mr-x/quick-ask--context-items)))
+                (should (string-match-p "^- y$" (plist-get item :content)))
+                (should (string-match-p "^\\+ Y$" (plist-get item :content))))
+              ;; Parking keeps the plain source text.
+              (should (equal mr-x/quick-ask--source-context "x\nY\nz\nw"))))
+        (when (get-buffer "*quick-ask*") (kill-buffer "*quick-ask*"))))))
+
 (ert-deftest quick-ask-docks-at-the-bottom-when-asked ()
   (save-window-excursion
     (let* ((source (get-buffer-create " *qa-code*")) calls hidden
