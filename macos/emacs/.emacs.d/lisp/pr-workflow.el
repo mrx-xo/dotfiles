@@ -20,6 +20,7 @@
 (require 'review-panel)
 (require 'review-store)
 (require 'review-walkthrough)
+(require 'review-walkthrough-agent)
 
 (with-eval-after-load 'review-store
   (add-to-list 'review-store-refresh-functions
