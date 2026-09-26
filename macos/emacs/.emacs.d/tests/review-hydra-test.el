@@ -38,6 +38,13 @@
         (should (string-prefix-p (format "hydra-review/%s" (cdr k))
                                  (symbol-name head)))))))
 
+(ert-deftest review-hydra-and-panes-switch-long-lines ()
+  (should (string-prefix-p "hydra-review/review-session-toggle-long-lines"
+                           (symbol-name (lookup-key hydra-review/keymap (kbd "w")))))
+  (dolist (k review-session-long-line-keys)
+    (should (eq (lookup-key (evil-get-auxiliary-keymap review-pane-mode-map 'normal) (kbd (car k)))
+                (cdr k)))))
+
 (ert-deftest review-session-keys-bind-panes-and-panel ()
   (dolist (map (list review-pane-mode-map review-panel-mode-map))
     (dolist (k review-session-keys)

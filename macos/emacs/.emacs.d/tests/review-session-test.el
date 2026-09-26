@@ -123,8 +123,8 @@
     (should (equal (review-session-viewed s) '(0)))))
 
 (ert-deftest review-session-revisits-reuse-rendered-panes ()
-  (let ((renders 0) (render (symbol-function 'review-session-pane-text)))
-    (cl-letf (((symbol-function 'review-session-pane-text)
+  (let ((renders 0) (render (symbol-function 'review-session-pane-render)))
+    (cl-letf (((symbol-function 'review-session-pane-render)
                (lambda (&rest args) (cl-incf renders) (apply render args))))
       (review-session-test--with s
         (should (= renders 2))
@@ -209,29 +209,6 @@
         (should-not (memq face (ensure-list (get-text-property (string-match "keep" text) 'face text))))
         (should-not (memq face (ensure-list (get-text-property (string-match "and" text) 'face text))))))))
 
-(ert-deftest review-session-scrolls-sideways-to-a-change-far-right ()
-  (let* ((far (concat (make-string 300 ?x) " old tail\n"))
-         (far-new (concat (make-string 300 ?x) " new tail\n")))
-    (save-window-excursion
-      (let ((s (review-session-start
-                (review-session-test--source
-                 `(("far.txt" modified ,far ,far-new) ("near.txt" modified "a b\n" "a c\n"))))))
-        (unwind-protect
-            (progn
-              (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
-                (let ((col (+ (review-session--text-column (window-buffer w)) 301)))
-                  ;; Point sits on the change, or `auto-hscroll-mode' would
-                  ;; scroll back to column 0 on the next redisplay.
-                  (should (= col (with-current-buffer (window-buffer w)
-                                   (save-excursion (goto-char (window-point w)) (current-column)))))
-                  (should (> (window-hscroll w) 0))
-                  (should (<= (window-hscroll w) col))
-                  (should (< col (+ (window-hscroll w) (window-body-width w))))))
-              (review-session-next-file)
-              (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
-                (should (= (window-hscroll w) 0))))
-          (review-session-quit))))))
-
 (ert-deftest review-session-headers-name-added-and-deleted-sides ()
   ;; The session's own plain header, without the panel's design hooks.
   (save-window-excursion
@@ -270,14 +247,14 @@
 
 (ert-deftest review-session-prerenders-neighbours ()
   (review-session-test--with s
-    (should-not (plist-get (review-session-file s 1) :new-pane))
+    (should-not (plist-get (review-session-file s 1) :new-render))
     (review-session--prerender s)
-    (should (plist-get (review-session-file s 1) :old-pane))
-    (should (plist-get (review-session-file s 1) :new-pane))
+    (should (plist-get (review-session-file s 1) :old-render))
+    (should (plist-get (review-session-file s 1) :new-render))
     ;; Binary files have nothing to render.
     (review-session-next-file)
     (review-session--prerender s)
-    (should-not (plist-get (review-session-file s 2) :new-pane))))
+    (should-not (plist-get (review-session-file s 2) :new-render))))
 
 (ert-deftest review-session-hunk-keys-stay-inside-the-file ()
   ;; Hunk keys only walk hunks; only file keys change files.
@@ -402,6 +379,198 @@
                          (window-live-p (review-session-new-window s))))
           (review-session-quit)))
       (should (= before (length (window-list)))))))
+
+;;;; Long lines: wrap and pad, or scroll both panes
+
+(defun review-session-test--layout (old new mode width &optional hscroll)
+  "Lay out texts OLD and NEW in MODE at body WIDTH.
+Return (OLD-LINES NEW-LINES STARTS)."
+  (let* ((rows (review-diff-rows (review-diff-ops old new)))
+         (o (review-session-pane-render rows 'old old))
+         (n (review-session-pane-render rows 'new new)))
+    (pcase-let ((`(,a ,b ,starts) (review-session-pane-layout o n mode width width (or hscroll 0))))
+      (list (split-string a "\n") (split-string b "\n") starts))))
+
+(defun review-session-test--faces (string pos)
+  (ensure-list (get-text-property pos 'face string)))
+
+(ert-deftest review-session-wrap-pads-the-shorter-side ()
+  ;; A wrapped line takes more rows on one side; the other side gets blank
+  ;; rows, so the next line starts level in both panes.
+  (let ((long (string-join (make-list 12 "word") " ")))
+    (pcase-let ((`(,old ,new ,starts)
+                 (review-session-test--layout "a\nshort\nz\n" (concat "a\n" long "\nz\n") 'wrap 20)))
+      (should (= (length old) (length new)))
+      (should (> (length new) 4))
+      (should (string-match-p " z\\'" (nth (aref starts 2) old)))
+      (should (string-match-p " z\\'" (nth (aref starts 2) new)))
+      (dolist (line new) (should (<= (string-width line) (+ 6 20))))
+      ;; A continuation row shows ↪ where the line number goes.
+      (should (string-match-p "\\`  ↪   word" (nth 2 new)))
+      (should (memq 'review-add (review-session-test--faces (nth 2 new) 8)))
+      ;; The shorter side's extra rows are blank placeholders.
+      (should (string-match-p "\\`[[:space:]]*\\'" (nth 3 old)))
+      (should (memq 'review-blank (review-session-test--faces (nth 3 old) 0)))
+      ;; Every line of a row knows the row.
+      (should (eq (get-text-property 0 'review-row (nth 3 old)) 1))
+      (should (eq (get-text-property 0 'review-row (nth 2 new)) 1)))))
+
+(ert-deftest review-session-wrap-indents-past-a-bullet ()
+  (pcase-let ((`(,_ ,new) (review-session-test--layout
+                           "x\n" "- alpha beta gamma delta epsilon\n" 'wrap 14)))
+    (should (string-match-p "\\`  1 \\+ - alpha beta\\'" (nth 0 new)))
+    (should (string-match-p "\\`  ↪     gamma delta\\'" (nth 1 new)))))
+
+(ert-deftest review-session-wrap-cuts-a-huge-line-but-shows-its-change ()
+  ;; Minified JSON must not fill the screen: past the row cap the line is
+  ;; cut.  A change further on than the first rows is what the cut rows
+  ;; show, after the line's first row; a count stands for what is skipped.
+  (let ((review-session-wrap-max-rows 3)
+        (xs (make-string 200 ?x)))
+    (pcase-let ((`(,old ,new) (review-session-test--layout
+                               (concat xs " old\n") (concat xs " new\n") 'wrap 20)))
+      (should (= (length new) 3))
+      (dolist (line new) (should (<= (string-width line) (+ 6 20))))
+      (should (string-match "\\`  1 \\+ \\(x+\\) … \\+\\([0-9]+\\)\\'" (nth 0 new)))
+      (let ((shown (length (match-string 1 (nth 0 new))))
+            (skipped (string-to-number (match-string 2 (nth 0 new)))))
+        ;; No change in the skipped part, so its count is muted.
+        (should (memq 'review-edge (review-session-test--faces (nth 0 new) (+ 7 shown))))
+        (should (string-match "\\`  ↪   \\(x+\\)\\'" (nth 1 new)))
+        (should (= 200 (+ shown skipped (length (match-string 1 (nth 1 new)))))))
+      (should (string-match-p "\\`  ↪   new\\'" (nth 2 new)))
+      (should (string-match-p "\\`  ↪   old\\'" (nth 2 old))))
+    ;; A change that starts early and runs past the cut: the count is in
+    ;; the side's colour.
+    (pcase-let ((`(,old ,new) (review-session-test--layout
+                               (concat "k " (make-string 200 ?a) "\n")
+                               (concat "k " (make-string 200 ?b) "\n") 'wrap 20)))
+      (should (= (length new) 3))
+      (should (string-match " … " (nth 2 new)))
+      (should (memq 'review-mark-add (review-session-test--faces (nth 2 new) (1+ (match-beginning 0)))))
+      (should (string-match " … " (nth 2 old)))
+      (should (memq 'review-mark-del (review-session-test--faces (nth 2 old) (1+ (match-beginning 0))))))
+    ;; A visible change leaves the count muted.
+    (pcase-let ((`(,_ ,new) (review-session-test--layout
+                             (concat "a" xs "\n") (concat "b" xs "\n") 'wrap 20)))
+      (should (string-match " … " (nth 2 new)))
+      (should (memq 'review-edge (review-session-test--faces (nth 2 new) (1+ (match-beginning 0))))))))
+
+(ert-deftest review-session-scroll-cuts-at-the-edges-and-marks-hidden-changes ()
+  (let ((old (concat (make-string 30 ?a) " old " (make-string 30 ?b) "\nshort\n"))
+        (new (concat (make-string 30 ?a) " new " (make-string 30 ?b) "\nshort\n")))
+    ;; From column 0 the change is past the right edge.
+    (pcase-let ((`(,_ ,new-lines ,starts) (review-session-test--layout old new 'scroll 20 0)))
+      (should (equal starts [0 1]))
+      (let ((line (nth 0 new-lines)))
+        (should (string-match-p "\\`  1 \\+ a\\{20\\}›\\'" line))
+        (should (memq 'review-mark-add (review-session-test--faces line (1- (length line))))))
+      (should (string-match-p "\\`  2   short\\'" (nth 1 new-lines))))
+    ;; Scrolled 40 columns the change is behind the left edge instead.
+    (pcase-let ((`(,old-lines ,new-lines) (review-session-test--layout old new 'scroll 20 40)))
+      (let ((line (nth 0 new-lines)))
+        (should (string-match-p "\\`  1 \\+‹b\\{20\\}›\\'" line))
+        (should (memq 'review-mark-add (review-session-test--faces line 5)))
+        (should (memq 'review-edge (review-session-test--faces line (1- (length line))))))
+      (should (memq 'review-mark-del (review-session-test--faces (nth 0 old-lines) 5)))
+      ;; A short line scrolled past its end leaves only the muted mark.
+      (should (string-match-p "\\`  2  ‹\\'" (nth 1 new-lines)))
+      (should (memq 'review-edge (review-session-test--faces (nth 1 new-lines) 5))))))
+
+(defmacro review-session-test--long (var mode old new &rest body)
+  "Run BODY with VAR a session over one file OLD -> NEW, long lines in MODE."
+  (declare (indent 4))
+  `(save-window-excursion
+     (let* ((review-session-long-lines ,mode)
+            (,var (review-session-start
+                   (review-session-test--source
+                    (list (list "long.txt" 'modified ,old ,new) '("next.txt" modified "a\n" "b\n"))))))
+       (unwind-protect (progn ,@body)
+         (review-session-quit)))))
+
+(ert-deftest review-session-scrolls-sideways-to-a-change-far-right ()
+  ;; Scroll mode opens both panes cut at the change.  The panes redraw
+  ;; from that column instead of scrolling the window, so the line numbers
+  ;; stay put.
+  (let* ((far (concat (make-string 300 ?x) " old tail\n"))
+         (far-new (concat (make-string 300 ?x) " new tail\n")))
+    (review-session-test--long s 'scroll far far-new
+      (should (> (review-session-hscroll s) 0))
+      (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
+        (should (= (window-hscroll w) 0))
+        (with-current-buffer (window-buffer w)
+          (save-excursion
+            (goto-char (window-point w))
+            (should (looking-at-p "\\(old\\|new\\) tail"))
+            (should (< (current-column) (window-body-width w)))
+            (should (looking-back "\\`  1 [-+]‹x* " (line-beginning-position))))))
+      (review-session-next-file)
+      (should (= (review-session-hscroll s) 0)))))
+
+(ert-deftest review-session-zl-scrolls-both-panes-together ()
+  (let ((as (make-string 300 ?a)))
+    (review-session-test--long s 'scroll (concat "x\n" as "\n") (concat "y\n" as "\n")
+      (should (= (review-session-hscroll s) 0))
+      (review-session-scroll-right)
+      (should (= (review-session-hscroll s) review-session-scroll-step))
+      (dolist (b (list (review-session-old-buffer s) (review-session-new-buffer s)))
+        (with-current-buffer b
+          (goto-char (point-min))
+          (forward-line 1)
+          (should (looking-at-p "  2  ‹a"))))
+      (dolist (w (list (review-session-old-window s) (review-session-new-window s)))
+        (should (= (window-hscroll w) 0)))
+      (review-session-scroll-left 5)
+      (should (= (review-session-hscroll s) 0))
+      (review-session-scroll-right-half)
+      (should (> (review-session-hscroll s) review-session-scroll-step))
+      ;; Never past the point where the longest line ends at the edge.
+      (review-session-scroll-right 1000)
+      (with-current-buffer (review-session-new-buffer s)
+        (goto-char (point-min))
+        (forward-line 1)
+        (should (looking-at-p ".*a\\'"))
+        (should-not (string-search "›" (buffer-substring (point) (line-end-position))))))))
+
+(ert-deftest review-session-wrap-mode-refuses-sideways-scrolling ()
+  (review-session-test--long s 'wrap "x\n" "y\n"
+    (should-error (review-session-scroll-right) :type 'user-error)
+    (should (= (review-session-hscroll s) 0))))
+
+(ert-deftest review-session-zw-switches-between-wrap-and-scroll ()
+  (let ((long (string-join (make-list 60 "word") " ")))
+    (review-session-test--long s 'wrap (concat "x\n" long "\n") (concat "y\n" long "\n")
+      (let ((lines (lambda () (with-current-buffer (review-session-new-buffer s)
+                                (count-lines (point-min) (point-max))))))
+        (should (> (funcall lines) 2))
+        (review-session-toggle-long-lines)
+        (should (eq review-session-long-lines 'scroll))
+        (should (= (funcall lines) 2))
+        (review-session-toggle-long-lines)
+        (should (eq review-session-long-lines 'wrap))
+        (should (> (funcall lines) 2))))))
+
+(ert-deftest review-session-wrapped-rows-select-and-scroll-as-rows ()
+  (let* ((long (string-join (make-list 60 "word") " "))
+         (old (concat "x\n" long "\nz\n")) (new (concat "y\n" long "\nz\n")))
+    (review-session-test--long s 'wrap old new
+      (with-current-buffer (review-session-new-buffer s)
+        ;; Continuation rows are one source line to Quick Ask.
+        (should (equal (plist-get (review-session-pane-selection (point-min) (point-max)) :text)
+                       (concat "y\n" long "\nz")))
+        (should (= (review-session--row-position (current-buffer) 2)
+                   (save-excursion (goto-char (point-min))
+                                   (re-search-forward "^  3 ")
+                                   (line-beginning-position)))))
+      ;; Both panes pad to the same lines, so scrolling syncs line for line.
+      (let* ((ow (review-session-old-window s)) (nw (review-session-new-window s))
+             (start (with-current-buffer (window-buffer ow)
+                      (save-excursion (goto-char (point-min)) (forward-line 3) (point)))))
+        (set-window-start ow start)
+        (review-session--sync-scroll ow start)
+        (should (= (with-current-buffer (window-buffer nw)
+                     (1- (line-number-at-pos (window-start nw))))
+                   3))))))
 
 (ert-deftest review-session-pane-keeps-source-directory ()
   (save-window-excursion
