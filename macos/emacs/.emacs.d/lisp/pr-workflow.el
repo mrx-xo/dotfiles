@@ -20,6 +20,12 @@
 (require 'review-panel)
 (require 'review-store)
 
+(with-eval-after-load 'review-store
+  (add-to-list 'review-store-refresh-functions
+               (cons 'forgejo (lambda (recipe _record)
+                                (mr-x/pr--review-forgejo (plist-get recipe :host) (plist-get recipe :owner)
+                                                         (plist-get recipe :repo) (plist-get recipe :number))))))
+
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
 

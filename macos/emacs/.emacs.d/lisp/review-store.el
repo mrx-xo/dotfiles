@@ -202,7 +202,95 @@
                          (plist-get record :hunk))
     (review-session-restore-pane-state session (plist-get record :panes))
     (run-hook-with-args 'review-store-restored-functions session record)
+    (review-store--check-moved session record)
     session))
+
+;;;; Moved on since the pause
+
+(defun review-store--worktree-changed-p (record)
+  "Non-nil when a saved working-tree text differs from the file on disk."
+  (let ((dir (plist-get (plist-get record :recipe) :directory)))
+    (seq-some (lambda (file)
+                (let ((text (plist-get file :new-text))
+                      (name (expand-file-name (concat "./" (plist-get file :path)) dir)))
+                  (and text
+                       (not (equal text (if (file-regular-p name)
+                                            (with-temp-buffer
+                                              (let ((coding-system-for-read 'utf-8-unix))
+                                                (insert-file-contents name))
+                                              (buffer-string))
+                                          ""))))))
+              (plist-get record :files))))
+
+(defun review-store-moved-p (record callback)
+  "Call CALLBACK with a notice when RECORD's live source has moved on, else nil."
+  (let ((recipe (plist-get record :recipe)))
+    (pcase (plist-get recipe :kind)
+      ('git-range
+       (funcall callback
+                (condition-case err
+                    (let* ((saved (plist-get recipe :revs))
+                           (now (review-source--git-revs (plist-get recipe :directory)
+                                                         (plist-get recipe :range))))
+                      (cond ((and saved (not (equal now saved)))
+                             (format "%s moved since the pause" (or (plist-get recipe :range) "HEAD")))
+                            ((and saved (null (cdr saved)) (review-store--worktree-changed-p record))
+                             "working tree changed since the pause")))
+                  (error (format "source unavailable (%s); showing the saved snapshot"
+                                 (error-message-string err))))))
+      ('forgejo
+       (require 'forgejo-api)
+       (let ((saved (cadr (plist-get recipe :revs))))
+         (if (not saved) (funcall callback nil)
+           (forgejo-api-get
+            (plist-get recipe :host)
+            (format "repos/%s/%s/pulls/%d" (plist-get recipe :owner) (plist-get recipe :repo)
+                    (plist-get recipe :number))
+            nil
+            (lambda (data _headers)
+              (let ((head (alist-get 'sha (alist-get 'head data))))
+                (funcall callback (and head (not (equal head saved))
+                                       (format "PR #%d has new commits since the pause"
+                                               (plist-get recipe :number))))))
+            :error-callback (lambda (_error) (funcall callback nil))))))
+      (_ (funcall callback nil)))))
+
+(defun review-store--check-moved (session record)
+  (review-store-moved-p
+   record
+   (lambda (notice)
+     (when (and notice (eq session review-session--current))
+       (setf (review-session-notice session) notice)
+       (review-session--notify session)))))
+
+;;;; Refresh
+
+(defvar review-store-refresh-functions nil
+  "Alist of (KIND . FUNCTION) that open a fresh review for a recipe.
+FUNCTION is called with RECIPE and the old RECORD.")
+
+(defun review-store--refresh-git (recipe record)
+  (let ((session (review-session-start (review-source-git-range (plist-get recipe :directory)
+                                                                (plist-get recipe :range)))))
+    (setf (review-session-viewed session)
+          (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed))))
+    (review-panel-open session)
+    (review-session-show (or (review-store--index session (plist-get record :current-path)) 0)
+                         (plist-get record :hunk))
+    session))
+
+(add-to-list 'review-store-refresh-functions (cons 'git-range #'review-store--refresh-git))
+
+(defun review-session-refresh ()
+  "Reload this review from its live source, keeping viewed marks and place by path."
+  (interactive)
+  (let* ((s (review-session--require))
+         (recipe (review-source-recipe (review-session-source s)))
+         (refresh (alist-get (plist-get recipe :kind) review-store-refresh-functions)))
+    (unless refresh (user-error "This review cannot be refreshed"))
+    (let ((record (review-store-record s)))
+      (review-session-quit)
+      (funcall refresh recipe record))))
 
 ;;;; Commands
 

@@ -484,7 +484,8 @@ Hunk keys match Magit and diff-mode; `v' stays Evil visual selection.")
 (defvar review-pane-mode-map
   (review-session-bind-keys (make-sparse-keymap)
                             (append review-session-long-line-keys
-                                    '(("RET" . review-session-visit))))
+                                    '(("RET" . review-session-visit)
+                                      ("gr" . review-session-refresh))))
   "Keys in a review pane.")
 
 (define-derived-mode review-pane-mode special-mode "Review"
@@ -1033,6 +1034,7 @@ Wrapped panes have nothing to scroll, so there it does nothing."
 
 (autoload 'review-session-pause "review-store" nil t)
 (autoload 'review-session-resume "review-store" nil t)
+(autoload 'review-session-refresh "review-store" nil t)
 
 (defun review-session-visit ()
   "Open the real file at the line under point, as `review-session-visit-style' says."

@@ -136,4 +136,60 @@
                     (line-number-at-pos (window-point (selected-window))))
                   3))))))
 
+(defun review-store-test--repo ()
+  (let ((dir (file-name-as-directory (make-temp-file "review-moved" t))))
+    (dolist (args '(("init" "-q" "-b" "main") ("config" "user.email" "t@example.com") ("config" "user.name" "t")))
+      (let ((default-directory dir)) (apply #'call-process "git" nil nil nil args)))
+    (with-temp-file (expand-file-name "a.txt" dir) (insert "1\n2\n"))
+    (let ((default-directory dir))
+      (call-process "git" nil nil nil "add" ".")
+      (call-process "git" nil nil nil "commit" "-q" "-m" "base"))
+    (with-temp-file (expand-file-name "a.txt" dir) (insert "1\nTWO\n"))
+    dir))
+
+(ert-deftest review-store-moved-detects-worktree-edit ()
+  (review-store-test--env
+   (let* ((dir (review-store-test--repo))
+          (s (review-session-start (review-source-git-range dir)))
+          (record (review-store-save s))
+          notice)
+     (unwind-protect
+         (progn
+           (review-store-moved-p record (lambda (n) (setq notice n)))
+           (should-not notice)
+           (with-temp-file (expand-file-name "a.txt" dir) (insert "1\nTWO\nthree\n"))
+           (review-store-moved-p record (lambda (n) (setq notice n)))
+           (should (string-match-p "working tree changed" notice)))
+       (review-session-quit)
+       (delete-directory dir t)))))
+
+(ert-deftest review-store-resume-shows-banner-and-refresh-reloads ()
+  (review-store-test--env
+   (let* ((dir (review-store-test--repo)))
+     (unwind-protect
+         (progn
+           (review-panel-open (review-session-start (review-source-git-range dir)))
+           (review-session-toggle-viewed)
+           (review-session-pause)
+           (with-temp-file (expand-file-name "a.txt" dir) (insert "1\nTWO\nthree\n"))
+           (let ((r (review-session-resume)))
+             (should (string-match-p "changed" (review-session-notice r)))
+             (should (equal (plist-get (review-session-file r) :new-text) "1\nTWO\n"))
+             (review-session-refresh)
+             (let ((fresh review-session--current))
+               (should-not (eq fresh r))
+               (should-not (review-session-notice fresh))
+               (should (equal (review-session-viewed fresh) '(0))))))
+       (when review-session--current (review-session-quit))
+       (delete-directory dir t)))))
+
+(ert-deftest review-store-moved-forgejo-compares-head ()
+  (require 'forgejo-api)
+  (let ((record '(:recipe (:kind forgejo :host "h" :owner "o" :repo "r" :number 7 :revs ("a" "b"))))
+        notice)
+    (cl-letf (((symbol-function 'forgejo-api-get)
+               (lambda (_h _p _q cb &rest _) (funcall cb '((head . ((sha . "c")))) nil))))
+      (review-store-moved-p record (lambda (n) (setq notice n))))
+    (should (string-match-p "PR #7 has new commits" notice))))
+
 (provide 'review-store-test)
