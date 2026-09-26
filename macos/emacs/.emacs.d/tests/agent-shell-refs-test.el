@@ -72,6 +72,60 @@
           (should (= 1 (overlay-start agent-shell-refs--preview-overlay)))
           (should (= 1 (overlay-end agent-shell-refs--preview-overlay))))))))
 
+(defun agent-shell-refs-test--clear (prompt)
+  "Run `agent-shell-refs-clear' on a buffer holding PROMPT, return its text."
+  (with-temp-buffer
+    (let ((buf (current-buffer))
+          (comint-prompt-regexp "^> ")
+          (agent-shell-refs--list
+           '((:type quote :text "one") (:type quote :text "two"))))
+      (insert prompt)
+      (cl-letf (((symbol-function 'agent-shell-refs--find-shell-buffer)
+                 (lambda () buf)))
+        (agent-shell-refs-clear))
+      (should-not agent-shell-refs--list)
+      (buffer-string))))
+
+(ert-deftest agent-shell-refs-clear-drops-markers-keeps-text ()
+  "Clearing refs removes `[ref N]:' markers from the input, not the reply text."
+  (should (equal "> reply one\n\nreply two"
+                 (agent-shell-refs-test--clear
+                  "> \n[ref 1]:\n\nreply one\n[ref 2]:\n\nreply two")))
+  (should (equal "> intro\n\nreply"
+                 (agent-shell-refs-test--clear "> intro\n[ref 1]:\n\nreply")))
+  (should (equal "> see this"
+                 (agent-shell-refs-test--clear "> see [ref 1] this")))
+  (should (equal "> "
+                 (agent-shell-refs-test--clear "> \n[ref 1]:\n\n"))))
+
+(ert-deftest agent-shell-refs-clear-leaves-earlier-turns-alone ()
+  "Markers in already-sent turns above the live prompt survive a clear."
+  (should (equal "> old\n[ref 1]:\n\nsent\n> now"
+                 (agent-shell-refs-test--clear
+                  "> old\n[ref 1]:\n\nsent\n> now\n[ref 1]:\n\n"))))
+
+(ert-deftest agent-shell-refs-remove-drops-its-marker-and-renumbers ()
+  "Removing ref 2 of 3 deletes `[ref 2]' and turns `[ref 3]' into `[ref 2]'."
+  (with-temp-buffer
+    (let ((buf (current-buffer))
+          (comint-prompt-regexp "^> ")
+          ;; newest first, so queue order is a, b, c
+          (agent-shell-refs--list
+           (list '(:type quote :text "c") '(:type quote :text "b")
+                 '(:type quote :text "a"))))
+      (insert "> \n[ref 1]:\n\nra\n[ref 2]:\n\nrb\n[ref 3]:\n\nrc")
+      (cl-letf (((symbol-function 'agent-shell-refs--find-shell-buffer)
+                 (lambda () buf))
+                ((symbol-function 'completing-read)
+                 (lambda (_p cands &rest _)
+                   (car (seq-find (lambda (c) (string-prefix-p "2:" (car c)))
+                                  cands)))))
+        (agent-shell-refs-remove))
+      (should (equal '("c" "a")
+                     (mapcar #'agent-shell-refs--ref-text agent-shell-refs--list)))
+      (should (equal "> \n[ref 1]:\n\nra\n\nrb\n[ref 2]:\n\nrc"
+                     (buffer-string))))))
+
 ;;; --- Hue per ref ---
 
 (defun agent-shell-refs-test--fg (s)
