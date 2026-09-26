@@ -25,7 +25,8 @@ Independent of `review-session-pop-out'; terminals always use a side window."
 (defcustom review-panel-palette
   '((bg-hard . "#1d2021") (bg-0 . "#282828") (bg-1 . "#3c3836") (bg-2 . "#504945")
     (fg . "#ebdbb2") (dim . "#a89984") (mute . "#928374")
-    (orange . "#fe8019") (yellow . "#fabd2f") (green . "#b8bb26") (red . "#fb4934"))
+    (orange . "#fe8019") (yellow . "#fabd2f") (green . "#b8bb26") (red . "#fb4934")
+    (purple . "#d3869b"))
   "Gruvbox tokens of the panel's Figma design."
   :type '(alist :key-type symbol :value-type color) :group 'review)
 
@@ -37,6 +38,11 @@ unless toggled; any other file shows them only when toggled.")
 (defvar-local review-panel--render-width nil "Width used by the last render.")
 (defvar review-panel--refreshing nil)
 (defvar review-panel--scale 1.0 "Screen pixels per design pixel during a render.")
+
+(defvar review-panel-section-functions nil
+  "Functions of SESSION and WIDTH returning text shown above the file list, or nil.")
+(defvar review-panel-bar-functions nil
+  "Functions of SESSION returning a string for the top bar's right side, or nil.")
 
 ;;;; Design primitives
 
@@ -390,7 +396,10 @@ renders the strip."
              (expanded (lambda (i) (if (memq i toggled) (/= i current) (= i current)))))
         (concat (review-panel--header session width)
                 (review-panel--progress session width (funcall expanded current))
-                (review-panel--divider)
+                (mapconcat #'identity
+                           (delq nil (mapcar (lambda (f) (funcall f session width))
+                                             review-panel-section-functions))
+                           "")
                 (review-panel--spacer 4)
                 (mapconcat (lambda (i)
                              (concat (review-panel--file-row session i width)
@@ -422,6 +431,7 @@ renders the strip."
                   (concat a "/" (substring b (1- (length b))))))))
     `((,(funcall pair 'review-session-next-hunk 'review-session-prev-hunk) . "hunk")
       (,(funcall pair 'review-session-next-file 'review-session-prev-file) . "file")
+      (,(funcall pair 'review-walkthrough-next 'review-walkthrough-prev) . "step")
       ("TAB" . "fold") ("RET" . "open")
       (,(review-session-key 'review-session-toggle-viewed) . "viewed")
       (,(review-session-key 'syzygy-park) . "park"))))
@@ -685,7 +695,11 @@ runs ride along as the `review-track' property."
                            (concat (review-panel--gap 16)
                                    (review-panel--txt (concat notice "  gr refresh") 'yellow :height 0.92))
                          "")))
-         (right (concat (review-panel--txt (format "file %d of %d" (1+ (review-session-current session))
+         (right (concat (mapconcat (lambda (s) (concat s (review-panel--gap 12)))
+                                   (delq nil (mapcar (lambda (f) (funcall f session))
+                                                     review-panel-bar-functions))
+                                   "")
+                        (review-panel--txt (format "file %d of %d" (1+ (review-session-current session))
                                                    (length (review-session-files session)))
                                            'dim :height 0.92)
                         (if hunks
@@ -745,7 +759,10 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
                 '(("zh/zl" . "scroll both") ("zH/zL" . "half width"))
                 (funcall pick '("file" "viewed"))
                 '(("zw" . "wrap") ("SPC ," . "more")))
-      (append (funcall pick '("hunk" "file" "viewed" "park"))
+      (append (funcall pick (if (and review-session--current
+                                     (plist-get (review-session-walkthrough review-session--current) :steps))
+                                '("step" "hunk" "file" "viewed")
+                              '("hunk" "file" "viewed" "park")))
               '(("zw" . "scroll") ("SPC q" . "ask") ("SPC ," . "more"))))))
 
 (defun review-panel--hints-text (_width)
@@ -931,12 +948,14 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
     (review-panel--refresh review-panel--session)))
 
 (defun review-panel-visit ()
-  "Show the file and hunk at point after its text has loaded."
+  "Run the row's action, or show the file and hunk at point after it loads."
   (interactive)
-  (let ((i (get-text-property (point) 'review-file))
-        (h (get-text-property (point) 'review-hunk)))
-    (unless i (user-error "Put point on a file"))
-    (review-session-show i h)))
+  (if-let ((action (get-text-property (point) 'review-action)))
+      (funcall action)
+    (let ((i (get-text-property (point) 'review-file))
+          (h (get-text-property (point) 'review-hunk)))
+      (unless i (user-error "Put point on a file"))
+      (review-session-show i h))))
 
 ;;;; Quick Ask card
 ;; Figma "Compare / quick ask", card 13:386: a dark context row with a

@@ -150,4 +150,33 @@
         (should (string-match-p "\\? Is eleven right\\?" card)))
       (should-not (review-walk-test--overlays (review-session-new-buffer s) 'dim)))))
 
+(ert-deftest review-walkthrough-panel-section-lists-steps ()
+  (review-walk-test--with s
+    (review-panel-open s)
+    (review-walkthrough-start review-walk-test--steps)
+    (review-walkthrough-next)
+    (with-current-buffer (review-session-panel s)
+      (let ((text (buffer-string)))
+        (should (string-match-p "◆ WALKTHROUGH" text))
+        (should (string-match-p "2 of 3" text))
+        (should (string-match-p "● *1 *Three" text))
+        (should (string-match-p "❯ *2 *Y" text))
+        (should (string-match-p "○ *3 *Eleven" text)))
+      (goto-char (text-property-any (point-min) (point-max) 'review-walk-step 2))
+      (review-panel-visit)
+      (should (= (plist-get (review-session-walkthrough s) :index) 2)))))
+
+(ert-deftest review-walkthrough-panel-shows-planning-status ()
+  (review-walk-test--with s
+    (review-panel-open s)
+    (setf (review-session-walkthrough s) '(:status planning))
+    (review-session--notify s)
+    (with-current-buffer (review-session-panel s)
+      (should (string-match-p "Planning route" (buffer-string))))))
+
+(ert-deftest review-walkthrough-bar-shows-position ()
+  (review-walk-test--with s
+    (review-walkthrough-start review-walk-test--steps)
+    (should (string-match-p "WALK 1/3" (review-panel--bar-text s 200)))))
+
 (provide 'review-walkthrough-test)
