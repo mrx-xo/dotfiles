@@ -4035,6 +4035,16 @@ Falls back to a one-liner if fastfetch isn't installed."
 
 
 
+(require 'mr-x-jump-back)
+(mr-x-jump-back-mode 1)
+(with-eval-after-load 'general
+  (general-define-key
+   :keymaps 'override
+   :states '(normal motion)
+   "C-o" #'mr-x/jump-back))
+
+
+
     (use-package general
       :ensure t
       :demand t

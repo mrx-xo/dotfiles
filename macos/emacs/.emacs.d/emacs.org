@@ -4249,6 +4249,25 @@ general binds on the spot.
 
 #+end_src
 
+*** Jump back across windows
+
+Evil's =C-o= keeps one jump list per window and skips buffers without
+a file, so after =SPC c a r= it cannot get back to the file you came
+from. =lisp/mr-x-jump-back.el= keeps one history for the whole session
+and re-selects the original window. =C-o= goes back through it.
+
+#+begin_src emacs-lisp
+
+  (require 'mr-x-jump-back)
+  (mr-x-jump-back-mode 1)
+  (with-eval-after-load 'general
+    (general-define-key
+     :keymaps 'override
+     :states '(normal motion)
+     "C-o" #'mr-x/jump-back))
+
+#+end_src
+
 *** Keybindings
 
 #+begin_src emacs-lisp
