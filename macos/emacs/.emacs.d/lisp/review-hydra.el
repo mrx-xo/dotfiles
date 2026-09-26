@@ -53,7 +53,7 @@
  _C-j_: next hunk     _J_: next file       _f_: files panel
  _C-k_: prev hunk     _K_: prev file       _h_: old pane   _l_: new pane
  _TAB_: fold          _x_: viewed          _a_: Quick Ask  _u_: park
- _z_: strip
+ _z_: strip                                _w_: wrap or scroll long lines
  _Q_: quit review                        _q_: quit hydra"
   ;; Same keys as `review-session-keys'; review-hydra-test keeps them equal.
   ("C-j" review-session-next-hunk)
@@ -63,6 +63,7 @@
   ("x" review-session-toggle-viewed)
   ("TAB" review-hydra-fold)
   ("z" review-hydra-strip)
+  ("w" review-session-toggle-long-lines)
   ("f" review-hydra-files :exit t)
   ("h" review-hydra-old :exit t)
   ("l" review-hydra-new :exit t)

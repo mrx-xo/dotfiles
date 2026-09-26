@@ -9,6 +9,7 @@
 ;;; Code:
 (require 'cl-lib)
 (require 'subr-x)
+(require 'svg)
 (require 'review-session)
 
 (defcustom review-panel-width 70
@@ -69,7 +70,9 @@ Computed rather than measured, so batch tests and frames agree."
   (let ((cw (frame-char-width)) (px 0.0))
     (dotimes (i (length string))
       (let* ((display (get-text-property i 'display string))
-             (width (and (eq (car-safe display) 'space) (plist-get (cdr display) :width)))
+             (width (pcase (car-safe display)
+                      ('space (plist-get (cdr display) :width))
+                      ('image (list (car (image-size display t))))))
              (face (get-text-property i 'face string))
              (height (or (and (consp face) (keywordp (car face))
                               (numberp (plist-get face :height)) (plist-get face :height))
@@ -544,11 +547,116 @@ renders the strip."
                             `(:background ,(review-panel--hex 'bg-0) :extend t) t band)
     band))
 
+(defun review-panel--track-runs (session render hscroll width widest px)
+  "RENDER's WIDEST columns drawn PX pixels long, as runs of (STATE . PIXELS).
+STATE is `thumb' where the pane shows HSCROLL onward for WIDTH columns,
+`change' where SESSION's current hunk has a change past an edge, else
+`rail'."
+  (let* ((at (lambda (column) (min px (round (* px (/ (float column) widest))))))
+         (cells (review-render-cells render))
+         (hunk (nth (review-session-hunk session)
+                    (plist-get (review-session-file session review-pane--file-index) :hunks)))
+         (pixels (make-vector px 'rail)))
+    (cl-loop for p from (funcall at hscroll) below (funcall at (+ hscroll width))
+             do (aset pixels p 'thumb))
+    (when hunk
+      (cl-loop for row from (plist-get hunk :start) to (min (plist-get hunk :end) (1- (length cells)))
+               for cell = (aref cells row)
+               for span = (review-cell-span cell)
+               when span
+               do (let ((from (aref (review-cell-cols cell) (car span)))
+                        (to (aref (review-cell-cols cell) (cdr span))))
+                    (dolist (hidden (list (cons from (min to hscroll))
+                                          (cons (max from (+ hscroll width)) to)))
+                      ;; Every hidden change gets at least a pixel, even at the far end.
+                      (when (< (car hidden) (cdr hidden))
+                        (let ((p0 (min (1- px) (funcall at (car hidden)))))
+                          (cl-loop for p from p0 below (max (1+ p0) (funcall at (cdr hidden)))
+                                   do (aset pixels p 'change))))))))
+    (let ((runs nil) (start 0))
+      (dotimes (p (1+ px))
+        (when (and (> p start) (or (= p px) (not (eq (aref pixels p) (aref pixels start)))))
+          (push (cons (aref pixels start) (- p start)) runs)
+          (setq start p)))
+      (nreverse runs))))
+
+(defvar-local review-panel--track-cache nil "(KEY . STRING) of the last track drawn.")
+
+(defun review-panel--track (session render hscroll width widest)
+  "A thin bar for the pane's position across its widest line.
+Lit where the pane is; red or green outside that for a change in the
+current hunk that is past an edge.  An SVG image where images work; the
+runs ride along as the `review-track' property."
+  (let* ((px (review-panel--px 96)) (height (review-panel--px 4))
+         (runs (review-panel--track-runs session render hscroll width widest px))
+         (key (list runs height review-pane--side)))
+    (if (equal key (car review-panel--track-cache)) (cdr review-panel--track-cache)
+      (let* ((color (lambda (state)
+                      (pcase state
+                        ('rail (review-panel--hex 'bg-1))
+                        ('thumb (review-panel--hex 'mute t))
+                        (_ (review-panel--hex (if (eq review-pane--side 'old) 'red 'green))))))
+             (svg (and (display-images-p) (image-type-available-p 'svg) (svg-create px height)))
+             (x 0)
+             (track (propertize
+                     " " 'review-track runs
+                     'display (if (not svg) `(space :width (,px))
+                                (svg-rectangle svg 0 0 px height :fill (funcall color 'rail)
+                                               :rx (/ height 2.0))
+                                (dolist (run runs)
+                                  (unless (eq (car run) 'rail)
+                                    (svg-rectangle svg x 0 (cdr run) height :fill (funcall color (car run))))
+                                  (cl-incf x (cdr run)))
+                                (svg-image svg :ascent 'center)))))
+        (setq review-panel--track-cache (cons key track))
+        track))))
+
+(defun review-panel--pane-extent ()
+  "The right of a pane header: `wrap', or where a scrolled pane is cut."
+  (when-let* ((s review-pane--session) (_ review-pane--diff) (layout review-pane--layout))
+    (let* ((review-panel--scale (/ (frame-char-width) 6.0))
+           (text (if (not (eq (car layout) 'scroll))
+                     (review-panel--txt "wrap" 'mute :height 0.83)
+                   (pcase-let* ((`(,_ ,width ,hscroll) layout)
+                                (render (review-session--pane-render s review-pane--file-index review-pane--side))
+                                (widest (review-session--widest render)))
+                     (if (<= widest width) ""
+                       (concat (review-panel--track s render hscroll width widest)
+                               (review-panel--gap 8)
+                               (review-panel--txt (format "col %d–%d of %d" (1+ hscroll)
+                                                          (min widest (+ hscroll width)) widest)
+                                                  'mute :height 0.83)))))))
+      (if (string-empty-p text) ""
+        (concat (propertize " " 'display `(space :align-to (- right (,(+ (review-panel--pixels text)
+                                                                          (review-panel--px 16))))))
+                text)))))
+
+(defun review-panel--place-bands (session buffer)
+  "Put the raised band above every hunk in pane BUFFER of SESSION."
+  (with-current-buffer buffer
+    (remove-overlays (point-min) (point-max) 'review-band t)
+    (let* ((hunks (plist-get (review-session-file session review-pane--file-index) :hunks))
+           (total (length hunks)) (index 0))
+      (dolist (hunk hunks)
+        (cl-incf index)
+        (let* ((at (review-session--row-position buffer (plist-get hunk :start)))
+               (o (make-overlay at at)))
+          (overlay-put o 'review-band t)
+          (overlay-put o 'before-string
+                       (review-panel--band hunk index total review-pane--text-column)))))))
+
+(defun review-panel--relaid (session)
+  "Put the hunk bands back after SESSION's panes are redrawn to fit."
+  (dolist (buffer (list (review-session-old-buffer session) (review-session-new-buffer session)))
+    (when (buffer-live-p buffer)
+      (review-panel--place-bands session buffer))))
+
 (defun review-panel--style-pane (session buffer side)
   "Give pane BUFFER the design's surface, header and hunk bands."
   (with-current-buffer buffer
     (setq mode-line-format nil
-          header-line-format (review-panel--pane-header session side))
+          header-line-format (list (review-panel--pane-header session side)
+                                   '(:eval (review-panel--pane-extent))))
     ;; The design's rows are 20 px for 17 px of text.
     (setq-local line-spacing 0.17)
     (unless review-panel--pane-styled
@@ -562,16 +670,7 @@ renders the strip."
              face `(:background ,(review-panel--hex 'bg-hard) :foreground ,(review-panel--hex 'mute)
                     :box (:line-width (0 . ,pad) :color ,(review-panel--hex 'bg-hard))
                     :underline nil :overline nil :inherit nil))))))
-    (remove-overlays (point-min) (point-max) 'review-band t)
-    (let* ((hunks (plist-get (review-session-file session review-pane--file-index) :hunks))
-           (total (length hunks)) (index 0))
-      (dolist (hunk hunks)
-        (cl-incf index)
-        (let ((o (make-overlay (review-session--row-position buffer (plist-get hunk :start))
-                               (review-session--row-position buffer (plist-get hunk :start)))))
-          (overlay-put o 'review-band t)
-          (overlay-put o 'before-string
-                       (review-panel--band hunk index total review-pane--text-column)))))))
+    (review-panel--place-bands session buffer)))
 
 (defun review-panel--bar-text (session width)
   "The top bar: kind and path on the left; file, hunk and counts on the right."
@@ -633,10 +732,17 @@ TEXT is called with the strip's width in columns and returns its line."
                             (lambda (width) (review-panel--bar-text session width))))
 
 (defun review-panel--pane-hints ()
-  "The panes' keys, from `review-session-keys', then asking and the hydra."
-  (append (seq-filter (lambda (hint) (member (cdr hint) '("hunk" "file" "viewed" "park")))
-                      (review-panel--key-hints))
-          '(("SPC q" . "ask") ("SPC ," . "more"))))
+  "The panes' keys, from `review-session-keys', then long lines, asking and
+the hydra.  Scrolling panes trade parking and asking for their sideways keys."
+  (let ((pick (lambda (labels)
+                (seq-filter (lambda (hint) (member (cdr hint) labels)) (review-panel--key-hints)))))
+    (if (eq review-session-long-lines 'scroll)
+        (append (funcall pick '("hunk"))
+                '(("zh/zl" . "scroll both") ("zH/zL" . "half width"))
+                (funcall pick '("file" "viewed"))
+                '(("zw" . "wrap") ("SPC ," . "more")))
+      (append (funcall pick '("hunk" "file" "viewed" "park"))
+              '(("zw" . "scroll") ("SPC q" . "ask") ("SPC ," . "more"))))))
 
 (defun review-panel--hints-text (_width)
   "The bottom strip: the panes' keys, or what a hidden Quick Ask has to say."
@@ -791,6 +897,7 @@ TEXT is called with the strip's width in columns and returns its line."
     (add-hook 'review-session-update-hook #'review-panel--on-update)
     (add-hook 'review-session-display-hook #'review-panel--display)
     (add-hook 'review-session-display-hook #'review-panel--style-compare)
+    (add-hook 'review-session-layout-hook #'review-panel--relaid)
     (add-hook 'review-source-updated-functions #'review-panel--source-updated)
     (add-hook 'mr-x/quick-ask-notify-functions #'review-panel--on-notify)
     (condition-case err

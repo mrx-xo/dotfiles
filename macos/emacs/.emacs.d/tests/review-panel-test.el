@@ -281,8 +281,10 @@
                  review-panel-strip-width)))))
 
 (defun review-panel-test--header (buffer)
+  "BUFFER's header text, without the parts computed at redisplay."
   (with-current-buffer buffer
-    (let ((h header-line-format)) (if (stringp h) h (apply #'concat (flatten-list h))))))
+    (let ((h header-line-format))
+      (if (stringp h) h (apply #'concat (seq-filter #'stringp (flatten-list h)))))))
 
 (ert-deftest review-panel-compare-panes-have-design-headers-and-no-mode-lines ()
   (review-panel-test--with s
@@ -354,6 +356,53 @@
           (should (string-match-p "hunk" (buffer-string))))
         (review-session-quit)
         (should-not (buffer-live-p strip))))))
+
+(defmacro review-panel-test--long (var mode &rest body)
+  "BODY with VAR a panel-dressed session whose one file has a long line."
+  (declare (indent 2))
+  `(save-window-excursion
+     (let* ((review-session-long-lines ,mode)
+            (mr-x/quick-ask-notification nil) (mr-x/quick-ask-notify-functions nil)
+            (long (string-join (make-list 60 "word") " "))
+            (,var (review-session-start
+                   (review-session-test--source
+                    (list (list "long.txt" 'modified (concat "x\n" long " old\n") (concat "y\n" long " new\n")))))))
+       (unwind-protect (progn (review-panel-open ,var) ,@body)
+         (review-session-quit)))))
+
+(defun review-panel-test--strip ()
+  (with-current-buffer (get-buffer "*review hints*") (buffer-string)))
+
+(ert-deftest review-panel-long-line-mode-changes-hints-and-keeps-bands ()
+  (review-panel-test--long s 'wrap
+    (should (string-match-p "zw +scroll" (review-panel-test--strip)))
+    (should (string-match-p "SPC q +ask" (review-panel-test--strip)))
+    (review-session-toggle-long-lines)
+    (let ((strip (review-panel-test--strip)))
+      (dolist (hint '("zh/zl +scroll both" "zH/zL +half width" "zw +wrap" "J/K +file"))
+        (should (string-match-p hint strip))))
+    ;; Redrawing the panes for the new mode keeps each hunk's band.
+    (dolist (b (list (review-session-old-buffer s) (review-session-new-buffer s)))
+      (with-current-buffer b
+        (should (= 1 (length (seq-filter (lambda (o) (overlay-get o 'review-band))
+                                         (overlays-in (point-min) (point-max))))))))))
+
+(ert-deftest review-panel-pane-header-says-where-a-scrolled-pane-is ()
+  (review-panel-test--long s 'scroll
+    (with-current-buffer (review-session-new-buffer s)
+      (let ((extent (review-panel--pane-extent)))
+        (should (string-match-p "col 1–[0-9]+ of 303" extent)))
+      (review-session-scroll-right 2)
+      (should (string-match-p "col 17–" (review-panel--pane-extent)))
+      ;; The track: the pane's part is lit, and the change at the end of
+      ;; the line is off screen, so it is drawn past the lit part.
+      (let* ((extent (review-panel--pane-extent))
+             (runs (get-text-property (text-property-not-all 0 (length extent) 'review-track nil extent)
+                                      'review-track extent)))
+        (should (equal (mapcar #'car runs) '(rail thumb rail change)))))
+    (review-session-toggle-long-lines)
+    (with-current-buffer (review-session-new-buffer s)
+      (should (string-match-p "wrap" (review-panel--pane-extent))))))
 
 (ert-deftest review-panel-ask-card-follows-the-design ()
   (with-temp-buffer
