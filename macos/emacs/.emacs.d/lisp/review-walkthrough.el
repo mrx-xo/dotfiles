@@ -147,13 +147,19 @@ rejected step, `retry: ...', or `error: ...'."
 (defun review-walkthrough-start-file (file)
   "Start the walkthrough in JSON FILE: {\"target\": {...}, \"steps\": [...]}.
 Step keys: path, side, line_start, line_end, title, body, question.
-Target keys: kind, directory, range, host, owner, repo, name, number."
-  (let* ((data (with-temp-buffer
-                 (let ((coding-system-for-read 'utf-8)) (insert-file-contents file))
-                 (json-parse-buffer :object-type 'plist :array-type 'list :null-object nil)))
-         (target (when-let ((tg (plist-get data :target)))
-                   (plist-put (copy-sequence tg) :kind (intern (plist-get tg :kind))))))
-    (review-walkthrough-start (mapcar #'review-walkthrough--from-json (plist-get data :steps)) target)))
+Target keys: kind, directory, range, host, owner, repo, name, number.
+FILE that cannot be read or parsed, or whose target has no kind, reports
+`error: invalid route file: ...' instead of signalling: an agent's
+malformed reply must land on the caller's error/correction path, not
+escape it and leave a walkthrough request stalled forever."
+  (condition-case err
+      (let* ((data (with-temp-buffer
+                     (let ((coding-system-for-read 'utf-8)) (insert-file-contents file))
+                     (json-parse-buffer :object-type 'plist :array-type 'list :null-object nil)))
+             (target (when-let ((tg (plist-get data :target)))
+                       (plist-put (copy-sequence tg) :kind (intern (plist-get tg :kind))))))
+        (review-walkthrough-start (mapcar #'review-walkthrough--from-json (plist-get data :steps)) target))
+    (error (format "error: invalid route file: %s" (error-message-string err)))))
 
 (defun review-walkthrough--step (session)
   (let ((w (review-session-walkthrough session)))
