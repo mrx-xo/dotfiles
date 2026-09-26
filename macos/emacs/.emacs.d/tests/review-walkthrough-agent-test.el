@@ -34,6 +34,22 @@
          (text (concat "prose\n```json\n" json "\n```\ntrailing")))
     (should (equal (string-trim (review-walkthrough-agent--route-json text)) json))))
 
+(ert-deftest review-walkthrough-agent-route-json-unfenced ()
+  ;; agent-shell's markdown rendering can strip the ```json fence from
+  ;; `shell-maker-last-output' even though the JSON text itself arrives
+  ;; intact, so a bare object with no fence at all must still be found.
+  (let* ((json "{\"steps\": [{\"path\": \"a.el\", \"line_start\": 3, \"line_end\": 3, \"title\": \"Three\"}]}")
+         (text (concat "Here is the route.\n" json "\nHope that helps!")))
+    (should (equal (review-walkthrough-agent--route-json text) json))))
+
+(ert-deftest review-walkthrough-agent-route-json-skips-earlier-mention ()
+  ;; A prose mention of the shape, before the real route, must not win:
+  ;; the last valid JSON object found is the one that counts.
+  (let* ((json "{\"steps\": [{\"path\": \"a.el\", \"line_start\": 3, \"line_end\": 3, \"title\": \"Three\"}]}")
+         (text (concat "The shape looks like {\"steps\": ...} with one entry per step.\n"
+                       "Here is the real route:\n" json "\nDone.")))
+    (should (equal (review-walkthrough-agent--route-json text) json))))
+
 (ert-deftest review-walkthrough-agent-request-round-trip ()
   (review-walk-test--with s
     (review-panel-open s)
@@ -125,6 +141,22 @@
         ;; Only the original request prompt was sent; no correction follow-up.
         (should (= (length sent-texts) 1))
         (should (string-match-p "boom" review-walkthrough-agent--last-output))))))
+
+(ert-deftest review-walkthrough-agent-request-busy-does-not-send ()
+  ;; A busy shell might just be waiting on an unrelated prompt; offer to
+  ;; show it instead of a bare error, but never send the request either way.
+  (review-walk-test--with _s
+    (let (sent shown (asked 0))
+      (cl-letf (((symbol-function 'mr-x/quick-ask--ensure-session) (lambda (_dir) (current-buffer)))
+                ((symbol-function 'shell-maker-busy) (lambda () t))
+                ((symbol-function 'y-or-n-p) (lambda (_prompt) (cl-incf asked) nil))
+                ((symbol-function 'pop-to-buffer) (lambda (&rest _) (setq shown t)))
+                ((symbol-function 'agent-shell--insert-to-shell-buffer)
+                 (lambda (&rest args) (setq sent (plist-get args :text)))))
+        (review-walkthrough-request)
+        (should (= asked 1))
+        (should-not shown)
+        (should-not sent)))))
 
 (ert-deftest review-walkthrough-agent-ask-context-carries-step ()
   (review-walk-test--with s

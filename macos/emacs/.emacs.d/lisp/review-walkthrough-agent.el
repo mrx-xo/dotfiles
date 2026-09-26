@@ -87,19 +87,35 @@
      (review-walkthrough-agent--diff session))))
 
 (defun review-walkthrough-agent--route-json (text)
-  "The contents of the last ```json fenced block in TEXT, or nil.
-The closing fence must sit right after a newline of its own: JSON strings
-cannot contain a raw newline, so a ``` directly after one inside the block
-can only be the real fence, never one quoted inside a step's title, body,
-or question.  (Emacs regexps only treat ^ as an anchor at the start of the
-pattern or right after \\( or \\|, so this matches the newline literally
-instead of relying on ^ mid-pattern.)"
+  "The last valid JSON route object in TEXT, fenced or not, or nil.
+agent-shell's markdown rendering can strip a ```json fence out of
+`shell-maker-last-output' entirely (replacing it with a decorated block
+header) while leaving the JSON text itself intact, so this cannot require
+the fence to survive.  Instead it finds every occurrence of a `{' opening
+a \"steps\" key, tries the LAST one first, and reads exactly one JSON
+value there with `json-parse-buffer': that function stops as soon as it
+has read a complete value, so trailing prose after the object is fine.
+If the last candidate fails to parse (it was only a prose mention of the
+shape, not real JSON), earlier candidates are tried in the same order;
+none valid means nil."
   (when text
-    (let ((start 0) last)
-      (while (string-match "```json\n\\(\\(?:.\\|\n\\)*?\\)\n```" text start)
-        (setq last (match-string 1 text))
-        (setq start (match-end 0)))
-      last)))
+    (with-temp-buffer
+      (insert text)
+      (let (positions)
+        (goto-char (point-min))
+        (while (re-search-forward "{[ \t\n]*\"steps\"" nil t)
+          (push (match-beginning 0) positions))
+        ;; `positions' now lists matches last-occurring first, so the most
+        ;; recent candidate in TEXT is tried before any earlier mention.
+        (catch 'found
+          (dolist (pos positions)
+            (goto-char pos)
+            (condition-case nil
+                (let ((start (point)))
+                  (json-parse-buffer :object-type 'plist :array-type 'list :null-object nil)
+                  (throw 'found (buffer-substring-no-properties start (point))))
+              (error nil)))
+          nil)))))
 
 (defun review-walkthrough-agent--apply-route (session shell json-text retries corrected)
   "Start SESSION's walkthrough from JSON-TEXT.
@@ -170,24 +186,29 @@ CORRECTED is non-nil when this reply follows a correction request."
         (review-walkthrough-agent--apply-route session shell json-text 0 corrected)))))
 
 (defun review-walkthrough-request ()
-  "Ask this project's agent to build a walkthrough of the review."
+  "Ask this project's agent to build a walkthrough of the review.
+A busy shell might just be sitting on an unrelated prompt (a stale
+permission dialog, a leftover question) rather than genuinely working: offer
+to show it instead of a bare error, but never send the request either way,
+since the caller has no way to know the busy turn will ever finish."
   (interactive)
   (let* ((session (review-session--require))
          (shell (mr-x/quick-ask--ensure-session (review-session-directory session)))
          token)
-    (when (with-current-buffer shell (shell-maker-busy))
-      (user-error "The project agent is busy; try again when it finishes"))
-    (setf (review-session-walkthrough session) (list :status 'planning))
-    (review-session--notify session)
-    (setq token
-          (agent-shell-subscribe-to
-           :shell-buffer shell :event 'turn-complete
-           :on-event (lambda (_event)
-                       (agent-shell-unsubscribe :subscription token)
-                       (review-walkthrough-agent--on-reply session shell nil))))
-    (agent-shell--insert-to-shell-buffer
-     :shell-buffer shell :text (review-walkthrough-agent--prompt session) :submit t :no-focus t)
-    (message "Asked the project agent for a walkthrough")))
+    (if (with-current-buffer shell (shell-maker-busy))
+        (when (y-or-n-p "The project agent is busy (maybe waiting on a prompt). Show its session? ")
+          (pop-to-buffer shell))
+      (setf (review-session-walkthrough session) (list :status 'planning))
+      (review-session--notify session)
+      (setq token
+            (agent-shell-subscribe-to
+             :shell-buffer shell :event 'turn-complete
+             :on-event (lambda (_event)
+                         (agent-shell-unsubscribe :subscription token)
+                         (review-walkthrough-agent--on-reply session shell nil))))
+      (agent-shell--insert-to-shell-buffer
+       :shell-buffer shell :text (review-walkthrough-agent--prompt session) :submit t :no-focus t)
+      (message "Asked the project agent for a walkthrough"))))
 
 (defun review-walkthrough-show-answer ()
   "Show what the agent said instead of sending a route."
