@@ -13,7 +13,9 @@
 (require 'review-panel)
 
 (defvar review-walkthrough-render-function #'ignore
-  "Called with the session to draw the current step.  Set by the renderer.")
+  "Called with the session to draw the current step.  Set by the renderer.
+It only draws: it never moves a window, so redrawing keeps the panes where
+the user left them.  Navigation scrolls to the step itself.")
 
 (defvar review-walkthrough-open-functions nil
   "Alist of (KIND . FUNCTION) that open a review for a TARGET recipe.
@@ -172,7 +174,7 @@ signals normally instead of being relabelled as a bad route."
     (and (plist-get w :steps) (aref (plist-get w :steps) (plist-get w :index)))))
 
 (defun review-walkthrough--go (session index)
-  "Make step INDEX current in SESSION: show its file and hunk, then draw it."
+  "Make step INDEX current in SESSION: show its file and hunk, draw, scroll there."
   (let* ((w (review-session-walkthrough session))
          (steps (plist-get w :steps))
          (index (max 0 (min index (1- (length steps)))))
@@ -189,6 +191,7 @@ signals normally instead of being relabelled as a bad route."
                (review-session--paint-hunk session))
       (review-session-show file-index hunk))
     (funcall review-walkthrough-render-function session)
+    (review-walkthrough--scroll-to-step session)
     (review-session--notify session)))
 
 (defun review-walkthrough--require ()
@@ -226,8 +229,11 @@ signals normally instead of being relabelled as a bad route."
     (review-session--notify s)))
 
 (defun review-walkthrough--restored (session _record)
+  "Draw a resumed walkthrough where SESSION was left.
+No navigation: the saved file, hunk and scroll win over the step's."
   (when (plist-get (review-session-walkthrough session) :steps)
-    (review-walkthrough--go session (plist-get (review-session-walkthrough session) :index))))
+    (funcall review-walkthrough-render-function session)
+    (review-session--notify session)))
 
 (add-hook 'review-store-restored-functions #'review-walkthrough--restored)
 
@@ -323,18 +329,27 @@ signals normally instead of being relabelled as a bad route."
             (overlay-put (review-walkthrough--overlay buffer 'dim i (1+ j)) 'face face)
             (setq i (1+ j))))))))
 
-(defun review-walkthrough--render (session)
-  "Draw SESSION's current step in its panes, replacing any earlier drawing."
+(defun review-walkthrough--step-rows (session)
+  "The current step of SESSION and its rows, when its file is in the panes."
   (let ((old (review-session-old-buffer session)) (new (review-session-new-buffer session)))
-    (dolist (b (list old new))
-      (when (buffer-live-p b)
-        (with-current-buffer b (remove-overlays (point-min) (point-max) 'review-walk t))))
     (when-let* ((step (review-walkthrough--step session))
                 (_ (equal (plist-get step :path) (plist-get (review-session-file session) :path)))
                 (_ (and (buffer-live-p old) (buffer-live-p new) (buffer-local-value 'review-pane--diff new)))
                 (rows (review-walkthrough--rows (review-session-file session) (plist-get step :side)
                                                 (plist-get step :line-start) (plist-get step :line-end))))
-      (let* ((w (review-session-walkthrough session))
+      (cons step rows))))
+
+(defun review-walkthrough--draw (session)
+  "Draw SESSION's current step in its panes, replacing any earlier drawing.
+Overlays only: the windows stay put, so a relayout (resize, zw, zh/zl) or a
+resume redraws the step without snapping the panes back to it."
+  (let ((old (review-session-old-buffer session)) (new (review-session-new-buffer session)))
+    (dolist (b (list old new))
+      (when (buffer-live-p b)
+        (with-current-buffer b (remove-overlays (point-min) (point-max) 'review-walk t))))
+    (when-let ((step-rows (review-walkthrough--step-rows session)))
+      (let* ((step (car step-rows)) (rows (cdr step-rows))
+             (w (review-session-walkthrough session))
              (first (car rows)) (last (car (last rows)))
              (here (if (eq (plist-get step :side) 'old) old new))
              (there (if (eq here old) new old))
@@ -348,14 +363,22 @@ signals normally instead of being relabelled as a bad route."
         (review-walkthrough--mark here first last)
         (when review-walkthrough-dim
           (review-walkthrough--dim session old first last)
-          (review-walkthrough--dim session new first last))
-        (dolist (b (list old new))
-          (when-let ((win (get-buffer-window b t)))
-            (set-window-start win (review-session--row-position b (max 0 (- first 2))))
-            (set-window-point win (review-session--row-position b first))))))))
+          (review-walkthrough--dim session new first last))))))
 
-(setq review-walkthrough-render-function #'review-walkthrough--render)
-(add-hook 'review-session-layout-hook #'review-walkthrough--render)
+(defun review-walkthrough--scroll-to-step (session)
+  "Scroll SESSION's panes so the current step's card and lines show."
+  (when-let ((step-rows (review-walkthrough--step-rows session)))
+    (let ((first (cadr step-rows)))
+      (dolist (b (list (review-session-old-buffer session) (review-session-new-buffer session)))
+        (when-let ((win (get-buffer-window b t)))
+          (set-window-start win (review-session--row-position b (max 0 (- first 2))))
+          (set-window-point win (review-session--row-position b first)))))))
+
+(setq review-walkthrough-render-function #'review-walkthrough--draw)
+;; The draw-and-scroll renderer of earlier versions sat on this hook; drop
+;; it so reloading this file in a live Emacs cannot leave it scrolling.
+(remove-hook 'review-session-layout-hook 'review-walkthrough--render)
+(add-hook 'review-session-layout-hook #'review-walkthrough--draw)
 
 ;;;; Panel and bar
 ;; Figma "Files panel / walkthrough" (37:407).
