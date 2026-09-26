@@ -94,7 +94,9 @@ see the comments in `bootstrap.sh`.
 
 A full isolated copy of the config at `~/.emacs-sandbox` for testing changes
 without touching the running daemon. Launch with `Cmd+Shift+S`, resync with
-`macos/scripts/emacs-sandbox.sh --fresh`.
+`macos/scripts/emacs-sandbox.sh --fresh`. Its frames carry a red `SANDBOX`
+badge on every mode line and `SANDBOX` in the title
+(`lisp/mr-x-sandbox-badge.el`, loaded only when `(daemonp)` is `"sandbox"`).
 
 ### Read-only review sessions
 
