@@ -457,6 +457,7 @@ with its row index."
   '(("C-j" . review-session-next-hunk) ("C-k" . review-session-prev-hunk)
     ("J" . review-session-next-file) ("K" . review-session-prev-file)
     ("x" . review-session-toggle-viewed) ("u" . syzygy-park)
+    ("P" . review-session-pause)
     ("q" . review-session-quit))
   "Keys shared by the panes, the files panel and `hydra-review'.
 Hunk keys match Magit and diff-mode; `v' stays Evil visual selection.")
@@ -1031,6 +1032,7 @@ Wrapped panes have nothing to scroll, so there it does nothing."
             (visible-frame-list)))
 
 (autoload 'review-session-pause "review-store" nil t)
+(autoload 'review-session-resume "review-store" nil t)
 
 (defun review-session-visit ()
   "Open the real file at the line under point, as `review-session-visit-style' says."
