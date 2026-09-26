@@ -70,6 +70,8 @@ FUNCTION returns the session, or nil when the review opens asynchronously.")
      ((not (and (stringp path) (integerp start) (integerp end) (stringp (plist-get step :title))))
       (format "step %d: needs :path, :line-start and :title" n))
      ((not (memq side '(old new))) (format "step %d: :side must be old or new" n))
+     ((not (and (string-or-null-p (plist-get step :body)) (string-or-null-p (plist-get step :question))))
+      (format "step %d: body/question must be text" n))
      ((< end start) (format "step %d: :line-end is before :line-start" n))
      (t
       (let ((index (review-walkthrough--file-index session path)))

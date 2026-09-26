@@ -54,6 +54,17 @@
     (should (string-prefix-p "error: no valid steps"
                              (review-walkthrough-start '((:path "a.el" :title "no line")))))))
 
+(ert-deftest review-walkthrough-body-and-question-must-be-text ()
+  ;; JSON can hand over a number or an array; the card needs strings.
+  (review-walk-test--with _s
+    (let ((report (review-walkthrough-start
+                   '((:path "a.el" :line-start 3 :title "Three" :body 42)
+                     (:path "b.el" :line-start 2 :title "Y" :question ("a" "b"))
+                     (:path "a.el" :line-start 11 :title "Eleven" :body "Fine." :question nil)))))
+      (should (string-prefix-p "ok 1 of 3 steps" report))
+      (should (string-match-p "^step 1: body/question must be text$" report))
+      (should (string-match-p "^step 2: body/question must be text$" report)))))
+
 (ert-deftest review-walkthrough-navigation-crosses-files ()
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
