@@ -134,6 +134,18 @@
      (clrhash review-store--memory)
      (should (review-store-load (review-store-test--key "gr"))))))
 
+(ert-deftest review-store-resume-keeps-the-directory ()
+  (review-store-test--env
+   (let ((dir (file-name-as-directory (make-temp-file "review-dir" t))))
+     (unwind-protect
+         (progn
+           (let ((default-directory dir)) (review-session-start (review-store-test--source "dir")))
+           (review-session-pause)
+           (clrhash review-store--memory)
+           (let* ((default-directory "/") (r (review-session-resume)))
+             (should (equal (review-session-directory r) dir))))
+       (delete-directory dir t)))))
+
 (defun review-store-test--git (dir &rest args)
   (let ((default-directory dir))
     (with-temp-buffer
