@@ -396,6 +396,7 @@ renders the strip."
              (expanded (lambda (i) (if (memq i toggled) (/= i current) (= i current)))))
         (concat (review-panel--header session width)
                 (review-panel--progress session width (funcall expanded current))
+                (review-panel--divider)
                 (mapconcat #'identity
                            (delq nil (mapcar (lambda (f) (funcall f session width))
                                              review-panel-section-functions))
