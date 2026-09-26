@@ -105,28 +105,42 @@ instead of relying on ^ mid-pattern.)"
   "Start SESSION's walkthrough from JSON-TEXT.
 RETRIES counts `retry:' attempts already made against this route.
 CORRECTED is non-nil once SHELL has already been asked once to fix a
-rejected route; a second rejection then gives up rather than asking again."
+rejected route; a second rejection then gives up rather than asking again.
+A signal out of `review-walkthrough-start-file' is a bug, not a bad route
+from the agent, so it never triggers a correction round-trip: it just
+reports the failure and gives up."
   (when (eq session review-session--current)
     (let* ((file (make-temp-file "review-walkthrough" nil ".json" json-text))
-           (report (unwind-protect (review-walkthrough-start-file file)
+           (result (unwind-protect
+                       (condition-case err
+                           (review-walkthrough-start-file file)
+                         (error (cons :internal-error (error-message-string err))))
                      (delete-file file))))
-      (cond
-       ((string-prefix-p "ok" report)
-        (when (string-match-p "\n" report) (message "%s" report)))
-       ((string-prefix-p "retry:" report)
-        (if (< retries 5)
-            (run-at-time 3 nil #'review-walkthrough-agent--apply-route
-                         session shell json-text (1+ retries) corrected)
-          (setq review-walkthrough-agent--last-output
-                (concat review-walkthrough-agent--last-output "\n" report))
-          (setf (review-session-walkthrough session) (list :status 'no-route))
-          (review-session--notify session)))
-       ((string-prefix-p "error:" report)
-        (if corrected
-            (progn
+      (if (and (consp result) (eq (car result) :internal-error))
+          (let ((description (cdr result)))
+            (setq review-walkthrough-agent--last-output
+                  (concat review-walkthrough-agent--last-output "\n\n[internal error] " description))
+            (message "[internal error] %s" description)
+            (setf (review-session-walkthrough session) (list :status 'no-route))
+            (review-session--notify session))
+        (let ((report result))
+          (cond
+           ((string-prefix-p "ok" report)
+            (when (string-match-p "\n" report) (message "%s" report)))
+           ((string-prefix-p "retry:" report)
+            (if (< retries 5)
+                (run-at-time 3 nil #'review-walkthrough-agent--apply-route
+                             session shell json-text (1+ retries) corrected)
+              (setq review-walkthrough-agent--last-output
+                    (concat review-walkthrough-agent--last-output "\n" report))
               (setf (review-session-walkthrough session) (list :status 'no-route))
-              (review-session--notify session))
-          (review-walkthrough-agent--request-correction session shell report)))))))
+              (review-session--notify session)))
+           ((string-prefix-p "error:" report)
+            (if corrected
+                (progn
+                  (setf (review-session-walkthrough session) (list :status 'no-route))
+                  (review-session--notify session))
+              (review-walkthrough-agent--request-correction session shell report)))))))))
 
 (defun review-walkthrough-agent--request-correction (session shell report)
   "Ask SHELL once to fix the walkthrough route rejected with REPORT."

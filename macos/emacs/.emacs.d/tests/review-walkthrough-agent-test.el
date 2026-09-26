@@ -100,6 +100,32 @@
         (should (eq (plist-get (review-session-walkthrough s) :status) 'no-route))
         (should (= (length (seq-filter (lambda (s) (string-match-p "rejected" s)) sent-texts)) 1))))))
 
+(ert-deftest review-walkthrough-agent-internal-error-is-not-a-correction ()
+  ;; A bug inside review-walkthrough-start (validation, navigation,
+  ;; rendering) is not a bad route from the agent: it must not trigger a
+  ;; "fix your JSON" round-trip, just a plain failure report.
+  (review-walk-test--with s
+    (review-panel-open s)
+    (let (on-event sent-texts
+          (reply (concat "```json\n"
+                         "{\"steps\": [{\"path\": \"a.el\", \"line_start\": 3, \"line_end\": 3, \"title\": \"Three\"}]}"
+                         "\n```\n")))
+      (cl-letf (((symbol-function 'mr-x/quick-ask--ensure-session) (lambda (_dir) (current-buffer)))
+                ((symbol-function 'shell-maker-busy) (lambda () nil))
+                ((symbol-function 'shell-maker-last-output) (lambda () reply))
+                ((symbol-function 'agent-shell-subscribe-to)
+                 (lambda (&rest args) (setq on-event (plist-get args :on-event)) 'token))
+                ((symbol-function 'agent-shell-unsubscribe) #'ignore)
+                ((symbol-function 'agent-shell--insert-to-shell-buffer)
+                 (lambda (&rest args) (push (plist-get args :text) sent-texts)))
+                ((symbol-function 'review-walkthrough-start) (lambda (&rest _) (error "boom"))))
+        (review-walkthrough-request)
+        (funcall on-event nil)
+        (should (eq (plist-get (review-session-walkthrough s) :status) 'no-route))
+        ;; Only the original request prompt was sent; no correction follow-up.
+        (should (= (length sent-texts) 1))
+        (should (string-match-p "boom" review-walkthrough-agent--last-output))))))
+
 (ert-deftest review-walkthrough-agent-ask-context-carries-step ()
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
