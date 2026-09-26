@@ -122,6 +122,18 @@
      (should (equal (plist-get record :current-path) "c.el"))
      (should (file-exists-p (review-store--path (review-store-test--key "A")))))))
 
+(ert-deftest review-store-failed-refresh-keeps-the-record ()
+  (review-store-test--env
+   (let ((review-store-refresh-functions
+          (list (cons 'fake (lambda (_recipe _record) (error "Refresh failed"))))))
+     (review-session-start (review-store-test--source "gr"))
+     (review-session-pause)
+     (review-session-resume)
+     (should-error (review-session-refresh))
+     (should (review-store-load (review-store-test--key "gr")))
+     (clrhash review-store--memory)
+     (should (review-store-load (review-store-test--key "gr"))))))
+
 (defun review-store-test--git (dir &rest args)
   (let ((default-directory dir))
     (with-temp-buffer
