@@ -54,7 +54,7 @@
  _C-k_: prev hunk     _K_: prev file       _h_: old pane   _l_: new pane
  _TAB_: fold          _x_: viewed          _a_: Quick Ask  _u_: park
  _z_: strip                                _w_: wrap or scroll long lines
- _Q_: quit review                        _q_: quit hydra"
+ _P_: pause review   _Q_: quit review    _q_: quit hydra"
   ;; Same keys as `review-session-keys'; review-hydra-test keeps them equal.
   ("C-j" review-session-next-hunk)
   ("C-k" review-session-prev-hunk)
@@ -69,6 +69,7 @@
   ("l" review-hydra-new :exit t)
   ("a" mr-x/quick-ask :exit t)
   ("u" syzygy-park :exit t)
+  ("P" review-session-pause :exit t)
   ("Q" review-session-quit :exit t)
   ("q" nil :exit t))
 

@@ -18,6 +18,7 @@
 (require 'review-source)
 (require 'review-session)
 (require 'review-panel)
+(require 'review-store)
 
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
