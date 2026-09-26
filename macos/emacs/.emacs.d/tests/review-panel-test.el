@@ -327,6 +327,34 @@
       (review-session-quit)
       (should-not (buffer-live-p bar)))))
 
+(defvar mr-x/quick-ask-notification nil)
+(defvar mr-x/quick-ask-notify-functions nil)
+
+(ert-deftest review-panel-compare-bottom-strip-shows-hints-or-quick-ask-news ()
+  (review-panel-test--with s
+    (let ((mr-x/quick-ask-notification nil)
+          (mr-x/quick-ask-notify-functions nil))
+      (review-panel-open s)
+      (let ((strip (get-buffer "*review hints*")))
+        (should (buffer-live-p strip))
+        (should (eq (window-parameter (get-buffer-window strip t) 'window-side) 'bottom))
+        (with-current-buffer strip
+          (dolist (hint '("C-j/k" "hunk" "J/K" "file" "viewed" "park" "SPC q" "ask" "SPC ," "more"))
+            (should (string-match-p (regexp-quote hint) (buffer-string)))))
+        ;; A hidden Quick Ask answer replaces the hints until it is shown.
+        (setq mr-x/quick-ask-notification 'ready)
+        (run-hook-with-args 'mr-x/quick-ask-notify-functions 'ready)
+        (with-current-buffer strip
+          (should (string-match-p "answer ready" (buffer-string)))
+          (should (string-match-p "SPC Q" (buffer-string)))
+          (should-not (string-match-p "hunk" (buffer-string))))
+        (setq mr-x/quick-ask-notification nil)
+        (run-hook-with-args 'mr-x/quick-ask-notify-functions nil)
+        (with-current-buffer strip
+          (should (string-match-p "hunk" (buffer-string))))
+        (review-session-quit)
+        (should-not (buffer-live-p strip))))))
+
 (ert-deftest review-panel-ask-card-follows-the-design ()
   (with-temp-buffer
     (let (styled)

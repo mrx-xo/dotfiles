@@ -612,7 +612,30 @@ bounds use the active region, or the source line at point."
              and do (push (plist-get row text-key) text))
     (unless numbers (user-error "Selection contains no source lines"))
     (list :start (car (last numbers)) :end (car numbers)
-          :text (string-join (nreverse text) "\n"))))
+          :text (string-join (nreverse text) "\n")
+          :diff (review-session--selection-diff
+                 review-pane--session
+                 (cl-loop for i from first to (min last (1- (length rows)))
+                          collect (aref rows i))))))
+
+(defun review-session--selection-diff (session rows)
+  "ROWS as a small unified diff with SESSION's side labels, or nil if unchanged.
+Quick Ask sends it, so a question about a change sees both sides."
+  (when (seq-find (lambda (row) (not (eq (plist-get row :kind) 'ctx))) rows)
+    (let ((source (review-session-source session)))
+      (string-join
+       (append
+        (list (concat "--- " (or (review-source-old-label source) "old"))
+              (concat "+++ " (or (review-source-new-label source) "new")))
+        (mapcan (lambda (row)
+                  (pcase (plist-get row :kind)
+                    ('ctx (list (concat "  " (plist-get row :new))))
+                    ('del (list (concat "- " (plist-get row :old))))
+                    ('add (list (concat "+ " (plist-get row :new))))
+                    ('both (list (concat "- " (plist-get row :old))
+                                 (concat "+ " (plist-get row :new))))))
+                rows))
+       "\n"))))
 
 (defun review-session-origin (&optional begin end)
   "Return the source origin at point, including the side and real line range."

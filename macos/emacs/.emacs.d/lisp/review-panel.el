@@ -501,8 +501,10 @@ renders the strip."
 (defun review-panel--on-update (session)
   (if session
       (progn (review-panel--refresh session)
-             (review-panel--show-bar session))
-    (when-let ((bar (get-buffer review-panel--bar-name))) (kill-buffer bar))))
+             (review-panel--show-bar session)
+             (review-panel--show-hints session))
+    (dolist (name (list review-panel--bar-name review-panel--hints-name))
+      (when-let ((strip (get-buffer name))) (kill-buffer strip)))))
 
 ;;;; Compare frame chrome
 ;; Figma frame "Compare / side by side": a top bar across both panes, a
@@ -510,6 +512,7 @@ renders the strip."
 ;; mode lines.
 
 (defconst review-panel--bar-name "*review bar*")
+(defconst review-panel--hints-name "*review hints*")
 (defvar-local review-panel--pane-styled nil "Face remaps are in place.")
 
 (defun review-panel--pane-header (session side)
@@ -593,16 +596,17 @@ renders the strip."
                           ""))))
     (review-panel--row (review-panel--flush left right width) :bg 'bg-0 :pad '(10 10) :factor 1.08)))
 
-(defun review-panel--show-bar (session)
-  "Show or refresh the top bar across SESSION's compare frame."
+(defun review-panel--show-strip (session name side text)
+  "Show buffer NAME as a one-line strip on SIDE of SESSION's compare frame.
+TEXT is called with the strip's width in columns and returns its line."
   (let ((frame (review-session-frame session)))
     (when (frame-live-p frame)
       (with-selected-frame frame
         (let* ((review-panel--scale (/ (frame-char-width) 6.0))
-               (buffer (get-buffer-create review-panel--bar-name))
+               (buffer (get-buffer-create name))
                (window (or (get-buffer-window buffer frame)
                            (display-buffer-in-side-window
-                            buffer '((side . top) (slot . 0) (window-height . 1)
+                            buffer `((side . ,side) (slot . 0) (window-height . 1)
                                      (window-parameters (no-other-window . t)
                                                         (no-delete-other-windows . t)))))))
           (when (window-live-p window)
@@ -617,19 +621,63 @@ renders the strip."
               (add-hook 'window-configuration-change-hook #'review-panel--fit-bar nil t)
               (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
               (let ((inhibit-read-only t)
-                    (text (review-panel--bar-text session (window-body-width window))))
+                    (line (funcall text (window-body-width window))))
                 (erase-buffer)
-                (insert text)
+                (insert line)
                 (goto-char (point-min))
                 (review-panel--fit-bar window)))))))))
 
+(defun review-panel--show-bar (session)
+  "Show or refresh the top bar across SESSION's compare frame."
+  (review-panel--show-strip session review-panel--bar-name 'top
+                            (lambda (width) (review-panel--bar-text session width))))
+
+(defun review-panel--pane-hints ()
+  "The panes' keys, from `review-session-keys', then asking and the hydra."
+  (append (seq-filter (lambda (hint) (member (cdr hint) '("hunk" "file" "viewed" "park")))
+                      (review-panel--key-hints))
+          '(("SPC q" . "ask") ("SPC ," . "more"))))
+
+(defun review-panel--hints-text (_width)
+  "The bottom strip: the panes' keys, or what a hidden Quick Ask has to say."
+  (let* ((cap (lambda (key)
+                (propertize (concat " " key " ")
+                            'face `(:background ,(review-panel--hex 'bg-2) :foreground ,(review-panel--hex 'fg)
+                                                :weight bold :height 0.75))))
+         (label (lambda (text) (review-panel--txt text 'dim :height 0.75)))
+         (note (bound-and-true-p mr-x/quick-ask-notification))
+         (ask (lambda (status token)
+                (concat (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
+                        (review-panel--gap 8) (review-panel--txt status token :height 0.83)
+                        (review-panel--gap 12) (funcall cap "SPC Q") (review-panel--gap 4)
+                        (funcall label "show")))))
+    (review-panel--row
+     (concat (review-panel--gap 16)
+             (pcase note
+               ('ready (funcall ask "answer ready" 'fg))
+               ('thinking (funcall ask "thinking\u2026" 'dim))
+               (_ (mapconcat (lambda (hint) (concat (funcall cap (car hint)) (review-panel--gap 4)
+                                                    (funcall label (cdr hint))))
+                             (review-panel--pane-hints) (review-panel--gap 10)))))
+     ;; No row padding: extra line height stretches every keycap's background.
+     :bg 'bg-0)))
+
+(defun review-panel--show-hints (session)
+  "Show or refresh the bottom strip of SESSION's compare frame."
+  (review-panel--show-strip session review-panel--hints-name 'bottom #'review-panel--hints-text))
+
+(defun review-panel--on-notify (_note)
+  "Redraw the bottom strip when hidden Quick Ask has news."
+  (when-let ((s review-session--current))
+    (review-panel--show-hints s)))
+
 (defun review-panel--fit-bar (&optional window)
-  "Size the top bar's WINDOW to exactly its one padded line."
+  "Size a strip's WINDOW to exactly its one line, padded or not."
   (let ((window (or window (get-buffer-window (current-buffer) t))))
     (when (and (window-live-p window) (display-graphic-p (window-frame window)))
       (with-current-buffer (window-buffer window)
         (let ((height (and (> (buffer-size) 0)
-                           (cadr (get-text-property (1- (point-max)) 'line-height))))
+                           (cdr (window-text-pixel-size window nil nil))))
               (window-resize-pixelwise t)
               (window-size-fixed nil))
           (when (and (integerp height) (/= height (window-body-height window t)))
@@ -652,7 +700,8 @@ renders the strip."
   (when (and (review-session-own-frame session) (frame-live-p (review-session-frame session)))
     (set-face-attribute 'vertical-border (review-session-frame session)
                         :foreground (review-panel--hex 'bg-1)))
-  (review-panel--show-bar session))
+  (review-panel--show-bar session)
+  (review-panel--show-hints session))
 
 (defun review-panel--display (session)
   "Display SESSION's panel in its own frame or beside the compare panes."
@@ -743,6 +792,7 @@ renders the strip."
     (add-hook 'review-session-display-hook #'review-panel--display)
     (add-hook 'review-session-display-hook #'review-panel--style-compare)
     (add-hook 'review-source-updated-functions #'review-panel--source-updated)
+    (add-hook 'mr-x/quick-ask-notify-functions #'review-panel--on-notify)
     (condition-case err
         (progn
           (when (and review-panel-pop-out

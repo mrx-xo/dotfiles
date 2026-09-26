@@ -12381,7 +12381,10 @@ silent context-only capture with no marker."
                         (eq window (frame-root-window (window-frame window))))
               (delete-window window)))
           (let ((source mr-x/quick-ask--source-buffer)
-                (region mr-x/quick-ask--source-region))
+                (region mr-x/quick-ask--source-region)
+                ;; posframe hides the cursor unless given one: a bar while
+                ;; typing the question, a box over the answer.
+                (cursor (if (eq mr-x/quick-ask--phase 'input) 'bar 'box)))
             ;; posframe resolves integer anchors in the selected window.
             (with-selected-window source-window
               (let* ((anchor (with-current-buffer source
@@ -12397,6 +12400,7 @@ silent context-only capture with no marker."
                                     :min-width (min 40 (- (frame-width) 4))
                                     :border-width 1 :border-color "#504945"
                                     :background-color "#282828" :accept-focus t
+                                    :cursor cursor
                                     (append size (list :max-height cap))))))
                 (funcall show)
                 (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
@@ -12636,11 +12640,15 @@ silent context-only capture with no marker."
               (region-beg (when (use-region-p) (region-beginning)))
               (region-end (when (use-region-p) (region-end)))
               (source-origin (syzygy-park--origin))
+              (selection (and region-active (derived-mode-p 'review-pane-mode)
+                              (review-session-pane-selection region-beg region-end)))
               (source-context
                (when region-active
-                 (if (derived-mode-p 'review-pane-mode)
-                     (plist-get (review-session-pane-selection region-beg region-end) :text)
-                   (buffer-substring-no-properties region-beg region-end)))))
+                 (if selection (plist-get selection :text)
+                   (buffer-substring-no-properties region-beg region-end))))
+              ;; A review selection with changes goes to the agent as a small
+              ;; diff, so it sees both sides; parking keeps the plain text.
+              (source-diff (plist-get selection :diff)))
           (let ((buf (get-buffer-create "*quick-ask*")))
             (with-current-buffer buf
               (let ((inhibit-read-only t))
@@ -12660,7 +12668,7 @@ silent context-only capture with no marker."
 
                 ;; Auto-attach region if active
                 (when region-active
-                  (let* ((content source-context)
+                  (let* ((content (or source-diff source-context))
                          (line-beg (with-current-buffer source-buf
                                      (line-number-at-pos region-beg)))
                          (line-end (with-current-buffer source-buf
