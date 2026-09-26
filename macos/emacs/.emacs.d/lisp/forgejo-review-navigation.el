@@ -188,5 +188,37 @@ The file must match BLOB and have no unsaved edits.  Return its path or nil."
 
 (advice-add 'diff-goto-source :around #'mr-x/forgejo-diff-goto-source)
 
+(declare-function review-session-source "review-session")
+(declare-function review-session-directory "review-session")
+(declare-function review-source-recipe "review-source")
+
+(defun mr-x/forgejo-review-visit (session file side line)
+  "Open FILE's SIDE at LINE for a Forgejo review SESSION.
+A worktree at the matching blob wins; otherwise a read-only API snapshot."
+  (let ((recipe (review-source-recipe (review-session-source session))))
+    (when (eq (plist-get recipe :kind) 'forgejo)
+      (let* ((revs (or (plist-get recipe :revs)
+                       (user-error "PR revisions are not known yet; press gr to refresh")))
+             (revision (if (eq side 'old) (car revs) (cadr revs)))
+             (path (if (eq side 'old) (plist-get file :old-path) (plist-get file :path)))
+             (blob (nth (if (eq side 'old) 0 1) (plist-get file :blobs)))
+             (default-directory (or (review-session-directory session) default-directory))
+             (worktree (mr-x/forgejo-source-worktree revision path blob)))
+        (if worktree
+            (mr-x/forgejo-show-source (find-file-noselect worktree) line)
+          (let ((host (plist-get recipe :host)) (owner (plist-get recipe :owner))
+                (repo (plist-get recipe :repo)) (number (plist-get recipe :number)))
+            (forgejo-api-get
+             host (format "repos/%s/%s/contents/%s" owner repo
+                          (mapconcat #'url-hexify-string (split-string path "/") "/"))
+             `(("ref" . ,revision))
+             (lambda (data _headers)
+               (mr-x/forgejo-source-snapshot data host owner repo number
+                                             (list :path path :line line :old (eq side 'old) :blob blob))))))
+        t))))
+
+(with-eval-after-load 'review-session
+  (add-hook 'review-session-visit-functions #'mr-x/forgejo-review-visit))
+
 (provide 'forgejo-review-navigation)
 ;;; forgejo-review-navigation.el ends here
