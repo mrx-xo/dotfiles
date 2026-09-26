@@ -71,14 +71,20 @@
           :hunk (review-session-hunk session)
           :panes (review-session-pane-state session)
           :panel (review-store--panel session)
+          ;; A request still waiting on its reply is kept too: its reply
+          ;; finds the resumed review by the :request token.
           :walkthrough (let ((w (review-session-walkthrough session)))
-                         (and (plist-get w :steps) w)))))
+                         (and (or (plist-get w :steps) (plist-get w :request)) w)))))
 
 (defun review-store--path (key)
   (expand-file-name (concat (md5 key) ".eld") review-store-directory))
 
 (defun review-store--write (record)
+  "Write RECORD to disk.  A pending walkthrough request stays in memory only:
+nothing waits on its reply after a restart."
   (make-directory review-store-directory t)
+  (unless (plist-get (plist-get record :walkthrough) :steps)
+    (setq record (plist-put (copy-sequence record) :walkthrough nil)))
   (let ((print-length nil) (print-level nil) (print-circle nil))
     (with-temp-file (review-store--path (plist-get record :key))
       (setq buffer-file-coding-system 'utf-8-unix)
