@@ -151,15 +151,21 @@ Target keys: kind, directory, range, host, owner, repo, name, number.
 FILE that cannot be read or parsed, or whose target has no kind, reports
 `error: invalid route file: ...' instead of signalling: an agent's
 malformed reply must land on the caller's error/correction path, not
-escape it and leave a walkthrough request stalled forever."
-  (condition-case err
-      (let* ((data (with-temp-buffer
-                     (let ((coding-system-for-read 'utf-8)) (insert-file-contents file))
-                     (json-parse-buffer :object-type 'plist :array-type 'list :null-object nil)))
-             (target (when-let ((tg (plist-get data :target)))
-                       (plist-put (copy-sequence tg) :kind (intern (plist-get tg :kind))))))
-        (review-walkthrough-start (mapcar #'review-walkthrough--from-json (plist-get data :steps)) target))
-    (error (format "error: invalid route file: %s" (error-message-string err)))))
+escape it and leave a walkthrough request stalled forever.  Only that
+reading and parsing is guarded; once FILE is decoded, `review-walkthrough-start'
+runs unprotected, so a real bug in validation, navigation, or rendering
+signals normally instead of being relabelled as a bad route."
+  (let ((parsed
+         (condition-case err
+             (let* ((data (with-temp-buffer
+                            (let ((coding-system-for-read 'utf-8)) (insert-file-contents file))
+                            (json-parse-buffer :object-type 'plist :array-type 'list :null-object nil)))
+                    (target (when-let ((tg (plist-get data :target)))
+                              (plist-put (copy-sequence tg) :kind (intern (plist-get tg :kind))))))
+               (list :steps (mapcar #'review-walkthrough--from-json (plist-get data :steps)) :target target))
+           (error (format "error: invalid route file: %s" (error-message-string err))))))
+    (if (stringp parsed) parsed
+      (review-walkthrough-start (plist-get parsed :steps) (plist-get parsed :target)))))
 
 (defun review-walkthrough--step (session)
   (let ((w (review-session-walkthrough session)))
