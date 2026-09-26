@@ -146,6 +146,31 @@
              (should (equal (review-session-directory r) dir))))
        (delete-directory dir t)))))
 
+(ert-deftest review-store-resume-pick-uses-the-fresh-pause ()
+  ;; Picking the live review pauses it first; the fresh pause, not the
+  ;; older autosave the picker listed, is what comes back.
+  (review-store-test--env
+   (let ((s (review-session-start (review-store-test--source "pick"))))
+     (review-session-show 1 0)
+     (review-store-save s)
+     (review-session-show 2 0)
+     (cl-letf (((symbol-function 'completing-read) (lambda (_prompt cands &rest _) (car (car cands)))))
+       (let ((r (review-session-resume t)))
+         (should (equal (plist-get (review-session-file r) :path) "c.el")))))))
+
+(ert-deftest review-store-failed-restore-puts-the-record-back ()
+  (review-store-test--env
+   (review-session-start (review-store-test--source "restore"))
+   (review-session-pause)
+   (let* ((key (review-store-test--key "restore"))
+          (record (review-store-load key)))
+     ;; review-session-start quits on this error, which drops the record.
+     (cl-letf (((symbol-function 'review-session-show) (lambda (&rest _) (error "Show failed"))))
+       (should-error (review-store-restore record)))
+     (should-not review-session--current)
+     (should (eq (gethash key review-store--memory) record))
+     (should (file-exists-p (review-store--path key))))))
+
 (defun review-store-test--git (dir &rest args)
   (let ((default-directory dir))
     (with-temp-buffer

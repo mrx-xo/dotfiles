@@ -194,23 +194,30 @@ nothing waits on its reply after a restart."
   (cl-position path (review-session-files session) :key (lambda (f) (plist-get f :path)) :test #'equal))
 
 (defun review-store-restore (record)
-  "Start a review on RECORD's snapshot, where it was left.  Return the session."
-  (let* ((session (review-session-start (review-store-source record))))
-    (setf (review-session-viewed session)
-          (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed)))
-          (review-session-walkthrough session) (plist-get record :walkthrough))
-    (review-panel-open session)
-    (when-let ((panel (plist-get record :panel))
-               (buffer (review-session-panel session)))
-      (with-current-buffer buffer
-        (setq review-panel--toggled (plist-get panel :toggled)
-              review-panel--collapsed (plist-get panel :collapsed))))
-    (review-session-show (or (review-store--index session (plist-get record :current-path)) 0)
-                         (plist-get record :hunk))
-    (review-session-restore-pane-state session (plist-get record :panes))
-    (run-hook-with-args 'review-store-restored-functions session record)
-    (review-store--check-moved session record)
-    session))
+  "Start a review on RECORD's snapshot, where it was left.  Return the session.
+If restoring signals, RECORD is put back in memory and on disk first: a
+start that fails quits, and that quit drops the record."
+  (condition-case err
+      (let* ((session (review-session-start (review-store-source record))))
+        (setf (review-session-viewed session)
+              (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed)))
+              (review-session-walkthrough session) (plist-get record :walkthrough))
+        (review-panel-open session)
+        (when-let ((panel (plist-get record :panel))
+                   (buffer (review-session-panel session)))
+          (with-current-buffer buffer
+            (setq review-panel--toggled (plist-get panel :toggled)
+                  review-panel--collapsed (plist-get panel :collapsed))))
+        (review-session-show (or (review-store--index session (plist-get record :current-path)) 0)
+                             (plist-get record :hunk))
+        (review-session-restore-pane-state session (plist-get record :panes))
+        (run-hook-with-args 'review-store-restored-functions session record)
+        (review-store--check-moved session record)
+        session)
+    (error
+     (puthash (plist-get record :key) record review-store--memory)
+     (review-store--write record)
+     (signal (car err) (cdr err)))))
 
 ;;;; Moved on since the pause
 
@@ -329,7 +336,11 @@ With PICK (\\[universal-argument]), choose among every paused review."
                               (choice (completing-read "Resume review: " cands nil t)))
                          (cdr (assoc choice cands)))
                      (car records))))
-      (when review-session--current (review-session-pause))
+      (when review-session--current
+        (review-session-pause)
+        ;; The pause may have just saved the chosen review; the picker
+        ;; listed an older copy of it.
+        (setq record (or (review-store-load (plist-get record :key)) record)))
       (review-store-restore record))))
 
 ;;;; Quit and autosave
