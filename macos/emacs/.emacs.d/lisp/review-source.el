@@ -11,10 +11,25 @@
 
 (cl-defstruct review-source
   "A review backend.  TEXT calls CALLBACK with text on success.
-For asynchronous failures, it calls CALLBACK with nil and an error string."
+For asynchronous failures, it calls CALLBACK with nil and an error string.
+RECIPE is a plist that rebuilds the source; `review-store' saves it."
   name title range-label files text origin directory
   number subtitle
-  old-label new-label)                  ; e.g. "main @ 9c1e2f4" for each side
+  old-label new-label                  ; e.g. "main @ 9c1e2f4" for each side
+  recipe)
+
+(defun review-source-key (recipe)
+  "A stable string naming the review RECIPE describes, one per PR or range."
+  (pcase (plist-get recipe :kind)
+    ('git-range (format "git:%s:%s"
+                        (abbreviate-file-name
+                         (file-name-as-directory (expand-file-name (plist-get recipe :directory))))
+                        (or (plist-get recipe :range) "worktree")))
+    ('forgejo (format "forgejo:%s/%s#%d" (plist-get recipe :owner) (plist-get recipe :repo)
+                      (plist-get recipe :number)))
+    ('github (format "github:%s/%s#%d" (plist-get recipe :owner) (plist-get recipe :name)
+                     (plist-get recipe :number)))
+    (_ (format "%S" recipe))))
 
 (defvar review-source-updated-functions nil
   "Called with a source after its title or subtitle arrive late.")
@@ -160,6 +175,8 @@ Revisions and index blobs are pinned when the file list is first read."
                     (setq revs (review-source--git-revs directory range)
                           files (review-source--git-files directory revs)
                           loaded t)
+                    (setf (review-source-recipe source)
+                          (plist-put (review-source-recipe source) :revs revs))
                     (let ((labels (review-source--git-labels directory range revs)))
                       (setf (review-source-old-label source) (car labels)
                             (review-source-new-label source) (cdr labels))))
@@ -204,7 +221,8 @@ Revisions and index blobs are pinned when the file list is first read."
                  :link (format "file:%s::%d"
                                (abbreviate-file-name
                                 (expand-file-name (concat "./" path) directory)) start)
-                 :url nil)))))
+                 :url nil)))
+       :recipe (list :kind 'git-range :directory directory :range range)))
       source)))
 
 (declare-function mr-x/forgejo-ediff--entry-at-point "forgejo-review-ediff")
@@ -298,7 +316,10 @@ Revisions and index blobs are pinned when the file list is first read."
                                            (alist-get 'sha (alist-get 'base data)))
                                        (alist-get 'sha (alist-get 'head data)))))
                        (if (and (stringp (car revs)) (stringp (cadr revs)))
-                           (progn (setq revisions revs) (funcall k revisions))
+                           (progn (setq revisions revs)
+                                  (setf (review-source-recipe source)
+                                        (plist-put (review-source-recipe source) :revs revs))
+                                  (funcall k revisions))
                          (funcall failure "PR metadata has no source revisions"))))
                    :error-callback
                    (lambda (error)
@@ -331,7 +352,8 @@ Revisions and index blobs are pinned when the file list is first read."
                                       (if (eq (plist-get file :side) 'old) " (old)" ""))
                        :side (or (plist-get file :side) 'new)
                        :link (format "forgejo:%s/%s#%d" owner repo number)
-                       :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))))
+                       :url (format "%s/%s/%s/pulls/%d/files" host owner repo number)))
+       :recipe (list :kind 'forgejo :host host :owner owner :repo repo :number number :title title)))
       source)))
 
 (cl-defun review-source-github-pr (directory owner name number
@@ -374,7 +396,11 @@ empty once the base branch contains the head, as with any merged PR."
               (plist-put o :label (format "%s %s:%s" label
                                           (or (plist-get file :origin-path) (plist-get file :path))
                                           (if (= start end) start (format "%d-%d" start end))))
-              (plist-put o :url (format "https://github.com/%s/%s/pull/%d/files" owner name number)))))
+              (plist-put o :url (format "https://github.com/%s/%s/pull/%d/files" owner name number))))
+          (review-source-recipe source)
+          (list :kind 'github :directory directory :owner owner :name name :number number
+                :title title :base-ref base-ref :head-ref head-ref
+                :base-rev base-rev :head-rev head-rev))
     source))
 
 (provide 'review-source)
