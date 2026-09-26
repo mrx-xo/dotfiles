@@ -204,6 +204,12 @@ A worktree at the matching blob wins; otherwise a read-only API snapshot."
              (blob (nth (if (eq side 'old) 0 1) (plist-get file :blobs)))
              (default-directory (or (review-session-directory session) default-directory))
              (worktree (mr-x/forgejo-source-worktree revision path blob)))
+        (when (or (null path)
+                  (null blob)
+                  (and (eq side 'old) (eq (plist-get file :kind) 'added))
+                  (and (eq side 'new) (eq (plist-get file :kind) 'deleted)))
+          (user-error "No %s side for %s in this PR" side
+                      (or (plist-get file :path) (plist-get file :old-path))))
         (if worktree
             (mr-x/forgejo-show-source (find-file-noselect worktree) line)
           (let ((host (plist-get recipe :host)) (owner (plist-get recipe :owner))
