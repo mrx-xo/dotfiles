@@ -11,6 +11,9 @@
 # Escape hatch (ignores the state files; use when state got funky):
 #   monitor-mode.sh reset           # reconnect + DDC both -> MrX, state = mac
 #
+# Sleep/wake every screen, whichever machine it is showing:
+#   monitor-mode.sh displays sleep|wake
+#
 # Drift check (Hammerspoon runs it after every display change):
 #   monitor-mode.sh check           # notify if an away display re-enumerated
 #
@@ -299,8 +302,24 @@ sync_windows() {
   return 0
 }
 
+displays_power() {  # displays_power <sleep|wake>
+  # Mac side always; VENGEANCE too when any monitor is on the PC input,
+  # since a display showing the PC ignores the Mac's sleep. mon-sleep /
+  # mon-wake are desktop-session scheduled tasks (sleep.ps1 / wake.ps1).
+  local c r
+  c=$(current_machine center); r=$(current_machine right)
+  if [ "$c" = pc ] || [ "$r" = pc ]; then
+    ssh -n -o ConnectTimeout=4 -o BatchMode=yes \
+      -o ServerAliveInterval=5 -o ServerAliveCountMax=2 vengeance \
+      "MSYS_NO_PATHCONV=1 schtasks /run /tn mon-$1" \
+      >"$STATE_DIR/windows-sync.log" 2>&1 \
+      || echo "VENGEANCE mon-$1 failed; see $STATE_DIR/windows-sync.log" >&2
+  fi
+  if [ "$1" = sleep ]; then pmset displaysleepnow; else caffeinate -u -t 1; fi
+}
+
 case "${1:-}" in
-  status|check|"") ;;
+  status|check|displays|"") ;;
   *) touch "$BUSY"; trap 'rm -f "$BUSY"' EXIT ;;
 esac
 
@@ -355,6 +374,12 @@ case "${1:-}" in
     sync_windows
     maybe_restore
     ;;
+  displays)
+    case "${2:-}" in
+      sleep|wake) displays_power "$2" ;;
+      *) echo "usage: $(basename "$0") displays <sleep|wake>" >&2; exit 1 ;;
+    esac
+    ;;
   check)
     check_drift
     ;;
@@ -365,7 +390,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
