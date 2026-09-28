@@ -1019,6 +1019,32 @@ The status line's first character carries `review-ask-anim', for a spinner."
     (insert (review-panel-ask-footer '(("q" "abort" dim) ("C-c C-q" "hide" dim)
                                        ("C-c C-t" "dock" dim))))))
 
+(defun review-panel-ask-permission (title detail &optional queued)
+  "Insert the Quick Ask box's permission question for a tool call.
+TITLE names the call and DETAIL is its command or file, or nil.  QUEUED,
+when positive, is how many more requests wait behind this one."
+  (let ((review-panel--scale (/ (frame-char-width) 6.0)))
+    (insert (review-panel--spacer 10))
+    (insert (review-panel--row
+             (concat (review-panel--gap 12)
+                     (review-panel--txt "◆" 'yellow)
+                     (review-panel--gap 8)
+                     (review-panel--txt "Allow tool?" 'yellow :weight 'bold)
+                     (review-panel--gap 8)
+                     (review-panel--txt title 'fg))))
+    (when detail
+      (let ((start (point)))
+        (insert (review-panel--txt detail 'dim) "\n")
+        (put-text-property start (point) 'line-prefix (review-panel--gap 32))
+        (put-text-property start (point) 'wrap-prefix (review-panel--gap 32))))
+    (insert (review-panel--spacer 6))
+    (insert (review-panel--row
+             (concat (review-panel--ask-exits '(("1" "allow" fg) ("2" "deny" dim) ("3" "always" dim)))
+                     (if (and queued (> queued 0))
+                         (concat (review-panel--gap 14)
+                                 (review-panel--txt (format "%d more waiting" queued) 'dim :height 0.83))
+                       ""))))))
+
 (defun review-panel-ask-style (start end)
   "Give START..END the card's padded answer look: dim text, 12 px indent."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))

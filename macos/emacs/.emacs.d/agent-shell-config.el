@@ -2568,6 +2568,10 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           map)
         "Keymap active while waiting for Claude response. All keys abort.")
 
+      ;; Permission requests from the hidden agent: reads go through, the
+      ;; rest ask in the box with 1 / 2 / 3 (lisp/quick-ask-permission.el).
+      (require 'quick-ask-permission)
+
       ;; Response phase keymap
       (defvar mr-x/quick-ask-response-map
         (let ((map (make-keymap)))
