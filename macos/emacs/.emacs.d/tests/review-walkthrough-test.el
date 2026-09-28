@@ -141,7 +141,8 @@
   "Non-nil when the card starts ROW's block in BUFFER."
   (with-current-buffer buffer
     (save-excursion (goto-char (review-session--row-position buffer row))
-                    (looking-at-p ".*AGENT WALKTHROUGH"))))
+                    ;; The card opens with a padding row, then its header.
+                    (looking-at-p ".*\n.*AGENT WALKTHROUGH"))))
 
 (defun review-walk-test--lines (buffer)
   (with-current-buffer buffer (count-lines (point-min) (point-max))))
@@ -347,5 +348,18 @@
   (review-walk-test--with s
     (review-walkthrough-start review-walk-test--steps)
     (should (string-match-p "WALK 1/3" (review-panel--bar-text s 200)))))
+
+(ert-deftest review-walkthrough-card-has-half-height-padding ()
+  ;; The card breathes: a half-height blank row above the header and
+  ;; below the last line, both card-coloured and chrome.
+  (let* ((card (review-walkthrough--card '(:title "T" :body "B" :question "Q") 1 2 80))
+         (lines (split-string card "\n")))
+    ;; The padding row is a half-height rail cell and a short line.
+    (should (equal (get-text-property 0 'display card) '(space :width 1 :height 0.5)))
+    (should (equal (get-text-property (length (car lines)) 'review-extra-height card) 0.5))
+    (should (string-match-p "AGENT WALKTHROUGH" (nth 1 lines)))
+    (should (equal (get-text-property (1- (length card)) 'review-extra-height card) 0.5))
+    (should (memq 'review-walk-card (ensure-list (get-text-property 0 'face card))))
+    (should (string-match-p "? Q" (nth (- (length lines) 3) lines)))))
 
 (provide 'review-walkthrough-test)

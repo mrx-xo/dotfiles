@@ -466,12 +466,28 @@ COUNT, or no side, are left out."
             (setcdr cell (append (cdr cell) lines))))))
     table))
 
-(defun review-session--pad-extras (lines count row)
-  "Extra LINES of ROW padded to COUNT with blank filler lines, as one string."
+(defun review-session-short-line (ratio &optional lead)
+  "An extra line RATIO of a text line tall, LEAD (a string) then its newline.
+The row's height comes from a space glyph, since a newline alone brings
+the default font's height whatever face it wears; `line-height' t keeps
+the newline out of the sum.  The newline records RATIO in
+`review-extra-height', so a filler facing this line can match it."
+  (concat (or lead "")
+          (propertize " " 'display (list 'space :width 0 :height ratio) 'review-extra-chrome t)
+          (propertize "\n" 'line-height t 'review-extra-height ratio 'review-extra-chrome t)))
+
+(defun review-session--pad-extras (lines count row &optional facing)
+  "Extra LINES of ROW padded to COUNT with blank filler lines, as one string.
+A filler facing a short line on the other side (`review-session-short-line')
+is as short, so the panes do not drift apart by a part of a line."
   (apply #'concat
          (append lines
-                 (make-list (- count (length lines))
-                            (propertize "\n" 'face 'review-extra-filler 'review-row row 'review-extra t)))))
+                 (mapcar (lambda (i)
+                           (let* ((other (nth i facing))
+                                  (ratio (and other (get-text-property (1- (length other)) 'review-extra-height other))))
+                             (propertize (if ratio (review-session-short-line ratio) "\n")
+                                         'face 'review-extra-filler 'review-row row 'review-extra t)))
+                         (number-sequence (length lines) (1- count))))))
 
 (defun review-session-pane-layout (old new &optional mode old-width new-width hscroll extras)
   "Lay out renders OLD and NEW side by side.
@@ -497,11 +513,11 @@ source lines start on."
              (x (max (length (car extra)) (length (cdr extra)))))
         (aset starts i line)
         (aset source-starts i (+ line x))
-        (push (concat (if extra (review-session--pad-extras (car extra) x i) "")
+        (push (concat (if extra (review-session--pad-extras (car extra) x i (cdr extra)) "")
                       (review-session--finish-row a n (review-render-gutter old)
                                                   (review-cell-face (aref old-cells i)) i))
               olds)
-        (push (concat (if extra (review-session--pad-extras (cdr extra) x i) "")
+        (push (concat (if extra (review-session--pad-extras (cdr extra) x i (car extra)) "")
                       (review-session--finish-row b n (review-render-gutter new)
                                                   (review-cell-face (aref new-cells i)) i))
               news)
