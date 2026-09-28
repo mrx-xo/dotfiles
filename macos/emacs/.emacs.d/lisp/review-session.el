@@ -98,12 +98,12 @@ be followed by `review-session--ensure-layout'.")
 (defvar review-session--replacing nil
   "Non-nil while starting a review quits the live one, so quit hooks save it.")
 
-(defcustom review-session-visit-style 'pause
+(defcustom review-session-visit-style 'in-frame
   "Where \\[review-session-visit] opens the real file.
-`pause': pause the review and open the file in the main frame.
 `in-frame': replace the panes in the review frame; \\[review-session-return] brings them back.
-`main-frame': open the file in another frame and leave the review up."
-  :type '(choice (const pause) (const in-frame) (const main-frame)) :group 'review)
+`main-frame': open the file in another frame and leave the review up.
+`pause': pause the review, closing its frames, and open the file in the main frame."
+  :type '(choice (const in-frame) (const main-frame) (const pause)) :group 'review)
 
 (defvar review-session-visit-functions nil
   "Called with SESSION FILE SIDE LINE to open a source location.
