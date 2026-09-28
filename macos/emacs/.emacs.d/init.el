@@ -367,8 +367,8 @@ during daemon init the selected frame is non-graphic)."
   	(setq org-startup-truncated nil)
   	(require 'org-phscroll)
   	;; mac trackpad: two-finger horizontal swipe scrolls the table
-  	(define-key phscroll-keymap [wheel-left]  #'phscroll-mwheel-scroll-left)
-  	(define-key phscroll-keymap [wheel-right] #'phscroll-mwheel-scroll-right))
+  	(define-key phscroll-mode-map [wheel-left]  #'phscroll-mwheel-scroll-left*)
+  	(define-key phscroll-mode-map [wheel-right] #'phscroll-mwheel-scroll-right*))
 
       ;; Skip org-indent in hidden buffers (leading-space names, e.g. agent
       ;; transcript renders): nobody sees them, and org 10.0-pre's headline
