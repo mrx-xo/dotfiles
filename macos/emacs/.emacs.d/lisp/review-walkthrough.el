@@ -280,13 +280,22 @@ Its rail and indent are chrome, left out of a selection's text."
          (wrap (lambda (text face)
                  (mapcar (lambda (l) (propertize l 'face face)) (review-walkthrough--wrap text width))))
          (lines (append
-                 (list (propertize "◆ AGENT WALKTHROUGH" 'face 'review-walk-accent)
+                 (list nil
+                       (propertize "◆ AGENT WALKTHROUGH" 'face 'review-walk-accent)
                        (concat (propertize (format "%d/%d" n total) 'face 'review-walk-accent) "  "
                                (propertize (plist-get step :title) 'face 'review-walk-title)))
                  (when (plist-get step :body) (funcall wrap (plist-get step :body) 'review-walk-body))
                  (when (plist-get step :question)
-                   (funcall wrap (concat "? " (plist-get step :question)) 'review-walk-question))))
-         (card (mapconcat (lambda (line) (concat rail line "\n")) lines "")))
+                   (funcall wrap (concat "? " (plist-get step :question)) 'review-walk-question))
+                 (list nil)))
+         ;; A nil line is a padding row, half a line tall; the layout's
+         ;; filler on the other side is as short.
+         (card (mapconcat (lambda (line)
+                           (if line (concat rail line "\n")
+                             (review-session-short-line
+                              0.5 (propertize " " 'face 'review-walk-rail 'review-extra-chrome t
+                                              'display '(space :width 1 :height 0.5)))))
+                         lines "")))
     (add-face-text-property 0 (length card) 'review-walk-card t card)
     card))
 

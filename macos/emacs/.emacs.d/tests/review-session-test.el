@@ -761,4 +761,22 @@ Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS)."
               (should (equal default-directory temporary-file-directory)))
           (review-session-quit))))))
 
+(ert-deftest review-session-layout-filler-mirrors-line-height ()
+  ;; A short extra line (a card's padding) gets a filler of the same
+  ;; height on the other side, or the panes drift by half a line.
+  (pcase-let* ((`(,old ,new) (review-session-test--layout-extras
+                              "a\nb\nc\n" "a\nB\nc\n"
+                              (list (list 1 'new (concat (review-session-short-line 0.5)
+                                                         "NOTE\n"
+                                                         (review-session-short-line 0.5))))))
+               (nl (lambda (text n) (let ((at -1)) (dotimes (_ n) (setq at (string-search "\n" text (1+ at)))) at))))
+    ;; Newline 1 ends row 0; 2 and 4 end the padding rows, 3 the note.
+    (dolist (i '(2 4))
+      (should (equal (get-text-property (funcall nl new i) 'review-extra-height new) 0.5))
+      (should (equal (get-text-property (funcall nl old i) 'review-extra-height old) 0.5))
+      (should (eq (get-text-property (funcall nl old i) 'line-height old) t))
+      ;; The filler has its own short glyph; a lone newline would be 0 px tall.
+      (should (equal (get-text-property (1- (funcall nl old i)) 'display old) '(space :width 0 :height 0.5))))
+    (should-not (get-text-property (funcall nl old 3) 'line-height old))))
+
 (provide 'review-session-test)
