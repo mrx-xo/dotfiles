@@ -20,12 +20,6 @@ case "$cmd" in
   romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;
-  # Legacy words: drop once Home Assistant's set_monitor_mode sends the
-  # names above (home-lab services/home-assistant/ha-scripts.yaml).
-  game|mac|split|rsplit|work) set -- $cmd ;;
-  center\ mac|center\ pc|right\ mac|right\ pc|right\ work) set -- $cmd ;;
-  3\ mac|3\ pc|4\ mac|4\ pc|4\ work) set -- $cmd ;;
-  toggle\ center|toggle\ right|toggle\ 3|toggle\ 4) set -- $cmd ;;
   *)
     echo "mon-voice-gate: refused: '$cmd'" >&2
     exit 1
