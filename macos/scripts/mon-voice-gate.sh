@@ -13,13 +13,19 @@ echo "$(date '+%F %T') gate: '$cmd'" >> "$HOME/.local/state/monitor-mode/voice.l
 
 case "$cmd" in
   displays\ sleep|displays\ wake) set -- $cmd ;;
-  game|mac|split|rsplit|work|reset|status) set -- $cmd ;;
-  center\ mac|center\ pc|center\ work) set -- $cmd ;;
-  right\ mac|right\ pc|right\ work)    set -- $cmd ;;
-  3\ mac|3\ pc|3\ work)                set -- $cmd ;;  # 3 = center (yabai number)
-  4\ mac|4\ pc|4\ work)                set -- $cmd ;;  # 4 = right
-  toggle\ center|toggle\ right)        set -- $cmd ;;
-  toggle\ 3|toggle\ 4)                 set -- $cmd ;;
+  reset|status) set -- $cmd ;;
+  # desk states: what ROMULUS shows, then what REMUS shows
+  pollux|nemesis) set -- $cmd ;;
+  pollux\ nemesis|nemesis\ pollux|pollux\ work) set -- $cmd ;;
+  romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
+  remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
+  toggle\ romulus|toggle\ remus) set -- $cmd ;;
+  # Legacy words: drop once Home Assistant's set_monitor_mode sends the
+  # names above (home-lab services/home-assistant/ha-scripts.yaml).
+  game|mac|split|rsplit|work) set -- $cmd ;;
+  center\ mac|center\ pc|right\ mac|right\ pc|right\ work) set -- $cmd ;;
+  3\ mac|3\ pc|4\ mac|4\ pc|4\ work) set -- $cmd ;;
+  toggle\ center|toggle\ right|toggle\ 3|toggle\ 4) set -- $cmd ;;
   *)
     echo "mon-voice-gate: refused: '$cmd'" >&2
     exit 1

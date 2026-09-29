@@ -15,8 +15,8 @@ class WindowsSyncTest(unittest.TestCase):
             home = Path(root)
             state = home / ".local/state/monitor-mode"
             state.mkdir(parents=True)
-            (state / "center").write_text("mac\n")
-            (state / "right").write_text("pc\n")
+            (state / "romulus").write_text("pollux\n")
+            (state / "remus").write_text("nemesis\n")
             bindir = home / "bin"
             bindir.mkdir()
             for name, body in {
@@ -30,7 +30,7 @@ class WindowsSyncTest(unittest.TestCase):
             env = dict(os.environ, HOME=root,
                        PATH=str(bindir) + ":/usr/bin:/bin")
             result = subprocess.run(
-                ["/bin/bash", str(SCRIPT), "4", "pc"], env=env,
+                ["/bin/bash", str(SCRIPT), "remus", "nemesis"], env=env,
                 capture_output=True, text=True, timeout=5)
             completed = (home / "ssh-completed").exists()
             # Let an incorrectly detached stub finish before removing its HOME.
