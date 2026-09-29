@@ -1,47 +1,51 @@
 # mrx keymap explorer
 
-Interactive visualizer for my boards — one self-contained HTML file, no build,
-no dependencies. A switcher in the masthead flips between the two boards
-(deep-linkable: `index.html#hotdox` / `index.html#micro`).
+Interactive visualizer for the **Keebio Iris SE** (USB name `Iris Rev. 8`,
+RP2040, QMK target `keebio/iris/rev8`): one self-contained HTML file, no
+build, no dependencies. Walk the layers, hover any key for its QMK keycode,
+and compare the current layout side by side against Factory.
 
-**Where this is all going: [ROADMAP.md](ROADMAP.md)** — layout decisions
-left, widget Phase B, and the single flash that ships both.
+The hotdox76v2 and the Creator Micro used to live here too. Both boards are
+gone (2026-08-03); their explorers, ledgers and flashing runbook are in git
+history up to `c39eb8b`.
 
-## hotdox76v2
-
-My **hotdox76v2** (ErgoDox) QMK keymap — Dvorak with home-row mods. Flip
-between the **current** layout and a **proposed** cleanup, walk the layers,
-and hover any key for its QMK keycode.
-
-## creator micro
-
-The Work Louder **Creator Micro** macropad — scroll wheel + big knob + 12 keys
-+ 2 touch pads, 4 layers:
-
-- **0 Agents** — agent-shell allow/deny/diff pad (F13/F14/F16 → skhd → emacsclient)
-- **1 Spotify** — transport + launch macros
-- **2 Monitors** — F17–F19 → `monitor-mode.sh` display flips
-- **3 RGB** — Work Louder per-key matrix controls (`CUSTOM(0-6)`)
-
-Parsed from `creator_micro_v1.layout.json` (VIA export); F-key meanings
-resolved against `~/.dotfiles/macos/skhd/skhdrc`.
+- **Next steps: [ROADMAP.md](ROADMAP.md)**
+- **Version ledger: [VERSIONS.md](VERSIONS.md)**
+- **Flashing runbook: [FLASHING.md](FLASHING.md)**
 
 ## Run
 
 ```bash
-open index.html            # hotdox by default; #micro opens the creator micro
+agent-open "file://$HOME/.dotfiles/macos/keymap-explorer/index.html"
 ```
 
-## Widget mode
+`#idx` in the hash numbers every key (0-55, `LAYOUT` order), same as the
+`key #s` button.
 
-Appending `&widget` to the hash (`index.html#hotdox&widget` /
-`index.html#micro&widget`) strips all chrome except the board and a small
-layer-tab row, and scales the board to fill the window. This is how the
-Hammerspoon wallpaper widget (`~/.dotfiles/macos/hammerspoon/keymap-widget.lua`)
-renders both boards on the portrait display — see `live-keymap-widget-prd.md`.
-⌘⌃K toggles the widget; `hs -c "keymapWidget.toggle()"` does the same.
+## What it shows
 
-Two globals let Hammerspoon (or the DevTools console) drive the page:
+- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game
+- **Current v1** (on board, flashed 2026-09-28) and **Factory** (Keebio
+  default QWERTY, retired). Side by side rings every key that differs.
+- The left inner key (#42) is a rotary knob: press legend plus per-layer
+  turn actions from `encoder_map`.
+
+## Widget mode (the wallpaper overlay)
+
+`index.html#widget` strips all chrome except the board and a small
+layer-tab row, and scales the board to fill the window. The Hammerspoon
+wallpaper widget (`~/.dotfiles/macos/hammerspoon/keymap-widget.lua`) renders
+it on the portrait Dell. See `live-keymap-widget-prd.md`.
+
+- ⌘⌃K (or `hs -c "keymapWidget.toggle()"`) hides and shows it.
+- ⌘⌃⇧K (or `hs -c "keymapWidget.toggleKeys()"`) turns per-keypress flash
+  on and off. Off stops the eventtap entirely.
+- Live layer tracking reads the firmware's raw HID broadcast through
+  `~/.dotfiles/macos/scripts/keymap-widget-hid.py`. It needs the broadcast
+  build flashed (see ROADMAP.md); until then the widget stays on Base and
+  the listener retries every 30 s.
+
+Three globals let Hammerspoon (or the DevTools console) drive the page:
 
 ```js
 __setMods({cmd, alt, shift, ctrl, fn})  // highlight held mods; shift also
@@ -49,29 +53,15 @@ __setMods({cmd, alt, shift, ctrl, fn})  // highlight held mods; shift also
 __setLayer(n)                           // switch layer, same path as the tabs;
                                         // out-of-range n is a no-op
 __flashKey(tok, down)                   // flash a keycap as it's typed, e.g.
-                                        // ("a", true) / ("f13", true); class
-                                        // flip only, no re-render
+                                        // ("a", true); class flip only
 ```
 
-Per-keypress flash is on by default; ⌘⌃⇧K (or
-`hs -c "keymapWidget.toggleKeys()"`) turns it on/off — off stops the
-eventtap entirely, so it costs nothing when disabled.
-
-Both work in any mode, never throw, and touch nothing when the page is used
-as a plain document.
-
-## What it shows
-
-- **Current vs Proposed** toggle — the proposal only touches dead keys,
-  duplicates, and empty layer space; alphas never move.
-- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game
-- **Reachability notes** — e.g. current Layer 3 (BOOT) has no activator; the
-  proposal reaches it via a Space+Enter tri-layer.
-- Per-key legend for hold-layers, Hyper/Meh, dead keys, transparent keys, and
-  what changed in the proposal.
+All three never throw, and touch nothing when the page is used as a plain
+document.
 
 ## Source of truth
 
-- Geometry: `LAYOUT_ergodox_pretty` from `keyboards/hotdox76v2/keyboard.json`
-- Current layers parsed from `keymaps/mrx/keymap.c` (commit `8eb6039`)
-- Proposal needs `EXTRAKEY_ENABLE` + tri-layer to flash
+- Keymap: `~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c`
+  (the explorer's `cur0`-`cur4` mirror it key for key)
+- Geometry: `LAYOUT` from `keyboards/keebio/iris/rev8/keyboard.json`
+- Factory layers: `keyboards/keebio/iris/keymaps/default/keymap.json`
