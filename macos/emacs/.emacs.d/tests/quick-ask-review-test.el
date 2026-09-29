@@ -49,6 +49,17 @@
         (mr-x/quick-ask--show-state)
         (should-not (overlay-buffer ov))))))
 
+(ert-deftest quick-ask-waiting-point-sits-on-the-thinking-line ()
+  ;; After sending, the cursor waits by the spinner, not on the tall
+  ;; context row at the top.
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (review-panel-ask-waiting "origin" "why?")
+    (goto-char (point-min))
+    (mr-x/quick-ask--wait-point)
+    (should (= (point) (line-beginning-position)))
+    (should (text-property-any (point) (line-end-position) 'review-ask-anim t))))
+
 (ert-deftest quick-ask-response-map-has-four-exits ()
   (dolist (binding '(("q" . mr-x/quick-ask--dismiss)
                      ("c" . mr-x/quick-ask--surface-session)
