@@ -20,7 +20,8 @@ class WindowsSyncTest(unittest.TestCase):
             bindir = home / "bin"
             bindir.mkdir()
             for name, body in {
-                "m1ddc": "echo 18",
+                "betterdisplaycli": "echo 4370",
+                "displayplacer": 'echo "Persistent screen id: 0CDDE5CC-F566-4B56-85FD-48B8EA229946"',
                 "osascript": "exit 0",
                 "ssh": ssh_body,
             }.items():
