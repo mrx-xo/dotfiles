@@ -131,5 +131,16 @@
     (project-dashboard--start-agent-shell "/tmp/")
     (should (equal seen "/tmp/"))))
 
+(ert-deftest project-dashboard-test-pull-requests-run-in-project-root ()
+  "The `p' action lists PRs with `default-directory' at the project root."
+  (let ((seen nil)
+        (project-dashboard--project-root "/tmp/"))
+    (cl-letf (((symbol-function 'mr-x/pr-list)
+               (lambda () (setq seen default-directory))))
+      (project-dashboard-open-pull-requests))
+    (should (equal seen "/tmp/"))
+    (should (eq (lookup-key project-dashboard-mode-map (kbd "p"))
+                #'project-dashboard-open-pull-requests))))
+
 (provide 'project-dashboard-test)
 ;;; project-dashboard-test.el ends here

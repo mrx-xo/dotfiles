@@ -24,6 +24,7 @@
 (declare-function agent-recall--candidate-description "agent-recall")
 (declare-function agent-recall--provider-icon "agent-recall")
 (declare-function major-pane-workspace--live-buffer "major-pane-workspace")
+(declare-function mr-x/pr-list "pr-workflow")
 (defvar agent-recall--index)
 (defvar major-pane--labels)
 
@@ -790,7 +791,7 @@ Also stores the names in `project-dashboard--tags-list' for number keys."
                         (directory-file-name project-dashboard--project-root)))
          (has-link (assoc project-name project-dashboard-project-links))
          (actions (append '(("a" . "Agent") ("d" . "Dired") ("m" . "Magit") ("f" . "Find")
-                            ("v" . "Vterm") ("t" . "Tasks"))
+                            ("v" . "Vterm") ("t" . "Tasks") ("p" . "PRs"))
                           (when has-link '(("D" . "Drive")))
                           '(("r" . "Refresh") ("q" . "Quit"))))
          (legend-parts
@@ -869,6 +870,14 @@ Runs `project-dashboard-agent-shell-function' in the project root."
     (if (fboundp 'magit-status)
         (magit-status)
       (message "magit not available"))))
+
+(defun project-dashboard-open-pull-requests ()
+  "List the current project's pull requests on GitHub or Forgejo."
+  (interactive)
+  (let ((default-directory project-dashboard--project-root))
+    (if (fboundp 'mr-x/pr-list)
+        (mr-x/pr-list)
+      (message "pr-workflow not available"))))
 
 (defun project-dashboard-open-link ()
   "Open the external link configured for the current project."
@@ -1106,6 +1115,7 @@ Falls back to the project's TODO file when no org files are declared."
     (define-key map (kbd "f") #'project-dashboard-find-file)
     (define-key map (kbd "v") #'project-dashboard-open-vterm)
     (define-key map (kbd "t") #'project-dashboard-open-org-tasks)
+    (define-key map (kbd "p") #'project-dashboard-open-pull-requests)
     (define-key map (kbd "r") #'project-dashboard-refresh)
     (define-key map (kbd "g") #'project-dashboard-refresh)
     (define-key map (kbd "q") #'project-dashboard-quit)
@@ -1155,6 +1165,7 @@ Falls back to the project's TODO file when no org files are declared."
     (kbd "f") #'project-dashboard-find-file
     (kbd "v") #'project-dashboard-open-vterm
     (kbd "t") #'project-dashboard-open-org-tasks
+    (kbd "p") #'project-dashboard-open-pull-requests
     (kbd "r") #'project-dashboard-refresh
     (kbd "R") #'project-dashboard-new-art
     (kbd "gr") #'project-dashboard-refresh
