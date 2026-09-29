@@ -12202,7 +12202,39 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (setq-local cursor-type 'bar)
         (visual-line-mode 1)
         (setq-local word-wrap t)
-        (setq-local wrap-prefix "  "))
+        (setq-local wrap-prefix "  ")
+        ;; A question is prose: the global completion sources (Elisp
+        ;; symbols, keywords, abbrevs) only pop up noise while typing it.
+        (setq-local corfu-auto nil)
+        ;; The box has no mode line, so it shows the evil state itself.
+        (add-hook 'post-command-hook #'mr-x/quick-ask--show-state nil t))
+
+      (defvar-local mr-x/quick-ask--state-overlay nil
+        "Overlay holding the evil state tag at the left of the footer.")
+
+      (defun mr-x/quick-ask--state-tag ()
+        "The evil state tag, as the mode line draws it."
+        (or (ignore-errors
+              (and (fboundp 'doom-modeline-segment--modals)
+                   (format-mode-line (doom-modeline-segment--modals))))
+            (and (boundp 'evil-mode-line-tag) (format-mode-line evil-mode-line-tag))
+            ""))
+
+      (defun mr-x/quick-ask--show-state ()
+        "Put the evil state tag at the left edge of this box's footer row.
+      The footer's keycap row is marked with `review-ask-footer'."
+        (when (derived-mode-p 'mr-x/quick-ask-mode)
+          (let ((row (text-property-any (point-min) (point-max) 'review-ask-footer t)))
+            (if (not row)
+                (when (overlayp mr-x/quick-ask--state-overlay)
+                  (delete-overlay mr-x/quick-ask--state-overlay))
+              (unless (and (overlayp mr-x/quick-ask--state-overlay)
+                           (overlay-buffer mr-x/quick-ask--state-overlay))
+                (setq mr-x/quick-ask--state-overlay (make-overlay row row nil t)))
+              (move-overlay mr-x/quick-ask--state-overlay row row)
+              (let ((tag (mr-x/quick-ask--state-tag)))
+                (unless (equal tag (overlay-get mr-x/quick-ask--state-overlay 'before-string))
+                  (overlay-put mr-x/quick-ask--state-overlay 'before-string tag)))))))
 
       ;; Evil integration
       (with-eval-after-load 'evil
@@ -12464,9 +12496,10 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (delete-window window)))
           (let ((source mr-x/quick-ask--source-buffer)
                 (region mr-x/quick-ask--source-region)
-                ;; posframe hides the cursor unless given one: a bar while
-                ;; typing the question, a box over the answer.
-                (cursor (if (eq mr-x/quick-ask--phase 'input) 'bar 'box)))
+                ;; posframe hides the cursor unless given one.  Give its
+                ;; frame a box, like any frame: evil's normal state asks for
+                ;; the frame default, so it shows a box, and insert its bar.
+                (cursor 'box))
             ;; posframe resolves integer anchors in the selected window.
             (with-selected-window source-window
               (let* ((anchor (with-current-buffer source
@@ -12483,7 +12516,10 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                                     :border-width 1 :border-color "#504945"
                                     :background-color "#282828" :accept-focus t
                                     :cursor cursor
-                                    (append size (list :max-height cap))))))
+                                    (append size (list :max-height cap)))
+                             ;; posframe-show resets `cursor-type'; evil sets it back.
+                             (with-current-buffer buf
+                               (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))))))
                 (funcall show)
                 (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
                   (funcall show :height lines :min-height lines))
@@ -12518,7 +12554,8 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (goto-char mr-x/quick-ask--input-start)
               (when-let ((window (get-buffer-window buf t)))
                 (set-window-point window mr-x/quick-ask--input-start))
-              (when (fboundp 'evil-insert-state) (evil-insert-state))))))
+              (when (fboundp 'evil-insert-state) (evil-insert-state)))
+            (mr-x/quick-ask--show-state))))
 
       (defun mr-x/quick-ask--display-response (buf)
         "Show the answer in BUF, unless Quick Ask is hidden: then say it is ready."
@@ -12708,6 +12745,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           (setq buffer-read-only t)
           (when (fboundp 'evil-normal-state)
             (evil-normal-state))
+          (mr-x/quick-ask--show-state)
           (mr-x/quick-ask--display-response (current-buffer))))
 
       ;; Main entry point

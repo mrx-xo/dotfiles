@@ -20,6 +20,35 @@
       (beginning-of-line)
       (eval-region start (point)))))
 
+(ert-deftest quick-ask-box-has-no-completion-popup ()
+  ;; A question is prose; corfu's auto popup stays off in the box.
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (should (local-variable-p 'corfu-auto))
+    (should-not corfu-auto)))
+
+(ert-deftest quick-ask-box-shows-the-evil-state-in-its-footer ()
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (evil-local-mode 1)
+    (insert "question\n" (review-panel-ask-footer '(("RET" "ask" fg))))
+    (cl-letf (((symbol-function 'mr-x/quick-ask--state-tag)
+               (lambda () (format "<%s>" evil-state))))
+      (evil-insert-state)
+      (mr-x/quick-ask--show-state)
+      (let* ((row (text-property-any (point-min) (point-max) 'review-ask-footer t))
+             (ov mr-x/quick-ask--state-overlay))
+        (should row)
+        (should (= (overlay-start ov) row))
+        (should (equal (overlay-get ov 'before-string) "<insert>"))
+        (evil-normal-state)
+        (mr-x/quick-ask--show-state)
+        (should (equal (overlay-get ov 'before-string) "<normal>"))
+        ;; A redraw without a footer takes the tag away.
+        (let ((inhibit-read-only t)) (erase-buffer))
+        (mr-x/quick-ask--show-state)
+        (should-not (overlay-buffer ov))))))
+
 (ert-deftest quick-ask-response-map-has-four-exits ()
   (dolist (binding '(("q" . mr-x/quick-ask--dismiss)
                      ("c" . mr-x/quick-ask--surface-session)
@@ -244,14 +273,23 @@
            (buf (progn (switch-to-buffer source) (quick-ask-test--answer-buffer source))))
       (unwind-protect
           (quick-ask-test--posframes calls hidden
+            ;; The frame default is a box, as in any frame; evil then sets
+            ;; the buffer's cursor per state, after every show.
+            (with-current-buffer buf (evil-local-mode 1) (evil-insert-state))
             (let ((mr-x/quick-ask-placement 'float))
               (mr-x/quick-ask--show buf))
-            (should (eq (plist-get (cdr (car calls)) :cursor) 'bar))
-            (with-current-buffer buf (setq mr-x/quick-ask--phase 'response))
+            (should (eq (plist-get (cdr (car calls)) :cursor) 'box))
+            (with-current-buffer buf
+              (setq cursor-type 'box)       ; what posframe-show leaves behind
+              (setq mr-x/quick-ask--phase 'response)
+              (evil-normal-state))
             (setq calls nil)
             (let ((mr-x/quick-ask-placement 'float))
               (mr-x/quick-ask--show buf))
-            (should (eq (plist-get (cdr (car calls)) :cursor) 'box)))
+            (should (eq (plist-get (cdr (car calls)) :cursor) 'box))
+            (with-current-buffer buf
+              ;; Normal state asks for the frame default: t, which is the box.
+              (should (eq cursor-type t))))
         (kill-buffer buf) (kill-buffer source)))))
 
 (ert-deftest quick-ask-sends-both-sides-of-a-review-selection ()
