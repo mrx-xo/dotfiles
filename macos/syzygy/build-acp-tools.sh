@@ -110,7 +110,8 @@ ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
 # + local b43ee79 (scrollable chat toolbar with pin, turn-nav and kill actions; header overflow menu removed)
 # + local 00a6da1 (New chat stepper: Home combos with provider icons, Project, Agent, Prompt steps)
 # + local d34f21b (New chat stepper review fixes: load order, pin focus, resume edges)
-ACP_MOBILE_COMMIT="d34f21b808401b3f24ab5cdc1166b1ec2196f7d7"
+# + local dec7228 (selectable History text; New chat photos with recoverable delivery and one-tap Start; Stop stays busy during command-list updates)
+ACP_MOBILE_COMMIT="dec7228bc66015f5f025369f8b12c7d27f85f940"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
