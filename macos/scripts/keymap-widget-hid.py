@@ -6,10 +6,8 @@ and relays the firmware's layer broadcasts ([0x4C, layer, 0...]) to stdout
 as "L<n>" lines. Hammerspoon (keymap-widget.lua) spawns one per board and
 forwards each line to that board's webview via __setLayer(n).
 
-Usage: keymap-widget-hid.py [VID PID]   (hex or decimal; default: hotdox)
-Boards emitting the 0x4C frame: hotdox76v2/keymaps/mrx (keymap.c),
-work_louder/micro/keymaps/mrx (keymap.c — VIA build, broadcast rides
-VIA's raw HID interface; non-0x4C frames are VIA traffic, dropped here).
+Usage: keymap-widget-hid.py [VID PID]   (hex or decimal; default: iris se)
+Board emitting the 0x4C frame: keebio/iris/keymaps/mrx (keymap.c).
 
 Exits nonzero when the board is absent or a read fails (unplug/sleep);
 the reconnect/backoff policy lives in Hammerspoon, not here.
@@ -21,7 +19,7 @@ import sys
 
 import hid
 
-VID, PID = 0xAA96, 0xAAA9  # keyboards/hotdox76v2/keyboard.json
+VID, PID = 0xCB10, 0x8256  # keyboards/keebio/iris/{info,rev8/keyboard}.json
 USAGE_PAGE, USAGE = 0xFF60, 0x61  # QMK raw HID
 TAG = 0x4C  # 'L' — layer frames from the mrx keymaps; drop all others
 

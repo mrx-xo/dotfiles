@@ -7,6 +7,10 @@
 - **Status**: SHIPPED & VERIFIED — Phase A live 2026-07-24, Phase B live
   2026-07-27, stress test passed 2026-07-28 (layer tracking, tri-layer,
   mod-tap burst, held-mod highlight). Nothing open.
+- **2026-09-28 board change**: the hotdox and Creator Micro are gone. The
+  widget now renders one board, the Keebio Iris SE (`index.html#widget`,
+  HID `0xCB10:0x8256`). Everything below that names the hotdox or micro is
+  the original design record; current behavior is in `README.md`.
 - **Priority**: P1 (should ship)
 
 

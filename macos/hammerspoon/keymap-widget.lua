@@ -1,7 +1,6 @@
 -- keymap-widget.lua — live keymap widget on the portrait display's wallpaper.
--- Two hs.webview windows render keymap-explorer's index.html in widget mode
--- (hotdox on top, creator micro below) and a flagsChanged eventtap feeds them
--- held-modifier state. Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
+-- One hs.webview renders keymap-explorer's index.html in widget mode (the
+-- Keebio Iris SE) and a flagsChanged eventtap feeds it held-modifier state. Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
 -- Loaded from init.lua via dofile; exposed as the global `keymapWidget` for hs -c.
 
 local M = {}
@@ -11,10 +10,8 @@ local HTML = os.getenv("HOME") .. "/.dotfiles/macos/keymap-explorer/index.html"
 local SCREEN_PATTERN = "S2725HS"          -- the portrait Dell, 1080x1920
 -- rects are offsets into the portrait screen's frame
 local RECTS = {
-  hd = { x = 0,  y = 60,  w = 1080, h = 580 },   -- hotdox: 17u wide, shallow
-  cm = { x = 40, y = 680, w = 1000, h = 1040 },  -- micro: near-square
+  ir = { x = 0, y = 60, w = 1080, h = 520 },     -- iris: 15u wide, shallow
 }
-local CM_DEFAULT_LAYER = 2   -- monitors — the layer that matters day-to-day
 
 -- ---- webviews --------------------------------------------------------------
 local views = {}      -- board id -> hs.webview
@@ -39,9 +36,7 @@ local function makeView(hash, initJS)
   return wv
 end
 
-views.hd = makeView("#hotdox&widget")
-views.cm = makeView("#micro&widget",
-  string.format("window.__setLayer(%d)", CM_DEFAULT_LAYER))
+views.ir = makeView("#widget")
 M.views = views   -- reachable from `hs -c` for debugging
 
 -- position on the portrait display, or hide when it's absent / toggled off
@@ -64,7 +59,7 @@ function M.toggle()
   place()
 end
 
--- ---- live modifiers: one eventtap fans out to both webviews ----------------
+-- ---- live modifiers: one eventtap fans out to every webview ----------------
 local function b(v) return v and "true" or "false" end
 
 M.modTap = hs.eventtap.new({ hs.eventtap.event.types.flagsChanged }, function(e)
@@ -127,15 +122,14 @@ M.keyTap:start()   -- flash enabled by default; ⌘⌃⇧K or keymapWidget.toggl
 
 -- ---- phase B: live layer tracking from each board's raw HID broadcast ------
 -- keymap-widget-hid.py blocking-reads a board's raw HID interface and prints
--- "L<n>" per layer change (both mrx firmwares send [0x4C, layer] on every
+-- "L<n>" per layer change (the mrx firmware sends [0x4C, layer] on every
 -- change and once at boot). One listener per board, each line routed to that
 -- board's webview. A task dies on unplug/sleep; respawn with 2s→30s backoff,
 -- fall back to the board's resting layer while down.
 local HID_PY = "/opt/homebrew/bin/python3"
 local HID_SCRIPT = os.getenv("HOME") .. "/.dotfiles/macos/scripts/keymap-widget-hid.py"
 local HID_BOARDS = {
-  hd = { vid = "0xAA96", pid = "0xAAA9", fallback = 0 },
-  cm = { vid = "0x574C", pid = "0xE6E3", fallback = CM_DEFAULT_LAYER },
+  ir = { vid = "0xCB10", pid = "0x8256", fallback = 0 },  -- keebio/iris/rev8
 }
 
 local function setLayer(id, n)
