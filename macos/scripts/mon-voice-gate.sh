@@ -6,7 +6,7 @@
 # Only whitelisted monitor-mode.sh invocations pass; anything else is refused,
 # so the key is useless as a general shell.
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"  # m1ddc, betterdisplaycli
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"  # betterdisplaycli, displayplacer
 
 cmd="${SSH_ORIGINAL_COMMAND:-}"
 echo "$(date '+%F %T') gate: '$cmd'" >> "$HOME/.local/state/monitor-mode/voice.log"

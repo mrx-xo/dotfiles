@@ -61,8 +61,8 @@ brew "koekeishiya/formulae/yabai"
 brew "koekeishiya/formulae/skhd"
 
 # --- Monitor input/connection switching (scripts/monitor-mode.sh) ---
-brew "m1ddc"                                  # DDC input switching
-brew "waydabber/betterdisplay/betterdisplaycli"  # display connect/disconnect (app installed manually, Pro licensed)
+brew "waydabber/betterdisplay/betterdisplaycli"  # DDC input switching + display connect/disconnect (app installed manually, Pro licensed)
+brew "displayplacer"                            # online-display list (monitor-mode) + arrangement profiles (display-layout)
 
 # --- Media / Utils ---
 brew "mpv"

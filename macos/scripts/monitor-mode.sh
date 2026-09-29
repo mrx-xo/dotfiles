@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# monitor-mode.sh — point any monitor at any machine via DDC (m1ddc).
+# monitor-mode.sh — point any monitor at any machine via DDC (BetterDisplay).
 #
 # Names, not positions or roles: monitors go by panel and machines by fleet
 # name. ROMULUS and REMUS are the Dell S2719DGF twins (ROMULUS sits left in
@@ -56,8 +56,13 @@
 # (betterdisplaycli, needs BetterDisplay.app running + Pro) so the Mac
 # has no phantom desktop for windows/mouse to land on. Verified
 # 2026-07-22: connected=off truly drops it (yabai sees 3 displays);
-# reconnect re-enumerates in ~4-10s; m1ddc can NOT address a display
+# reconnect re-enumerates in ~4-10s; DDC can NOT address a display
 # while it's disconnected — hence the connect-first ordering below.
+#
+# DDC goes through betterdisplaycli, not m1ddc, since 2026-09-29: m1ddc
+# 1.2.0 segfaults on every call while a Sidecar display is attached, which
+# left one Dell switched and the other not. BetterDisplay reads return the
+# raw 16-bit VCP value (Dell: 0x11xx), so only the low byte is the input.
 #
 # S2719DGF VCP 60 input values: DP=15, HDMI1(1.4)=17, HDMI2(2.0)=18
 # LUPA (S2725HS) is POLLUX-only for now — no NEMESIS cable run to it.
@@ -133,12 +138,23 @@ label() {  # notification text for a display or machine name
   esac
 }
 
+ddc_set_input() {  # ddc_set_input <romulus|remus> <vcp-value>
+  betterdisplaycli set --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect --value="$2" > /dev/null 2>&1
+}
+
+ddc_get_input() {  # ddc_get_input <romulus|remus> -> input value (low byte)
+  local raw
+  raw=$(betterdisplaycli get --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect 2>/dev/null) || return 1
+  [[ "$raw" =~ ^[0-9]+$ ]] || return 1
+  echo $((raw & 0xFF))
+}
+
 bd_connect() {  # bd_connect <romulus|remus> <on|off>
   betterdisplaycli set --uuid="$(uuid_for "$1")" --connected="$2" > /dev/null 2>&1
 }
 
-ddc_visible() {  # is the display enumerated Mac-side (addressable by m1ddc)?
-  [[ "$(m1ddc display list 2>/dev/null)" == *"$(uuid_for "$1")"* ]]
+ddc_visible() {  # is the display enumerated Mac-side (online, DDC-addressable)?
+  [[ "$(displayplacer list 2>/dev/null)" == *"$(uuid_for "$1")"* ]]
 }
 
 wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
@@ -150,7 +166,7 @@ wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
   return 1
 }
 
-wait_yabai() {  # yabai re-enumerates a few seconds after m1ddc does
+wait_yabai() {  # yabai re-enumerates a few seconds after the display is online
   local i
   for i in $(seq 1 15); do
     yabai -m query --displays 2>/dev/null | grep -q "$1" && return 0
@@ -228,8 +244,8 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
     bd_connect "$1" on
     wait_ddc "$1" || { notify "FAILED: $1 never re-enumerated"; return 1; }
   fi
-  for try in 1 2 3; do
-    if m1ddc display "$(uuid_for "$1")" set input "$(input_for "$2")" > /dev/null 2>&1; then
+  for try in 1 2 3 4 5 6; do
+    if ddc_set_input "$1" "$(input_for "$2")"; then
       echo "$2" > "$STATE_DIR/$1"
       # No phantom desktop: drop the display from macOS while it shows
       # another machine. (Its DDC becomes unreachable until reconnect.)
@@ -240,9 +256,9 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
       fi
       return 0
     fi
-    sleep 0.4
+    sleep 0.5
   done
-  notify "FAILED: $1 -> $2 (DDC error x3)"
+  notify "FAILED: $1 -> $2 (DDC error x6)"
   return 1
 }
 
@@ -258,7 +274,7 @@ force_pollux() {  # force_pollux <romulus|remus>: ignore state, put it on POLLUX
   fi
   RESTORE_PENDING="$RESTORE_PENDING $(uuid_for "$1")"
   for try in 1 2 3; do
-    m1ddc display "$(uuid_for "$1")" set input "$HDMI_20" > /dev/null 2>&1 && return 0
+    ddc_set_input "$1" "$HDMI_20" && return 0
     sleep 0.4
   done
   notify "reset: $(label "$1") -> POLLUX failed (DDC error x3)"
@@ -288,7 +304,7 @@ current_machine() {  # current_machine <romulus|remus> -> pollux|nemesis|work
   #         fail — they sometimes return garbage WITH exit 0, which
   #         must never be trusted.
   local val
-  if [ "$1" = romulus ] && val=$(m1ddc display "$(uuid_for "$1")" get input 2>/dev/null); then
+  if [ "$1" = romulus ] && val=$(ddc_get_input "$1"); then
     case "$val" in
       $DP) echo nemesis ;; $HDMI_14) echo work ;; $HDMI_20) echo pollux ;;
       *) cat "$STATE_DIR/$1" 2>/dev/null || echo pollux ;;
