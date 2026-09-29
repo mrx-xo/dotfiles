@@ -3296,7 +3296,94 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
       (if start
           (move-overlay mr-x/agent-shell-prompt-divider--ov start start
                         (current-buffer))
-        (delete-overlay mr-x/agent-shell-prompt-divider--ov)))))
+        (delete-overlay mr-x/agent-shell-prompt-divider--ov)))
+    (mr-x/agent-shell-busy-tint--sync)))
+
+;; Busy tint: while the agent is generating, the divider and the prompt
+;; symbol turn the phone's purple (`syzygy-live-phone-bar').  The divider is recolored with a
+;; buffer-local face remap.  The symbol is the one before the sent input:
+;; while busy `comint-last-prompt' is the empty live prompt at the bottom,
+;; so the sent one is found by searching back for the prompt string that
+;; still carries the prompt face.  Both symbols get an overlay, re-placed
+;; on every sync because agent-shell re-renders the sent line under it.
+;; Synced from every buffer change (streaming output) and from
+;; `shell-maker-finish-output-hook' (the turn ending).
+(defface mr-x/agent-shell-prompt-busy
+  '((t :foreground "#c678dd"))
+  "Divider and prompt symbol while the agent is generating.")
+
+(defvar-local mr-x/agent-shell-busy-tint--cookie nil
+  "Face-remap cookie for the divider while busy, nil when idle.")
+(defvar-local mr-x/agent-shell-busy-tint--ovs nil
+  "Overlays tinting the prompt symbols while busy.")
+
+(defun mr-x/agent-shell-busy-tint--prompt-string ()
+  "The prompt string of the current shell."
+  (or (and (bound-and-true-p shell-maker--config)
+           (fboundp 'shell-maker-prompt)
+           (shell-maker-prompt shell-maker--config))
+      (bound-and-true-p mr-x/agent-shell-prompt)))
+
+(defun mr-x/agent-shell-busy-tint--ranges ()
+  "Ranges (START . END) of the live and the sent prompt symbols."
+  (let* ((prompt (mr-x/agent-shell-busy-tint--prompt-string))
+         (live (and comint-last-prompt
+                    (cons (marker-position (car comint-last-prompt))
+                          (marker-position (cdr comint-last-prompt)))))
+         (sent (when (and live prompt (not (string-empty-p prompt)))
+                 (save-excursion
+                   (goto-char (max (point-min) (1- (car live))))
+                   (let ((re (concat "^" (regexp-quote prompt))) found)
+                     (while (and (not found) (re-search-backward re nil t))
+                       (let ((fl (get-text-property (point) 'font-lock-face)))
+                         (when (and (not (invisible-p (point)))
+                                    (or (eq fl 'comint-highlight-prompt)
+                                        (and (listp fl)
+                                             (memq 'comint-highlight-prompt fl))))
+                           (setq found (cons (point) (+ (point) (length prompt)))))))
+                     found)))))
+    (delq nil (list live sent))))
+
+(defun mr-x/agent-shell-busy-tint--place ()
+  "Keep one tint overlay on each prompt symbol range."
+  (let ((ranges (mr-x/agent-shell-busy-tint--ranges))
+        keep)
+    (dolist (o mr-x/agent-shell-busy-tint--ovs)
+      (if (and (overlay-buffer o)
+               (member (cons (overlay-start o) (overlay-end o)) ranges))
+          (push o keep)
+        (delete-overlay o)))
+    (dolist (r ranges)
+      (unless (seq-find (lambda (o) (and (= (overlay-start o) (car r))
+                                         (= (overlay-end o) (cdr r))))
+                        keep)
+        (let ((o (make-overlay (car r) (cdr r) nil t nil)))
+          (overlay-put o 'face 'mr-x/agent-shell-prompt-busy)
+          (push o keep))))
+    (setq mr-x/agent-shell-busy-tint--ovs keep)))
+
+(defun mr-x/agent-shell-busy-tint--clear ()
+  "Remove the busy tint."
+  (when mr-x/agent-shell-busy-tint--cookie
+    (face-remap-remove-relative mr-x/agent-shell-busy-tint--cookie)
+    (setq mr-x/agent-shell-busy-tint--cookie nil))
+  (mapc #'delete-overlay mr-x/agent-shell-busy-tint--ovs)
+  (setq mr-x/agent-shell-busy-tint--ovs nil))
+
+(defun mr-x/agent-shell-busy-tint--sync (&rest _)
+  "Tint the divider and prompt symbols orange while busy, restore when idle."
+  (let ((busy (and (fboundp 'shell-maker-busy)
+                   (or (shell-maker-busy)
+                       (bound-and-true-p syzygy-live--remote-turn-active)))))
+    (cond
+     (busy
+      (unless mr-x/agent-shell-busy-tint--cookie
+        (setq mr-x/agent-shell-busy-tint--cookie
+              (face-remap-add-relative 'mr-x/agent-shell-prompt-divider
+                                       'mr-x/agent-shell-prompt-busy)))
+      (mr-x/agent-shell-busy-tint--place))
+     (mr-x/agent-shell-busy-tint--cookie
+      (mr-x/agent-shell-busy-tint--clear)))))
 
 (define-minor-mode mr-x/agent-shell-prompt-divider-mode
   "Draw a divider above the live agent-shell prompt."
@@ -3309,12 +3396,17 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                        mr-x/agent-shell-prompt-divider--string))
         (add-hook 'after-change-functions
                   #'mr-x/agent-shell-prompt-divider--sync nil t)
+        (add-hook 'shell-maker-finish-output-hook
+                  #'mr-x/agent-shell-busy-tint--sync nil t)
         (mr-x/agent-shell-prompt-divider--sync))
     (remove-hook 'after-change-functions
                  #'mr-x/agent-shell-prompt-divider--sync t)
+    (remove-hook 'shell-maker-finish-output-hook
+                 #'mr-x/agent-shell-busy-tint--sync t)
     (when (overlayp mr-x/agent-shell-prompt-divider--ov)
       (delete-overlay mr-x/agent-shell-prompt-divider--ov))
-    (setq mr-x/agent-shell-prompt-divider--ov nil)))
+    (setq mr-x/agent-shell-prompt-divider--ov nil)
+    (mr-x/agent-shell-busy-tint--clear)))
 
 (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 
