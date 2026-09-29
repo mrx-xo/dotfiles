@@ -14,7 +14,8 @@ cat > "$T/bin/m1ddc" <<'STUB'
 # both displays enumerated Mac-side; romulus reads HDMI2 (18); writes succeed
 case "$1 $2" in
   "display list") echo "[1] S2719DGF (0CDDE5CC-F566-4B56-85FD-48B8EA229946)"; echo "[3] S2719DGF (8C207E30-FF6D-4624-A998-F6D7962597F6)" ;;
-  "display 8C207E30-FF6D-4624-A998-F6D7962597F6") [ "$3" = get ] && echo 18 ;;
+  # a display showing another machine is disconnected Mac-side: reads fail
+  "display 8C207E30-FF6D-4624-A998-F6D7962597F6") [ "$3" = get ] && { [ -e "$HOME/romulus-away" ] && exit 1; echo 18; } ;;
 esac
 echo "m1ddc $*" >> "$HOME/calls.log"; exit 0
 STUB
@@ -78,4 +79,21 @@ t "legacy 4 pc still means REMUS -> NEMESIS" '[ "$(cat "$S/remus")" = nemesis ]'
 
 fresh pollux pollux; "$SCRIPT" pollux bogus >/dev/null 2>&1
 t "unknown machine name is refused before any DDC write" '! grep -q "set input" "$HOME/calls.log" 2>/dev/null'
+
+fresh pollux pollux; "$SCRIPT" flip >/dev/null 2>&1
+t "flip: normal -> flipped, and no SSH while the Dells are on POLLUX" \
+  '[ "$(cat "$S/facing")" = flipped ] && ! grep -q "^ssh" "$HOME/calls.log" 2>/dev/null'
+"$SCRIPT" flip >/dev/null 2>&1
+t "flip again: back to normal" '[ "$(cat "$S/facing")" = normal ]'
+
+fresh nemesis nemesis; touch "$HOME/romulus-away"; echo normal > "$S/facing"; "$SCRIPT" flip >/dev/null 2>&1
+t "flip with both Dells on NEMESIS runs mon-layout-flipped then mon-assert" \
+  'grep -q "schtasks /run /tn mon-layout-flipped && .*mon-assert" "$HOME/calls.log"'
+
+fresh pollux pollux; touch "$HOME/romulus-away"; echo flipped > "$S/facing"; "$SCRIPT" nemesis >/dev/null 2>&1
+t "desk nemesis chains mon-extend, the current layout, then mon-assert" \
+  'grep -q "mon-extend && .*mon-layout-flipped && .*mon-assert" "$HOME/calls.log"'
+
+fresh pollux pollux; "$SCRIPT" pollux nemesis >/dev/null 2>&1
+t "one Dell on NEMESIS: no layout task" '! grep -q "mon-layout" "$HOME/calls.log"'
 exit $fail
