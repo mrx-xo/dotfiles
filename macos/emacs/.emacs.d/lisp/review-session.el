@@ -566,11 +566,36 @@ Hunk keys match Magit and diff-mode; `v' stays Evil visual selection.")
     ("<wheel-left>" . review-session-scroll-wheel) ("<wheel-right>" . review-session-scroll-wheel))
   "Pane keys for long lines.  Evil's sideways-scroll keys move both panes.")
 
+(defun review-session--line-scroll (command count)
+  "Scroll with COMMAND by COUNT lines, one more at a time until the start moves.
+A hunk band is overlay text before a line, and a window cannot start
+inside it: one line of scroll there lands on the same start and nothing
+moves.  Three extra lines clear any band."
+  (let ((start (window-start)) (n count))
+    (funcall command n)
+    (while (and (= start (window-start)) (< n (+ count 3)))
+      (setq n (1+ n))
+      (funcall command n))))
+
+(defun review-session-scroll-line-down (&optional count)
+  "Scroll the pane COUNT lines down, stepping past hunk bands."
+  (interactive "p")
+  (review-session--line-scroll (if (fboundp 'evil-scroll-line-down) #'evil-scroll-line-down #'scroll-up)
+                               (or count 1)))
+
+(defun review-session-scroll-line-up (&optional count)
+  "Scroll the pane COUNT lines up, stepping past hunk bands."
+  (interactive "p")
+  (review-session--line-scroll (if (fboundp 'evil-scroll-line-up) #'evil-scroll-line-up #'scroll-down)
+                               (or count 1)))
+
 (defvar review-pane-mode-map
   (review-session-bind-keys (make-sparse-keymap)
                             (append review-session-long-line-keys
                                     '(("RET" . review-session-visit)
-                                      ("gr" . review-session-refresh))))
+                                      ("gr" . review-session-refresh)
+                                      ("C-e" . review-session-scroll-line-down)
+                                      ("C-y" . review-session-scroll-line-up))))
   "Keys in a review pane.")
 
 (define-derived-mode review-pane-mode special-mode "Review"

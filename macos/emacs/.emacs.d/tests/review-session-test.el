@@ -779,4 +779,26 @@ Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS)."
       (should (equal (get-text-property (1- (funcall nl old i)) 'display old) '(space :width 0 :height 0.5))))
     (should-not (get-text-property (funcall nl old 3) 'line-height old))))
 
+(ert-deftest review-session-line-scroll-steps-past-a-band ()
+  ;; A hunk band is overlay text before a line.  A window cannot start
+  ;; inside it, so a one-line scroll there does not move; the pane's
+  ;; scroll takes one more line until the start moves.
+  (let ((starts (list 10 10 12)) calls)
+    (cl-letf (((symbol-function 'window-start) (lambda (&rest _) (car starts)))
+              ((symbol-function 'evil-scroll-line-down)
+               (lambda (n) (push n calls) (setq starts (cdr starts)))))
+      (review-session-scroll-line-down 1)
+      (should (equal (nreverse calls) '(1 2)))))
+  ;; A scroll that moves is left alone.
+  (let ((starts (list 10 11)) calls)
+    (cl-letf (((symbol-function 'window-start) (lambda (&rest _) (car starts)))
+              ((symbol-function 'evil-scroll-line-down)
+               (lambda (n) (push n calls) (setq starts (cdr starts)))))
+      (review-session-scroll-line-down 1)
+      (should (equal calls '(1)))))
+  (should (eq (lookup-key (evil-get-auxiliary-keymap review-pane-mode-map 'normal) (kbd "C-e"))
+              #'review-session-scroll-line-down))
+  (should (eq (lookup-key (evil-get-auxiliary-keymap review-pane-mode-map 'normal) (kbd "C-y"))
+              #'review-session-scroll-line-up)))
+
 (provide 'review-session-test)
