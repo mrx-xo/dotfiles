@@ -14,6 +14,22 @@ this file replaced is in git history up to `c39eb8b`.
 - **Flash both halves with the same `.uf2`.** One half on mrx and one on
   factory firmware gives a dead keyboard: no typing, no key combos.
 
+## The easy way
+
+```bash
+iris-flash
+```
+
+A gum walkthrough (`macos/scripts/iris-flash`): builds, asks which halves
+and where the cable is, then per half waits for the cable, the bootloader
+drive, the copy and the reconnect, and finishes with the home-row check.
+Each result is logged to `~/.local/state/iris-flash.log`, and the start
+screen shows the last flash of each half. The steps below are what it
+automates.
+
+`iris-flash --demo` walks the same screens with nothing built, copied or
+logged: every wait is a two-second fake that succeeds.
+
 ## Enter the bootloader
 
 Either of these, per half:
