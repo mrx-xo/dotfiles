@@ -32,7 +32,7 @@ function Read-Dells {
             $w = ($row.Resolution -split '\s*X\s*')[0]
             $out[$name] = [pscustomobject]@{
                 Display = $row.Name; X = [int]$x; Y = [int]$y; Width = [int]$w
-                Primary = $row.Primary -eq 'Yes'
+                Primary = $row.Primary -eq 'Yes'; Hz = $row.Frequency
             }
         }
     }
@@ -51,7 +51,10 @@ if (-not ($dells.romulus -and $dells.remus)) { Log 'skipped: both Dells not acti
 
 $left, $right = if ($Layout -eq 'normal') { 'romulus', 'remus' } else { 'remus', 'romulus' }
 $wantRightOfLeft = $dells[$left].X + $dells[$left].Width -eq $dells[$right].X
-if ($wantRightOfLeft -and $dells[$left].Y -eq $dells[$right].Y) { Log 'already arranged'; exit 0 }
+if ($wantRightOfLeft -and $dells[$left].Y -eq $dells[$right].Y) {
+    Log ("already arranged; romulus {0} Hz, remus {1} Hz" -f $dells.romulus.Hz, $dells.remus.Hz)
+    exit 0
+}
 
 # Keep whichever Dell is primary at 0,0 and move the other one.
 if ($dells[$right].Primary) {
