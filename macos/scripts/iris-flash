@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# iris-flash — walk the Keebio Iris SE through a flash, end to end, one half
+# at a time: build, bootloader, copy, reconnect, and a home-row check that
+# proves which firmware the half is running.
+#
+# Why the home-row check: the half with the Mac cable runs the keymap for the
+# whole board, so a working keyboard says nothing about the other half. The
+# only per-half proof is to plug into that half and type. (2026-09-29: the
+# left half sat on factory firmware for a day while the board "worked".)
+#
+# Runbook: ~/.dotfiles/macos/keymap-explorer/FLASHING.md
+#
+# Usage: iris-flash            flash for real
+#        iris-flash --demo     same screens, nothing built, copied or logged;
+#                              every wait is a 2s fake that succeeds
+set -uo pipefail
+DEMO=0; [ "${1:-}" = "--demo" ] && DEMO=1
+
+QMK_HOME="$HOME/qmk_firmware"
+KB="keebio/iris/rev8"
+KM="mrx"
+KEYMAP_DIR="$QMK_HOME/keyboards/keebio/iris/keymaps/$KM"
+UF2="$QMK_HOME/keebio_iris_rev8_mrx.uf2"
+DRIVE="/Volumes/RPI-RP2"
+HOME_HALF="right"                 # where the Mac cable lives day to day
+HOME_ROW="aoeuidhtns-"            # mrx base layer, left to right
+FACTORY_ROW="asdfghjkl;'"         # Keebio default QWERTY
+LOG="$HOME/.local/state/iris-flash.log"
+LOG_OUT="$LOG"                    # demo writes to a throwaway file instead
+
+# ---- look ------------------------------------------------------------------
+ACCENT=214 GOOD=42 BAD=203 MUTED=245
+
+title() { gum style --border rounded --border-foreground "$ACCENT" --padding "0 2" --margin "1 0 0 0" --bold "$@"; }
+step()  { echo; gum style --foreground "$ACCENT" --bold "› $*"; }
+note()  { gum style --foreground "$MUTED" "  $*"; }
+do_()   { gum style "  ● $*"; }
+ok()    { gum style --foreground "$GOOD" "  ✓ $*"; }
+bad()   { gum style --foreground "$BAD" "  ✗ $*"; }
+UP()    { tr '[:lower:]' '[:upper:]' <<<"$1"; }
+
+trap 'echo; bad "aborted"; exit 130' INT
+
+# ---- checks ----------------------------------------------------------------
+iris_on_usb()   { ioreg -p IOUSB -l -w0 2>/dev/null | grep -q '"USB Product Name" = "Iris Rev. 8"'; }
+drive_mounted() { [ -d "$DRIVE" ]; }
+
+# wait_until <seconds> <title> <check-fn>  — spinner while polling
+wait_until() {
+  local secs=$1 label=$2 fn=$3
+  gum spin --spinner dot --title "$label" -- bash -c "
+    $(declare -f "$fn"); DRIVE='$DRIVE'
+    for _ in \$(seq 1 $((secs * 4))); do $fn && exit 0; sleep 0.25; done; exit 1"
+}
+drive_gone() { ! [ -d "$DRIVE" ]; }
+
+if [ "$DEMO" = 1 ]; then          # nothing is "there" yet; every wait succeeds
+  iris_on_usb()   { return 1; }
+  drive_mounted() { return 1; }
+  wait_until()    { gum spin --spinner dot --title "$2" -- sleep 2; }
+  LOG_OUT=$(mktemp -t iris-flash-demo)
+fi
+
+# ---- preflight -------------------------------------------------------------
+command -v gum >/dev/null || { echo "needs gum: brew install gum"; exit 1; }
+command -v qmk >/dev/null || { echo "needs qmk: brew install qmk/qmk/qmk"; exit 1; }
+[ -d "$KEYMAP_DIR" ] || { echo "no keymap at $KEYMAP_DIR"; exit 1; }
+mkdir -p "$(dirname "$LOG")"
+
+clear
+title "iris flash" "keebio/iris/rev8 · keymap mrx"
+[ "$DEMO" = 1 ] && gum style --foreground "$BAD" --bold "  DEMO: nothing is built, flashed or logged"
+
+commit=$(git -C "$QMK_HOME" log -1 --format=%h -- "$KEYMAP_DIR" 2>/dev/null)
+dirty=""
+[ -n "$(git -C "$QMK_HOME" status --porcelain -- "$KEYMAP_DIR" 2>/dev/null)" ] && dirty="+uncommitted"
+note "keymap: ${commit:-untracked}${dirty:+ $dirty}"
+for h in right left; do
+  last=$(grep " $h " "$LOG" 2>/dev/null | tail -1)
+  note "last $h flash: ${last:-none recorded}"
+done
+
+# ---- build -----------------------------------------------------------------
+step "Build"
+if [ "$DEMO" = 1 ]; then
+  gum spin --spinner dot --title "compiling (about 30s)" -- sleep 3
+  ok "built $(basename "$UF2") (demo)"
+elif (cd "$QMK_HOME" && gum spin --spinner dot --title "compiling (about 30s)" --show-error -- \
+      qmk compile -kb "$KB" -km "$KM"); then
+  ok "built $(basename "$UF2") ($(( $(stat -f %z "$UF2") / 1024 )) KB)"
+else
+  bad "build failed, see the error above"; exit 1
+fi
+
+# ---- plan ------------------------------------------------------------------
+step "Plan"
+which=$(gum choose --header "  flash which halves?" "both halves" "right half only" "left half only") || exit 130
+now=$(gum choose --header "  where is the Mac cable right now?" "right" "left") || exit 130
+case "$which" in
+  "both halves")     other=$([ "$now" = right ] && echo left || echo right); halves=("$now" "$other") ;;
+  "right half only") halves=(right) ;;
+  "left half only")  halves=(left) ;;
+esac
+note "order: $(UP "${halves[*]}" | sed 's/ / then /')  (cable half first, less cable moving)"
+cable="$now"
+
+# ---- one half --------------------------------------------------------------
+verify_half() {  # verify_half <half>  -> 0 if it types the mrx home row
+  local half=$1 typed
+  do_ "on the Iris, type the home row left to right, then Enter"
+  note "(the plugged-in half runs the keymap, so this tests the $(UP "$half") half)"
+  typed=$(gum input --placeholder "a o e u i d h t n s -" --width 40) || return 1
+  if [ "$typed" = "$HOME_ROW" ]; then
+    ok "typed $HOME_ROW: mrx firmware"; return 0
+  elif [ "$typed" = "$FACTORY_ROW" ]; then
+    bad "typed $FACTORY_ROW: still factory firmware"; return 1
+  else
+    bad "typed '$typed', expected $HOME_ROW"; return 1
+  fi
+}
+
+flash_half() {  # flash_half <half> <n> <total>
+  local half=$1 n=$2 total=$3 H; H=$(UP "$half")
+  title "Half $n of $total · $H"
+
+  # 1. cable
+  step "Cable"
+  if [ "$cable" != "$half" ]; then
+    do_ "move the Mac cable into the $H half"
+    note "leave the link cable between the halves plugged in"
+    gum confirm --affirmative "done" --negative "abort" "Mac cable is in the $H half?" || exit 130
+    cable="$half"
+  fi
+  until iris_on_usb || wait_until 15 "waiting for the Mac to see the Iris" iris_on_usb; do
+    bad "the Mac does not see the Iris: check the cable is seated in the $H half"
+    gum confirm --affirmative "retry" --negative "abort" "try again?" || exit 130
+  done
+  ok "Iris connected through the $H half"
+
+  # 2. bootloader
+  step "Bootloader"
+  do_ "double-tap the reset button under the $H half, fast (under half a second)"
+  note "or, if this half already runs mrx: hold Space + Enter, tap the ' key (BOOT)"
+  note "the Iris goes dead now; that's expected"
+  until drive_mounted || wait_until 60 "waiting for the RPI-RP2 drive" drive_mounted; do
+    bad "no bootloader drive after 60s"
+    note "one tap only restarts the half; two fast taps enter the bootloader"
+    note "make sure you pressed reset on the $H half, the one with the Mac cable"
+    gum confirm --affirmative "retry" --negative "abort" "try again?" || exit 130
+  done
+  ok "bootloader drive mounted"
+
+  # 3. copy: the half reboots mid-copy, so judge by the drive vanishing
+  step "Flash"
+  if [ "$DEMO" = 1 ]; then
+    gum spin --spinner dot --title "copying firmware" -- sleep 1.5
+  else
+    gum spin --spinner dot --title "copying firmware" -- cp -X "$UF2" "$DRIVE/" 2>/dev/null
+  fi
+  if wait_until 15 "waiting for the half to reboot" drive_gone; then
+    ok "firmware written, half rebooted"
+  else
+    bad "the drive is still mounted: the copy did not take"
+    exit 1
+  fi
+  wait_until 20 "waiting for the Iris to reconnect" iris_on_usb \
+    && ok "Iris back on USB" \
+    || bad "Iris did not come back on USB (check the cable, then continue)"
+
+  # 4. prove it
+  step "Check"
+  until verify_half "$half"; do
+    choice=$(gum choose --header "  what now?" "retype" "flash this half again" "skip the check") || exit 130
+    case "$choice" in
+      "flash this half again") flash_half "$half" "$n" "$total"; return ;;
+      "skip the check") echo "$(date '+%F %T') $half ${commit:-untracked}${dirty} unverified" >>"$LOG_OUT"; return ;;
+    esac
+  done
+  echo "$(date '+%F %T') $half ${commit:-untracked}${dirty} verified" >>"$LOG_OUT"
+}
+
+total=${#halves[@]}
+for i in "${!halves[@]}"; do
+  flash_half "${halves[$i]}" $((i + 1)) "$total"
+done
+
+# ---- wrap up ---------------------------------------------------------------
+if [ "$cable" != "$HOME_HALF" ]; then
+  step "Put it back"
+  do_ "move the Mac cable back into the $(UP "$HOME_HALF") half"
+  gum confirm --affirmative "done" --negative "leave it" "cable back in the $(UP "$HOME_HALF") half?" || true
+fi
+
+title "done"
+for h in "${halves[@]}"; do ok "$(UP "$h") half: $(grep " $h " "$LOG_OUT" | tail -1 | awk '{print $NF}')"; done
+note "log: $LOG_OUT"
