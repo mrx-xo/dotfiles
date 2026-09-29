@@ -2,9 +2,9 @@
 # vengeance-wake.sh — power on / wake VENGEANCE via Wake-on-LAN.
 #
 #   vengeance-wake.sh           # send magic packet, notify when SSH is up
-#   vengeance-wake.sh <preset>  # ...then run monitor-mode.sh <preset> — any
-#                               # preset that puts VENGEANCE on glass (game,
-#                               # rsplit, split, ...) is a full summon
+#   vengeance-wake.sh <desk>    # ...then run monitor-mode.sh <desk> — any
+#                               # desk state that puts NEMESIS on glass
+#                               # (nemesis, nemesis pollux, ...) is a full summon
 #
 # PC: Realtek 5GbE onboard, MAC 34:5A:60:C0:95:87, 192.168.1.159.
 # Windows side verified 2026-07-17: WakeOnMagicPacket enabled, Fast
@@ -38,7 +38,7 @@ PY
 # up, skip the wake dance and go straight to the handover.
 if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
   if [ -n "${1:-}" ]; then
-    ~/.dotfiles/macos/scripts/monitor-mode.sh "$1"
+    ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
   else
     notify "VENGEANCE is already awake"
   fi
@@ -54,7 +54,7 @@ for i in $(seq 1 45); do
     notify "VENGEANCE is awake (${i}x2s)"
     if [ -n "${1:-}" ]; then
       sleep 2
-      ~/.dotfiles/macos/scripts/monitor-mode.sh "$1"
+      ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
     fi
     exit 0
   fi

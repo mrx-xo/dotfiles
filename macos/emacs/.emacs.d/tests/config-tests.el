@@ -311,8 +311,8 @@ a regression here would silently bring that back."
 (ert-deftest config-test-mr-x-mon-functions ()
   "Monitor-mode commands should be defined and the script should exist."
   (should (fboundp 'mr-x/mon))
-  (should (fboundp 'mr-x/mon-toggle-3))
-  (should (fboundp 'mr-x/mon-toggle-4))
+  (should (fboundp 'mr-x/mon-toggle-romulus))
+  (should (fboundp 'mr-x/mon-toggle-remus))
   (should (fboundp 'mr-x/mon-status))
   (should (file-executable-p (expand-file-name mr-x/mon-script))))
 

@@ -9388,35 +9388,37 @@ Appends to the current year's transaction file."
   "Run a monitor-mode COMMAND — same args as the `mon' shell alias."
   (interactive
    (list (completing-read "mon: "
-                          '("game" "mac" "split" "rsplit" "work" "status"
-                            "toggle 3" "toggle 4"
-                            "3 mac" "3 pc" "4 mac" "4 pc" "4 work"))))
+                          '("nemesis" "pollux" "pollux nemesis"
+                            "nemesis pollux" "pollux work" "status"
+                            "toggle romulus" "toggle remus"
+                            "romulus pollux" "romulus nemesis"
+                            "remus pollux" "remus nemesis" "remus work"))))
   (apply #'mr-x/mon--run (split-string command)))
 
-(defun mr-x/mon-toggle-3 ()
-  "Flip the center monitor (yabai 3) between Mac and PC."
+(defun mr-x/mon-toggle-romulus ()
+  "Flip ROMULUS between POLLUX and NEMESIS."
   (interactive)
-  (mr-x/mon--run "toggle" "3"))
+  (mr-x/mon--run "toggle" "romulus"))
 
-(defun mr-x/mon-toggle-4 ()
-  "Flip the right monitor (yabai 4) between Mac and PC."
+(defun mr-x/mon-toggle-remus ()
+  "Flip REMUS between POLLUX and NEMESIS."
   (interactive)
-  (mr-x/mon--run "toggle" "4"))
+  (mr-x/mon--run "toggle" "remus"))
 
-(defun mr-x/mon-game ()
-  "Center + right -> VENGEANCE."
+(defun mr-x/mon-nemesis ()
+  "ROMULUS + REMUS -> NEMESIS."
   (interactive)
-  (mr-x/mon--run "game"))
+  (mr-x/mon--run "nemesis"))
 
-(defun mr-x/mon-mac ()
-  "Center + right -> MrX."
+(defun mr-x/mon-pollux ()
+  "ROMULUS + REMUS -> POLLUX."
   (interactive)
-  (mr-x/mon--run "mac"))
+  (mr-x/mon--run "pollux"))
 
-(defun mr-x/mon-split ()
-  "Center -> MrX, right -> VENGEANCE."
+(defun mr-x/mon-pollux-nemesis ()
+  "ROMULUS -> POLLUX, REMUS -> NEMESIS."
   (interactive)
-  (mr-x/mon--run "split"))
+  (mr-x/mon--run "pollux" "nemesis"))
 
 (defun mr-x/mon-status ()
   "Echo which machine each monitor points at."
