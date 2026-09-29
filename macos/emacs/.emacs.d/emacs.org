@@ -12642,6 +12642,15 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
             (message "No active Quick Ask session to surface"))))
 
       ;; Submit flow — sends to hidden agent-shell
+      (defun mr-x/quick-ask--wait-point ()
+        "Put point at the start of the thinking line, in the buffer and its window.
+      Sending redraws the card, and point would land on the tall context row."
+        (when-let ((spinner (text-property-any (point-min) (point-max) 'review-ask-anim t)))
+          (goto-char spinner)
+          (goto-char (line-beginning-position))
+          (when-let ((window (get-buffer-window (current-buffer) t)))
+            (set-window-point window (point)))))
+
       (defun mr-x/quick-ask--submit ()
         "Submit the question to the hidden agent-shell session."
         (interactive)
@@ -12667,6 +12676,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (remove-overlays)
               (review-panel-ask-waiting label question))
             (mr-x/quick-ask--refit popup-buf)
+            (mr-x/quick-ask--wait-point)
             (setq buffer-read-only t)
             ;; Activate waiting keymap so user can abort
             (setq mr-x/quick-ask--phase 'waiting)
