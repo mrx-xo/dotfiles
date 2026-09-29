@@ -20,6 +20,11 @@
 #   monitor-mode.sh remus   pollux|nemesis|work
 #   monitor-mode.sh toggle romulus|remus    # flip POLLUX <-> NEMESIS
 #
+# Which way the Dells face (they turn around; LUPA stays put). NEMESIS only:
+# with both Dells on it, left/right is re-arranged to match.
+#   monitor-mode.sh flip            # normal (west) <-> flipped (east)
+#   monitor-mode.sh flip normal|flipped
+#
 # Escape hatch (ignores the state files; use when state got funky):
 #   monitor-mode.sh reset           # reconnect + DDC both -> POLLUX
 #
@@ -78,6 +83,7 @@ for f in "$STATE_DIR/romulus" "$STATE_DIR/remus"; do
 done
 
 LAYOUT="$STATE_DIR/layout.json"
+FACING="$STATE_DIR/facing"   # normal | flipped (see flip)
 BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
@@ -300,6 +306,32 @@ toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
   fi
 }
 
+facing() { cat "$FACING" 2>/dev/null || echo normal; }
+
+flip() {  # flip [normal|flipped]: record which way the Dells face
+  local want="${1:-}"
+  case "$want" in
+    normal|flipped) ;;
+    "") [ "$(facing)" = flipped ] && want=normal || want=flipped ;;
+    *) echo "usage: $(basename "$0") flip [normal|flipped]" >&2; exit 1 ;;
+  esac
+  echo "$want" > "$FACING"
+  local c r
+  c=$(current_machine romulus); r=$(current_machine remus)
+  if [ "$c" = nemesis ] && [ "$r" = nemesis ]; then
+    ssh -n -o ConnectTimeout=4 -o BatchMode=yes \
+      -o ServerAliveInterval=5 -o ServerAliveCountMax=2 vengeance \
+      "MSYS_NO_PATHCONV=1 schtasks /run /tn mon-layout-$want && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert" \
+      >"$STATE_DIR/windows-sync.log" 2>&1 \
+      || notify "Layout sync failed; NEMESIS may be asleep or unreachable"
+  fi
+  if [ "$want" = flipped ]; then
+    notify "Facing east: REMUS left, ROMULUS right"
+  else
+    notify "Facing west: ROMULUS left, REMUS right"
+  fi
+}
+
 desk() {  # desk <romulus-machine> <remus-machine>: a full desk state
   set_display romulus "$1"; set_display remus "$2"
   if [ "$1" = "$2" ]; then
@@ -325,6 +357,12 @@ sync_windows() {
   elif [ "$c" = nemesis ];                       then task=mon-only3
   else                                      task=mon-extend
   fi
+  # both Dells on NEMESIS -> arrange them for the way they face
+  # (mon-layout.ps1 waits for mon-extend's topology before moving anything)
+  local layout=""
+  if [ "$c" = nemesis ] && [ "$r" = nemesis ]; then
+    layout=" && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-layout-$(facing)"
+  fi
   # anything pointing at NEMESIS -> also wake its display (mon-wake
   # jiggles the mouse + SetThreadExecutionState in the desktop session)
   if [ "$c" = nemesis ] || [ "$r" = nemesis ]; then
@@ -335,7 +373,7 @@ sync_windows() {
   # against the topology task's fallback)
   if ! ssh -n -o ConnectTimeout=4 -o BatchMode=yes \
      -o ServerAliveInterval=5 -o ServerAliveCountMax=2 vengeance \
-     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert$wake" \
+     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task$layout && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert$wake" \
      >"$STATE_DIR/windows-sync.log" 2>&1; then
     echo "Windows sync failed ($task); see $STATE_DIR/windows-sync.log" >&2
     notify "Windows sync failed ($task); NEMESIS may be asleep or unreachable"
@@ -389,6 +427,9 @@ case "${1:-}" in
     sync_windows
     maybe_restore
     ;;
+  flip)
+    flip "${2:-}"
+    ;;
   reset)
     force_pollux romulus || true; force_pollux remus || true
     notify "Reset: ROMULUS + REMUS -> POLLUX (state cleared)"
@@ -409,9 +450,10 @@ case "${1:-}" in
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
       printf '%-9s %s (%s)\n' "$d:" "$(current_machine "$d")" "$conn"
     done
+    printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
   *)
-    sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
