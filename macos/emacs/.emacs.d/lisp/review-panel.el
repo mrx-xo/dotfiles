@@ -987,11 +987,14 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
      :bg 'bg-hard :pad '(8 8))))
 
 (defun review-panel-ask-footer (exits)
-  "The card's dark footer: keycaps for EXITS, each (KEY LABEL TOKEN)."
+  "The card's dark footer: keycaps for EXITS, each (KEY LABEL TOKEN).
+The keycap row carries `review-ask-footer', so the box can put its
+evil state tag at the row's left edge."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (concat (review-panel--divider)
             (review-panel--spacer 8 'bg-hard)
-            (review-panel--row (review-panel--ask-exits exits) :bg 'bg-hard)
+            (propertize (review-panel--row (review-panel--ask-exits exits) :bg 'bg-hard)
+                        'review-ask-footer t)
             (review-panel--spacer 8 'bg-hard))))
 
 (defun review-panel-ask-indent ()
