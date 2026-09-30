@@ -54,4 +54,10 @@
   ;; `v' is left to Evil so panes can select text for Quick Ask.
   (should-not (lookup-key review-pane-mode-map (kbd "v"))))
 
+(ert-deftest review-hydra-has-the-pr-actions ()
+  (dolist (pair '(("c" . mr-x/review-pr-comment) ("A" . mr-x/review-pr-approve)
+                  ("X" . mr-x/review-pr-request-changes) ("m" . mr-x/review-pr-merge)))
+    (should (eq (lookup-key hydra-review/keymap (kbd (car pair)))
+                (intern (format "hydra-review/%s-and-exit" (cdr pair)))))))
+
 (provide 'review-hydra-test)

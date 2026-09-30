@@ -46,14 +46,18 @@
       (setq review-panel--collapsed (not review-panel--collapsed)))
     (review-panel--refresh s)))
 
+(dolist (command '(mr-x/review-pr-comment mr-x/review-pr-approve
+                   mr-x/review-pr-request-changes mr-x/review-pr-merge))
+  (autoload command "pr-workflow" nil t))
+
 (defhydra hydra-review (:hint nil :foreign-keys run)
   "
  Review session
- Hunks               Files               View / ask
- _C-j_: next hunk     _J_: next file       _f_: files panel
- _C-k_: prev hunk     _K_: prev file       _h_: old pane   _l_: new pane
- _C-n_: next step    _C-p_: prev step
- _TAB_: fold          _x_: viewed          _a_: Quick Ask  _u_: park
+ Hunks               Files               View / ask                      PR
+ _C-j_: next hunk     _J_: next file       _f_: files panel                 _c_: comment
+ _C-k_: prev hunk     _K_: prev file       _h_: old pane   _l_: new pane    _A_: approve
+ _C-n_: next step    _C-p_: prev step                                      _X_: request changes
+ _TAB_: fold          _x_: viewed          _a_: Quick Ask  _u_: park        _m_: merge
  _z_: strip                                _w_: wrap or scroll long lines
  _P_: pause review   _Q_: quit review    _q_: quit hydra"
   ;; Same keys as `review-session-keys'; review-hydra-test keeps them equal.
@@ -72,6 +76,10 @@
   ("l" review-hydra-new :exit t)
   ("a" mr-x/quick-ask :exit t)
   ("u" syzygy-park :exit t)
+  ("c" mr-x/review-pr-comment :exit t)
+  ("A" mr-x/review-pr-approve :exit t)
+  ("X" mr-x/review-pr-request-changes :exit t)
+  ("m" mr-x/review-pr-merge :exit t)
   ("P" review-session-pause :exit t)
   ("Q" review-session-quit :exit t)
   ("q" nil :exit t))
