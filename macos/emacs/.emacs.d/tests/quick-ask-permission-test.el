@@ -79,6 +79,11 @@
           (should (< (string-search "thinking" text) (string-search "Allow tool?" text)
                      (string-search "footer" text))))
         (should (eq (lookup-key mr-x/quick-ask-waiting-map "1") #'quick-ask-permission-allow))
+        ;; Evil's normal state binds digits to a count; the box's states
+        ;; must win, or the keys only work while typing.
+        (require 'evil)
+        (dolist (key '("1" "2" "3"))
+          (should (lookup-key (evil-get-auxiliary-keymap mr-x/quick-ask-waiting-map 'normal) key)))
         (quick-ask-permission-allow)
         (should (equal (car answer) "allow"))
         (should-not quick-ask-permission--pending)
