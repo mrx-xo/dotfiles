@@ -34,6 +34,13 @@
 # Drift check (Hammerspoon runs it after every display change):
 #   monitor-mode.sh check           # notify if an away display re-enumerated
 #
+# Kiosk claims (ONAR YouTube kiosks; holder = the machine asking):
+#   monitor-mode.sh claim romulus|remus <holder> pollux|nemesis   # ok <prev> | busy <holder>
+#   monitor-mode.sh release romulus|remus <holder>                # restored <m> | left <m>
+#   monitor-mode.sh json            # {"romulus":{"machine":..,"claimedBy":..},..}
+# Every switching action takes a lock ($STATE_DIR/lock.d), so ONAR, AIDOS
+# and the macro pad take turns instead of half-switching a Dell.
+#
 # Old words still work (renamed 2026-09-29): game, mac, split, rsplit and
 # work as desk states; mac/pc for machines; center|3 and right|4 for displays.
 #
@@ -90,6 +97,9 @@ done
 LAYOUT="$STATE_DIR/layout.json"
 FACING="$STATE_DIR/facing"   # normal | flipped (see flip)
 BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
+LOCK="$STATE_DIR/lock.d"     # mkdir lock: ONAR, AIDOS and the macro pad take turns
+CLAIMS="$STATE_DIR/claims"   # claims/<display>: holder=, set=, restore=
+LOCK_HELD=0
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
 
@@ -314,6 +324,68 @@ current_machine() {  # current_machine <romulus|remus> -> pollux|nemesis|work
   fi
 }
 
+acquire_lock() {  # wait for our turn; take over a lock whose owner died
+  local i p tries="${MONITOR_MODE_LOCK_TRIES:-300}"
+  for ((i = 0; i < tries; i++)); do
+    if mkdir "$LOCK" 2>/dev/null; then
+      echo $$ > "$LOCK/pid"; LOCK_HELD=1; return 0
+    fi
+    p=$(cat "$LOCK/pid" 2>/dev/null)
+    if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then
+      rm -rf "$LOCK"; continue
+    fi
+    sleep 0.5
+  done
+  echo "monitor-mode: busy (another switch is running)" >&2
+  return 1
+}
+
+claim_get() {  # claim_get <display> <key> -> value or empty (never fails: set -e)
+  [ -f "$CLAIMS/$1" ] || return 0
+  sed -n "s/^$2=//p" "$CLAIMS/$1"
+}
+
+claim_display() {  # claim_display <display> <holder> <machine>
+  local held prev
+  held=$(claim_get "$1" holder)
+  if [ -n "$held" ] && [ "$held" != "$2" ]; then echo "busy $held"; return 3; fi
+  prev=$(current_machine "$1")
+  mkdir -p "$CLAIMS"
+  printf 'holder=%s\nset=%s\nrestore=%s\n' "$2" "$3" "$prev" > "$CLAIMS/$1"
+  if ! set_display "$1" "$3"; then rm -f "$CLAIMS/$1"; return 1; fi
+  sync_windows
+  maybe_restore
+  echo "ok $prev"
+}
+
+release_display() {  # release_display <display> <holder>
+  local held want restore now
+  held=$(claim_get "$1" holder)
+  if [ "$held" != "$2" ]; then echo "not-held ${held:-none}"; return 3; fi
+  want=$(claim_get "$1" set); restore=$(claim_get "$1" restore)
+  now=$(current_machine "$1")
+  rm -f "$CLAIMS/$1"
+  if [ "$now" = "$want" ] && [ -n "$restore" ] && [ "$restore" != "$want" ]; then
+    set_display "$1" "$restore" || return 1
+    sync_windows
+    maybe_restore
+    echo "restored $restore"
+  else
+    echo "left $now"
+  fi
+}
+
+status_json() {
+  local d sep=""
+  printf '{'
+  for d in romulus remus; do
+    printf '%s"%s":{"machine":"%s","claimedBy":"%s"}' "$sep" "$d" \
+      "$(current_machine "$d")" "$(claim_get "$d" holder)"
+    sep=","
+  done
+  printf '}\n'
+}
+
 toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
   if [ "$(current_machine "$1")" = nemesis ]; then
     set_display "$1" pollux && notify "$(label "$1") -> POLLUX"
@@ -415,8 +487,12 @@ displays_power() {  # displays_power <sleep|wake>
 }
 
 case "${1:-}" in
-  status|check|displays|"") ;;
-  *) touch "$BUSY"; trap 'rm -f "$BUSY"' EXIT ;;
+  status|check|displays|json|"") ;;
+  *)
+    acquire_lock || exit 1
+    touch "$BUSY"
+    trap 'rm -f "$BUSY"; [ "$LOCK_HELD" = 1 ] && rm -rf "$LOCK"' EXIT
+    ;;
 esac
 
 case "${1:-}" in
@@ -461,6 +537,17 @@ case "${1:-}" in
   check)
     check_drift
     ;;
+  claim)
+    [ -n "${4:-}" ] || { echo "usage: $(basename "$0") claim <romulus|remus> <holder> <machine>" >&2; exit 1; }
+    claim_display "$(display_name "$2")" "$3" "$(machine_name "$4")"
+    ;;
+  release)
+    [ -n "${3:-}" ] || { echo "usage: $(basename "$0") release <romulus|remus> <holder>" >&2; exit 1; }
+    release_display "$(display_name "$2")" "$3"
+    ;;
+  json)
+    status_json
+    ;;
   status)
     for d in romulus remus; do
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
@@ -469,7 +556,7 @@ case "${1:-}" in
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
   *)
-    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
