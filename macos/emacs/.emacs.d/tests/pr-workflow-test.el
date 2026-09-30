@@ -486,6 +486,48 @@
           (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer) 'refetch))))
       (kill-buffer buffer))))
 
+(ert-deftest pr-review-action-retries-while-the-pr-view-loads ()
+  ;; The Forgejo PR view arrives asynchronously; the action tries again on
+  ;; its own instead of asking for a second keypress.
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (attempts 0) timers)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) (selected-frame)))
+                  ((symbol-function 'select-frame-set-input-focus) #'ignore)
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'run-at-time) (lambda (_time _repeat fn &rest args) (push (cons fn args) timers)))
+                  ((symbol-function 'mr-x/pr-comment)
+                   (lambda () (cl-incf attempts)
+                     (when (< attempts 3)
+                       (user-error "PR details are loading; run the action again when they appear")))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (should (= attempts 1))
+          (while timers
+            (let ((timer (pop timers))) (apply (car timer) (cdr timer))))
+          (should (= attempts 3)))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-review-action-gives-up-after-a-while ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (attempts 0) timers messages)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) (selected-frame)))
+                  ((symbol-function 'select-frame-set-input-focus) #'ignore)
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'run-at-time) (lambda (_time _repeat fn &rest args) (push (cons fn args) timers)))
+                  ((symbol-function 'message) (lambda (fmt &rest args) (push (apply #'format fmt args) messages)))
+                  ((symbol-function 'mr-x/pr-comment)
+                   (lambda () (cl-incf attempts)
+                     (user-error "PR details are loading; run the action again when they appear"))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (while timers
+            (let ((timer (pop timers))) (apply (car timer) (cdr timer))))
+          (should (= attempts (1+ mr-x/review-pr-action-retries)))
+          (should (seq-find (lambda (m) (string-match-p "did not load" m)) messages)))
+      (kill-buffer buffer))))
+
 ;;;; Merge readiness
 
 (ert-deftest pr-readiness-parses-forgejo ()
@@ -504,10 +546,10 @@
                   ((user . ((login . "ann"))) (state . "REQUEST_CHANGES")))
                 '((state . "pending") (statuses . (((state . "pending"))))))))
     (should (equal ready '(:state open :mergeable nil :checks pending :approvals 0 :changes-requested t))))
-  ;; Merged, and no checks at all.
+  ;; Merged, and no checks at all: Forgejo sends null lists and :false.
   (should (equal (mr-x/pr-readiness--parse-forgejo
-                  '((state . "closed") (merged . t) (mergeable . t) (head . ((sha . "abc"))))
-                  nil '((state . "") (statuses . nil)))
+                  '((state . "closed") (merged . t) (mergeable . t) (draft . :false) (head . ((sha . "abc"))))
+                  :null '((state . "") (statuses . :null)))
                  '(:state merged :mergeable t :checks nil :approvals 0 :changes-requested nil))))
 
 (ert-deftest pr-readiness-parses-github ()
@@ -523,12 +565,19 @@
     (should (equal ready '(:state open :mergeable t :checks pending :approvals 1 :changes-requested nil))))
   ;; A failed check run wins; a draft; mergeable still computing.
   (let ((ready (mr-x/pr-readiness--parse-github
-                '((state . "open") (merged . :json-false) (draft . t) (mergeable . nil)
+                '((state . "open") (merged . :false) (draft . t) (mergeable . nil)
                   (mergeable_state . "unknown") (head . ((sha . "abc"))))
                 nil
                 '((state . "pending") (statuses . nil))
                 '((check_runs . (((status . "completed") (conclusion . "failure"))))))))
-    (should (equal ready '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil)))))
+    (should (equal ready '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil))))
+  ;; GitHub's false spelling, and null check runs.
+  (should (equal (plist-get (mr-x/pr-readiness--parse-github
+                             '((state . "open") (merged . :false) (draft . :false) (mergeable . :false)
+                               (head . ((sha . "abc"))))
+                             nil '((statuses . :null)) '((check_runs . :null)))
+                            :mergeable)
+                 nil)))
 
 (ert-deftest pr-readiness-text-reads-like-the-design ()
   (cl-flet ((plain (ready) (substring-no-properties (mr-x/pr-readiness--text ready))))

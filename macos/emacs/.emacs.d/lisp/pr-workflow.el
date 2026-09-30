@@ -384,11 +384,15 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
 
 ;;;; PR actions from the review viewer
 
+(defvar mr-x/review-pr-action-retries 8
+  "How many times a viewer action waits for a loading PR view, 0.7 s apart.")
+
 (defun mr-x/review-pr-action (command)
   "Run COMMAND, a PR action, for the PR this review pane or panel shows.
 The action's PR view or compose buffer opens in the main frame, the first
 visible frame that is not a review frame, so the review stays up;
-\\[review-session-resume] returns to it."
+\\[review-session-resume] returns to it.  A Forgejo PR view loads
+asynchronously; while it does, the action tries again on its own."
   (let ((pane (current-buffer))
         (session (or (bound-and-true-p review-pane--session)
                      (bound-and-true-p review-panel--session))))
@@ -397,10 +401,22 @@ visible frame that is not a review frame, so the review stays up;
       (user-error "This review is a git range, not a PR"))
     (let ((main (or (review-session--other-frame session) (make-frame))))
       (select-frame-set-input-focus main)
-      (with-current-buffer pane
-        (funcall command))
-      ;; The action posts later from its compose buffer; `gr' refetches too.
-      (mr-x/pr-readiness-fetch session))))
+      (mr-x/review-pr--attempt command pane session mr-x/review-pr-action-retries))))
+
+(defun mr-x/review-pr--attempt (command pane session retries)
+  "Run COMMAND in PANE for SESSION; on a loading PR view, retry RETRIES times."
+  (when (buffer-live-p pane)
+    (condition-case err
+        (progn
+          (with-current-buffer pane (funcall command))
+          ;; The action posts later from its compose buffer; `gr' refetches too.
+          (mr-x/pr-readiness-fetch session))
+      (user-error
+       (let ((loading (string-match-p "\\`PR details are loading" (error-message-string err))))
+         (cond ((and loading (> retries 0))
+                (run-at-time 0.7 nil #'mr-x/review-pr--attempt command pane session (1- retries)))
+               (loading (message "PR details did not load; try %s again" command))
+               (t (signal (car err) (cdr err)))))))))
 
 ;;;###autoload
 (defun mr-x/review-pr-comment ()
@@ -435,11 +451,15 @@ visible frame that is not a review frame, so the review stays up;
   "Non-nil when JSON VALUE is true."
   (eq value t))
 
+(defun mr-x/pr-readiness--list (value)
+  "JSON VALUE as a list: nil for JSON null, which decodes as `:null'."
+  (and (listp value) value))
+
 (defun mr-x/pr-readiness--reviews (reviews approved-states changes-states)
   "Count REVIEWS: the latest review of each user decides, dismissed ones aside.
 Return (APPROVALS . CHANGES-REQUESTED)."
   (let ((latest nil))
-    (dolist (review reviews)
+    (dolist (review (mr-x/pr-readiness--list reviews))
       (let ((user (or (alist-get 'login (alist-get 'user review))
                       (alist-get 'id (alist-get 'user review))))
             (state (alist-get 'state review)))
@@ -457,11 +477,11 @@ Return (APPROVALS . CHANGES-REQUESTED)."
   "The checks verdict from a combined STATUS and GitHub CHECK-RUNS:
 `success', `pending', `failure', or nil when there are no checks."
   (let ((verdicts nil))
-    (dolist (s (alist-get 'statuses status))
+    (dolist (s (mr-x/pr-readiness--list (alist-get 'statuses status)))
       (push (pcase (alist-get 'state s)
               ("success" 'success) ("pending" 'pending) (_ 'failure))
             verdicts))
-    (dolist (run (alist-get 'check_runs check-runs))
+    (dolist (run (mr-x/pr-readiness--list (alist-get 'check_runs check-runs)))
       (push (if (equal (alist-get 'status run) "completed")
                 (if (member (alist-get 'conclusion run) '("success" "neutral" "skipped"))
                     'success 'failure)
@@ -494,7 +514,7 @@ Return (APPROVALS . CHANGES-REQUESTED)."
                (mr-x/pr-readiness--reviews reviews '("APPROVED") '("CHANGES_REQUESTED"))))
     (list :state (mr-x/pr-readiness--state pr)
           :mergeable (pcase (alist-get 'mergeable pr)
-                       ('t t) (:json-false nil) (_ 'unknown))
+                       ('t t) ((or :json-false :false) nil) (_ 'unknown))
           :checks (mr-x/pr-readiness--status status check-runs)
           :approvals approvals :changes-requested changes)))
 
