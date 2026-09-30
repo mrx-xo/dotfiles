@@ -1022,10 +1022,11 @@ The status line's first character carries `review-ask-anim', for a spinner."
     (insert (review-panel-ask-footer '(("q" "abort" dim) ("C-c C-q" "hide" dim)
                                        ("C-c C-t" "dock" dim))))))
 
-(defun review-panel-ask-permission (title detail &optional queued)
+(defun review-panel-ask-permission (title detail &optional queued keys)
   "Insert the Quick Ask box's permission question for a tool call.
 TITLE names the call and DETAIL is its command or file, or nil.  QUEUED,
-when positive, is how many more requests wait behind this one."
+when positive, is how many more requests wait behind this one.  KEYS are
+the keycaps, (KEY LABEL TOKEN) each; the default names 1, 2 and 3."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (insert (review-panel--spacer 10))
     (insert (review-panel--row
@@ -1042,7 +1043,7 @@ when positive, is how many more requests wait behind this one."
         (put-text-property start (point) 'wrap-prefix (review-panel--gap 32))))
     (insert (review-panel--spacer 6))
     (insert (review-panel--row
-             (concat (review-panel--ask-exits '(("1" "allow" fg) ("2" "deny" dim) ("3" "always" dim)))
+             (concat (review-panel--ask-exits (or keys '(("1" "allow" fg) ("2" "deny" dim) ("3" "always" dim))))
                      (if (and queued (> queued 0))
                          (concat (review-panel--gap 14)
                                  (review-panel--txt (format "%d more waiting" queued) 'dim :height 0.83))

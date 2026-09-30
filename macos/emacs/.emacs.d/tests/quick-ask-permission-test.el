@@ -4,9 +4,11 @@
 (require 'review-panel)
 
 ;; The config defines these; a focused run stands them in first.
-(defvar mr-x/quick-ask-waiting-map (make-sparse-keymap))
 (defvar agent-shell-permission-responder-function nil)
 (require 'quick-ask-permission)
+;; The config makes the package map the parent of the box's waiting map.
+(defvar mr-x/quick-ask-waiting-map
+  (let ((map (make-sparse-keymap))) (set-keymap-parent map quick-ask-permission-map) map))
 
 (defvar mr-x/quick-ask--shell-buffer nil)
 (defvar-local mr-x/quick-ask--session-root nil)
@@ -78,12 +80,11 @@
           ;; Below the thinking line, above the footer.
           (should (< (string-search "thinking" text) (string-search "Allow tool?" text)
                      (string-search "footer" text))))
-        (should (eq (lookup-key mr-x/quick-ask-waiting-map "1") #'quick-ask-permission-allow))
-        ;; Evil's normal state binds digits to a count; the box's states
-        ;; must win, or the keys only work while typing.
-        (require 'evil)
-        (dolist (key '("1" "2" "3"))
-          (should (lookup-key (evil-get-auxiliary-keymap mr-x/quick-ask-waiting-map 'normal) key)))
+        ;; Defaults stay out of evil's way: C-c is free in every state.
+        (should (eq (lookup-key mr-x/quick-ask-waiting-map (kbd "C-c 1")) #'quick-ask-permission-allow))
+        (should (eq (lookup-key mr-x/quick-ask-waiting-map (kbd "C-c 3")) #'quick-ask-permission-always))
+        ;; The prompt labels its keys from the map, so a rebinding shows.
+        (should (string-match-p "C-c 1 *allow" (buffer-string)))
         (quick-ask-permission-allow)
         (should (equal (car answer) "allow"))
         (should-not quick-ask-permission--pending)
@@ -106,6 +107,22 @@
         (quick-ask-permission-always)
         (should (equal (car second-answer) "always"))
         (should-not (string-match-p "Allow tool?" (buffer-string)))))))
+
+(ert-deftest quick-ask-permission-offers-queued-requests-and-drops-answered-ones ()
+  ;; Another answer path (the config's SPC c queue) learns of each request
+  ;; and can take it out of the box once it answered.
+  (qap-test--with-session
+    (let (seen)
+      (pcase-let ((`(,permission ,answer) (qap-test--permission "execute" '((command . "ls")))))
+        (let ((quick-ask-permission-queued-functions (list (lambda (p) (push p seen))))
+              (quick-ask-permission--shell-buffer shell))
+          (quick-ask-permission-respond permission))
+        (should (equal seen (list permission)))
+        (quick-ask-permission-drop permission)
+        (with-current-buffer popup
+          (should-not quick-ask-permission--pending)
+          (should-not (string-match-p "Allow tool?" (buffer-string))))
+        (should-not (car answer))))))
 
 (ert-deftest quick-ask-permission-without-a-waiting-box-falls-back ()
   ;; The box was dismissed: the request goes to the normal prompt.

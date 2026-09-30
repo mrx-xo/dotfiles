@@ -2569,8 +2569,31 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         "Keymap active while waiting for Claude response. All keys abort.")
 
       ;; Permission requests from the hidden agent: reads go through, the
-      ;; rest ask in the box with 1 / 2 / 3 (lisp/quick-ask-permission.el).
+      ;; rest ask in the box (lisp/quick-ask-permission.el).  The package's
+      ;; keys, C-c 1 / 2 / 3 by default, answer from the box; the prompt
+      ;; also joins the SPC c 1 / 2 / 3 queue, so it can be answered from
+      ;; anywhere, and answering there clears it from the box.
       (require 'quick-ask-permission)
+      (set-keymap-parent mr-x/quick-ask-waiting-map quick-ask-permission-map)
+
+      (defun mr-x/quick-ask--queue-permission (permission)
+        "Offer PERMISSION to SPC c 1 / 2 / 3 as well as the box."
+        (when (and (boundp 'mr-x/pending-permissions-queue)
+                   (fboundp 'mr-x/pending-permissions-update-legacy))
+         (let ((tool-call (map-elt permission :tool-call))
+              (respond (map-elt permission :respond)))
+          (push (list :respond (lambda (option-id)
+                                 (quick-ask-permission-drop permission)
+                                 (funcall respond option-id))
+                      :options (map-elt permission :options)
+                      :tool-call tool-call :tool-call-id nil
+                      :perm-id (map-elt tool-call :permission-request-id)
+                      :buffer mr-x/quick-ask--shell-buffer)
+                mr-x/pending-permissions-queue)
+          (mr-x/pending-permissions-update-legacy)
+          (message "Quick Ask permission: %s [SPC c 1=allow 2=deny 3=always]"
+                   (map-elt tool-call :title)))))
+      (add-hook 'quick-ask-permission-queued-functions #'mr-x/quick-ask--queue-permission)
 
       ;; Response phase keymap
       (defvar mr-x/quick-ask-response-map
