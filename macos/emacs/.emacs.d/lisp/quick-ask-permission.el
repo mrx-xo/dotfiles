@@ -86,6 +86,10 @@ search, execute, think, fetch and other."
                                        (quick-ask-permission--detail permission)
                                        (length (cdr quick-ask-permission--pending)))
           (put-text-property start (point) 'quick-ask-permission t)))))
+  ;; The box switched to its waiting keymap after the last state change;
+  ;; evil only re-reads the active keymaps on such changes.
+  (when (and (bound-and-true-p evil-local-mode) (fboundp 'evil-normalize-keymaps))
+    (evil-normalize-keymaps))
   (when (fboundp 'mr-x/quick-ask--refit)
     (ignore-errors (mr-x/quick-ask--refit (current-buffer)))))
 
@@ -152,10 +156,19 @@ The responder is wrapped for this one request, so a later `setq' of
 
 (advice-add 'agent-shell--on-request :around #'quick-ask-permission--around-request)
 
-(when (boundp 'mr-x/quick-ask-waiting-map)
-  (define-key mr-x/quick-ask-waiting-map "1" #'quick-ask-permission-allow)
-  (define-key mr-x/quick-ask-waiting-map "2" #'quick-ask-permission-deny)
-  (define-key mr-x/quick-ask-waiting-map "3" #'quick-ask-permission-always))
+(defun quick-ask-permission--bind-keys ()
+  "Bind 1, 2 and 3 in the box's waiting keymap, in every evil state too.
+Evil's normal state binds digits to a count prefix, which would win over
+the box's own map; a state binding on the map takes priority."
+  (when (boundp 'mr-x/quick-ask-waiting-map)
+    (dolist (key '(("1" . quick-ask-permission-allow) ("2" . quick-ask-permission-deny)
+                   ("3" . quick-ask-permission-always)))
+      (define-key mr-x/quick-ask-waiting-map (car key) (cdr key))
+      (when (fboundp 'evil-define-key*)
+        (evil-define-key* '(normal motion visual insert) mr-x/quick-ask-waiting-map (car key) (cdr key))))))
+
+(quick-ask-permission--bind-keys)
+(with-eval-after-load 'evil (quick-ask-permission--bind-keys))
 
 (provide 'quick-ask-permission)
 ;;; quick-ask-permission.el ends here
