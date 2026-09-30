@@ -486,6 +486,27 @@
           (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer) 'refetch))))
       (kill-buffer buffer))))
 
+(ert-deftest pr-review-merge-stays-in-the-review-frame ()
+  ;; Merge only asks questions; they must appear where the user looks, in
+  ;; the review frame, and the PR view must not take over a pane.
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (frame (selected-frame)) focused ran)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) 'other-frame))
+                  ((symbol-function 'select-frame-set-input-focus) (lambda (f) (push f focused)))
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'mr-x/pr-merge)
+                   (lambda () (switch-to-buffer (get-buffer-create " *pr-view*"))
+                     (push (list 'ran (selected-frame)) ran))))
+          (let ((before (window-buffer (selected-window))))
+            (with-current-buffer buffer (mr-x/review-pr-merge))
+            (should-not focused)
+            (should (equal ran (list (list 'ran frame))))
+            ;; The window excursion put the earlier buffer back.
+            (should (eq (window-buffer (selected-window)) before))))
+      (kill-buffer buffer) (ignore-errors (kill-buffer " *pr-view*")))))
+
 (ert-deftest pr-review-action-retries-while-the-pr-view-loads ()
   ;; The Forgejo PR view arrives asynchronously; the action tries again on
   ;; its own instead of asking for a second keypress.

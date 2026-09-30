@@ -387,34 +387,40 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
 (defvar mr-x/review-pr-action-retries 8
   "How many times a viewer action waits for a loading PR view, 0.7 s apart.")
 
-(defun mr-x/review-pr-action (command)
+(defun mr-x/review-pr-action (command &optional here)
   "Run COMMAND, a PR action, for the PR this review pane or panel shows.
 The action's PR view or compose buffer opens in the main frame, the first
 visible frame that is not a review frame, so the review stays up;
-\\[review-session-resume] returns to it.  A Forgejo PR view loads
-asynchronously; while it does, the action tries again on its own."
+\\[review-session-resume] returns to it.  With HERE, the command runs in
+the review frame inside a window excursion: for an action that only asks
+questions, so its prompts appear where the user is looking and the PR
+view never replaces a pane.  A Forgejo PR view loads asynchronously;
+while it does, the action tries again on its own."
   (let ((pane (current-buffer))
         (session (or (bound-and-true-p review-pane--session)
                      (bound-and-true-p review-panel--session))))
     (unless session (user-error "Not in a review"))
     (unless (mr-x/pr--session-context)
       (user-error "This review is a git range, not a PR"))
-    (let ((main (or (review-session--other-frame session) (make-frame))))
-      (select-frame-set-input-focus main)
-      (mr-x/review-pr--attempt command pane session mr-x/review-pr-action-retries))))
+    (unless here
+      (select-frame-set-input-focus (or (review-session--other-frame session) (make-frame))))
+    (mr-x/review-pr--attempt command pane session mr-x/review-pr-action-retries here)))
 
-(defun mr-x/review-pr--attempt (command pane session retries)
-  "Run COMMAND in PANE for SESSION; on a loading PR view, retry RETRIES times."
+(defun mr-x/review-pr--attempt (command pane session retries &optional here)
+  "Run COMMAND in PANE for SESSION; on a loading PR view, retry RETRIES times.
+HERE keeps the windows as they were once COMMAND returns."
   (when (buffer-live-p pane)
     (condition-case err
         (progn
-          (with-current-buffer pane (funcall command))
+          (if here
+              (save-window-excursion (with-current-buffer pane (funcall command)))
+            (with-current-buffer pane (funcall command)))
           ;; The action posts later from its compose buffer; `gr' refetches too.
           (mr-x/pr-readiness-fetch session))
       (user-error
        (let ((loading (string-match-p "\\`PR details are loading" (error-message-string err))))
          (cond ((and loading (> retries 0))
-                (run-at-time 0.7 nil #'mr-x/review-pr--attempt command pane session (1- retries)))
+                (run-at-time 0.7 nil #'mr-x/review-pr--attempt command pane session (1- retries) here))
                (loading (message "PR details did not load; try %s again" command))
                (t (signal (car err) (cdr err)))))))))
 
@@ -438,9 +444,9 @@ asynchronously; while it does, the action tries again on its own."
 
 ;;;###autoload
 (defun mr-x/review-pr-merge ()
-  "Merge the PR this review shows, confirming in the main frame."
+  "Merge the PR this review shows; its method and confirm prompts ask here."
   (interactive)
-  (mr-x/review-pr-action #'mr-x/pr-merge))
+  (mr-x/review-pr-action #'mr-x/pr-merge t))
 
 ;;;; Merge readiness in the viewer's top bar
 
