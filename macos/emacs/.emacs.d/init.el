@@ -4318,7 +4318,8 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;; display-only — codex-acp's `model' config option takes BARE families
       ;; and rejects suffixed ids with -32602 Invalid params.  Effort is its
       ;; own `reasoning_effort' config option, set post-init (EFFORT field).
-      ;;   models: "gpt-6-astra" "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
+      ;;   models: "gpt-6-astra" "gpt-6-sol" "gpt-6-luna"
+      ;;           "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
       ;;           "gpt-5.5" "gpt-5.4" "gpt-5.4-mini" "gpt-5.3-codex-spark"
       ;;   modes:  "read-only" "agent" "agent-full-access"
       ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
@@ -4451,6 +4452,12 @@ Matches an Agent header of the form \"Codex NAME\" against
           (?s "Sonnet 5 · Accept edits" "sonnet"       "acceptEdits")
           (?p "Opus 5.5 · Plan"  "default"             "plan")
           (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
+              agent-shell-openai-make-codex-config "high")
+          (?S "Sol 6 · Full"     "gpt-6-sol"           "agent-full-access"
+              agent-shell-openai-make-codex-config "high")
+          (?X "Sol 6 Max · Full" "gpt-6-sol"           "agent-full-access"
+              agent-shell-openai-make-codex-config "max")
+          (?l "Luna 6 · Full"    "gpt-6-luna"          "agent-full-access"
               agent-shell-openai-make-codex-config "high")
           (?c "Sol 5.6 · Full"   "gpt-5.6-sol"         "agent-full-access"
               agent-shell-openai-make-codex-config "high")
