@@ -16,13 +16,26 @@
 
 (defvar agent-shell-permission-responder-function)
 (defvar mr-x/quick-ask--shell-buffer)
-(defvar mr-x/quick-ask-waiting-map)
 (declare-function review-panel-ask-permission "review-panel" (title detail &optional queued))
 (declare-function mr-x/quick-ask--refit "agent-shell-config" (buf))
 
 (defgroup quick-ask-permission nil
   "Permission requests from the hidden Quick Ask agent."
   :group 'tools)
+
+(defvar quick-ask-permission-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c 1") #'quick-ask-permission-allow)
+    (define-key map (kbd "C-c 2") #'quick-ask-permission-deny)
+    (define-key map (kbd "C-c 3") #'quick-ask-permission-always)
+    map)
+  "Keys that answer a permission request shown in the Quick Ask box.
+Make it the parent of the box's waiting keymap, or copy its bindings.
+Rebind here; the box's prompt labels its keys from this map.")
+
+(defvar quick-ask-permission-queued-functions nil
+  "Called with a permission request when the Quick Ask box starts showing it.
+A function may offer other ways to answer it; see `quick-ask-permission-drop'.")
 
 (defcustom quick-ask-permission-auto-allow-kinds '("read" "search" "think")
   "Tool kinds a Quick Ask agent runs without asking.
@@ -70,6 +83,14 @@ search, execute, think, fetch and other."
          (concat (string-join (seq-take lines 4) "\n") (if (> (length lines) 4) "\n…" ""))
          400 nil nil "…")))))
 
+(defun quick-ask-permission--keys ()
+  "The prompt's keycaps, (KEY LABEL TOKEN) each, from `quick-ask-permission-map'."
+  (mapcar (lambda (entry)
+            (let ((key (where-is-internal (car entry) quick-ask-permission-map t)))
+              (list (if key (key-description key) "") (cadr entry) (caddr entry))))
+          '((quick-ask-permission-allow "allow" fg) (quick-ask-permission-deny "deny" dim)
+            (quick-ask-permission-always "always" dim))))
+
 (defun quick-ask-permission--draw ()
   "Show the oldest waiting request in this Quick Ask box, below its status line."
   (let ((inhibit-read-only t))
@@ -84,12 +105,9 @@ search, execute, think, fetch and other."
         (let ((start (point)))
           (review-panel-ask-permission (or (map-elt (map-elt permission :tool-call) :title) "a tool")
                                        (quick-ask-permission--detail permission)
-                                       (length (cdr quick-ask-permission--pending)))
+                                       (length (cdr quick-ask-permission--pending))
+                                       (quick-ask-permission--keys))
           (put-text-property start (point) 'quick-ask-permission t)))))
-  ;; The box switched to its waiting keymap after the last state change;
-  ;; evil only re-reads the active keymaps on such changes.
-  (when (and (bound-and-true-p evil-local-mode) (fboundp 'evil-normalize-keymaps))
-    (evil-normalize-keymaps))
   (when (fboundp 'mr-x/quick-ask--refit)
     (ignore-errors (mr-x/quick-ask--refit (current-buffer)))))
 
@@ -108,6 +126,7 @@ agent; with no box, the request goes to agent-shell's usual prompt."
                 (setq quick-ask-permission--pending
                       (append quick-ask-permission--pending (list permission)))
                 (quick-ask-permission--draw))
+              (run-hook-with-args 'quick-ask-permission-queued-functions permission)
               (unless (get-buffer-window popup t)
                 (message "Quick Ask wants to run a tool: SPC Q to answer it"))
               t))))))
@@ -126,6 +145,14 @@ The responder is wrapped for this one request, so a later `setq' of
         (agent-shell-permission-responder-function
          (quick-ask-permission--wrap (bound-and-true-p agent-shell-permission-responder-function))))
     (apply orig args)))
+
+(defun quick-ask-permission-drop (permission)
+  "Stop showing PERMISSION in the Quick Ask box: it was answered elsewhere."
+  (when-let ((popup (get-buffer "*quick-ask*")))
+    (with-current-buffer popup
+      (when (memq permission quick-ask-permission--pending)
+        (setq quick-ask-permission--pending (delq permission quick-ask-permission--pending))
+        (quick-ask-permission--draw)))))
 
 (defun quick-ask-permission--choose (kind)
   "Answer the oldest waiting request in this box with its option of KIND."
@@ -156,19 +183,7 @@ The responder is wrapped for this one request, so a later `setq' of
 
 (advice-add 'agent-shell--on-request :around #'quick-ask-permission--around-request)
 
-(defun quick-ask-permission--bind-keys ()
-  "Bind 1, 2 and 3 in the box's waiting keymap, in every evil state too.
-Evil's normal state binds digits to a count prefix, which would win over
-the box's own map; a state binding on the map takes priority."
-  (when (boundp 'mr-x/quick-ask-waiting-map)
-    (dolist (key '(("1" . quick-ask-permission-allow) ("2" . quick-ask-permission-deny)
-                   ("3" . quick-ask-permission-always)))
-      (define-key mr-x/quick-ask-waiting-map (car key) (cdr key))
-      (when (fboundp 'evil-define-key*)
-        (evil-define-key* '(normal motion visual insert) mr-x/quick-ask-waiting-map (car key) (cdr key))))))
 
-(quick-ask-permission--bind-keys)
-(with-eval-after-load 'evil (quick-ask-permission--bind-keys))
 
 (provide 'quick-ask-permission)
 ;;; quick-ask-permission.el ends here
