@@ -398,7 +398,9 @@ visible frame that is not a review frame, so the review stays up;
     (let ((main (or (review-session--other-frame session) (make-frame))))
       (select-frame-set-input-focus main)
       (with-current-buffer pane
-        (funcall command)))))
+        (funcall command))
+      ;; The action posts later from its compose buffer; `gr' refetches too.
+      (mr-x/pr-readiness-fetch session))))
 
 ;;;###autoload
 (defun mr-x/review-pr-comment ()
@@ -423,6 +425,202 @@ visible frame that is not a review frame, so the review stays up;
   "Merge the PR this review shows, confirming in the main frame."
   (interactive)
   (mr-x/review-pr-action #'mr-x/pr-merge))
+
+;;;; Merge readiness in the viewer's top bar
+
+(defvar mr-x/pr-readiness--table (make-hash-table :test #'eq :weakness 'key)
+  "Readiness by review session: a plist, or (:error MESSAGE), or `loading'.")
+
+(defun mr-x/pr-readiness--true-p (value)
+  "Non-nil when JSON VALUE is true."
+  (eq value t))
+
+(defun mr-x/pr-readiness--reviews (reviews approved-states changes-states)
+  "Count REVIEWS: the latest review of each user decides, dismissed ones aside.
+Return (APPROVALS . CHANGES-REQUESTED)."
+  (let ((latest nil))
+    (dolist (review reviews)
+      (let ((user (or (alist-get 'login (alist-get 'user review))
+                      (alist-get 'id (alist-get 'user review))))
+            (state (alist-get 'state review)))
+        (cond ((or (mr-x/pr-readiness--true-p (alist-get 'dismissed review))
+                   (equal state "DISMISSED"))
+               (setf (alist-get user latest nil nil #'equal) nil))
+              ((member state approved-states)
+               (setf (alist-get user latest nil nil #'equal) 'approved))
+              ((member state changes-states)
+               (setf (alist-get user latest nil nil #'equal) 'changes)))))
+    (cons (cl-count 'approved latest :key #'cdr)
+          (and (cl-find 'changes latest :key #'cdr) t))))
+
+(defun mr-x/pr-readiness--status (status &optional check-runs)
+  "The checks verdict from a combined STATUS and GitHub CHECK-RUNS:
+`success', `pending', `failure', or nil when there are no checks."
+  (let ((verdicts nil))
+    (dolist (s (alist-get 'statuses status))
+      (push (pcase (alist-get 'state s)
+              ("success" 'success) ("pending" 'pending) (_ 'failure))
+            verdicts))
+    (dolist (run (alist-get 'check_runs check-runs))
+      (push (if (equal (alist-get 'status run) "completed")
+                (if (member (alist-get 'conclusion run) '("success" "neutral" "skipped"))
+                    'success 'failure)
+              'pending)
+            verdicts))
+    (cond ((null verdicts) nil)
+          ((memq 'failure verdicts) 'failure)
+          ((memq 'pending verdicts) 'pending)
+          (t 'success))))
+
+(defun mr-x/pr-readiness--state (pr)
+  "The PR's state from its API alist PR: `open', `draft', `merged' or `closed'."
+  (cond ((mr-x/pr-readiness--true-p (alist-get 'merged pr)) 'merged)
+        ((mr-x/pr-readiness--true-p (alist-get 'draft pr)) 'draft)
+        ((equal (alist-get 'state pr) "open") 'open)
+        (t 'closed)))
+
+(defun mr-x/pr-readiness--parse-forgejo (pr reviews status)
+  "Readiness from Forgejo's PR, REVIEWS and commit STATUS alists."
+  (pcase-let ((`(,approvals . ,changes)
+               (mr-x/pr-readiness--reviews reviews '("APPROVED") '("REQUEST_CHANGES"))))
+    (list :state (mr-x/pr-readiness--state pr)
+          :mergeable (and (mr-x/pr-readiness--true-p (alist-get 'mergeable pr)) t)
+          :checks (mr-x/pr-readiness--status status)
+          :approvals approvals :changes-requested changes)))
+
+(defun mr-x/pr-readiness--parse-github (pr reviews status check-runs)
+  "Readiness from GitHub's PR, REVIEWS, combined STATUS and CHECK-RUNS alists."
+  (pcase-let ((`(,approvals . ,changes)
+               (mr-x/pr-readiness--reviews reviews '("APPROVED") '("CHANGES_REQUESTED"))))
+    (list :state (mr-x/pr-readiness--state pr)
+          :mergeable (pcase (alist-get 'mergeable pr)
+                       ('t t) (:json-false nil) (_ 'unknown))
+          :checks (mr-x/pr-readiness--status status check-runs)
+          :approvals approvals :changes-requested changes)))
+
+(defun mr-x/pr-readiness--text (ready)
+  "The top bar's readiness segment for READY, a readiness plist."
+  (let ((txt (lambda (s token &optional bold)
+               (review-panel--txt s token :height 0.92 :weight (and bold 'medium)))))
+    (if (plist-get ready :error)
+        (funcall txt "readiness ?" 'dim)
+      (mapconcat
+       #'identity
+       (delq nil
+             (list (pcase (plist-get ready :state)
+                     ('open (pcase (plist-get ready :mergeable)
+                              ('t (funcall txt "✓ mergeable" 'green t))
+                              ('unknown (funcall txt "mergeable ?" 'dim))
+                              (_ (funcall txt "✗ conflicts" 'red t))))
+                     ('merged (funcall txt "merged" 'dim))
+                     ('draft (funcall txt "draft" 'dim))
+                     (_ (funcall txt "closed" 'dim)))
+                   (pcase (plist-get ready :checks)
+                     ('success (funcall txt "checks ✓" 'green))
+                     ('pending (funcall txt "checks ● pending" 'yellow))
+                     ('failure (funcall txt "checks ✗" 'red t))
+                     (_ nil))
+                   (cond ((plist-get ready :changes-requested)
+                          (funcall txt "changes requested" 'red t))
+                         ((> (or (plist-get ready :approvals) 0) 0)
+                          (funcall txt (format "%d approved" (plist-get ready :approvals)) 'green))
+                         (t nil))))
+       "   "))))
+
+(defun mr-x/pr-readiness-segment (session)
+  "The readiness segment for SESSION's top bar, or nil.
+For `review-panel-bar-functions'."
+  (let ((ready (gethash session mr-x/pr-readiness--table)))
+    (and (listp ready) ready (mr-x/pr-readiness--text ready))))
+
+(defun mr-x/pr-readiness--store (session ready)
+  "Keep READY for SESSION and redraw its bar."
+  (puthash session ready mr-x/pr-readiness--table)
+  (when (eq session review-session--current)
+    (review-panel--show-bar session)))
+
+(defun mr-x/pr-readiness-fetch (&optional session)
+  "Fetch merge readiness for SESSION's PR and show it in the top bar.
+Nothing happens for a review of a git range."
+  (let* ((session (or session review-session--current))
+         (recipe (and session (review-source-recipe (review-session-source session)))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo (mr-x/pr-readiness--fetch-forgejo session recipe))
+      ('github (mr-x/pr-readiness--fetch-github session recipe)))))
+
+(defun mr-x/pr-readiness--fail (session err)
+  "Record ERR as SESSION's readiness failure."
+  (let ((message (if (stringp err) err (format "%S" err))))
+    (message "PR readiness: %s" message)
+    (mr-x/pr-readiness--store session (list :error message))))
+
+(defun mr-x/pr-readiness--fetch-forgejo (session recipe)
+  "Fetch Forgejo readiness for SESSION from RECIPE."
+  (let* ((host (plist-get recipe :host))
+         (owner (plist-get recipe :owner)) (repo (plist-get recipe :repo))
+         (base (format "repos/%s/%s/pulls/%d" owner repo (plist-get recipe :number)))
+         (fail (lambda (err) (mr-x/pr-readiness--fail session (plist-get err :message)))))
+    (puthash session 'loading mr-x/pr-readiness--table)
+    (forgejo-api-get
+     host base nil
+     (lambda (pr _headers)
+       (forgejo-api-get
+        host (concat base "/reviews") nil
+        (lambda (reviews _headers)
+          (forgejo-api-get
+           host (format "repos/%s/%s/commits/%s/status" owner repo
+                        (alist-get 'sha (alist-get 'head pr)))
+           nil
+           (lambda (status _headers)
+             (mr-x/pr-readiness--store session (mr-x/pr-readiness--parse-forgejo pr reviews status)))
+           :error-callback fail))
+        :error-callback fail))
+     :error-callback fail)))
+
+(defun mr-x/pr-readiness--fetch-github (session recipe)
+  "Fetch GitHub readiness for SESSION from RECIPE, through Forge."
+  (let* ((context (with-temp-buffer
+                    (setq-local review-pane--session session)
+                    (mr-x/pr--session-context)))
+         (repo (plist-get context :repository))
+         (number (plist-get recipe :number))
+         (fail (lambda (err &rest _) (mr-x/pr-readiness--fail session err))))
+    (if (not repo)
+        (mr-x/pr-readiness--fail session "no Forge repository for this clone")
+      (puthash session 'loading mr-x/pr-readiness--table)
+      (forge--rest repo "GET" (format "/repos/:owner/:repo/pulls/%d" number) nil
+        :errorback fail
+        :callback
+        (lambda (pr &rest _)
+          (forge--rest repo "GET" (format "/repos/:owner/:repo/pulls/%d/reviews" number) nil
+            :errorback fail
+            :callback
+            (lambda (reviews &rest _)
+              (let ((sha (alist-get 'sha (alist-get 'head pr))))
+                (forge--rest repo "GET" (format "/repos/:owner/:repo/commits/%s/status" sha) nil
+                  :errorback fail
+                  :callback
+                  (lambda (status &rest _)
+                    (forge--rest repo "GET" (format "/repos/:owner/:repo/commits/%s/check-runs" sha) nil
+                      :errorback fail
+                      :callback
+                      (lambda (check-runs &rest _)
+                        (mr-x/pr-readiness--store
+                         session
+                         (mr-x/pr-readiness--parse-github pr reviews status check-runs))))))))))))))
+
+(defun mr-x/pr-readiness--on-display (session)
+  "Fetch readiness the first time SESSION's panes show."
+  (unless (gethash session mr-x/pr-readiness--table)
+    (mr-x/pr-readiness-fetch session)))
+
+(defun mr-x/pr-readiness--on-refresh (&rest _)
+  "Refetch readiness after `gr' reloads the review."
+  (mr-x/pr-readiness-fetch))
+
+(add-hook 'review-panel-bar-functions #'mr-x/pr-readiness-segment)
+(add-hook 'review-session-display-hook #'mr-x/pr-readiness--on-display)
+(advice-add 'review-session-refresh :after #'mr-x/pr-readiness--on-refresh)
 
 (defvar mr-x/review-git-range-history nil
   "History of review presets and manually entered Git ranges.")

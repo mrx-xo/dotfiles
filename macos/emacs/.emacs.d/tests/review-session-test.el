@@ -783,6 +783,7 @@ Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS)."
   ;; A hunk band is overlay text before a line.  A window cannot start
   ;; inside it, so a one-line scroll there does not move; the pane's
   ;; scroll takes one more line until the start moves.
+  (require 'evil)
   (let ((starts (list 10 10 12)) calls)
     (cl-letf (((symbol-function 'window-start) (lambda (&rest _) (car starts)))
               ((symbol-function 'evil-scroll-line-down)
