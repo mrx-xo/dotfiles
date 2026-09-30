@@ -13077,40 +13077,44 @@ growing reply (Emacs alone scrolls a frame late) or floated up by a fold."
                 ((>= (window-point window) start)))
       (let* ((ws (window-start window))
              (body (window-body-height window t))
-             (h (cdr (window-text-pixel-size window ws (point-max)))))
-        (cond
-         ;; Reply grew: advance the top line just enough to keep eob in view.
-         ((> h body)
-          (let ((new (save-excursion
-                       (goto-char ws)
-                       (while (and (> h body) (< (point) (point-max)))
-                         (vertical-motion 1 window)
-                         (setq h (cdr (window-text-pixel-size
-                                       window (point) (point-max)))))
-                       (point))))
-            (unless (= new ws)
-              (set-window-start window new t))))
-         ;; Text above shrank: pull down to fill the blank space.
-         ((and (> ws (point-min))
-               (> (- body h) (frame-char-height (window-frame window))))
+             (h (mr-x/agent-shell-prompt-follow--height window ws body)))
+        ;; Reply grew (eob fell below the window), or text above shrank
+        ;; (blank space under eob): both want the bottom-pinned start.
+        (when (or (> h body)
+                  (and (> ws (point-min))
+                       (> (- body h) (frame-char-height (window-frame window)))))
           (when-let* ((new (mr-x/agent-shell-prompt-follow--bottom-start window))
-                      ((< new ws)))
-            (set-window-start window new t))))))))
+                      ((/= new ws)))
+            (set-window-start window new t)))))))
+
+(defun mr-x/agent-shell-prompt-follow--height (window from body)
+  "Pixel height of FROM..`point-max' in WINDOW, measured no further than
+twice BODY.  Unbounded, one measure walks a whole multi-megabyte reply,
+and this runs on every redisplay."
+  (cdr (window-text-pixel-size window from (point-max) nil (* 2 body))))
 
 (defun mr-x/agent-shell-prompt-follow--bottom-start (window)
-  "Highest window start that still shows `point-max' fully in WINDOW."
+  "Highest window start that still shows `point-max' fully in WINDOW.
+Walks up from eob one screen line at a time.  Stops when a step makes
+no progress (`vertical-motion' can stall on invisible text, which hung
+the daemon on 2026-09-30) and after twice the window's line count."
   (let ((body (window-body-height window t))
+        (steps (+ 10 (* 2 (window-body-height window))))
         (best nil))
     (save-excursion
       (goto-char (point-max))
       (beginning-of-visual-line)
       (catch 'done
-        (while t
-          (if (> (cdr (window-text-pixel-size window (point) (point-max))) body)
+        (while (> steps 0)
+          (setq steps (1- steps))
+          (if (> (mr-x/agent-shell-prompt-follow--height window (point) body)
+                 body)
               (throw 'done nil)
             (setq best (point))
             (when (bobp) (throw 'done nil))
-            (vertical-motion -1 window)))))
+            (let ((prev (point)))
+              (vertical-motion -1 window)
+              (unless (< (point) prev) (throw 'done nil)))))))
     best))
 
 (defun mr-x/agent-shell-prompt-follow--pre-redisplay (_windows)
