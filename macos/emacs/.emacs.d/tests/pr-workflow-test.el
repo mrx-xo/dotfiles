@@ -417,4 +417,72 @@
         (mr-x/review))
       (should (equal (nreverse called) '(range range (fetch "h" "o" "n" 7) patch patch))))))
 
+;;;; PR actions from the review viewer
+
+(require 'review-session)
+
+(defun pr-test--session-buffer (recipe)
+  "A pane buffer showing a review session whose source has RECIPE."
+  (let ((buffer (generate-new-buffer " *pr-test-pane*")))
+    (with-current-buffer buffer
+      (setq default-directory temporary-file-directory)
+      (setq-local review-pane--session
+                  (make-review-session :source (make-review-source :recipe recipe)
+                                       :files (vector) :current 0 :hunk 0
+                                       :directory temporary-file-directory)))
+    buffer))
+
+(ert-deftest pr-context-comes-from-the-review-session-forgejo ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((c (mr-x/pr-context t)))
+            (should (eq (plist-get c :backend) 'forgejo))
+            (should (equal (plist-get c :host) "https://forge.example"))
+            (should (equal (plist-get c :owner) "team"))
+            (should (equal (plist-get c :name) "project"))
+            (should (= (plist-get c :number) 7))
+            (should (equal (plist-get c :directory) temporary-file-directory))))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-context-comes-from-the-review-session-github ()
+  (pr-test--github
+    (let ((buffer (pr-test--session-buffer
+                   (list :kind 'github :directory temporary-file-directory
+                         :owner "team" :name "project" :number 11))))
+      (unwind-protect
+          (cl-letf* ((get-repo (symbol-function 'forge-get-repository))
+                     ((symbol-function 'forge-get-repository)
+                      (lambda (object &rest args) (if (eq object :tracked?) repo (apply get-repo object args))))
+                     ((symbol-function 'forge-get-pullreq) (lambda (&rest _) pr)))
+            (with-current-buffer buffer
+              (let ((c (mr-x/pr-context t)))
+                (should (eq (plist-get c :backend) 'github))
+                (should (eq (plist-get c :repository) repo))
+                (should (eq (plist-get c :pullreq) pr))
+                (should (= (plist-get c :number) 11)))))
+        (kill-buffer buffer)))))
+
+(ert-deftest pr-context-review-of-a-git-range-is-not-a-pr ()
+  (let ((buffer (pr-test--session-buffer
+                 (list :kind 'git-range :directory temporary-file-directory :range "main...HEAD"))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (should-not (mr-x/pr--session-context))
+          (should-error (mr-x/review-pr-comment) :type 'user-error))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-review-action-runs-in-the-main-frame-with-the-pane-current ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (main (selected-frame)) ran)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) main))
+                  ((symbol-function 'select-frame-set-input-focus) (lambda (f) (push (list 'focus f) ran)))
+                  ((symbol-function 'mr-x/pr-comment) (lambda () (push (list 'ran (current-buffer)) ran))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer)))))
+      (kill-buffer buffer))))
+
 (provide 'pr-workflow-test)

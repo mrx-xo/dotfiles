@@ -38,29 +38,59 @@
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
 
+(defvar review-pane--session)
+(defvar review-panel--session)
+(declare-function review-session-source "review-session")
+(declare-function review-source-recipe "review-source")
+(declare-function review-session--other-frame "review-session")
+
+(defun mr-x/pr--session-context ()
+  "The PR context of the review session this pane or panel shows.
+Nil outside a review, and for a review of a git range, which has no PR."
+  (when-let* ((session (or (bound-and-true-p review-pane--session)
+                           (bound-and-true-p review-panel--session)))
+              (recipe (review-source-recipe (review-session-source session))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo
+       (list :backend 'forgejo :host (plist-get recipe :host)
+             :owner (plist-get recipe :owner) :name (plist-get recipe :repo)
+             :number (plist-get recipe :number)))
+      ('github
+       (let* ((default-directory (plist-get recipe :directory))
+              (repo (forge-get-repository :tracked?))
+              (pr (and repo (forge-get-pullreq repo (plist-get recipe :number)))))
+         (when (and repo pr)
+           (list :backend 'github :repository repo :pullreq pr
+                 :host (concat "https://" (oref repo githost))
+                 :owner (oref repo owner) :name (oref repo name)
+                 :number (plist-get recipe :number))))))))
+
 (defun mr-x/pr-context (&optional require-pr)
   "Resolve the current repository and, when available, pull request.
-REQUIRE-PR means to reject contexts without a specific PR."
-  (let* ((fj (and (bound-and-true-p forgejo-repo--host)
+REQUIRE-PR means to reject contexts without a specific PR.
+A review pane or panel answers with the PR its session reviews."
+  (let* ((session (mr-x/pr--session-context))
+         (fj (and (not session) (bound-and-true-p forgejo-repo--host)
                   (or (derived-mode-p 'forgejo-pull-list-mode 'forgejo-pull-view-mode)
                       (and (derived-mode-p 'diff-mode)
                            (bound-and-true-p forgejo-diff--pr-number)))))
-         (remembered (and (derived-mode-p 'magit-diff-mode)
+         (remembered (and (not session) (derived-mode-p 'magit-diff-mode)
                           mr-x/pr--diff-context
                           (equal magit-buffer-diff-range
                                  (plist-get mr-x/pr--diff-context :range))
                           mr-x/pr--diff-context))
          ;; A number mentioned in discussion/diff text is not an action target.
-         (pr (unless (or fj remembered)
+         (pr (unless (or session fj remembered)
                (cond ((derived-mode-p 'forge-pullreq-mode) forge-buffer-topic)
                      ((derived-mode-p 'forge-topics-mode 'magit-status-mode)
                       (magit-section-value-if 'pullreq)))))
-         (repo (unless (or fj remembered)
+         (repo (unless (or session fj remembered)
                  (if (forge-pullreq-p pr)
                      (forge-get-repository pr)
                    (forge-get-repository :stub? nil 'notatpt))))
          (context
           (cond
+           (session session)
            (remembered remembered)
            (fj
             (list :backend 'forgejo :host forgejo-repo--host
@@ -351,6 +381,48 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
     (user-error "Not a Forgejo PR URL: %s" url))
   (mr-x/pr--review-forgejo (match-string 1 url) (match-string 2 url) (match-string 3 url)
                            (string-to-number (match-string 4 url))))
+
+;;;; PR actions from the review viewer
+
+(defun mr-x/review-pr-action (command)
+  "Run COMMAND, a PR action, for the PR this review pane or panel shows.
+The action's PR view or compose buffer opens in the main frame, the first
+visible frame that is not a review frame, so the review stays up;
+\\[review-session-resume] returns to it."
+  (let ((pane (current-buffer))
+        (session (or (bound-and-true-p review-pane--session)
+                     (bound-and-true-p review-panel--session))))
+    (unless session (user-error "Not in a review"))
+    (unless (mr-x/pr--session-context)
+      (user-error "This review is a git range, not a PR"))
+    (let ((main (or (review-session--other-frame session) (make-frame))))
+      (select-frame-set-input-focus main)
+      (with-current-buffer pane
+        (funcall command)))))
+
+;;;###autoload
+(defun mr-x/review-pr-comment ()
+  "Comment on the PR this review shows, composing in the main frame."
+  (interactive)
+  (mr-x/review-pr-action #'mr-x/pr-comment))
+
+;;;###autoload
+(defun mr-x/review-pr-approve ()
+  "Approve the PR this review shows, composing in the main frame."
+  (interactive)
+  (mr-x/review-pr-action #'mr-x/pr-approve))
+
+;;;###autoload
+(defun mr-x/review-pr-request-changes ()
+  "Request changes on the PR this review shows, composing in the main frame."
+  (interactive)
+  (mr-x/review-pr-action #'mr-x/pr-request-changes))
+
+;;;###autoload
+(defun mr-x/review-pr-merge ()
+  "Merge the PR this review shows, confirming in the main frame."
+  (interactive)
+  (mr-x/review-pr-action #'mr-x/pr-merge))
 
 (defvar mr-x/review-git-range-history nil
   "History of review presets and manually entered Git ranges.")
