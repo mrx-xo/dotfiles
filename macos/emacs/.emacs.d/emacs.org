@@ -12931,7 +12931,7 @@ the phone's purple, and go back to yellow when the turn ends.
   "The prompt string of the current shell."
   (or (and (bound-and-true-p shell-maker--config)
            (fboundp 'shell-maker-prompt)
-           (shell-maker-prompt shell-maker--config))
+           (ignore-errors (shell-maker-prompt shell-maker--config)))
       (bound-and-true-p mr-x/agent-shell-prompt)))
 
 (defun mr-x/agent-shell-busy-tint--ranges ()
@@ -12994,6 +12994,22 @@ the phone's purple, and go back to yellow when the turn ends.
       (mr-x/agent-shell-busy-tint--place))
      (mr-x/agent-shell-busy-tint--cookie
       (mr-x/agent-shell-busy-tint--clear)))))
+
+;; Some paths clear the busy flag after their last buffer change and never
+;; run the finish hook (interrupt prints its prompt first, then clears), so
+;; the tint stayed on.  Watch the flag itself: every set, on every path,
+;; queues a sync in that buffer once the setter has returned.
+(defun mr-x/agent-shell-busy-tint--watch (_symbol _value operation where)
+  "Queue a busy tint sync in WHERE after `shell-maker--busy' changes."
+  (when (and (eq operation 'set) (buffer-live-p where))
+    (run-at-time 0 nil
+                 (lambda ()
+                   (when (buffer-live-p where)
+                     (with-current-buffer where
+                       (when (bound-and-true-p mr-x/agent-shell-prompt-divider-mode)
+                         (mr-x/agent-shell-busy-tint--sync))))))))
+
+(add-variable-watcher 'shell-maker--busy #'mr-x/agent-shell-busy-tint--watch)
 
 (define-minor-mode mr-x/agent-shell-prompt-divider-mode
   "Draw a divider above the live agent-shell prompt."
