@@ -120,13 +120,13 @@ Legacy preset and clone requests continue through the existing bridge.
 
 The rig preset pickers (`SPC c C` for a new chat in a project, `SPC c p`
 for the current chat) share their choices with the phone. Codex presets
-include `a` for Astra 6, `S` for Sol 6, `X` for Sol 6 Max, and `l` for
-Luna 6, all in Full mode. The Max preset uses max reasoning; the other
-GPT-6 presets use high reasoning. The existing Sol 5.6 presets remain
-on `c` and `x`. Applying a Codex preset requires a Codex chat.
+include `a` for Astra 6, `c` for Sol 6, and `x` for Sol 6 Max, all in
+Full mode. The Max preset uses max reasoning; Astra and regular Sol use
+high reasoning. Sol 6 replaces Sol 5.6 on the existing keys, including
+the `SPC c x` Sol shortcut. Applying a Codex preset requires a Codex chat.
 
-OpenCode is available in the Agent picker and through the `Luna 5.6 · Build`
-rig preset. It launches `openai/gpt-5.6-luna` in `build` mode through
+OpenCode is available in the Agent picker and through the `Luna 6 · Build`
+rig preset on `O`, replacing Luna 5.6. It launches `openai/gpt-6-luna` in `build` mode through
 `acp-multiplex`, using the installer's absolute executable path. The preset
 keeps OpenCode launchable before any chat has advertised choices; after an
 OpenCode chat opens, the pickers also expose its advertised models, Build/Plan
