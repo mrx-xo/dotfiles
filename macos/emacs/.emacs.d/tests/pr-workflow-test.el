@@ -480,9 +480,81 @@
     (unwind-protect
         (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) main))
                   ((symbol-function 'select-frame-set-input-focus) (lambda (f) (push (list 'focus f) ran)))
-                  ((symbol-function 'mr-x/pr-comment) (lambda () (push (list 'ran (current-buffer)) ran))))
+                  ((symbol-function 'mr-x/pr-comment) (lambda () (push (list 'ran (current-buffer)) ran)))
+                  ((symbol-function 'mr-x/pr-readiness-fetch) (lambda (&rest _) (push 'refetch ran))))
           (with-current-buffer buffer (mr-x/review-pr-comment))
-          (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer)))))
+          (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer) 'refetch))))
       (kill-buffer buffer))))
+
+;;;; Merge readiness
+
+(ert-deftest pr-readiness-parses-forgejo ()
+  (let ((ready (mr-x/pr-readiness--parse-forgejo
+                '((state . "open") (merged . :json-false) (mergeable . t) (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "REQUEST_CHANGES"))
+                  ((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "bob"))) (state . "COMMENT"))
+                  ((user . ((login . "cy"))) (state . "APPROVED") (dismissed . t)))
+                '((state . "success") (statuses . (((state . "success"))))))))
+    (should (equal ready '(:state open :mergeable t :checks success :approvals 1 :changes-requested nil))))
+  ;; Conflicts, a standing request for changes, and pending checks.
+  (let ((ready (mr-x/pr-readiness--parse-forgejo
+                '((state . "open") (merged . :json-false) (mergeable . :json-false) (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "ann"))) (state . "REQUEST_CHANGES")))
+                '((state . "pending") (statuses . (((state . "pending"))))))))
+    (should (equal ready '(:state open :mergeable nil :checks pending :approvals 0 :changes-requested t))))
+  ;; Merged, and no checks at all.
+  (should (equal (mr-x/pr-readiness--parse-forgejo
+                  '((state . "closed") (merged . t) (mergeable . t) (head . ((sha . "abc"))))
+                  nil '((state . "") (statuses . nil)))
+                 '(:state merged :mergeable t :checks nil :approvals 0 :changes-requested nil))))
+
+(ert-deftest pr-readiness-parses-github ()
+  (let ((ready (mr-x/pr-readiness--parse-github
+                '((state . "open") (merged . :json-false) (draft . :json-false) (mergeable . t)
+                  (mergeable_state . "clean") (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "bob"))) (state . "CHANGES_REQUESTED"))
+                  ((user . ((login . "bob"))) (state . "DISMISSED")))
+                '((state . "success") (statuses . (((state . "success")))))
+                '((check_runs . (((status . "completed") (conclusion . "success"))
+                                 ((status . "in_progress") (conclusion . nil))))))))
+    (should (equal ready '(:state open :mergeable t :checks pending :approvals 1 :changes-requested nil))))
+  ;; A failed check run wins; a draft; mergeable still computing.
+  (let ((ready (mr-x/pr-readiness--parse-github
+                '((state . "open") (merged . :json-false) (draft . t) (mergeable . nil)
+                  (mergeable_state . "unknown") (head . ((sha . "abc"))))
+                nil
+                '((state . "pending") (statuses . nil))
+                '((check_runs . (((status . "completed") (conclusion . "failure"))))))))
+    (should (equal ready '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil)))))
+
+(ert-deftest pr-readiness-text-reads-like-the-design ()
+  (cl-flet ((plain (ready) (substring-no-properties (mr-x/pr-readiness--text ready))))
+    (should (equal (plain '(:state open :mergeable t :checks success :approvals 2 :changes-requested nil))
+                   "✓ mergeable   checks ✓   2 approved"))
+    (should (equal (plain '(:state open :mergeable nil :checks pending :approvals 0 :changes-requested t))
+                   "✗ conflicts   checks ● pending   changes requested"))
+    (should (equal (plain '(:state merged :mergeable t :checks nil :approvals 1 :changes-requested nil))
+                   "merged   1 approved"))
+    (should (equal (plain '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil))
+                   "draft   checks ✗"))
+    (should (equal (plain '(:error "boom")) "readiness ?"))))
+
+(ert-deftest pr-readiness-segment-shows-only-for-pr-sessions ()
+  (let* ((pr (make-review-session :source (make-review-source
+                                            :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 1))
+                                   :files (vector) :current 0 :hunk 0))
+         (range (make-review-session :source (make-review-source
+                                               :recipe '(:kind git-range :directory "/tmp/" :range "a..b"))
+                                      :files (vector) :current 0 :hunk 0)))
+    (clrhash mr-x/pr-readiness--table)
+    (should-not (mr-x/pr-readiness-segment pr))
+    (should-not (mr-x/pr-readiness-segment range))
+    (puthash pr '(:state open :mergeable t :checks nil :approvals 0 :changes-requested nil)
+             mr-x/pr-readiness--table)
+    (should (equal (substring-no-properties (mr-x/pr-readiness-segment pr)) "✓ mergeable"))
+    (should-not (mr-x/pr-readiness-segment range))))
 
 (provide 'pr-workflow-test)
