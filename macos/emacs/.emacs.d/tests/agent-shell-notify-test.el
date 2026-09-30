@@ -14,7 +14,9 @@
   (declare (indent 0) (debug t))
   `(let ((agent-shell-notify-cache-directory
           (make-temp-file "agent-shell-notify-test-" t))
-         (agent-shell-notify--downloads (make-hash-table :test #'equal)))
+         (agent-shell-notify--downloads (make-hash-table :test #'equal))
+         ;; Tests must not depend on whether this Mac's screens are lit.
+         (agent-shell-notify-display-asleep-function #'ignore))
      (unwind-protect
          (progn ,@body)
        (delete-directory agent-shell-notify-cache-directory t))))
@@ -40,6 +42,43 @@
                  "fa57a52dbf08190218529730a3e99db6946c6c29220fb6e0551e21598b0b05db"))
   (should-not (equal (agent-shell-notify--digest "session-a")
                      (agent-shell-notify--digest "session-b"))))
+
+(ert-deftest agent-shell-notify-sleeping-display-drops-banner ()
+  "No banner while the displays sleep: macOS would wake every screen to show it."
+  (agent-shell-notify-test--with-cache
+    (let ((agent-shell-notify-display-asleep-function (lambda () t))
+          process-calls)
+      (cl-letf (((symbol-function 'executable-find)
+                 #'agent-shell-notify-test--executable)
+                ((symbol-function 'make-process)
+                 (lambda (&rest args)
+                   (push args process-calls)
+                   'fake-process))
+                ((symbol-function 'major-pane--tab-label)
+                 (lambda (_) "Pane Label")))
+        (with-temp-buffer
+          (setq-local agent-shell--state
+                      (list (cons :session (list (cons :id nil)))))
+          (mr-x/agent-shell-notify (current-buffer) "Fallback" "Finished")))
+      (should (null process-calls)))))
+
+(ert-deftest agent-shell-notify-display-asleep-p-reads-powerd-assertion ()
+  "Displays count as asleep exactly when powerd drops its display-on assertion."
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (_program _infile _destination _display &rest _args)
+               (insert "pid 341(powerd): PreventUserIdleSystemSleep named: "
+                       "\"Powerd - Prevent sleep while display is on\"\n")
+               0)))
+    (should-not (agent-shell-notify--display-asleep-p)))
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (_program _infile _destination _display &rest _args)
+               (insert "pid 77692(Claude): NoIdleSleepAssertion named: \"Electron\"\n")
+               0)))
+    (should (agent-shell-notify--display-asleep-p)))
+  ;; pmset missing or failing must never swallow notifications.
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (&rest _) (signal 'file-missing '("no pmset")))))
+    (should-not (agent-shell-notify--display-asleep-p))))
 
 (ert-deftest agent-shell-notify-missing-session-delivers-plain-immediately ()
   "A notification without an ACP session ID must not start a download."

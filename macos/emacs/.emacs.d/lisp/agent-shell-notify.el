@@ -18,6 +18,16 @@
   :type 'number
   :group 'agent-shell-notify)
 
+(defcustom agent-shell-notify-display-asleep-function
+  #'agent-shell-notify--display-asleep-p
+  "Predicate returning non-nil while every display is asleep.
+No banner is posted then: macOS wakes the screens for 30 seconds to show
+one, which undoes a `pmset displaysleepnow' the moment an agent finishes
+a turn.  Phone push (`agent-shell-push') is a separate path and still
+fires."
+  :type 'function
+  :group 'agent-shell-notify)
+
 (defconst agent-shell-notify--png-signature
   (unibyte-string #x89 #x50 #x4e #x47 #x0d #x0a #x1a #x0a)
   "The eight-byte PNG file signature.")
@@ -54,6 +64,19 @@
              (insert-file-contents-literally file nil 0 8)
              (string= (buffer-string) agent-shell-notify--png-signature)))
     (file-error nil)))
+
+(defun agent-shell-notify--display-asleep-p ()
+  "Return non-nil while macOS has every display asleep.
+powerd holds \"Powerd - Prevent sleep while display is on\" only while a
+screen is lit, so its absence from `pmset -g assertions' means dark.
+Apple Silicon has no IODisplayWrangler to ask instead.  Any pmset
+failure counts as awake so a broken probe never swallows notifications."
+  (with-temp-buffer
+    (and (eq 0 (ignore-errors
+                 (call-process "pmset" nil t nil "-g" "assertions")))
+         (not (save-excursion
+                (goto-char (point-min))
+                (search-forward "Prevent sleep while display is on" nil t))))))
 
 (defun agent-shell-notify--spawn (name command &optional sentinel)
   "Start COMMAND asynchronously as NAME without exit queries."
@@ -189,6 +212,8 @@ Use IMAGE-FILE when non-nil; otherwise deliver plain notifications."
          (cache-file (and digest
                           (agent-shell-notify--cache-file digest))))
     (cond
+     ((funcall agent-shell-notify-display-asleep-function)
+      nil)
      ((not (executable-find "terminal-notifier"))
       (agent-shell-notify--deliver-plain title body))
      ((not digest)
