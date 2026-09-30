@@ -120,10 +120,16 @@ Legacy preset and clone requests continue through the existing bridge.
 
 The rig preset pickers (`SPC c C` for a new chat in a project, `SPC c p`
 for the current chat) share their choices with the phone. Codex presets
-include `a` for Astra 6, `c` for Sol 6, and `x` for Sol 6 Max, all in
+include `a` for Astra 6, `c` for Sol 6.1, and `x` for Sol 6.1 Max, all in
 Full mode. The Max preset uses max reasoning; Astra and regular Sol use
-high reasoning. Sol 6 replaces Sol 5.6 on the existing keys, including
+high reasoning. Sol 6.1 replaces older Sol versions on the existing keys, including
 the `SPC c x` Sol shortcut. Applying a Codex preset requires a Codex chat.
+
+Sol 6.1 access was verified with Codex CLI 0.159.2. Agent-shell's
+`CODEX_PATH=/opt/homebrew/bin/codex` selects the globally installed CLI
+instead of codex-acp's bundled copy. After a CLI upgrade, start a new chat
+to use the new process and model catalogue; existing chats keep their
+running processes. No Emacs daemon restart is needed.
 
 OpenCode is available in the Agent picker and through the `Luna 6 · Build`
 rig preset on `O`, replacing Luna 5.6. It launches `openai/gpt-6-luna` in `build` mode through
