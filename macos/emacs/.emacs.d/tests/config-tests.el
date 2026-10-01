@@ -347,6 +347,29 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
                      "bypass"
                      agent-shell-opencode-make-agent-config)))))
 
+(ert-deftest config-test-mobile-preset-launch-confirms-before-submitting ()
+  "Legacy phone presets must use the same confirmation gate as New Chat."
+  (with-temp-buffer
+    (let ((buffer (current-buffer)) confirmed
+          (mr-x/agent-shell-presets '((?z "Test" "sol" "agent" nil "high"))))
+      (cl-letf (((symbol-function 'mr-x/agent-shell--config-with)
+                 (lambda (&rest _) '((:identifier . codex)
+                                     (:default-model-id . (lambda () "sol"))
+                                     (:default-session-mode-id . (lambda () "agent")))))
+                ((symbol-function 'agent-shell--start)
+                 (lambda (&rest args)
+                   (should-not (map-elt (plist-get args :config) :default-model-id))
+                   (should-not (map-elt (plist-get args :config) :default-session-mode-id))
+                   buffer))
+                ((symbol-function 'syzygy-launch--configure)
+                 (lambda (buf settings task) (setq confirmed (list buf settings task))))
+                ((symbol-function 'mr-x/agent-label-sync) #'ignore)
+                ((symbol-function 'run-at-time) (lambda (&rest _) (ert-fail "Unconfirmed deferred prompt"))))
+        (mr-x/agent-shell-spawn-for-mobile temporary-file-directory "" "First prompt" "z")
+        (should (equal confirmed
+                       (list buffer '((agent . "codex") (model . "sol")
+                                      (mode . "agent") (effort . "high")) "First prompt")))))))
+
 (ert-deftest config-test-agent-preset-labels-use-canonical-names ()
   "Preset labels use family-first model versions and shared permission names."
   (should
@@ -354,7 +377,7 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
                   mr-x/agent-shell-presets)
           '((?f . "Fable 5.1 · Full")
             (?o . "Opus 5.5 · Full")
-            (?s . "Sonnet 5 · Accept edits")
+            (?s . "Sonnet 5.5 · Accept edits")
             (?p . "Opus 5.5 · Plan")
             (?a . "Astra 6 · Full")
             (?c . "Sol 6.1 · Full")

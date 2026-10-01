@@ -81,9 +81,9 @@ tail ~/Library/Logs/acp-mobile/acp-mobile.err.log
 - **R3.7 blind spot**: the agent-shell buffer does NOT render turns initiated
   from the web UI (shell-maker only displays its own turns). Session state is
   shared — the web UI shows everything from both sides; Emacs only shows its own.
-- Remote **spawn/kill/clone** from the phone go through `agent-shell-spawn`
-  (`macos/scripts/`, symlinked into `~/.local/bin`) and
-  `meta-agent-shell-close-session` in emacs.org. The chat menu's Clone item
+- Remote **spawn/clone** use the structured `syzygy-launch.el` bridges;
+  kill uses `meta-agent-shell-close-session` in emacs.org. The CLI
+  `agent-shell-spawn` remains available separately. The chat menu's Clone item
   POSTs `{cloneOf: <buffer name>}` to `/api/spawn`; the rig copies that
   buffer's agent, model, permission mode and directory into a fresh session
   (no history, same as `SPC c n`), label suffixed ` 2`.
@@ -116,7 +116,29 @@ Partial failures keep the buffer and unsent draft available for recovery.
 The return-to-draft icon releases recovery if the created chat is gone.
 Missing configured defaults require a choice; the first permission option
 is never silently selected.
-Legacy preset and clone requests continue through the existing bridge.
+Legacy preset, default and clone requests use `syzygy-launch-legacy-json`
+and the same confirmation path. Both launch bridges return the exact buffer
+even when configuration fails. Clone opens that buffer on failure; while
+discovery is pending, `Open clone` retries discovery without spawning again.
+
+Startup, model, permissions and effort each have a separate 60-second budget.
+Settings are applied in that order, with explicit success/failure callbacks,
+and checked again together before sending. Refusals identify the failed
+setting and preserve the adapter's error; daemon `*Messages*` also records
+the failure and buffer name. A late success never sends a held prompt.
+
+Claude presets use the advertised `claude-fable-5-1` and `opus` IDs. Saved
+`fable[1m]` and `opus[1m]` drafts/pins remain compatible through an explicit,
+Claude-only alias map. An adapter-added 1M suffix is accepted for a bare ID;
+different model generations and permission modes are never treated as equal.
+Warm catalogues do not invent unsupported preset choices. Sonnet's preset
+and phone label both say 5.5.
+
+Verified 2026-10-01: all ten rig presets started empty real sessions and
+confirmed their model, permissions and requested effort; historical Claude
+aliases, default launch and clone launch were also exercised. No provider
+prompts were submitted by these startup checks. Automated regressions cover
+rejections, setting mismatches, per-stage timeouts and recovery.
 
 The rig preset pickers (`SPC c C` for a new chat in a project, `SPC c p`
 for the current chat) share their choices with the phone. Codex presets

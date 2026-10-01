@@ -1,13 +1,13 @@
 #!/bin/bash
 # agent-shell-spawn NAME CWD [TASK] [PRESET] [CLONE_OF]
 #
-# Bridge for acp-mobile's /api/spawn (see handleSpawn in main.go): asks
+# CLI companion to acp-mobile's structured launch bridge: asks
 # the Emacs daemon to open a new agent-shell convo in CWD, pane-labeled
 # NAME, optionally submitting TASK as the first prompt once the session
 # handshake completes.  PRESET is a single char key into the rig's
 # mr-x/agent-shell-presets (model + permission mode).  CLONE_OF names an
 # existing agent-shell buffer to copy agent, model, permission mode and
-# directory from (the phone's Clone menu item; CWD may then be empty).
+# directory from (equivalent to the phone's Clone; CWD may then be empty).
 # Lives on the daemon's PATH via ~/.local/bin (extraPath in
 # ~/.acp-mobile/config.json).
 set -euo pipefail

@@ -4447,9 +4447,9 @@ Matches an Agent header of the form \"Codex NAME\" against
                   #'mr-x/agent-shell--codex-account-config-for-transcript)
 
       (defvar mr-x/agent-shell-presets
-        '((?f "Fable 5.1 · Full" "fable[1m]"           "bypassPermissions")
-          (?o "Opus 5.5 · Full"  "opus[1m]"            "bypassPermissions")
-          (?s "Sonnet 5 · Accept edits" "sonnet"       "acceptEdits")
+        '((?f "Fable 5.1 · Full" "claude-fable-5-1"    "bypassPermissions")
+          (?o "Opus 5.5 · Full"  "opus"                "bypassPermissions")
+          (?s "Sonnet 5.5 · Accept edits" "sonnet"     "acceptEdits")
           (?p "Opus 5.5 · Plan"  "default"             "plan")
           (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
               agent-shell-openai-make-codex-config "high")
