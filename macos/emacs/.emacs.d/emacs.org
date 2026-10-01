@@ -4674,9 +4674,9 @@ Matches an Agent header of the form \"Codex NAME\" against
                   #'mr-x/agent-shell--codex-account-config-for-transcript)
 
       (defvar mr-x/agent-shell-presets
-        '((?f "Fable 5.1 · Full" "fable[1m]"           "bypassPermissions")
-          (?o "Opus 5.5 · Full"  "opus[1m]"            "bypassPermissions")
-          (?s "Sonnet 5 · Accept edits" "sonnet"       "acceptEdits")
+        '((?f "Fable 5.1 · Full" "claude-fable-5-1"    "bypassPermissions")
+          (?o "Opus 5.5 · Full"  "opus"                "bypassPermissions")
+          (?s "Sonnet 5.5 · Accept edits" "sonnet"     "acceptEdits")
           (?p "Opus 5.5 · Plan"  "default"             "plan")
           (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
               agent-shell-openai-make-codex-config "high")
@@ -11157,8 +11157,8 @@ does for the rig; the phone's Clone menu item reaches it through
                       (lambda () mode-id)))
               config)))
 
-        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset clone-of)
-          "Spawn an agent-shell convo in CWD, label it NAME, queue TASK.
+        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset clone-of on-created)
+          "Spawn an agent-shell convo in CWD, label it NAME, confirm then send TASK.
 PRESET, when non-empty, is a char key into `mr-x/agent-shell-presets'
 \(e.g. \"f\") — the shell launches with that preset's model +
 permission mode, same as C-u SPC c P on the rig.
@@ -11166,7 +11166,9 @@ CLONE-OF, when non-empty, names an existing agent-shell buffer: the new
 convo copies its agent, model, permission mode and directory (what
 SPC c n does on the rig), CWD may then be empty, and an empty NAME
 inherits the source's pane label with a \" 2\" suffix.  A PRESET
-still wins over the copied model + mode."
+still wins over the copied model + mode.  ON-CREATED receives the new
+buffer before settings are applied, so the JSON bridge can recover it
+even if confirmation fails."
           (let* ((source (and clone-of (not (string-empty-p clone-of))
                               (or (get-buffer clone-of)
                                   (error "No such buffer: %s" clone-of))))
@@ -11186,24 +11188,33 @@ still wins over the copied model + mode."
                             (tuple (mr-x/agent-shell--config-with
                                     (nth 2 tuple) (nth 3 tuple) (nth 4 tuple)))
                             (source (mr-x/agent-shell--clone-config source))
-                            (t agent-shell-preferred-agent-config)))
+                            (t (agent-shell--resolve-preferred-config))))
+                   (model-fn (map-elt config :default-model-id))
+                   (mode-fn (map-elt config :default-session-mode-id))
+                   (settings `((agent . ,(syzygy-launch--config-id config))
+                               (model . ,(when (functionp model-fn) (funcall model-fn)))
+                               (mode . ,(when (functionp mode-fn) (funcall mode-fn)))
+                               (effort . ,(or (nth 5 tuple)
+                                              (and source (not tuple)
+                                                   (agent-shell--current-thought-level-id
+                                                    (buffer-local-value 'agent-shell--state source)))))))
                    (label (cond
                            ((and name (not (string-empty-p name))) name)
                            (source
                             (when-let ((src-label (gethash source major-pane--labels)))
                               (concat src-label " 2")))))
+                   (config (copy-alist config))
+                   (_ (setf (alist-get :default-model-id config) nil
+                            (alist-get :default-session-mode-id config) nil
+                            (alist-get :default-config-options config) nil))
                    (buf (agent-shell--start
                          :config config
                          :new-session t :no-focus t)))
+              (when on-created (funcall on-created buf))
               (when label
                 (major-pane-set-buffer-label buf label))
-              (when-let ((effort (or (nth 5 tuple)
-                                     (and source (not tuple)
-                                          (agent-shell--current-thought-level-id
-                                           (buffer-local-value 'agent-shell--state source))))))
-                (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                             buf effort 60))
-              (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
+              (syzygy-launch--configure buf settings (or task ""))
+              (mr-x/agent-label-sync)
               (buffer-name buf))))
 
         (defun meta-agent-shell-close-session (buffer-name)
