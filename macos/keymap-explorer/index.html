@@ -1,6 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mrx keymap explorer</title>
+<link rel="stylesheet" href="practice.css">
 <style>
   :root {
     --bg: #edeae4;
@@ -625,6 +627,8 @@ const MAPS = {
   fac: [fac0, fac1, fac2, facNone, facNone],
   cur: [cur0, cur1, cur2, cur3, cur4]
 };
+// Practice shares the current board's physical geometry and legends.
+window.IrisLayout = { geometry: GEO, base: cur0, symbols: cur1 };
 const LAYOUTS = {
   fac: { v: 0, status: 'retired 2026-09-28', name: 'factory' },
   cur: { v: 1, status: 'on board — flashed 2026-09-29', name: 'current v2' }
@@ -893,5 +897,8 @@ btnIdx.addEventListener('click', () => {
 renderIr();
 })();
 </script>
+<script src="practice-bindings.js"></script>
+<script src="practice-engine.js"></script>
+<script src="practice.js"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
 # mrx keymap explorer
 
 Interactive visualizer for the **Keebio Iris SE** (USB name `Iris Rev. 8`,
-RP2040, QMK target `keebio/iris/rev8`): one self-contained HTML file, no
-build, no dependencies. Walk the layers, hover any key for its QMK keycode,
-and compare the current layout side by side against Factory.
+RP2040, QMK target `keebio/iris/rev8`): static HTML/CSS/JavaScript, no build
+or runtime dependencies. Walk the layers, compare layout versions, or practice
+your actual Emacs leader bindings in short recall rounds.
 
 The hotdox76v2 and the Creator Micro used to live here too. Both boards are
 gone (2026-08-03); their explorers, ledgers and flashing runbook are in git
@@ -25,10 +25,79 @@ agent-open "file://$HOME/.dotfiles/macos/keymap-explorer/index.html"
 ## What it shows
 
 - **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game
-- **Current v1** (on board, flashed 2026-09-28) and **Factory** (Keebio
-  default QWERTY, retired). Side by side rings every key that differs.
+- **Current v2** (on board, flashed 2026-09-29) and **Factory** (retired).
+  Side by side rings differing keys.
 - The left inner key (#42) is a rotary knob: press legend plus per-layer
   turn actions from `encoder_map`.
+
+## Practice
+
+Refresh bindings from the running Emacs and open the Practice view:
+
+```bash
+~/.dotfiles/macos/keymap-explorer/practice.sh
+```
+
+Choose **Start a round** for ten command prompts. Type each command's leader
+sequence; press **Enter** (or click **Reveal keys**) to show the sequence and highlight the next key on
+the current Dvorak Iris. Correct alternate bindings for the same command count
+too, except in an explicitly labeled single-binding drill. Wrong input resets
+the sequence. Accuracy counts
+correct keypresses / all attempted keypresses; streaks and recalled commands
+count only answers without mistakes or hints. Revealing keys does not add a
+mistake or lower accuracy. The Enter shortcut works while the practice keyboard
+has focus; it does not intercept controls or search. **Escape** pauses, **Tab** leaves
+the capture area, and losing window focus pauses. **End round** returns to deck
+selection; completed answers remain saved. Commands are never executed.
+
+**New & rusty** favors unpracticed and missed bindings, with no consecutive
+identical card when alternatives exist. **Needs practice** contains attempted
+bindings until three consecutive unaided recalls; hints or mistakes reset that
+run. Choose a leader prefix to narrow the
+deck, or expand **Find a binding** and click **Practice** beside one command
+to drill that exact binding. Theme choices are Gruvbox (default), Gruvbox light,
+and Midnight. Themes and progress stay in browser localStorage; opening the
+same files in a different browser/origin starts a separate history. If storage
+is blocked, rounds still work with session-only progress.
+
+The catalog is a **timestamped snapshot**, not a live feed. It reads effective
+`SPC` bindings in a disposable `fundamental-mode` buffer in Evil normal state.
+It does not change keymaps or visit user buffers. Only printable sequences are
+included: OS/browser shortcuts, Hyper chords, special-key sequences, and
+mode-specific bindings need a future native capture path. Hints show emitted
+keys; the browser cannot prove which physical mod-tap or QMK layer you used.
+Practice follows current firmware, not proposed draft layouts.
+
+After adding or changing bindings, rerun the launcher, or refresh without
+opening a page and then reload the browser:
+
+```bash
+~/.dotfiles/macos/keymap-explorer/practice.sh --refresh-only
+```
+
+`practice-bindings.js` is generated locally and gitignored. Export failure
+preserves the previous file and the launcher exits with an error. If no export
+exists, Practice displays the launcher command. If the catalog looks stale,
+confirm your latest bindings are loaded in the daemon and rerun the launcher;
+no daemon restart is needed. Clear this page's browser site data to reset local
+progress and theme. Switching back to **Explore** restores the layer explorer;
+`#widget` keeps the existing wallpaper UI and APIs.
+
+The earlier [typing-practice](https://github.com/mrx-xo/typing-practice) project
+informed the feedback loop. Practice uses this explorer's accurate Iris geometry
+and current legends instead of that project's separate rectangular keyboard.
+
+### Verification
+
+```bash
+node --test ~/.dotfiles/macos/keymap-explorer/tests/practice.test.cjs
+```
+
+`tests/browser.cjs` runs a full round and checks focus, hints, storage, themes,
+search, layout versions, responsive sizing, and widget APIs using Playwright.
+Set `PLAYWRIGHT_MODULE` to an existing Playwright installation and optionally
+`BROWSER_EXECUTABLE` to the browser binary for a headless run. The browser suite
+requires a generated local catalog; no test dependencies ship with the page.
 
 ## Widget mode (the wallpaper overlay)
 
