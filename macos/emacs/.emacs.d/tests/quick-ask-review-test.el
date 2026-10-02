@@ -421,6 +421,39 @@
                       :posframe-width 600 :posframe-height 200))
                    '(700 . 50)))))
 
+(ert-deftest quick-ask-popup-never-covers-the-rows-it-asks-about ()
+  ;; A tall answer used to flip above the selection's last line and get
+  ;; pushed down to the frame's top, burying the whole selection.
+  (let ((buf (generate-new-buffer " *qa-rows*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'posframe-poshandler-point-bottom-left-corner)
+                   (lambda (_info) '(700 . 0))))
+          (cl-flet ((y (rows frame-height height)
+                      (with-current-buffer buf (setq mr-x/quick-ask--source-rows rows))
+                      (cdr (mr-x/quick-ask--poshandler
+                            (list :parent-frame-width 2000 :parent-frame-height frame-height
+                                  :posframe-width 600 :posframe-height height
+                                  :posframe-buffer buf)))))
+            ;; Room below: right under the last row.
+            (should (= (y '(100 . 200) 800 300) 200))
+            ;; Room only above: the card ends just short of the first row.
+            (should (= (y '(500 . 700) 800 400) 96))
+            ;; Room nowhere: the larger gap, still clear of the rows.
+            (should (= (y '(516 . 686) 1357 972) 686))
+            (should (= (y '(600 . 700) 800 650) 0))))
+      (kill-buffer buf))))
+
+(ert-deftest quick-ask-popup-is-capped-to-the-gap-it-sits-in ()
+  ;; Rows at 500..700 px of an 800 px frame, 20 px lines: 24 lines of room
+  ;; above, 4 below.
+  (should (= (mr-x/quick-ask--float-cap '(500 . 700) 800 20 10) 24))
+  ;; A card that fits below stays below.
+  (should (= (mr-x/quick-ask--float-cap '(100 . 200) 800 20 10) 29))
+  ;; The larger gap when it fits in neither.
+  (should (= (mr-x/quick-ask--float-cap '(516 . 686) 1357 20 60) 33))
+  ;; Never too small to read, even when the rows fill the frame.
+  (should (= (mr-x/quick-ask--float-cap '(10 . 790) 800 20 10) 6)))
+
 (ert-deftest quick-ask-strips-agent-notices-and-thinking ()
   ;; A project's first question goes to a fresh session, whose output
   ;; starts with agent-shell's session notice.

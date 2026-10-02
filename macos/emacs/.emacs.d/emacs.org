@@ -12507,19 +12507,82 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (with-current-buffer buf
                 (setq mr-x/quick-ask--fits fits)
                 (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
-              (when fits (set-frame-height frame px nil t))))
+              (when fits (set-frame-height frame px nil t)))
+            (mr-x/quick-ask--settle-float buf))
           lines))
 
+      (defvar-local mr-x/quick-ask--source-rows nil
+        "Frame pixel rows of the lines this Quick Ask is about, as (TOP . BOTTOM).
+      The popup stays clear of them; nil when they could not be measured.")
+
+      (defun mr-x/quick-ask--measure-source-rows (window start end)
+        "The frame pixel rows START..END's lines take in WINDOW, as (TOP . BOTTOM).
+      Lines scrolled out of WINDOW count from its edge.  Nil when nothing
+      is drawn to measure, as in batch."
+        (let* ((edges (window-pixel-edges window))
+               ;; The same origin posframe measures point from.
+               (origin (+ (nth 1 edges) (window-header-line-height window)
+                          (if (fboundp 'window-tab-line-height) (window-tab-line-height window) 0)))
+               (first (posn-at-point (max start (window-start window)) window))
+               (last (posn-at-point end window)))
+          (when (or first last)
+            (cons (+ origin (if first (cdr (posn-x-y first)) 0))
+                  (cond (last (+ origin (cdr (posn-x-y last))
+                                 (with-selected-window window
+                                   (save-excursion (goto-char end) (line-pixel-height)))))
+                        ;; Scrolled off above: nothing to keep clear of.
+                        ((< end (window-start window)) origin)
+                        (t (nth 3 edges)))))))
+
+      (defun mr-x/quick-ask--float-cap (rows frame-height line want)
+        "Most lines the popup may take beside ROWS in a FRAME-HEIGHT px frame.
+      LINE is a line's pixel height.  A card of WANT lines goes below the
+      rows when it fits there, else in the larger gap; never under 6 lines."
+        (let ((above (floor (- (car rows) 4) line))
+              (below (floor (- frame-height (cdr rows) 4) line)))
+          (max 6 (if (or (<= want below) (>= below above)) below above))))
+
+      (defun mr-x/quick-ask--float-y (rows height frame-height)
+        "Where a HEIGHT px card goes beside ROWS in a FRAME-HEIGHT px frame.
+      Below the rows, above them when the card only fits there, else the
+      larger gap."
+        (cond ((<= (+ (cdr rows) height) frame-height) (cdr rows))
+              ;; 4 px: the card's border is outside its height.
+              ((or (<= (+ height 4) (car rows))
+                   (> (car rows) (- frame-height (cdr rows))))
+               (max 0 (- (car rows) height 4)))
+              (t (cdr rows))))
+
       (defun mr-x/quick-ask--poshandler (info)
-        "Below the anchor, or above it when the card would run off the bottom;
-      shifted left so it never runs past the frame's right edge."
+        "Beside the rows asked about (`mr-x/quick-ask--float-y'); without
+      them, below point or above it when the card would run off the bottom.
+      Shifted left so it never runs past the frame's right edge."
         (let* ((below (posframe-poshandler-point-bottom-left-corner info))
-               (pos (if (> (+ (cdr below) (plist-get info :posframe-height))
-                           (plist-get info :parent-frame-height))
-                        (posframe-poshandler-point-bottom-left-corner-upward info)
-                      below))
+               (height (plist-get info :posframe-height))
+               (frame-height (plist-get info :parent-frame-height))
+               (buf (plist-get info :posframe-buffer))
+               (rows (and (bufferp buf) (buffer-live-p buf)
+                          (buffer-local-value 'mr-x/quick-ask--source-rows buf)))
+               (y (if rows (mr-x/quick-ask--float-y rows height frame-height)
+                    (cdr (if (> (+ (cdr below) height) frame-height)
+                             (posframe-poshandler-point-bottom-left-corner-upward info)
+                           below))))
                (right (- (plist-get info :parent-frame-width) (plist-get info :posframe-width) 4)))
-          (cons (max 0 (min (car pos) right)) (cdr pos))))
+          (cons (max 0 (min (car below) right)) y)))
+
+      (defun mr-x/quick-ask--settle-float (buf)
+        "Move BUF's popup beside its rows once its height is final.
+      posframe positions the frame before it has shrunk, and macOS pushes
+      a child frame that would overflow its parent back inside, so a card
+      that was tall a moment ago ends up over the rows it should avoid."
+        (let* ((frame (mr-x/quick-ask--posframe-frame buf))
+               (parent (and (frame-live-p frame) (frame-parent frame)))
+               (rows (buffer-local-value 'mr-x/quick-ask--source-rows buf)))
+          (when (and rows (frame-live-p parent))
+            (redisplay t)
+            (set-frame-position frame (car (frame-position frame))
+                                (mr-x/quick-ask--float-y rows (frame-pixel-height frame)
+                                                         (frame-pixel-height parent))))))
 
       (defun mr-x/quick-ask--show-float (buf source-window)
         "Show BUF as a card popup anchored at its source in SOURCE-WINDOW."
@@ -12540,6 +12603,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (let* ((anchor (with-current-buffer source
                                (min (point-max) (max (point-min)
                                                     (if region (cdr region) (point))))))
+                     (rows (with-current-buffer source
+                             (mr-x/quick-ask--measure-source-rows
+                              source-window (if region (car region) anchor) anchor)))
+                     ;; Room for the card: all of the frame until its own
+                     ;; height is known, then the gap it will sit in.
                      (cap (max 10 (- (frame-height) 4)))
                      (show (lambda (&rest size)
                              (apply #'posframe-show
@@ -12555,9 +12623,14 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                              ;; posframe-show resets `cursor-type'; evil sets it back.
                              (with-current-buffer buf
                                (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))))))
+                (with-current-buffer buf (setq mr-x/quick-ask--source-rows rows))
                 (funcall show)
-                (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
-                  (funcall show :height lines :min-height lines))
+                (let ((want (mr-x/quick-ask--content-lines buf)))
+                  (when rows
+                    (setq cap (mr-x/quick-ask--float-cap
+                               rows (frame-pixel-height) (frame-char-height) want)))
+                  (let ((lines (min cap want)))
+                    (funcall show :height lines :min-height lines)))
                 (mr-x/quick-ask--fit-float buf cap))))
           (let ((frame (mr-x/quick-ask--posframe-frame buf)))
             (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
