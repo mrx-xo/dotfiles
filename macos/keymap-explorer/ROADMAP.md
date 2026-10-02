@@ -8,6 +8,24 @@ The hotdox76v2 / Creator Micro roadmap this replaced is in git history up to
 
 ## Done
 
+- **Practice view implemented 2026-10-01**: ten-command leader recall, exact
+  current Iris/Dvorak geometry, hints, accuracy/streaks, weighted review,
+  searchable/prefix decks, Gruvbox/light/Midnight themes, local progress.
+  Effective Emacs leader catalog exported by `practice.sh`; operating and
+  recovery instructions live in [README.md](README.md#practice).
+
+## Practice follow-ups
+
+- Native Emacs capture for Hyper/control chords and mode-specific bindings.
+  The browser version intentionally trains printable SPC leader sequences.
+- Optional ordinary typing rounds from the original typing-practice project.
+  Current rounds focus on recalling the user's Emacs commands.
+
+## Earlier keyboard milestones
+
+The older milestones below retain firmware/widget context. Consult
+[VERSIONS.md](VERSIONS.md) for the current flashed-versus-draft status.
+
 - **v1 flashed** 2026-09-28 (see VERSIONS.md); the explorer's `cur` maps
   match `keymaps/mrx/keymap.c`.
 - **Explorer is Iris-only**: current v1 vs factory, side by side, knob
