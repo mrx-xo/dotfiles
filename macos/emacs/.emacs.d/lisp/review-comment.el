@@ -322,7 +322,10 @@ from.  An empty text cancels unless ALLOW-EMPTY."
     (let* ((c (buffer-local-value 'review-comment--compose buffer))
            (window (plist-get c :window)))
       (ignore-errors (funcall (nth 2 (review-comment--style (plist-get c :style))) buffer))
-      (kill-buffer buffer)
+      ;; The buffer is this package's own and never worth a question:
+      ;; perspective's query refuses a kill from another frame, and a
+      ;; surviving compose would refuse every later comment.
+      (let ((kill-buffer-query-functions nil)) (kill-buffer buffer))
       (when (window-live-p window)
         (unless (eq (window-frame window) (selected-frame))
           (select-frame-set-input-focus (window-frame window)))
