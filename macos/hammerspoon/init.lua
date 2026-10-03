@@ -133,6 +133,9 @@ displayLayoutWatcher = hs.screen.watcher.new(function()
 end)
 displayLayoutWatcher:start()
 
+-- Manual iPad connection and bounded wake/login retries (per-machine opt-in).
+dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/sidecar-init.lua")
+
 -- Hide sketchybar while the auto-hidden macOS menu bar is revealed.
 -- The OS slides its menu bar in when the pointer dwells at the very top
 -- edge of a screen; mirror that trigger so the two bars never stack.

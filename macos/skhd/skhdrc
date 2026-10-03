@@ -74,11 +74,15 @@ hyper - 3 : yabai -m window --display 3; yabai -m display --focus 3
 # Main Right Monitor
 hyper - 4 : yabai -m window --display 4; yabai -m display --focus 4
 
+# iPad (Sidecar)
+hyper - 5 : yabai -m window --display 5; yabai -m display --focus 5
+
 # Focus only - no window movement
 meh - 1 : yabai -m display --focus 1
 meh - 2 : yabai -m display --focus 2
 meh - 3 : yabai -m display --focus 3
 meh - 4 : yabai -m display --focus 4
+meh - 5 : yabai -m display --focus 5
 
 # Tab nav lives in firmware since keymap v3 (2026-07-29): Nav layer Tab◀/Tab▶
 # send real ⌘⌥←/→ — the old ✦,/✦. Hammerspoon binds are retired.
