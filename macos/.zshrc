@@ -73,7 +73,9 @@ case "${MACHINE_ID:-unknown}" in
   *)    PROMPT_NAME="${PROMPT_NAME:-${MACHINE_ID:-?}}" ;;
 esac
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local
-PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f %F{212}𐆖%f "
+# Two lines: context on top, input on its own line so a long command
+# gets the full window width.
+PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f"$'\n'"%F{212}𐆖%f "
 
 # Custom Jawns
 alias mrxpath='printf "%s\n" $path'
