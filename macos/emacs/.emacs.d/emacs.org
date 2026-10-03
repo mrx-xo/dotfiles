@@ -7960,7 +7960,53 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
   (use-package pr-workflow
     :ensure nil
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
-               mr-x/pr-review-session mr-x/review-git-range review-session-resume))
+               mr-x/pr-review-session mr-x/review-git-range review-session-resume)
+    :config
+    ;; Review comments: a floating compose box at the commented line, like
+    ;; Quick Ask's card.  The package ships only the window style; the box
+    ;; and the Evil state are this config's.  C-c C-t switches the two.
+    (defun mr-x/review-comment--box-poshandler (info)
+      "Below the line, or above it when the box would run off the bottom."
+      (let* ((below (posframe-poshandler-point-bottom-left-corner info))
+             (pos (if (> (+ (cdr below) (plist-get info :posframe-height))
+                         (plist-get info :parent-frame-height))
+                      (posframe-poshandler-point-bottom-left-corner-upward info)
+                    below))
+             (right (- (plist-get info :parent-frame-width) (plist-get info :posframe-width) 4)))
+        (cons (max 0 (min (car pos) right)) (cdr pos))))
+
+    (defun mr-x/review-comment--show-box (buffer window position)
+      "Show BUFFER as a box at POSITION in WINDOW; centred when POSITION is nil."
+      (if (not (and (require 'posframe nil t) (posframe-workable-p)))
+          (review-comment--show-window buffer window position)
+        (let* ((show (lambda ()
+                       (posframe-show buffer
+                                      :position (or position (point))
+                                      :poshandler (if position #'mr-x/review-comment--box-poshandler
+                                                    #'posframe-poshandler-frame-center)
+                                      :width (min 86 (- (frame-width) 4))
+                                      :height 8 :min-height 8
+                                      :border-width 1 :border-color "#504945"
+                                      :background-color "#282828"
+                                      :accept-focus t :cursor 'box
+                                      :respect-header-line t)))
+               ;; posframe resolves an integer position in the selected window.
+               (frame (if (window-live-p window)
+                          (with-selected-window window (funcall show))
+                        (funcall show))))
+          ;; posframe-show resets `cursor-type'; evil sets it back.
+          (with-current-buffer buffer
+            (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor)))
+          (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
+
+    (defun mr-x/review-comment--hide-box (buffer)
+      (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buffer))))
+
+    (add-to-list 'review-comment-compose-styles
+                 '(box mr-x/review-comment--show-box mr-x/review-comment--hide-box))
+    (setq review-comment-compose-style 'box)
+    (add-hook 'review-comment-compose-mode-hook
+              (lambda () (when (fboundp 'evil-insert-state) (evil-insert-state)))))
 
 #+end_src
 
