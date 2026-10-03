@@ -281,5 +281,70 @@
         (should-not (get-buffer-window "*review-comment*"))
         (should (= (length (review-session-comments s)) 1))))))
 
+(ert-deftest review-comment-drafts-follow-their-lines-across-a-refresh ()
+  (review-comment-test--with s
+    (review-comment-test--at s 'new 3)
+    (review-comment-dwim)
+    (review-comment-test--write "On THREE.")
+    (review-comment-test--at s 'new 12)
+    (review-comment-dwim)
+    (review-comment-test--write "On TWELVE.")
+    ;; A refresh quits as a pause and starts the review again from its
+    ;; source, which has moved: one line was added on top, TWELVE is gone.
+    (let ((review-session--pausing t)) (review-session-quit))
+    (let* ((review-comment-test--spec
+            '(("a.el" "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n" "0\n1\n2\nTHREE\n4\n5\n6\n7\n8\n9\n10\n11\n12\n")
+              ("b.el" "x\ny\n" "x\nY\n")))
+           (fresh (review-session-start (review-comment-test--source))))
+      (review-session-load fresh 0 #'ignore)
+      (review-session--ensure-layout fresh)
+      (let ((three (seq-find (lambda (d) (equal (plist-get d :body) "On THREE."))
+                             (review-session-comments fresh)))
+            (twelve (seq-find (lambda (d) (equal (plist-get d :body) "On TWELVE."))
+                              (review-session-comments fresh))))
+        (should (= (plist-get three :line) 4))
+        (should-not (plist-get three :pending))
+        (should-not (plist-get three :outdated))
+        (should (plist-get twelve :outdated))
+        (should (cl-some (lambda (l) (string-match-p "OUTDATED" l))
+                         (review-comment-test--pane-lines fresh 'new)))))))
+
+(ert-deftest review-comment-drafts-survive-an-unasked-quit ()
+  ;; The frame closed by the window manager: nobody was asked.
+  (review-comment-test--with s
+    (review-comment-test--at s 'new 3)
+    (review-comment-dwim)
+    (review-comment-test--write "Do not lose me.")
+    (review-session-quit)
+    (let ((again (review-session-start (review-comment-test--source))))
+      (review-session-load again 0 #'ignore)
+      (review-session--ensure-layout again)
+      (should (equal (mapcar (lambda (d) (plist-get d :body)) (review-session-comments again))
+                     '("Do not lose me."))))))
+
+(ert-deftest review-comment-discarded-drafts-do-not-come-back ()
+  (review-comment-test--with s
+    (review-comment-test--at s 'new 3)
+    (review-comment-dwim)
+    (review-comment-test--write "Discard me.")
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+      (review-session-quit t))
+    (let ((again (review-session-start (review-comment-test--source))))
+      (should-not (review-session-comments again)))))
+
+(ert-deftest review-comment-settle-all-marks-drafts-of-missing-files-outdated ()
+  (review-comment-test--with s
+    (setf (review-session-comments s)
+          '((:id 1 :path "gone.el" :side new :line 1 :start-line nil :text "x" :body "b" :pending t)
+            (:id 2 :path "b.el" :side new :line 2 :start-line nil :text "Y" :body "b" :pending t)))
+    (let (called)
+      (review-comment--settle-all s (lambda () (setq called t)))
+      (should called))
+    (let ((gone (car (review-session-comments s))) (b (cadr (review-session-comments s))))
+      (should (plist-get gone :outdated))
+      (should-not (plist-get gone :pending))
+      (should-not (plist-get b :outdated))
+      (should-not (plist-get b :pending)))))
+
 (provide 'review-comment-test)
 ;;; review-comment-test.el ends here
