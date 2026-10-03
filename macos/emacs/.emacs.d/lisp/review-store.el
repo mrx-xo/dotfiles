@@ -75,7 +75,8 @@
           ;; A request still waiting on its reply is kept too: its reply
           ;; finds the resumed review by the :request token.
           :walkthrough (let ((w (review-session-walkthrough session)))
-                         (and (or (plist-get w :steps) (plist-get w :request)) w)))))
+                         (and (or (plist-get w :steps) (plist-get w :request)) w))
+          :comments (review-session-comments session))))
 
 (defun review-store--path (key)
   (expand-file-name (concat (md5 key) ".eld") review-store-directory))
@@ -201,7 +202,8 @@ start that fails quits, and that quit drops the record."
       (let* ((session (review-session-start (review-store-source record))))
         (setf (review-session-viewed session)
               (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed)))
-              (review-session-walkthrough session) (plist-get record :walkthrough))
+              (review-session-walkthrough session) (plist-get record :walkthrough)
+              (review-session-comments session) (plist-get record :comments))
         (review-panel-open session)
         (when-let ((panel (plist-get record :panel))
                    (buffer (review-session-panel session)))
