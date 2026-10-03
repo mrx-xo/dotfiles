@@ -4023,6 +4023,19 @@ Falls back to a one-liner if fastfetch isn't installed."
   (evil-mode 1)
   ;; ESC in normal state → progressive escape instead of evil-force-normal-state
   (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
+  ;; Visual block turns `transient-mark-mode' off as a global default,
+  ;; and a mouse selection made meanwhile stores `(only . nil)' in that
+  ;; buffer.  Deactivating it leaves a buffer-local nil behind: evil
+  ;; keeps highlighting `V' selections, but `use-region-p' says there
+  ;; is no region (ref capture refuses, ESC says Quit).  Nothing sets a
+  ;; local nil on purpose, so drop it wherever it shows up.
+  (defun mr-x/evil-drop-local-nil-transient-mark-mode (&rest _)
+    "Kill a buffer-local nil `transient-mark-mode'."
+    (when (and (local-variable-p 'transient-mark-mode)
+               (null transient-mark-mode))
+      (kill-local-variable 'transient-mark-mode)))
+  (add-hook 'deactivate-mark-hook #'mr-x/evil-drop-local-nil-transient-mark-mode)
+  (add-hook 'evil-visual-state-entry-hook #'mr-x/evil-drop-local-nil-transient-mark-mode)
   ;; Make M-backspace delete word without saving to register (like normal editors)
   (define-key evil-insert-state-map (kbd "M-<backspace>")
     (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))

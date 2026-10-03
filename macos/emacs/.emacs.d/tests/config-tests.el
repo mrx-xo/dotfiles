@@ -2625,3 +2625,26 @@ Together these hid 106 lines of roaming/notes/homelab.org."
     (should (eq (mr-x/arca-caldav--completed-wins open) open))))
 
 ;;; config-tests.el ends here
+
+(ert-deftest config-test-deactivate-mark-drops-local-nil-transient-mark-mode ()
+  "A mouse selection made while evil visual block had the mode off stores
+`(only . nil)'; deactivating it must not leave a buffer-local nil behind."
+  (with-temp-buffer
+    (insert "text")
+    (setq-local transient-mark-mode '(only))
+    (set-mark (point-min))
+    (activate-mark)
+    (should (region-active-p))
+    (deactivate-mark)
+    (should-not (and (local-variable-p 'transient-mark-mode)
+                     (null transient-mark-mode)))))
+
+(ert-deftest config-test-evil-visual-entry-drops-local-nil-transient-mark-mode ()
+  "Entering visual state in a poisoned buffer repairs it so the region counts."
+  (with-temp-buffer
+    (insert "one\ntwo\n")
+    (evil-local-mode 1)
+    (setq-local transient-mark-mode nil)
+    (goto-char (point-min))
+    (evil-visual-line)
+    (should (region-active-p))))
