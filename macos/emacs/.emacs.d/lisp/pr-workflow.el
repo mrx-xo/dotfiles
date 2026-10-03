@@ -340,8 +340,8 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
           ((mr-x/pr--github-review-context)
            (mr-x/pr--github-review-source (mr-x/pr--github-review-context)))
           (t (user-error "Open a Forgejo PR diff (SPC , d) or a GitHub PR first")))))
-    (when-let ((session (review-session-start source)))
-      (review-panel-open session))))
+    ;; A review quit with a walkthrough comes back as it was left.
+    (review-store-open source)))
 
 (defun mr-x/pr--review-forgejo (host owner repo number)
   "Fetch Forgejo PR NUMBER of OWNER/REPO on HOST, then review it.
@@ -775,8 +775,7 @@ Empty input means the working tree against HEAD; \"--staged\" the index."
   (let* ((root (or (magit-toplevel) (user-error "Not inside a git repository")))
          (range (or range (mr-x/review--read-git-range)))
          (source (review-source-git-range root (unless (string-empty-p range) range))))
-    (when-let ((session (review-session-start source)))
-      (review-panel-open session))))
+    (review-store-open source)))
 
 (defun mr-x/review ()
   "Review the PR in this buffer, or else pick a git range to review.

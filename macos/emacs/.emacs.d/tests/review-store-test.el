@@ -86,6 +86,39 @@
        (review-session-quit)
        (should (review-store-load key))))))
 
+(ert-deftest review-store-quit-keeps-a-walkthrough ()
+  ;; A walkthrough is the agent's work: quitting must not throw it away,
+  ;; while a review without one leaves nothing behind.
+  (review-store-test--env
+   (let* ((s (review-session-start (review-store-test--source "r5")))
+          (key (review-source-key (review-source-recipe (review-session-source s)))))
+     (setf (review-session-walkthrough s) (list :steps (vector (list :path "a.el" :side 'new :line-start 2 :line-end 2 :title "The change" :body "2 replaces 1.")) :index 0))
+     (review-session-quit)
+     (should (plist-get (plist-get (review-store-load key) :walkthrough) :steps))
+     (setq s (review-session-start (review-store-test--source "r5")))
+     (review-session-quit)
+     (should-not (review-store-load key)))))
+
+(ert-deftest review-store-open-resumes-a-saved-review ()
+  ;; Opening the same review again picks up where it was quit; a review
+  ;; with nothing saved starts fresh with its panel.
+  (review-store-test--env
+   (let ((s (review-session-start (review-store-test--source "r6"))))
+     (review-panel-open s)
+     (review-session-show 1 0)
+     (setf (review-session-walkthrough s) (list :steps (vector (list :path "a.el" :side 'new :line-start 2 :line-end 2 :title "The change" :body "2 replaces 1.")) :index 0))
+     (review-session-quit)
+     (let ((r (review-store-open (review-store-test--source "r6"))))
+       (should (eq r review-session--current))
+       (should (equal (plist-get (review-session-file r) :path) "b.el"))
+       (should (plist-get (review-session-walkthrough r) :steps))
+       (should (buffer-live-p (review-session-panel r)))
+       (review-session-quit))
+     (let ((r (review-store-open (review-store-test--source "r7"))))
+       (should (equal (plist-get (review-session-file r) :path) "a.el"))
+       (should-not (review-session-walkthrough r))
+       (should (buffer-live-p (review-session-panel r)))))))
+
 (ert-deftest review-store-resume-picks-newest-and-pauses-live ()
   (review-store-test--env
    (review-session-start (review-store-test--source "old"))
