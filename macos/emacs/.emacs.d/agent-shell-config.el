@@ -2343,7 +2343,34 @@ silent context-only capture with no marker."
                 (if (mr-x/quick-ask--session-healthy-p buf)
                     buf
                   (when buf (mr-x/quick-ask--kill-zombie buf))
-                  (mr-x/quick-ask--start-session root)))))
+                  (mr-x/quick-ask--start-session root)))
+          (mr-x/quick-ask--track-response mr-x/quick-ask--shell-buffer)
+          mr-x/quick-ask--shell-buffer))
+
+      (defvar-local mr-x/quick-ask--response-chunks nil
+        "Newest-first (MESSAGE-ID . RAW-TEXT) chunks from this shell's turn.")
+      (defvar-local mr-x/quick-ask--response-subscription nil
+        "Subscription capturing original Markdown before chat renders it.")
+
+      (defun mr-x/quick-ask--capture-response (event)
+        "Capture raw agent messages from EVENT in the current shell buffer."
+        (pcase (map-elt event :event)
+          ('input-submitted (setq mr-x/quick-ask--response-chunks nil))
+          ('agent-message-chunk
+           (when-let ((text (map-nested-elt event '(:data :text-chunk))))
+             (unless (string-empty-p text)
+               (push (cons (map-elt (agent-shell--state) :chunked-group-count)
+                           (substring-no-properties text))
+                     mr-x/quick-ask--response-chunks))))))
+
+      (defun mr-x/quick-ask--track-response (shell)
+        "Capture SHELL's raw messages once, for the lifetime of the session."
+        (when (buffer-live-p shell)
+          (with-current-buffer shell
+            (unless mr-x/quick-ask--response-subscription
+              (setq mr-x/quick-ask--response-subscription
+                    (agent-shell-subscribe-to
+                     :shell-buffer shell :on-event #'mr-x/quick-ask--capture-response))))))
 
       (defun mr-x/quick-ask--start-session (&optional dir)
         "Create a hidden agent-shell session in DIR's project. Returns the buffer."
@@ -2566,6 +2593,18 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                    "\n")
                   "</context>\n\n")))
 
+      (defconst mr-x/quick-ask--response-style
+        (concat "<quick-ask-response-style>\n"
+                "Answer in concise Markdown for a narrow reading pane. "
+                "Lead with the direct answer. For multiple topics, use short ## headings "
+                "with blank lines between sections; do not use bold paragraphs as headings. "
+                "Keep paragraphs short. Use numbered lists for steps and bullets for parallel items. "
+                "Use balanced backticks for code and fenced blocks for multiline examples. "
+                "Keep literal quotes inside code; do not wrap prose in quotation marks or a code fence. "
+                "Avoid tables and decorative symbols. A short, single-topic answer needs no heading.\n"
+                "</quick-ask-response-style>\n\n")
+        "Presentation instructions sent with each Quick Ask question.")
+
       ;; Input phase keymap
       (defvar mr-x/quick-ask-input-map
         (let ((map (make-sparse-keymap)))
@@ -2668,6 +2707,9 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         ;; A question is prose: the global completion sources (Elisp
         ;; symbols, keywords, abbrevs) only pop up noise while typing it.
         (setq-local corfu-auto nil)
+        ;; File links in the answer open where the question came from, not
+        ;; in the card's own window (see `mr-x/quick-ask--open-file').
+        (setq-local agent-shell-markdown-open-file-function #'mr-x/quick-ask--open-file)
         ;; The box has no mode line, so it shows the evil state itself.
         (add-hook 'post-command-hook #'mr-x/quick-ask--show-state nil t))
 
@@ -2715,38 +2757,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           (kbd "G") #'end-of-buffer
           (kbd "gg") #'beginning-of-buffer))
 
-      ;; Markdown rendering (borrowed from ask-user-popup pattern)
+      ;; Share the chat renderer so prose, links and code keep their formatting.
       (defun mr-x/quick-ask--render-markdown ()
-        "Apply basic markdown styling to the current buffer."
-        (save-excursion
-          ;; Bold: **text**
-          (goto-char (point-min))
-          (while (re-search-forward "\\*\\*\\(.+?\\)\\*\\*" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:weight bold))))
-          ;; Inline code: `text`
-          (goto-char (point-min))
-          (while (re-search-forward "`\\([^`\n]+?\\)`" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:family "monospace" :background "#2a2a2a"))))
-          ;; Headers: # text → bold
-          (goto-char (point-min))
-          (while (re-search-forward "^#{1,3} \\(.+\\)$" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:weight bold :height 1.1))))
-          ;; Bullet points: - text → •
-          (goto-char (point-min))
-          (while (re-search-forward "^\\([ \t]*\\)- " nil t)
-            (replace-match (concat (match-string 1) "• ")))))
+        "Render Markdown in the current buffer's accessible answer region."
+        (require 'agent-shell-markdown)
+        (agent-shell-markdown-replace-markup :complete t :render-images nil))
 
       ;; Thinking animation
       (defvar-local mr-x/quick-ask--anim-tick 0
@@ -2866,8 +2881,10 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (mr-x/quick-ask--dismiss)
         (message "Response copied"))
 
-      (defvar-local mr-x/quick-ask--fits nil
-        "Non-nil when the whole card fits its popup, which then cannot scroll.")
+      (defvar-local mr-x/quick-ask--scroll-limit nil
+        "How far the popup may scroll, as (START . VSCROLL); nil is no limit.
+      At the limit the card's last row sits on the popup's bottom edge.  A
+      card that fits whole has its start and 0, and cannot scroll.")
 
       (defun mr-x/quick-ask--content-pixels (buf)
         "Pixel height of BUF's card in its posframe, or nil if not measurable.
@@ -2889,11 +2906,33 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (ceiling (/ (float px) (frame-char-height frame)))
             (* 2 (with-current-buffer buf (count-lines (point-min) (point-max)))))))
 
-      (defun mr-x/quick-ask--pin-start (window start)
-        "Keep WINDOW at the card's start while the whole card fits."
+      (defun mr-x/quick-ask--measure-scroll-limit (window fits)
+        "The scroll limit of the card in WINDOW; FITS means it shows whole."
         (with-current-buffer (window-buffer window)
-          (when (and mr-x/quick-ask--fits (> start (point-min)))
-            (set-window-start window (point-min) t))))
+          (if fits (cons (point-min) 0)
+            ;; The row one window height above the card's end, and how far
+            ;; that row must be cut off for the end to meet the bottom edge.
+            (let ((body (window-body-height window t)))
+              (pcase (window-text-pixel-size window (cons (point-max) (- body)) (point-max))
+                (`(,_ ,height ,start) (cons start (max 0 (- height body)))))))))
+
+      (defun mr-x/quick-ask--clamp-scroll (window &optional start)
+        "Keep WINDOW from scrolling past the end of its card.
+      On `window-scroll-functions', with the new START, for the scrolls
+      redisplay makes itself; and on `pre-redisplay-functions', because a
+      wheel scroll sets the window's start and vscroll directly, which
+      runs no scroll hook."
+        (with-current-buffer (window-buffer window)
+          (when mr-x/quick-ask--scroll-limit
+            (pcase-let ((`(,limit . ,vscroll) mr-x/quick-ask--scroll-limit)
+                        (to (or start (window-start window))))
+              (cond ((or (> to limit)
+                         (and (= to limit) (> (window-vscroll window t) vscroll)))
+                     (set-window-vscroll window vscroll t t)
+                     (set-window-start window limit t))
+                    ;; Redisplay scrolling back up from the limit starts on a whole row.
+                    ((and start (< start limit) (> (window-vscroll window t) 0))
+                     (set-window-vscroll window 0 t)))))))
 
       (defcustom mr-x/quick-ask-placement 'float
         "Where Quick Ask opens: `float', a card popup at point, or `bottom', a window.
@@ -2923,7 +2962,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
 
       (defun mr-x/quick-ask--fit-float (buf cap)
-        "Size BUF's popup to its card, at most CAP lines, pinned when it fits.
+        "Size BUF's popup to its card, at most CAP lines, and limit its scrolling.
       posframe sizes by line count, but the card pads rows in pixels."
         (let ((lines (min cap (mr-x/quick-ask--content-lines buf)))
               (frame (mr-x/quick-ask--posframe-frame buf))
@@ -2931,10 +2970,12 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           (when (and (frame-live-p frame) px)
             ;; Lines round up and leave a gap: settle on the exact height.
             (let ((fits (<= px (* cap (frame-char-height frame)))))
+              (when fits (set-frame-height frame px nil t))
               (with-current-buffer buf
-                (setq mr-x/quick-ask--fits fits)
-                (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
-              (when fits (set-frame-height frame px nil t)))
+                (setq mr-x/quick-ask--scroll-limit
+                      (mr-x/quick-ask--measure-scroll-limit (frame-root-window frame) fits))
+                (add-hook 'window-scroll-functions #'mr-x/quick-ask--clamp-scroll nil t)
+                (add-hook 'pre-redisplay-functions #'mr-x/quick-ask--clamp-scroll nil t)))
             (mr-x/quick-ask--settle-float buf))
           lines))
 
@@ -3047,9 +3088,12 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                                     :background-color "#282828" :accept-focus t
                                     :cursor cursor
                                     (append size (list :max-height cap)))
-                             ;; posframe-show resets `cursor-type'; evil sets it back.
+                             ;; posframe-show resets `cursor-type' and switches
+                             ;; line numbers off; put both back.
                              (with-current-buffer buf
-                               (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))))))
+                               (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))
+                               (when display-line-numbers-mode
+                                 (setq display-line-numbers display-line-numbers-type))))))
                 (with-current-buffer buf (setq mr-x/quick-ask--source-rows rows))
                 (funcall show)
                 (let ((want (mr-x/quick-ask--content-lines buf)))
@@ -3064,7 +3108,9 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
 
       (defun mr-x/quick-ask--show-bottom (buf)
         "Show BUF in a window at the bottom of the frame."
-        (with-current-buffer buf (setq mr-x/quick-ask--posframe nil))
+        ;; The limit was measured for the popup; a window scrolls freely.
+        (with-current-buffer buf (setq mr-x/quick-ask--posframe nil
+                                       mr-x/quick-ask--scroll-limit nil))
         (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buf)))
         (let ((window (or (get-buffer-window buf)
                           (display-buffer buf '((display-buffer-at-bottom)
@@ -3127,13 +3173,53 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                 (when (display-graphic-p (window-frame source-window))
                   (select-frame-set-input-focus (window-frame source-window))))))))
 
+      (defun mr-x/quick-ask--focused-p (buf)
+        "Non-nil when keys go to BUF: the selected window shows it."
+        (eq (window-buffer (selected-window)) buf))
+
+      (defun mr-x/quick-ask--focus (buf)
+        "Move focus into the visible Quick Ask BUF, popup or bottom window.
+      Returns non-nil when there was something to focus."
+        (let ((frame (and mr-x/quick-ask--posframe (mr-x/quick-ask--posframe-frame buf))))
+          (cond ((frame-live-p frame)
+                 (select-frame-set-input-focus frame)
+                 (select-window (frame-selected-window frame))
+                 t)
+                ((get-buffer-window buf t)
+                 (let ((window (get-buffer-window buf t)))
+                   (select-frame-set-input-focus (window-frame window))
+                   (select-window window)
+                   t)))))
+
       (defun mr-x/quick-ask-toggle ()
-        "Hide the open Quick Ask, or bring a hidden one back."
+        "Bring a hidden Quick Ask back, focus a visible one, or hide the focused one."
         (interactive)
         (let ((buf (get-buffer "*quick-ask*")))
           (cond ((not (buffer-live-p buf)) (user-error "No Quick Ask open; SPC q asks one"))
                 ((buffer-local-value 'mr-x/quick-ask--hidden buf) (mr-x/quick-ask--show buf))
+                ;; Visible but not where keys go: jump into it.  A card with
+                ;; nothing left to focus just hides.
+                ((and (not (mr-x/quick-ask--focused-p buf))
+                      (with-current-buffer buf (mr-x/quick-ask--focus buf))))
                 (t (mr-x/quick-ask-hide)))))
+
+      (defun mr-x/quick-ask--open-file (path)
+        "Open PATH, a file link in the answer, where the question came from.
+      The card hides first; SPC Q brings it back.  From a review pane the file
+      opens as `review-session-visit-style' says.  Returns the window showing
+      PATH, as `agent-shell-markdown-open-file-function' requires."
+        (let* ((source mr-x/quick-ask--source-buffer)
+               (session (and (buffer-live-p source)
+                             (buffer-local-value 'review-pane--session source))))
+          (mr-x/quick-ask-hide)
+          (if (and session (fboundp 'review-session-open-path))
+              (review-session-open-path session path)
+            (let ((window (if (and (buffer-live-p source) (get-buffer-window source t))
+                              (get-buffer-window source t)
+                            (selected-window))))
+              (select-window window)
+              (switch-to-buffer (find-file-noselect path))
+              window))))
 
       (defun mr-x/quick-ask-toggle-placement ()
         "Move the open Quick Ask between a popup at point and the bottom window."
@@ -3197,7 +3283,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
             (user-error "No question provided"))
           ;; Build full prompt with context
           (let* ((preamble (mr-x/quick-ask--format-context-preamble))
-                 (full-prompt (concat preamble question))
+                 (full-prompt (concat preamble mr-x/quick-ask--response-style question))
                  (popup-buf (current-buffer))
                  (shell-buf (mr-x/quick-ask--ensure-session default-directory)))
             ;; Check if shell is busy
@@ -3231,7 +3317,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                        ;; Extract response and render in popup
                        (when (buffer-live-p popup-buf)
                          (let ((response (with-current-buffer shell-buf
-                                           (shell-maker-last-output))))
+                                           (mr-x/quick-ask--last-response))))
                            (with-current-buffer popup-buf
                              (mr-x/quick-ask--show-response question response)))))))
               (setq mr-x/quick-ask--turn-subscription sub-token))
@@ -3242,21 +3328,21 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
              :submit t
              :no-focus t))))
 
-      (defun mr-x/quick-ask--strip-thinking (text)
-        "Strip Claude's thinking/reasoning block from response TEXT.
-  The agent-shell output includes collapsible thinking fragments that render
-  as: ▶ Thinking\\n\\n[reasoning content]\\n\\n[actual response]
-  Strip everything up to and including the thinking block."
-        (let ((text (or text "")))
-          ;; Leading fragments, in any order: thinking, and the session notice
-          ;; a fresh (per-project) session prints on its first turn.
-          (while (string-match "\\`[ \t\n]*▶[^\n]*\\(?:[Tt]hinking\\|[Nn]otices\\)[^\n]*\n\n" text)
-            (let ((after-header (match-end 0)))
-              ;; A fragment is one contiguous block: it ends at the next blank line.
-              (setq text (if (string-match "\n\n" text after-header)
-                             (substring text (match-end 0))
-                           ""))))
-          (string-trim text)))
+      (defun mr-x/quick-ask--last-response ()
+        "Return the last turn's agent messages as Markdown, or nil.
+      Use captured raw chunks: reconstructing streamed, already-rendered
+      list items can lose closing emphasis and code delimiters.  Thoughts,
+      notices and tool calls stay in the full conversation."
+        (when mr-x/quick-ask--response-chunks
+          (let ((first t) previous)
+            (string-trim
+             (mapconcat
+              (lambda (chunk)
+                (prog1 (concat (when (and (not first) (not (equal previous (car chunk))))
+                                 "\n\n")
+                               (cdr chunk))
+                  (setq first nil previous (car chunk))))
+              (reverse mr-x/quick-ask--response-chunks) "")))))
 
       (defun mr-x/quick-ask--show-response (question response)
         "Render QUESTION and RESPONSE in the popup buffer."
@@ -3272,8 +3358,8 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                 (setq-local header-line-format
                             (propertize " Request failed" 'face '(:weight bold :foreground "#bf616a")))
                 (insert "Error: no response received"))
-            ;; Strip thinking block and save Q&A for surfacing
-            (let ((clean-response (mr-x/quick-ask--strip-thinking response)))
+            ;; RESPONSE contains only agent messages, with original Markdown.
+            (let ((clean-response (string-trim response)))
               (setq mr-x/quick-ask--question question)
               (setq mr-x/quick-ask--response clean-response)
               ;; The design's card (Figma "Compare / quick ask"): origin,
@@ -3287,6 +3373,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           ;; Switch to response phase
           (setq mr-x/quick-ask--phase 'response)
           (use-local-map mr-x/quick-ask-response-map)
+          ;; Read in normal state: relative numbers so `5j' has something to
+          ;; count.  The card marks its chrome rows, so only the answer counts.
+          (setq-local display-line-numbers-type 'visual
+                      display-line-numbers-width 2)
+          (display-line-numbers-mode 1)
           (setq buffer-read-only t)
           (when (fboundp 'evil-normal-state)
             (evil-normal-state))

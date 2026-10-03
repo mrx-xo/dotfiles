@@ -121,6 +121,11 @@ origin. The answer uses a graphical child frame when available, with a
 bottom-window fallback. Response exits: `q` dismiss, `c` continue in chat,
 `u` park the question, `y` copy the answer. Comment/approve/merge actions
 remain in the original PR buffers; a review session never writes source.
+The card shows formatted answer text in the normal reading color. Thoughts,
+tool output, and notices remain in the full conversation opened with `c`;
+`y` copies only the answer, preserving its Markdown.
+Quick Ask captures the original streamed text before rendering and requests
+short paragraphs with Markdown headings for answers covering multiple topics.
 
 Commit ranges and staged blobs are pinned when the session opens;
 working-tree text is cached when each file loads. Quit and reopen to refresh.
