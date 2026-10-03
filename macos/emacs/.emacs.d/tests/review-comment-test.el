@@ -432,5 +432,22 @@
     (let ((review-comment-submit-function #'ignore))
       (should-error (review-comment-submit s 'comment) :type 'user-error))))
 
+(ert-deftest review-comment-compose-closes-despite-a-kill-buffer-query ()
+  ;; perspective.el's `persp-maybe-kill-buffer' refuses to kill a buffer
+  ;; shared with another frame's perspective; the compose buffer must go
+  ;; all the same, or every later `c' is refused as "finish the open one".
+  (review-comment-test--with s
+    (let ((kill-buffer-query-functions (list (lambda () nil))))
+      (review-comment-test--at s 'new 3)
+      (review-comment-dwim)
+      (review-comment-test--write "Saved.")
+      (should-not (get-buffer "*review-comment*"))
+      (should (= (length (review-session-comments s)) 1))
+      (review-comment-test--at s 'new 4)
+      (review-comment-dwim)
+      (should (get-buffer "*review-comment*"))
+      (with-current-buffer "*review-comment*" (review-comment-compose-cancel))
+      (should-not (get-buffer "*review-comment*")))))
+
 (provide 'review-comment-test)
 ;;; review-comment-test.el ends here
