@@ -163,6 +163,7 @@ line is gone still has a place."
 For `review-session-layout-extras-functions'."
   (let* ((file (review-session-file session index))
          (path (plist-get file :path)))
+    (review-comment--settle session index)
     (delq nil
           (mapcar
            (lambda (draft)
@@ -419,12 +420,76 @@ from.  An empty text cancels unless ALLOW-EMPTY."
           (setf (review-session-comments session) nil)
           t))))
 
-(defun review-comment--on-quit (_session)
-  "Close a compose left open as the review goes."
+(defun review-comment--key (session)
+  (when-let ((recipe (review-source-recipe (review-session-source session))))
+    (review-source-key recipe)))
+
+(defun review-comment--on-quit (session)
+  "Close a compose left open, and keep SESSION's unsent drafts for its next start.
+An interactive quit has already asked and emptied them."
   (when-let ((buffer (get-buffer review-comment--compose-name)))
     (with-current-buffer buffer
       (setq review-comment--compose (plist-put review-comment--compose :window nil)))
-    (review-comment--compose-close)))
+    (review-comment--compose-close))
+  (when-let ((drafts (review-session-comments session))
+             (key (review-comment--key session)))
+    (puthash key (mapcar (lambda (d) (plist-put (copy-sequence d) :pending t)) drafts)
+             review-comment--carried)))
+
+(defun review-comment--on-display (session)
+  "Hand SESSION the drafts its review closed with, to be placed again.
+A resumed review sets its own drafts from its record right after."
+  (when-let* ((key (review-comment--key session))
+              (drafts (gethash key review-comment--carried)))
+    (remhash key review-comment--carried)
+    (unless (review-session-comments session)
+      (setf (review-session-comments session) drafts)
+      ;; The panes were laid out before the drafts arrived: draw the cards
+      ;; and the counts now.
+      (review-session--ensure-layout session)
+      (review-session--notify session))))
+
+(add-hook 'review-session-display-hook #'review-comment--on-display)
+
+(defun review-comment--settle (session index)
+  "Place the pending drafts of file INDEX of SESSION on its rows as they are now."
+  (let* ((file (review-session-file session index))
+         (path (plist-get file :path)))
+    (when (plist-get file :rows)
+      (setf (review-session-comments session)
+            (mapcar (lambda (d)
+                      (if (and (plist-get d :pending) (equal (plist-get d :path) path))
+                          (review-comment--reanchor d file)
+                        d))
+                    (review-session-comments session))))))
+
+(defun review-comment--settle-all (session callback)
+  "Place every pending draft of SESSION, loading files as needed, then call CALLBACK.
+A draft whose file is gone or cannot be loaded as text becomes outdated."
+  (let* ((files (review-session-files session))
+         (indexes (delete-dups
+                   (delq nil
+                         (mapcar (lambda (d)
+                                   (and (plist-get d :pending)
+                                        (cl-position (plist-get d :path) files
+                                                     :key (lambda (f) (plist-get f :path)) :test #'equal)))
+                                 (review-session-comments session)))))
+         (left (length indexes))
+         (done (lambda ()
+                 (setf (review-session-comments session)
+                       (mapcar (lambda (d)
+                                 (if (plist-get d :pending)
+                                     (plist-put (review-comment--without d :pending) :outdated t)
+                                   d))
+                               (review-session-comments session)))
+                 (funcall callback))))
+    (if (zerop left)
+        (funcall done)
+      (dolist (index indexes)
+        (review-session-load session index
+                             (lambda (&optional _error)
+                               (review-comment--settle session index)
+                               (when (zerop (cl-decf left)) (funcall done))))))))
 
 (add-hook 'review-session-quit-query-functions #'review-comment--quit-query)
 (add-hook 'review-session-quit-functions #'review-comment--on-quit)

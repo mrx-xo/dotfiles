@@ -261,6 +261,12 @@ The file name wins: whole folders are dropped from the left behind
      (review-panel--bar (car progress) (cdr progress) width)
      (review-panel--spacer 10))))
 
+(defun review-panel--drafts (session &optional path)
+  "\"N draft(s)\" in yellow for SESSION, or for its file PATH; \"\" when none."
+  (let ((n (review-session-comment-count session path)))
+    (if (zerop n) ""
+      (review-panel--txt (format "%d draft%s" n (if (= n 1) "" "s")) 'yellow :height 0.92 :weight 'medium))))
+
 (defun review-panel--file-row (session i width)
   (let* ((file (review-session-file session i))
          (current (= i (review-session-current session)))
@@ -280,7 +286,9 @@ The file name wins: whole folders are dropped from the left behind
                                                  'mute :faded viewed :height 0.92))
                        (t "")))
          (counts (if tally (review-panel--counts tally viewed 0.92) ""))
-         (right (concat status (if (and (> (length status) 0) (> (length counts) 0)) (review-panel--gap 10) "")
+         (drafts (review-panel--drafts session (plist-get file :path)))
+         (right (concat drafts (if (> (length drafts) 0) (review-panel--gap 10) "")
+                        status (if (and (> (length status) 0) (> (length counts) 0)) (review-panel--gap 10) "")
                         counts))
          (lead (concat (review-panel--gap 12)
                        (if current
@@ -696,7 +704,9 @@ runs ride along as the `review-track' property."
                            (concat (review-panel--gap 16)
                                    (review-panel--txt (concat notice "  gr refresh") 'yellow :height 0.92))
                          "")))
-         (right (concat (mapconcat (lambda (s) (concat s (review-panel--gap 12)))
+         (drafts (review-panel--drafts session))
+         (right (concat drafts (if (> (length drafts) 0) (review-panel--gap 12) "")
+                        (mapconcat (lambda (s) (concat s (review-panel--gap 12)))
                                    (delq nil (mapcar (lambda (f) (funcall f session))
                                                      review-panel-bar-functions))
                                    "")
@@ -960,7 +970,7 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
 
 ;;;; Quick Ask card
 ;; Figma "Compare / quick ask", card 13:386: a dark context row with a
-;; yellow ASK tag, the question, the answer in dim paragraphs, and a dark
+;; yellow ASK tag, the question, the answer in readable paragraphs, and a dark
 ;; row of exits.  Quick Ask draws every answer with it, in reviews or not.
 
 (defun review-panel--ask-exits (&optional exits)
@@ -1050,10 +1060,10 @@ the keycaps, (KEY LABEL TOKEN) each; the default names 1, 2 and 3."
                        ""))))))
 
 (defun review-panel-ask-style (start end)
-  "Give START..END the card's padded answer look: dim text, 12 px indent."
+  "Give START..END the card's padded answer look: normal text, 12 px indent."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
-    (add-face-text-property start end `(:foreground ,(review-panel--hex 'dim)) t)
+    (add-face-text-property start end `(:foreground ,(review-panel--hex 'fg)) t)
     (put-text-property start end 'line-prefix (review-panel--gap 12))
     (put-text-property start end 'wrap-prefix (review-panel--gap 12))))
 
@@ -1079,7 +1089,7 @@ answer, so markdown styling never touches the question."
         (narrow-to-region start (point))
         (when style-answer (save-excursion (funcall style-answer)))
         (add-face-text-property (point-min) (point-max)
-                                `(:foreground ,(review-panel--hex 'dim)) t)
+                                `(:foreground ,(review-panel--hex 'fg)) t)
         (put-text-property (point-min) (point-max) 'line-prefix (funcall indent))
         (put-text-property (point-min) (point-max) 'wrap-prefix (funcall indent))
         (goto-char (point-max))))
