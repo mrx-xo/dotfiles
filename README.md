@@ -93,10 +93,38 @@ see the comments in `bootstrap.sh`.
 ### Emacs sandbox
 
 A full isolated copy of the config at `~/.emacs-sandbox` for testing changes
-without touching the running daemon. Launch with `Cmd+Shift+S`, resync with
-`macos/scripts/emacs-sandbox.sh --fresh`. Its frames carry a red `SANDBOX`
+without touching the running daemon. `Cmd+Shift+S` shows the sandbox without
+restarting it. Resync with `macos/scripts/emacs-sandbox.sh --fresh`. Its frames carry a red `SANDBOX`
 badge on every mode line and `SANDBOX` in the title
 (`lisp/mr-x-sandbox-badge.el`, loaded only when `(daemonp)` is `"sandbox"`).
+
+The launcher defaults to daemon-only operation (`--no-frame` remains accepted).
+Agents should evaluate tests through `emacsclient --socket-name=sandbox --eval`.
+For visual tests, `macos/scripts/emacs-sandbox.sh --background` creates or reuses
+a frame on the `agent` desktop without requesting focus. `--show` deliberately
+visits it. `--test` sets up the visual test environment in the background;
+`Cmd+Shift+Ctrl+S` uses `--test --show` to visit it. `--restart` and `--fresh`
+do not open a window unless combined with `--background` or `--show`.
+
+### Agent workspace
+
+`Hyper+B` (Cmd+Ctrl+Option+Shift+B) visits the `agent` desktop; press it again to
+return to your previous window. The same toggle is available as `agent-workspace`.
+The return snapshot records visible desktops on every monitor and uses stable
+space IDs, so renumbering spaces does not change the destination.
+
+Personal Brave windows have no desktop assignment. `agent-open <url>` uses a
+separate browser profile and background DevTools commands. Only known agent
+browser processes are routed to `agent`; it never sends a URL to personal Brave
+as a fallback. An ordinary macOS activation of an already-running app may still
+visit its existing window; removing the routing rule does not change that
+native behavior.
+
+If routing stops working after a display change, run `agent-space-ensure`.
+If `agent-open` reports a DevTools failure, resolve that error and retry; do not
+fall back to a foreground browser launch. The routing/focus regression suite is
+`python3 macos/scripts/tests/agent-workspace.test.py`. The implementation is in
+`macos/scripts/agent-workspace.py`, with rules installed by `agent-space-ensure`.
 
 ### Read-only review sessions
 

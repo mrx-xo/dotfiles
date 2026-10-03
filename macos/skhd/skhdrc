@@ -22,8 +22,10 @@ f16 : emacsclient --eval "(mr-x/agent-shell-view-diff)"
 cmd + shift - a : ~/.dotfiles/macos/scripts/org-agenda-frame.sh
 cmd + shift - r : ~/.dotfiles/macos/scripts/emacs-restart.sh
 cmd + shift + alt - r : ~/.dotfiles/macos/scripts/emacs-restart-restore.sh
-cmd + shift - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --restart
-cmd + shift + ctrl - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --test
+cmd + shift - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --show
+cmd + shift + ctrl - s : ~/.dotfiles/macos/scripts/emacs-sandbox.sh --test --show
+# Deliberately visit agent windows; press again to return to the saved window.
+hyper - b : ~/.dotfiles/macos/scripts/agent-workspace
 cmd + shift - b : ~/.dotfiles/macos/scripts/boox-mirror.sh
 cmd + shift - v : emacsclient --eval "(with-current-buffer (or (car (agent-shell-buffers)) (current-buffer)) (agent-shell-yank-dwim))"
 
@@ -125,4 +127,3 @@ cmd + ctrl - 0x18 : yabai -m space --create && \
                     index="$(yabai -m query --spaces --display | jq 'map(select(."is-native-fullscreen" == false))[-1].index')" && \
                     yabai -m window --space "${index}" && \
                     yabai -m space --focus "${index}"
-
