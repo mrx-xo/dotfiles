@@ -627,4 +627,91 @@
     (should (equal (substring-no-properties (mr-x/pr-readiness-segment pr)) "✓ mergeable"))
     (should-not (mr-x/pr-readiness-segment range))))
 
+(defconst pr-test--drafts
+  '((:id 1 :path "src/a.el" :side new :line 12 :start-line nil :text "x" :body "One line.")
+    (:id 2 :path "src/a.el" :side old :line 9 :start-line 7 :text "y" :body "A range.")))
+
+(ert-deftest pr-forgejo-review-payload ()
+  (let ((payload (mr-x/pr--forgejo-review-payload
+                  '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4 :revs ("base" "headsha"))
+                  'request-changes "Please fix." pr-test--drafts)))
+    (should (equal (alist-get 'event payload) "REQUEST_CHANGES"))
+    (should (equal (alist-get 'body payload) "Please fix."))
+    (should (equal (alist-get 'commit_id payload) "headsha"))
+    (let ((comments (alist-get 'comments payload)))
+      (should (vectorp comments))
+      (should (equal (aref comments 0)
+                     '((path . "src/a.el") (body . "One line.") (new_position . 12))))
+      ;; Forgejo has no ranges: the last line, with the range named in the text.
+      (should (equal (aref comments 1)
+                     '((path . "src/a.el") (body . "Lines 7-9:\nA range.") (old_position . 9)))))))
+
+(ert-deftest pr-forgejo-review-payload-events-and-empty-parts ()
+  (let ((recipe '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4)))
+    (should (equal (alist-get 'event (mr-x/pr--forgejo-review-payload recipe 'approve "" nil)) "APPROVED"))
+    (should (equal (alist-get 'event (mr-x/pr--forgejo-review-payload recipe 'comment "" nil)) "COMMENT"))
+    ;; No head known yet and no summary: neither key is sent.
+    (let ((payload (mr-x/pr--forgejo-review-payload recipe 'comment "" pr-test--drafts)))
+      (should-not (assq 'commit_id payload))
+      (should-not (assq 'body payload)))))
+
+(ert-deftest pr-github-review-payload ()
+  (let ((payload (mr-x/pr--github-review-payload
+                  '(:kind github :owner "o" :name "r" :number 4 :head-rev "headsha")
+                  'approve "" pr-test--drafts)))
+    (should (equal (alist-get 'event payload) "APPROVE"))
+    (should-not (assq 'body payload))
+    (should (equal (alist-get 'commit_id payload) "headsha"))
+    (let ((comments (alist-get 'comments payload)))
+      (should (vectorp comments))
+      (should (equal (aref comments 0)
+                     '((path . "src/a.el") (body . "One line.") (line . 12) (side . "RIGHT"))))
+      (should (equal (aref comments 1)
+                     '((path . "src/a.el") (body . "A range.") (line . 9) (side . "LEFT")
+                       (start_line . 7) (start_side . "LEFT")))))
+    (should (equal (alist-get 'event (mr-x/pr--github-review-payload
+                                      '(:kind github :number 4) 'request-changes "x" nil))
+                   "REQUEST_CHANGES"))))
+
+(ert-deftest pr-submit-review-posts-to-forgejo-and-reports ()
+  (let* ((session (make-review-session
+                   :source (make-review-source
+                            :recipe '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4))))
+         posted ok failed)
+    (cl-letf (((symbol-function 'forgejo-api-post)
+               (lambda (host endpoint _params body callback &rest args)
+                 (setq posted (list host endpoint body))
+                 (if (equal (alist-get 'body body) "fail")
+                     (funcall (plist-get args :error-callback) '(:message "422 nope"))
+                   (funcall callback nil nil))))
+              ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore))
+      (mr-x/pr-submit-review session 'comment "hello" pr-test--drafts
+                             (lambda () (setq ok t)) (lambda (m) (setq failed m)))
+      (should ok)
+      (should (equal (nth 0 posted) "https://h"))
+      (should (equal (nth 1 posted) "repos/o/r/pulls/4/reviews"))
+      (mr-x/pr-submit-review session 'comment "fail" pr-test--drafts
+                             #'ignore (lambda (m) (setq failed m)))
+      (should (equal failed "422 nope")))))
+
+(ert-deftest pr-viewer-actions-use-the-drafts-when-there-are-some ()
+  (let* ((session (make-review-session
+                   :source (make-review-source :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 4))))
+         called)
+    (with-temp-buffer
+      (setq-local review-pane--session session)
+      (cl-letf (((symbol-function 'review-comment-submit)
+                 (lambda (s verdict) (setq called (list 'drafts (eq s session) verdict))))
+                ((symbol-function 'mr-x/review-pr-action)
+                 (lambda (command &rest _) (setq called (list 'plain command)))))
+        (mr-x/review-pr-request-changes)
+        (should (equal called '(plain mr-x/pr-request-changes)))
+        (setf (review-session-comments session) '((:id 1)))
+        (mr-x/review-pr-request-changes)
+        (should (equal called '(drafts t request-changes)))
+        (mr-x/review-pr-approve)
+        (should (equal called '(drafts t approve)))
+        (mr-x/review-pr-comment)
+        (should (equal called '(drafts t comment)))))))
+
 (provide 'pr-workflow-test)
