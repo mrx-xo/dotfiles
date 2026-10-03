@@ -346,5 +346,91 @@
       (should-not (plist-get b :outdated))
       (should-not (plist-get b :pending)))))
 
+(defmacro review-comment-test--with-drafts (var &rest body)
+  "Like `review-comment-test--with', with one draft on a.el line 3 and one outdated."
+  (declare (indent 1))
+  `(review-comment-test--with ,var
+     (setf (review-session-comments ,var)
+           (list (list :id 1 :path "a.el" :side 'new :line 3 :start-line nil :text "THREE" :body "Why?")
+                 (list :id 2 :path "a.el" :side 'old :line 9 :start-line nil :text "nine" :body "Old note."
+                       :outdated t)))
+     ,@body))
+
+(ert-deftest review-comment-submit-posts-one-review-and-clears-the-drafts ()
+  (review-comment-test--with-drafts s
+    (let* (call
+           (review-comment-submit-function
+            (lambda (session verdict summary drafts success _failure)
+              (setq call (list session verdict summary drafts))
+              (funcall success))))
+      (review-comment-submit s 'request-changes)
+      (with-current-buffer "*review-comment*"
+        (should (string-match-p "Request changes with 1 line comment" (format "%s" header-line-format)))
+        (insert "Please fix.")
+        (review-comment-compose-finish))
+      (should (eq (nth 0 call) s))
+      (should (eq (nth 1 call) 'request-changes))
+      ;; The outdated draft rides in the summary, quoted with its place.
+      (should (string-prefix-p "Please fix." (nth 2 call)))
+      (should (string-match-p "a\\.el:9" (nth 2 call)))
+      (should (string-match-p "Old note\\." (nth 2 call)))
+      (should (equal (mapcar (lambda (d) (plist-get d :id)) (nth 3 call)) '(1)))
+      (should-not (review-session-comments s))
+      (should-not (get-buffer "*review-comment*")))))
+
+(ert-deftest review-comment-failed-post-keeps-drafts-and-summary ()
+  (review-comment-test--with-drafts s
+    (let ((review-comment-submit-function
+           (lambda (_session _verdict _summary _drafts _success failure)
+             (funcall failure "422 line is not part of the diff"))))
+      (review-comment-submit s 'comment)
+      (with-current-buffer "*review-comment*"
+        (insert "My summary.")
+        (review-comment-compose-finish))
+      (should (= (length (review-session-comments s)) 2))
+      (with-current-buffer "*review-comment*"
+        (should (equal (buffer-string) "My summary."))
+        (should-not buffer-read-only)
+        (should-not (plist-get review-comment--compose :posting))))))
+
+(ert-deftest review-comment-post-in-flight-cannot-be-sent-twice ()
+  (review-comment-test--with-drafts s
+    (let* ((calls 0) finish
+           (review-comment-submit-function
+            (lambda (_session _verdict _summary _drafts success _failure)
+              (cl-incf calls) (setq finish success))))
+      (review-comment-submit s 'comment)
+      (with-current-buffer "*review-comment*"
+        (review-comment-compose-finish)
+        (should buffer-read-only)
+        (should-error (review-comment-compose-finish) :type 'user-error)
+        (should-error (review-comment-compose-cancel) :type 'user-error))
+      (should (= calls 1))
+      (funcall finish)
+      (should-not (get-buffer "*review-comment*")))))
+
+(ert-deftest review-comment-submit-rules ()
+  (review-comment-test--with-drafts s
+    (let ((review-comment-submit-function nil))
+      (should-error (review-comment-submit s 'comment) :type 'user-error))
+    (let* (sent
+           (review-comment-submit-function
+            (lambda (_s _v summary _d success _f) (setq sent summary) (funcall success))))
+      ;; Request changes needs a summary; the compose stays open for it.
+      (review-comment-submit s 'request-changes)
+      (with-current-buffer "*review-comment*"
+        (should-error (review-comment-compose-finish) :type 'user-error))
+      (should (get-buffer "*review-comment*"))
+      (should-not sent)
+      (with-current-buffer "*review-comment*" (review-comment-compose-cancel))
+      ;; A comment verdict may have none.
+      (review-comment-submit s 'comment)
+      (with-current-buffer "*review-comment*" (review-comment-compose-finish))
+      (should (stringp sent))
+      (should-not (review-session-comments s)))
+    ;; Nothing to send.
+    (let ((review-comment-submit-function #'ignore))
+      (should-error (review-comment-submit s 'comment) :type 'user-error))))
+
 (provide 'review-comment-test)
 ;;; review-comment-test.el ends here
