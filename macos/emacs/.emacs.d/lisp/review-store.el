@@ -311,6 +311,17 @@ FUNCTION is called with RECIPE and the old RECORD.")
 
 ;;;; Commands
 
+(defun review-store-open (source)
+  "Review SOURCE: resume its saved record if one exists, else start it afresh.
+Either way the review comes up with its panel.  Return the session."
+  (let* ((recipe (review-source-recipe source))
+         (saved (and recipe (review-store-load (review-source-key recipe)))))
+    (if saved
+        (review-store-restore saved)
+      (when-let ((session (review-session-start source)))
+        (review-panel-open session)
+        session))))
+
 (defun review-session-pause ()
   "Save this review and close it.  \\[review-session-resume] brings it back."
   (interactive)
@@ -349,13 +360,15 @@ With PICK (\\[universal-argument]), choose among every paused review."
 
 (defun review-store--on-quit (session)
   "Drop SESSION's saved record as it quits, unless it is paused or kept.
-When another review replaces it, save it instead, so it can be resumed."
+When another review replaces it, or it holds a walkthrough, save it
+instead, so it can be resumed: a walkthrough is the agent's work."
   (when-let ((recipe (review-source-recipe (review-session-source session))))
     (cond
      (review-session--pausing nil)
-     (review-session--replacing
+     ((or review-session--replacing
+          (plist-get (review-session-walkthrough session) :steps))
       (condition-case err (review-store-save session)
-        (error (message "Review: could not save the review being replaced: %s"
+        (error (message "Review: could not save the review as it quits: %s"
                         (error-message-string err)))))
      (review-session-keep-on-quit nil)
      (t (review-store-drop (review-source-key recipe))))))

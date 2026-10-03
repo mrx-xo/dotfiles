@@ -7630,6 +7630,12 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
                    forgejo-view-diff-map forgejo-review-thread-map))
       (evil-make-overriding-map (symbol-value map) 'normal t)))
 
+  ;; Rainbow parens in the review panes and walkthrough cards: they fontify
+  ;; with mode hooks delayed, so the prog-mode hook never turns it on there.
+  (with-eval-after-load 'review-session
+    (add-hook 'review-session-fontify-hook
+              (lambda () (when (fboundp 'rainbow-delimiters-mode) (rainbow-delimiters-mode 1)))))
+
   ;; PR/review commands are entry points even before Magit or Forge loads.
   ;; Do not require this from Forgejo's :config: the workflow itself requires
   ;; Forge, so doing both would create a recursive load on first invocation.

@@ -129,6 +129,73 @@
     (seq-filter (lambda (o) (eq (overlay-get o 'review-walk-kind) kind))
                 (overlays-in (point-min) (point-max)))))
 
+(ert-deftest review-walkthrough-card-draws-inline-code-without-backticks ()
+  ;; Agents write `code' in step text; the card shows the code face, not
+  ;; the backticks.  A lone backtick and other Markdown stay literal.
+  (let ((s (review-walkthrough--mark-code "call `sync()` on ``a `b` c``, not **x** or a ` alone")))
+    (should (equal (substring-no-properties s) "call sync() on a `b` c, not x or a ` alone"))
+    (should (eq (get-text-property 5 'face s) 'review-walk-code))
+    (should (eq (get-text-property 15 'face s) 'review-walk-code))
+    (should-not (get-text-property 0 'face s)))
+  ;; With a mode, the span carries syntax faces over the plain chip.
+  (let* ((s (review-walkthrough--mark-code "see `(defun f ())`" 'emacs-lisp-mode))
+         (at (lambda (ch) (get-text-property (string-match ch (substring-no-properties s)) 'face s))))
+    (should (member 'font-lock-keyword-face (ensure-list (funcall at "defun"))))
+    (should (member 'review-walk-code-plain (ensure-list (funcall at "defun"))))
+    (should (equal (funcall at "see") nil)))
+  ;; Bold, italic and links render; snake_case outside backticks does not.
+  (let ((s (review-walkthrough--mark-code "**b** *i* _u_ [t](https://x) claim_discovery hands")))
+    (should (equal (substring-no-properties s) "b i u t claim_discovery hands"))
+    (should (eq (get-text-property 0 'face s) 'review-walk-bold))
+    (should (eq (get-text-property 2 'face s) 'review-walk-italic))
+    (should (eq (get-text-property 4 'face s) 'review-walk-italic))
+    (should (eq (get-text-property 6 'face s) 'review-walk-link))
+    (should (equal (get-text-property 6 'help-echo s) "https://x")))
+  ;; Markup inside a code span is left alone.
+  (should (equal (substring-no-properties (review-walkthrough--mark-code "`a **b** c`")) "a **b** c"))
+  ;; A single name stays an orange chip even with a mode.
+  (should (eq (get-text-property 0 'face (review-walkthrough--mark-code "`defun`" 'emacs-lisp-mode))
+              'review-walk-code))
+  (should (eq (review-walkthrough--mode-for "x/many-hunks.el") 'emacs-lisp-mode))
+  (should (eq (review-walkthrough--mode-for-language "elisp") 'emacs-lisp-mode))
+  (should-not (review-walkthrough--mode-for-language "no-such-language"))
+  ;; Filled lines keep the span's face under the body face.
+  (let* ((card (review-walkthrough--card '(:title "T" :body "a `b` c") 1 1 80))
+         (pos (string-match "b" card)))
+    (should (equal (get-text-property pos 'face card) '(review-walk-code review-walk-body review-walk-card)))))
+
+(ert-deftest review-walkthrough-card-keeps-lists-and-fences ()
+  ;; A fill used to collapse list items and fenced code into one paragraph.
+  (let* ((styled #'review-walkthrough--mark-code)
+         (lines (review-walkthrough--body-lines
+                 "Two things:\n- claim with `claim` and some more words to wrap past the width\n- save\n\n```python\ndef f():\n    pass\n```\nthen prose."
+                 30 styled))
+         (plain (mapcar #'substring-no-properties lines)))
+    (should (equal (seq-take plain 4)
+                   '("Two things:" "- claim with claim and some" "  more words to wrap past the" "  width")))
+    (should (equal (nth 4 plain) "- save"))
+    (should (string-prefix-p "  python" (nth 5 plain)))
+    (should (string-prefix-p "  def f():" (nth 6 plain)))
+    (should (string-prefix-p "      pass" (nth 7 plain)))
+    (should (member 'review-walk-code-block (ensure-list (get-text-property 3 'face (nth 6 lines)))))
+    (should (member 'font-lock-keyword-face (ensure-list (get-text-property 3 'face (nth 6 lines)))))
+    (should (equal (car (last plain)) "then prose."))))
+
+(ert-deftest review-walkthrough-card-lays-long-code-spans-out-as-blocks ()
+  ;; A whole expression in backticks is a block, pretty-printed in a Lisp,
+  ;; with the prose around it on its own lines.
+  (let* ((lines (review-walkthrough--body-lines
+                 "Only `(defun fixture-fn-40 (x) \"Return X scaled by 40.\" (let ((factor 40)) (* x factor)))` changed, nothing else."
+                 60 #'review-walkthrough--mark-code 'emacs-lisp-mode))
+         (plain (mapcar (lambda (l) (string-trim-right (substring-no-properties l))) lines)))
+    (should (equal (car plain) "Only"))
+    (should (equal (nth 1 plain) "  (defun fixture-fn-40 (x)"))
+    (should (member 'review-walk-code-block (ensure-list (get-text-property 3 'face (nth 1 lines)))))
+    (should (equal (car (last plain)) "changed, nothing else."))
+    ;; Short spans stay inline.
+    (should (= 1 (length (review-walkthrough--body-lines "a `(* x factor)` b" 60
+                                                         #'review-walkthrough--mark-code 'emacs-lisp-mode))))))
+
 (defun review-walk-test--cards (buffer)
   "How many walkthrough cards BUFFER's text holds."
   (with-current-buffer buffer
