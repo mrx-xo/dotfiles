@@ -9513,8 +9513,14 @@ Appends to the current year's transaction file."
                             "nemesis pollux" "pollux work" "status"
                             "toggle romulus" "toggle remus"
                             "romulus pollux" "romulus nemesis"
-                            "remus pollux" "remus nemesis" "remus work"))))
+                            "remus pollux" "remus nemesis" "remus work"
+                            "flip" "flip normal" "flip flipped"))))
   (apply #'mr-x/mon--run (split-string command)))
+
+(defun mr-x/mon-flip ()
+  "Toggle which way the Dells face on NEMESIS: normal (west) <-> flipped (east)."
+  (interactive)
+  (mr-x/mon--run "flip"))
 
 (defun mr-x/mon-toggle-romulus ()
   "Flip ROMULUS between POLLUX and NEMESIS."

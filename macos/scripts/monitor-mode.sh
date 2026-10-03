@@ -25,6 +25,10 @@
 #   monitor-mode.sh flip            # normal (west) <-> flipped (east)
 #   monitor-mode.sh flip normal|flipped
 #
+# Diagnostics:
+#   monitor-mode.sh status          # which machine each Dell shows, facing
+#   monitor-mode.sh hz              # real GDI refresh of NEMESIS displays (~25s)
+#
 # Escape hatch (ignores the state files; use when state got funky):
 #   monitor-mode.sh reset           # reconnect + DDC both -> POLLUX
 #
@@ -555,8 +559,16 @@ case "${1:-}" in
     done
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
+  hz)
+    # Real per-display refresh on NEMESIS, read by GDI inside the desktop
+    # session (hz-probe.ps1). Pass 1 is the true reading; later passes
+    # re-assert 155 if it was low. ~25s.
+    ssh -n -o ConnectTimeout=6 -o BatchMode=yes vengeance \
+      'powershell -NoProfile -ExecutionPolicy Bypass -File C:/Tools/MultiMonitorTool/hz-probe.ps1' 2>/dev/null \
+      || { echo "hz probe failed; NEMESIS asleep or unreachable" >&2; exit 1; }
+    ;;
   *)
-    sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
