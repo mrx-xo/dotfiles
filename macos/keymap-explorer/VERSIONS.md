@@ -40,3 +40,17 @@ git history up to `c39eb8b`. Both boards died on 2026-08-03.
   hold Symbols. Esc also stays on the #0 corner. If the #43 Esc misfires in
   Evil (Symbols instead of Esc on fast rolls), try `PERMISSIVE_HOLD` first;
   the fallback is swapping the pair (Esc on 53, Tab on 43).
+
+### v3: draft d1 (explorer only, not flashed) 2026-09-29
+- Nav #5 (last blank on the daily-driver row) -> `LCG(KC_B)`, the
+  Hammerspoon bookmark popup (`bookmark-popup.lua`, Cmd+Ctrl+B).
+- Emacs layer (5) ported from the hotdox v4 d1 draft (`8457210`): each key
+  sends `HYPR(letter)` on its own Dvorak position. Live in `emacs.org`:
+  i b g s r p o d. Proposed: c q x m w v (m = consult-bookmark).
+  F H J K L E A T blank (yabai Hyper binds).
+- Door: combo of both inner thumbs (#52 Bksp + #53 Tab) -> `OSL(5)`.
+  Needs `COMBO_ENABLE = yes`. Watch Ctrl+Tab (hold Bksp, tap Tab) against
+  `COMBO_TERM`.
+- Knob on Base turns a mouse wheel (`MS_WHLU` / `MS_WHLD`, needs
+  `MOUSEKEY_ENABLE = yes`); held Shift / Cmd / Alt give horizontal / zoom /
+  fast scroll from macOS. Volume moves to the Symbols turn; Prev/Next drop.
