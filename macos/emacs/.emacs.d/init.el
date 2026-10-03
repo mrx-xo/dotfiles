@@ -3587,6 +3587,37 @@ constantly, so only invoke it when Hammerspoon is actually running."
                  (display-buffer-no-window)
                  (allow-no-window . t)))
 
+  ;; Claude Code 2.1.285 forwards plugin `$.ui.log'/`$.ui.status' output
+  ;; (jev-model-router) as system ui_log/ui_status messages.
+  ;; claude-agent-acp does not know those subtypes and logs each one to
+  ;; stderr as "Unexpected case: {...}", which agent-shell renders as a
+  ;; Notices block every turn.  Drop just those lines before any
+  ;; error handler sees them; every other stderr line passes through.
+  (defconst mr-x/acp-ui-log-noise-regexp
+    "^Unexpected case: {\"type\":\"system\",\"subtype\":\"ui_\\(?:log\\|status\\)\".*\n?"
+    "Stderr lines from claude-agent-acp for plugin UI messages.")
+
+  (defun mr-x/acp-drop-ui-log-noise (args)
+    "Wrap the :on-error handler in ARGS to drop plugin UI-log stderr lines."
+    (let ((on-error (plist-get args :on-error)))
+      (if (not on-error)
+          args
+        (plist-put (copy-sequence args) :on-error
+                   (lambda (err)
+                     (let ((msg (map-elt err 'message)))
+                       (if (not (stringp msg))
+                           (funcall on-error err)
+                         (let ((kept (replace-regexp-in-string
+                                      mr-x/acp-ui-log-noise-regexp "" msg)))
+                           (cond ((string= kept msg) (funcall on-error err))
+                                 ((string-blank-p kept) nil)
+                                 (t (funcall on-error
+                                             (cons (cons 'message kept)
+                                                   (assq-delete-all
+                                                    'message (copy-alist err))))))))))))))
+
+  (advice-add 'acp-subscribe-to-errors :filter-args #'mr-x/acp-drop-ui-log-noise)
+
   ;; Agent-shell conversations always land in the major-pane, no matter
   ;; which code path displays them (agent-shell itself, agent-recall
   ;; resume, anything calling display-buffer/pop-to-buffer).  The action
