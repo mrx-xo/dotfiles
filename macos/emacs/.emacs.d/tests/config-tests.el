@@ -327,6 +327,16 @@ a regression here would silently bring that back."
   (should (fboundp 'mr-x/agent-shell-in-project))
   (should (fboundp 'mr-x/focus-ai-window)))
 
+(ert-deftest config-test-main-frame-lifecycle-loaded ()
+  "Main-frame registration and AI focus must load independently of agent-shell."
+  (should (featurep 'mr-x-frames))
+  (should (boundp 'mr-x/main-frame))
+  (should (boundp 'major-pane-home-frame))
+  (should (memq #'mr-x/register-frame after-make-frame-functions))
+  (should (memq #'mr-x/main-frame-deleted delete-frame-functions))
+  (should (eq (symbol-file 'mr-x/focus-ai-window 'defun)
+              (symbol-file 'mr-x/register-frame 'defun))))
+
 (ert-deftest config-test-opencode-command ()
   "OpenCode is discoverable on the phone when the multiplex is installed."
   (require 'agent-shell-opencode)

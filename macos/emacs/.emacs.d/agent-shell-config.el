@@ -592,20 +592,6 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                   (switch-to-prev-buffer))
               (agent-shell--display-buffer shell-buffer))))
 
-        (defun mr-x/focus-ai-window ()
-          "Focus the agent-shell window if visible, otherwise show a message."
-          (interactive)
-          (let ((ai-window nil))
-            (walk-windows
-             (lambda (w)
-               (when (and (not ai-window)
-                          (eq (buffer-local-value 'major-mode (window-buffer w))
-                              'agent-shell-mode))
-                 (setq ai-window w))))
-            (if ai-window
-                (select-window ai-window)
-              (mr-x/agent-shell-toggle))))
-
         (defun mr-x/agent-shell-test-prompt ()
           "Send a random test prompt to exercise agent-shell functionality."
           (interactive)
