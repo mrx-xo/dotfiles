@@ -3183,35 +3183,10 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   ;; Prevent Emacs from resizing frames
   (setq frame-resize-pixelwise t)
 
-  ;; Secondary emacsclient frames get title bars with a frame number so
-  ;; scratch frames are tellable apart.  The FIRST/main GUI frame stays
-  ;; clean — undecorated, no title.  Guard is "am I the sole GUI frame?"
-  ;; rather than a counter, so closing the main frame and spawning a new
-  ;; one keeps the new main clean too.
-  (defvar mr-x/frame-counter 0)
-  (defun mr-x/decorate-secondary-frame ()
-    "Sole GUI frame: clean + marked MAIN + pane home.
-Secondary frames: title bar + frame number.  tty clients are neither."
-    ;; tty clients (CALLIOPE's emx) aren't counted by the GUI-frame filter,
-    ;; so with one GUI frame up they'd pass as "sole" and claim MAIN: dark
-    ;; background on the e-ink and the major-pane home moved to the tablet.
-    (when (display-graphic-p)
-      (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
-          (progn
-            (cl-incf mr-x/frame-counter)
-            (set-frame-parameter nil 'undecorated-round nil)
-            (set-frame-parameter nil 'title
-                                 (format "Emacs #%d" mr-x/frame-counter)))
-        ;; This IS the main frame: queryable identity marker + the
-        ;; major-pane soft-locks here (convos from scratch frames land in
-        ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
-        ;; darker #1d2021 background so it's tellable apart from scratch
-        ;; frames at a glance (agent-shell panes go a shade darker still).
-        (set-frame-parameter nil 'mr-x-main-frame t)
-        (set-frame-parameter nil 'background-color "#1d2021")
-        (when (boundp 'major-pane-home-frame)
-          (setq major-pane-home-frame (selected-frame))))))
-  (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
+  ;; The first real GUI editor keeps its identity and hosts the AI pane.
+  ;; This also repairs existing frames on live load; child/TTY frames never
+  ;; claim main, and the pane's home is assigned before its package loads.
+  (require 'mr-x-frames)
 
 
 (use-package websocket

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Cycle through Emacs windows with yabai
 
-# Get all Emacs window IDs, sorted for consistent ordering
-ids=$(yabai -m query --windows | jq -r '[.[] | select(.app=="Emacs")] | sort_by(.id) | .[].id')
+# Get all Emacs window IDs, sorted for consistent ordering.
+# Standard windows only: child frames (corfu, posframe) are AXFloatingWindow,
+# and focusing a hidden one is a silent no-op that stalls the cycle.
+ids=$(yabai -m query --windows | jq -r '[.[] | select(.app=="Emacs" and .subrole=="AXStandardWindow")] | sort_by(.id) | .[].id')
 [[ -z "$ids" ]] && exit 0
 
 # Convert to array
