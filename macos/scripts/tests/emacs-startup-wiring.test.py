@@ -46,6 +46,9 @@ sys.exit(1)
         helper = self.root / "emacs-daemon-run.sh"
         helper.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$(dirname "$0")/helper-args"\n')
         helper.chmod(0o700)
+        (self.root / "agent-workspace.py").write_text(
+            'import sys\nfrom pathlib import Path\n'
+            'Path(__file__).with_name("workspace-args").write_text("\\n".join(sys.argv[1:]))\n')
         shutil.copyfile(SCRIPTS / "emacs-sandbox-copy.py", self.root / "emacs-sandbox-copy.py")
         self.env = dict(os.environ, PATH=str(self.bin)+os.pathsep+os.environ["PATH"],
                         EMACS=str(self.bin / "emacs"), EMACSCLIENT=str(self.bin / "emacsclient"),
@@ -76,7 +79,28 @@ sys.exit(1)
         result = self.run_wrapper("emacs-sandbox.sh")
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn("sandbox",(self.root / "helper-args").read_text())
-        self.assertTrue((self.root / "frame-called").exists())
+        self.assertFalse((self.root / "frame-called").exists())
+
+    def test_explicit_no_frame_does_not_open_a_window(self):
+        result = self.run_wrapper("emacs-sandbox.sh", "--no-frame")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "frame-called").exists())
+
+    def test_conflicting_window_modes_fail_before_starting(self):
+        result = self.run_wrapper("emacs-sandbox.sh", "--no-frame", "--show")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "helper-args").exists())
+
+    def test_show_reuses_sandbox_without_shutdown(self):
+        result = self.run_wrapper("emacs-sandbox.sh", "--show")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "kill-called").exists())
+        self.assertEqual((self.root / "workspace-args").read_text(), "sandbox-frame\n--show")
+
+    def test_visual_test_defaults_to_background(self):
+        result = self.run_wrapper("emacs-sandbox.sh", "--test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "workspace-args").read_text(), "sandbox-frame\n--test")
 
     def test_wrong_identity_refuses_sandbox_shutdown(self):
         self.env["FIXTURE_MODE"]="wrong"

@@ -8,7 +8,7 @@ SOURCE_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
 EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
 EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
 SOCKET_NAME="sandbox"
-AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; DISPLAY_IDX=""; NO_FRAME=""
+AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; WINDOW_MODE=""
 RUNTIME_ARGS=()
 [[ -z "${EMACS_RUNTIME_DIRECTORY:-}" ]] || RUNTIME_ARGS=(--runtime-directory "$EMACS_RUNTIME_DIRECTORY")
 for arg in "$@"; do
@@ -17,10 +17,16 @@ for arg in "$@"; do
         --restart) RESTART=yes ;;
         --kill) KILL_DAEMON=yes ;;
         --test) AUTO_TEST=yes ;;
-        --no-frame) NO_FRAME=yes ;;  # daemon only, e.g. for review-pr
+        --no-frame|--background|--show)
+            [[ -z "$WINDOW_MODE" || "$WINDOW_MODE" == "$arg" ]] || { echo "Conflicting sandbox window options" >&2; exit 2; }
+            WINDOW_MODE="$arg" ;;
         *) echo "Unknown sandbox option: $arg" >&2; exit 2 ;;
     esac
 done
+if [[ -n "$AUTO_TEST" && "$WINDOW_MODE" == --no-frame ]]; then
+    echo "--test sets up a visual environment; use --background or --show" >&2
+    exit 2
+fi
 SANDBOX_DIR="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$SANDBOX_DIR")"
 # Reject control characters before embedding the path in a Lisp string.
 [[ "$SANDBOX_DIR" != *$'\n'* && "$SANDBOX_DIR" != *$'\r'* ]] || exit 2
@@ -44,18 +50,6 @@ daemon_pid() {
             return 3
         fi
         return 1
-    fi
-}
-
-save_display() {
-    local pid
-    if pid=$(daemon_pid); then
-        if command -v yabai >/dev/null && command -v jq >/dev/null; then
-            DISPLAY_IDX=$(yabai -m query --windows | jq -r ".[] | select(.app == \"Emacs\" and .pid == $pid) | .display" | head -1) || true
-        fi
-    else
-        local status=$?
-        [[ "$status" == 1 ]] || return "$status"
     fi
 }
 
@@ -85,7 +79,6 @@ if [[ -n "$KILL_DAEMON" ]]; then
     exit 0
 fi
 if [[ -n "$FRESH" || -n "$RESTART" ]]; then
-    save_display
     kill_daemon
 fi
 
@@ -116,19 +109,9 @@ else
     "$SCRIPT_DIR/emacs-daemon-run.sh" --server "$SOCKET_NAME" --init-directory "$SANDBOX_DIR" --emacs "$EMACS" --emacsclient "$EMACSCLIENT" --timeout "${EMACS_START_TIMEOUT:-120}" ${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}
 fi
 
-if [[ -n "$NO_FRAME" ]]; then
-    exit 0
-elif [[ -n "$AUTO_TEST" ]]; then
-    timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n --eval "(run-with-timer 1 nil #'mr-x/sandbox-test-env)"
-else
-    timeout 5 "$EMACSCLIENT" --socket-name="$SOCKET_NAME" -c -n
-fi
-if [[ "$DISPLAY_IDX" =~ ^[0-9]+$ ]]; then
-    if pid=$(daemon_pid); then
-        wid=$(yabai -m query --windows | jq -r ".[] | select(.app == \"Emacs\" and .pid == $pid) | .id" | head -1) || true
-        if [[ "${wid:-}" =~ ^[0-9]+$ ]]; then
-            yabai -m window "$wid" --display "$DISPLAY_IDX"
-            yabai -m window "$wid" --focus
-        fi
-    fi
+if [[ "$WINDOW_MODE" == --show || "$WINDOW_MODE" == --background || -n "$AUTO_TEST" ]]; then
+    FRAME_ARGS=()
+    [[ "$WINDOW_MODE" != --show ]] || FRAME_ARGS+=(--show)
+    [[ -z "$AUTO_TEST" ]] || FRAME_ARGS+=(--test)
+    python3 "$SCRIPT_DIR/agent-workspace.py" sandbox-frame ${FRAME_ARGS[@]+"${FRAME_ARGS[@]}"}
 fi

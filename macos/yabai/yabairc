@@ -77,9 +77,9 @@ yabai -m rule --add label=emacs-bookmark-picker app="^Emacs$" title="^Emacs Book
 yabai -m rule --add app="Messages" scratchpad="imessage" grid="6:6:1:1:4:4" manage=off
 yabai -m rule --add app="Discord" scratchpad="discord" grid="6:6:0:0:3:6" manage=off
 
-# Agent space: Brave (agent-open) and the MrX2 Screen Sharing window (sandbox-view)
-# live on a space labelled "agent" so agent windows never land in the working
-# layout. macOS destroys that space when its display goes away, so the helper is
+# Agent space: agent-owned Brave processes, sandbox Emacs, and the MrX2 Screen
+# Sharing window (sandbox-view) live on a space labelled "agent". Personal Brave
+# has no assignment. macOS destroys that space when its display goes away, so the helper is
 # re-run on display changes (and by agent-open/sandbox-view themselves).
 # See docs/agent-fleet-ops.md section 5.
 AGENT_SPACE="$HOME/.dotfiles/macos/scripts/agent-space-ensure"
@@ -89,7 +89,7 @@ yabai -m signal --add event=display_removed action="$AGENT_SPACE" label=agent-sp
 yabai -m signal --add event=space_destroyed action="$AGENT_SPACE" label=agent-space-destroyed
 
 # Add signal to force tile Emacs windows when created (but not scratchpads)
-yabai -m signal --add event=window_created app="^Emacs$" action="if [[ \$(yabai -m query --windows --window \$YABAI_WINDOW_ID | jq -r '.scratchpad') == '' ]]; then yabai -m window \$YABAI_WINDOW_ID --toggle float; yabai -m window \$YABAI_WINDOW_ID --toggle float; fi"
+yabai -m signal --add label=emacs-force-tile event=window_created app="^Emacs$" title!="^SANDBOX" action="if [[ \$(yabai -m query --windows --window \$YABAI_WINDOW_ID | jq -r '.scratchpad') == '' ]]; then yabai -m window \$YABAI_WINDOW_ID --toggle float; yabai -m window \$YABAI_WINDOW_ID --toggle float; fi"
 
 # Signal to update sketchybar when space changes
 yabai -m signal --add event=space_changed action="sketchybar --trigger space_change"
