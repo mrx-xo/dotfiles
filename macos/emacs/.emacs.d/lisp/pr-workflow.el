@@ -21,6 +21,7 @@
 (require 'review-store)
 (require 'review-walkthrough)
 (require 'review-walkthrough-agent)
+(require 'review-comment)
 
 (with-eval-after-load 'review-store
   (add-to-list 'review-store-refresh-functions
@@ -424,29 +425,117 @@ HERE keeps the windows as they were once COMMAND returns."
                (loading (message "PR details did not load; try %s again" command))
                (t (signal (car err) (cdr err)))))))))
 
+(defun mr-x/review-pr--draft-session ()
+  "The review session of this pane or panel when it holds draft comments."
+  (when-let ((session (or (bound-and-true-p review-pane--session)
+                          (bound-and-true-p review-panel--session))))
+    (and (review-session-comments session) session)))
+
 ;;;###autoload
 (defun mr-x/review-pr-comment ()
-  "Comment on the PR this review shows, composing in the main frame."
+  "Comment on the PR this review shows.
+With draft line comments, post them as one review; else compose a
+general comment in the main frame."
   (interactive)
-  (mr-x/review-pr-action #'mr-x/pr-comment))
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'comment)
+    (mr-x/review-pr-action #'mr-x/pr-comment)))
 
 ;;;###autoload
 (defun mr-x/review-pr-approve ()
-  "Approve the PR this review shows, composing in the main frame."
+  "Approve the PR this review shows, with its draft line comments if any."
   (interactive)
-  (mr-x/review-pr-action #'mr-x/pr-approve))
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'approve)
+    (mr-x/review-pr-action #'mr-x/pr-approve)))
 
 ;;;###autoload
 (defun mr-x/review-pr-request-changes ()
-  "Request changes on the PR this review shows, composing in the main frame."
+  "Request changes on the PR this review shows, with its draft line comments if any."
   (interactive)
-  (mr-x/review-pr-action #'mr-x/pr-request-changes))
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'request-changes)
+    (mr-x/review-pr-action #'mr-x/pr-request-changes)))
 
 ;;;###autoload
 (defun mr-x/review-pr-merge ()
   "Merge the PR this review shows; its method and confirm prompts ask here."
   (interactive)
   (mr-x/review-pr-action #'mr-x/pr-merge t))
+
+;;;; Posting a review with line comments
+
+(defun mr-x/pr--forgejo-review-payload (recipe verdict summary drafts)
+  "The Forgejo review request for VERDICT, SUMMARY and DRAFTS on RECIPE's PR."
+  (let ((head (cadr (plist-get recipe :revs))))
+    `((event . ,(pcase verdict ('approve "APPROVED") ('request-changes "REQUEST_CHANGES") (_ "COMMENT")))
+      ,@(and (not (string-empty-p summary)) `((body . ,summary)))
+      ,@(and (stringp head) `((commit_id . ,head)))
+      (comments
+       . ,(vconcat
+           (mapcar (lambda (d)
+                     ;; Forgejo comments one line: a range goes on its last
+                     ;; line and names itself in the text.
+                     `((path . ,(plist-get d :path))
+                       (body . ,(if (plist-get d :start-line)
+                                    (format "Lines %d-%d:\n%s" (plist-get d :start-line)
+                                            (plist-get d :line) (plist-get d :body))
+                                  (plist-get d :body)))
+                       (,(if (eq (plist-get d :side) 'old) 'old_position 'new_position)
+                        . ,(plist-get d :line))))
+                   drafts))))))
+
+(defun mr-x/pr--github-review-payload (recipe verdict summary drafts)
+  "The GitHub review request for VERDICT, SUMMARY and DRAFTS on RECIPE's PR."
+  (let ((head (plist-get recipe :head-rev)))
+    `((event . ,(pcase verdict ('approve "APPROVE") ('request-changes "REQUEST_CHANGES") (_ "COMMENT")))
+      ,@(and (not (string-empty-p summary)) `((body . ,summary)))
+      ,@(and (stringp head) `((commit_id . ,head)))
+      (comments
+       . ,(vconcat
+           (mapcar (lambda (d)
+                     (let ((side (if (eq (plist-get d :side) 'old) "LEFT" "RIGHT")))
+                       `((path . ,(plist-get d :path))
+                         (body . ,(plist-get d :body))
+                         (line . ,(plist-get d :line))
+                         (side . ,side)
+                         ,@(and (plist-get d :start-line)
+                                `((start_line . ,(plist-get d :start-line))
+                                  (start_side . ,side))))))
+                   drafts))))))
+
+(defun mr-x/pr-submit-review (session verdict summary drafts success failure)
+  "Post a review of SESSION's PR.  For `review-comment-submit-function'."
+  (let* ((recipe (review-source-recipe (review-session-source session)))
+         (number (plist-get recipe :number))
+         (posted (lambda (&rest _)
+                   (funcall success)
+                   (mr-x/pr-readiness-fetch session))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo
+       (forgejo-api-post
+        (plist-get recipe :host)
+        (format "repos/%s/%s/pulls/%d/reviews" (plist-get recipe :owner) (plist-get recipe :repo) number)
+        nil
+        (mr-x/pr--forgejo-review-payload recipe verdict summary drafts)
+        posted
+        :error-callback
+        (lambda (err) (funcall failure (or (plist-get err :message) (format "%S" err))))))
+      ('github
+       (let ((repo (plist-get (with-temp-buffer
+                                (setq-local review-pane--session session)
+                                (mr-x/pr--session-context))
+                              :repository)))
+         (if (not repo)
+             (funcall failure "no Forge repository for this clone")
+           (forge--rest repo "POST" (format "/repos/:owner/:repo/pulls/%d/reviews" number)
+             (mr-x/pr--github-review-payload recipe verdict summary drafts)
+             :callback posted
+             :errorback (lambda (err &rest _)
+                          (funcall failure (if (stringp err) err (format "%S" err))))))))
+      (_ (funcall failure "This review is not a PR")))))
+
+(setq review-comment-submit-function #'mr-x/pr-submit-review)
 
 ;;;; Merge readiness in the viewer's top bar
 
