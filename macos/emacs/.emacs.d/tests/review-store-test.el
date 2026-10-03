@@ -267,4 +267,27 @@
       (review-store-moved-p record (lambda (n) (setq notice n))))
     (should (string-match-p "PR #7 has new commits" notice))))
 
+(ert-deftest review-store-keeps-draft-comments ()
+  (review-store-test--env
+   (let* ((s (review-session-start (review-store-test--source "c1")))
+          (drafts (list (list :id 1 :path "b.el" :side 'new :line 2 :start-line nil :text "Y"
+                              :body "Première ligne — naïve.\n\nSecond paragraph."))))
+     (setf (review-session-comments s) drafts)
+     (let* ((record (review-store-save s))
+            (_ (clrhash review-store--memory))
+            (loaded (review-store-load (plist-get record :key))))
+       (should (equal (plist-get loaded :comments) drafts))
+       (let ((review-session--pausing t)) (review-session-quit))
+       (let ((back (review-store-restore loaded)))
+         (should (equal (review-session-comments back) drafts)))))))
+
+(ert-deftest review-store-record-without-comments-restores-none ()
+  (review-store-test--env
+   (let* ((s (review-session-start (review-store-test--source "c2")))
+          (record (review-store-record s)))
+     (let ((review-session--pausing t)) (review-session-quit))
+     (let ((back (review-store-restore (cl-loop for (k v) on record by #'cddr
+                                                unless (eq k :comments) append (list k v)))))
+       (should-not (review-session-comments back))))))
+
 (provide 'review-store-test)
