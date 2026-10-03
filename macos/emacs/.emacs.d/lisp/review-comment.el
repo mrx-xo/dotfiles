@@ -494,5 +494,78 @@ A draft whose file is gone or cannot be loaded as text becomes outdated."
 (add-hook 'review-session-quit-query-functions #'review-comment--quit-query)
 (add-hook 'review-session-quit-functions #'review-comment--on-quit)
 
+;;;; Posting the review
+
+(defvar review-comment-submit-function nil
+  "Function that posts a review, or nil when no provider is set up.
+Called with SESSION, VERDICT (`comment', `approve' or `request-changes'),
+SUMMARY (a string, maybe empty), DRAFTS (the drafts to post on their
+lines), SUCCESS and FAILURE.  It calls SUCCESS with no argument once the
+review is posted, or FAILURE with a message.")
+
+(defun review-comment--summary (body outdated)
+  "BODY followed by the OUTDATED drafts, each quoted with its place."
+  (string-join
+   (delq nil
+         (cons (and (not (string-empty-p body)) body)
+               (mapcar (lambda (d)
+                         (format "`%s` (outdated)\n> %s\n\n%s"
+                                 (review-comment--label d) (plist-get d :text) (plist-get d :body)))
+                       outdated)))
+   "\n\n"))
+
+(defun review-comment--posting (on)
+  "Mark the compose buffer as posting, read-only, when ON; else writable again."
+  (when-let ((buffer (get-buffer review-comment--compose-name)))
+    (with-current-buffer buffer
+      (setq buffer-read-only on
+            review-comment--compose (plist-put review-comment--compose :posting on)))))
+
+(defun review-comment--post (session verdict body)
+  "Post SESSION's drafts as one review with VERDICT and summary BODY."
+  (let* ((drafts (review-session-comments session))
+         (outdated (seq-filter (lambda (d) (plist-get d :outdated)) drafts))
+         (live (seq-remove (lambda (d) (plist-get d :outdated)) drafts))
+         (n (length live)))
+    (review-comment--posting t)
+    (message "Posting the review...")
+    (funcall review-comment-submit-function session verdict
+             (review-comment--summary body outdated) live
+             (lambda ()
+               (setf (review-session-comments session) nil)
+               (review-comment--posting nil)
+               (review-comment--compose-close)
+               (review-comment--changed session)
+               (message "Review posted with %d line comment%s" n (if (= n 1) "" "s")))
+             (lambda (message)
+               (review-comment--posting nil)
+               (message "Review not posted: %s" message)))))
+
+(defun review-comment-submit (session verdict)
+  "Write a summary, then post SESSION's drafts as one review with VERDICT.
+VERDICT is `comment', `approve' or `request-changes'."
+  (review-comment--require-pr session)
+  (unless review-comment-submit-function (user-error "No provider can post this review"))
+  (unless (review-session-comments session) (user-error "This review has no draft comments"))
+  (let ((window (if (derived-mode-p 'review-pane-mode) (selected-window)
+                  (review-session-new-window session))))
+    (review-comment--settle-all
+     session
+     (lambda ()
+       (let ((n (cl-count-if-not (lambda (d) (plist-get d :outdated))
+                                 (review-session-comments session))))
+         (review-comment--compose
+          session
+          (format "%s with %d line comment%s"
+                  (pcase verdict ('approve "Approve") ('request-changes "Request changes") (_ "Comment"))
+                  n (if (= n 1) "" "s"))
+          window nil
+          (lambda (body)
+            (when (and (eq verdict 'request-changes) (string-empty-p body))
+              (user-error "Request changes needs a summary"))
+            (review-comment--post session verdict body)
+            'wait)
+          nil t))))))
+
 (provide 'review-comment)
 ;;; review-comment.el ends here
