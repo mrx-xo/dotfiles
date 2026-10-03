@@ -823,7 +823,7 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   (should (fboundp 'mr-x/quick-ask--attach-buffer))
   (should (fboundp 'mr-x/quick-ask--attach-region))
   (should (fboundp 'mr-x/quick-ask--detach-all))
-  (should (fboundp 'mr-x/quick-ask--strip-thinking)))
+  (should (fboundp 'mr-x/quick-ask--last-response)))
 
 ;; ── Bash Watcher ───────────────────────────────────────────────────────────
 
@@ -1156,13 +1156,14 @@ Popper must NOT control display, the popup rule must be present, and a
 ;; Tests that exercise actual logic, not just existence.
 ;; ═══════════════════════════════════════════════════════════════════════════
 
-(ert-deftest config-test-quick-ask-strip-thinking ()
-  "mr-x/quick-ask--strip-thinking should remove agent-shell thinking blocks."
-  (should (equal (mr-x/quick-ask--strip-thinking "hello") "hello"))
-  (should (equal (mr-x/quick-ask--strip-thinking nil) ""))
-  (should (equal (mr-x/quick-ask--strip-thinking
-                  "▶ Thinking\n\nsome reasoning here\n\nactual answer")
-                 "actual answer")))
+(ert-deftest config-test-quick-ask-markdown ()
+  "Quick Ask uses the chat renderer and retains copyable Markdown."
+  (with-temp-buffer
+    (insert "Use **shared**.")
+    (mr-x/quick-ask--render-markdown)
+    (should (equal (buffer-string) "Use shared."))
+    (should (equal (agent-shell-markdown-reconstruct (point-min) (point-max))
+                   "Use **shared**."))))
 
 (ert-deftest config-test-agent-shell-refs-truncate ()
   "agent-shell-refs--truncate should truncate long strings with ellipsis."

@@ -1070,9 +1070,12 @@ the keycaps, (KEY LABEL TOKEN) each; the default names 1, 2 and 3."
 (defun review-panel-ask-card (origin question answer &optional style-answer)
   "Insert the Quick Ask card at point: ORIGIN, QUESTION, ANSWER and the exits.
 STYLE-ANSWER, when non-nil, is called with the buffer narrowed to the
-answer, so markdown styling never touches the question."
+answer, so markdown styling never touches the question.
+Everything but the answer carries `display-line-numbers-disable', so a
+buffer showing line numbers counts only the answer's lines."
   (let ((review-panel--scale (/ (frame-char-width) 6.0))
-        (indent (lambda () (review-panel--gap 12))))
+        (indent (lambda () (review-panel--gap 12)))
+        (card-start (point)))
     (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
     (insert (review-panel--row
              (concat (funcall indent) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
@@ -1083,7 +1086,7 @@ answer, so markdown styling never touches the question."
       (put-text-property start (point) 'line-prefix (funcall indent))
       (put-text-property start (point) 'wrap-prefix (funcall indent)))
     (insert (review-panel--divider) (review-panel--spacer 10))
-    (let ((start (point)))
+    (let ((start (point)) footer)
       (insert answer "\n")
       (save-restriction
         (narrow-to-region start (point))
@@ -1092,13 +1095,16 @@ answer, so markdown styling never touches the question."
                                 `(:foreground ,(review-panel--hex 'fg)) t)
         (put-text-property (point-min) (point-max) 'line-prefix (funcall indent))
         (put-text-property (point-min) (point-max) 'wrap-prefix (funcall indent))
-        (goto-char (point-max))))
-    (insert (review-panel--spacer 12) (review-panel--divider))
-    ;; Padding comes from spacer lines: extra line height on the row itself
-    ;; would stretch every keycap's background to the full row.
-    (insert (review-panel--spacer 8 'bg-hard)
-            (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
-            (review-panel--spacer 8 'bg-hard))))
+        (goto-char (point-max)))
+      (put-text-property card-start start 'display-line-numbers-disable t)
+      (setq footer (point))
+      (insert (review-panel--spacer 12) (review-panel--divider))
+      ;; Padding comes from spacer lines: extra line height on the row itself
+      ;; would stretch every keycap's background to the full row.
+      (insert (review-panel--spacer 8 'bg-hard)
+              (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
+              (review-panel--spacer 8 'bg-hard))
+      (put-text-property footer (point) 'display-line-numbers-disable t))))
 
 (provide 'review-panel)
 ;;; review-panel.el ends here

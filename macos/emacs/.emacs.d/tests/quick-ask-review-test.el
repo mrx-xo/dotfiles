@@ -5,6 +5,9 @@
 (require 'posframe)
 (require 'evil)
 (require 'markdown-mode)
+(require 'agent-shell-ui)
+(require 'agent-shell-markdown)
+(require 'agent-shell)
 
 ;; Focused batch runs load just the existing Quick Ask block.  Full-config
 ;; smoke runs already have it from init.el, and skip this extraction.
@@ -190,7 +193,12 @@
           (cl-letf (((symbol-function 'agent-shell--start)
                      (lambda (&rest _)
                        (push default-directory started)
-                       (generate-new-buffer " *qa-fake-shell*")))
+                       (let ((buf (generate-new-buffer " *qa-fake-shell*")))
+                         (with-current-buffer buf
+                           (setq-local major-mode 'agent-shell-mode
+                                       agent-shell--state `((:buffer . ,buf)
+                                                            (:event-subscriptions . nil))))
+                         buf)))
                     ((symbol-function 'major-pane-exclude-buffer) #'ignore)
                     ((symbol-function 'mr-x/quick-ask--session-healthy-p) #'buffer-live-p))
             (let ((a (mr-x/quick-ask--ensure-session sub))
@@ -233,21 +241,67 @@
           (progn
             (switch-to-buffer buf)
             (insert (mapconcat #'number-to-string (number-sequence 1 5) "\n"))
-            (setq-local mr-x/quick-ask--fits t)
+            (setq-local mr-x/quick-ask--scroll-limit (cons (point-min) 0))
             (let ((w (selected-window)))
               (set-window-start w (save-excursion (goto-char (point-min)) (forward-line 3) (point)))
-              (mr-x/quick-ask--pin-start w (window-start w))
+              (mr-x/quick-ask--clamp-scroll w (window-start w))
               (should (= (window-start w) (point-min)))
-              (setq-local mr-x/quick-ask--fits nil)
+              ;; A wheel scroll moves the start itself and passes no START.
               (set-window-start w 5)
-              (mr-x/quick-ask--pin-start w 5)
+              (mr-x/quick-ask--clamp-scroll w)
+              (should (= (window-start w) (point-min)))
+              (setq-local mr-x/quick-ask--scroll-limit nil)
+              (set-window-start w 5)
+              (mr-x/quick-ask--clamp-scroll w 5)
               (should (= (window-start w) 5))))
+        (kill-buffer buf)))))
+
+(ert-deftest quick-ask-popup-taller-than-its-card-stops-at-the-last-row ()
+  ;; A card too tall for its popup scrolls, but only until its footer is
+  ;; on the bottom edge: a wheel flick used to scroll the whole card away.
+  (save-window-excursion
+    (let ((buf (get-buffer-create " *qa-pin*")))
+      (unwind-protect
+          (progn
+            (switch-to-buffer buf)
+            (insert (mapconcat #'number-to-string (number-sequence 1 9) "\n"))
+            (setq-local mr-x/quick-ask--scroll-limit (cons 7 0))
+            (let ((w (selected-window)))
+              (set-window-start w (point-max))
+              (mr-x/quick-ask--clamp-scroll w)
+              (should (= (window-start w) 7))
+              (set-window-start w 3)
+              (mr-x/quick-ask--clamp-scroll w)
+              (should (= (window-start w) 3))))
+        (kill-buffer buf)))))
+
+(ert-deftest quick-ask-popup-limits-wheel-scrolls-too ()
+  ;; A wheel scroll sets the window start directly, which never runs
+  ;; `window-scroll-functions': the limit is also checked before redisplay.
+  (save-window-excursion
+    (let ((buf (get-buffer-create " *qa-pin*")))
+      (unwind-protect
+          (progn
+            (switch-to-buffer buf)
+            (insert "card\n")
+            (cl-letf (((symbol-function 'mr-x/quick-ask--posframe-frame)
+                       (lambda (&rest _) (selected-frame)))
+                      ((symbol-function 'mr-x/quick-ask--content-lines) (lambda (&rest _) 3))
+                      ((symbol-function 'mr-x/quick-ask--content-pixels) (lambda (&rest _) 3))
+                      ((symbol-function 'set-frame-height) #'ignore))
+              (mr-x/quick-ask--fit-float buf 10))
+            (should (equal mr-x/quick-ask--scroll-limit (cons (point-min) 0)))
+            (should (memq #'mr-x/quick-ask--clamp-scroll pre-redisplay-functions))
+            (should (memq #'mr-x/quick-ask--clamp-scroll window-scroll-functions)))
         (kill-buffer buf)))))
 
 (defmacro quick-ask-test--posframes (calls hidden &rest body)
   "Run BODY with posframe stubbed: shows pushed on CALLS, hides on HIDDEN."
   (declare (indent 2))
-  `(cl-letf (((symbol-function 'posframe-show) (lambda (b &rest args) (push (cons b args) ,calls) nil))
+  `(cl-letf (((symbol-function 'posframe-show)
+              ;; Like the real one, which turns line numbers off in its buffer.
+              (lambda (b &rest args) (with-current-buffer b (setq-local display-line-numbers nil))
+                (push (cons b args) ,calls) nil))
              ((symbol-function 'posframe-hide) (lambda (b) (push b ,hidden)))
              ((symbol-function 'posframe-workable-p) (lambda () t))
              ((symbol-function 'mr-x/quick-ask--content-lines) (lambda (&rest _) 10))
@@ -454,17 +508,96 @@
   ;; Never too small to read, even when the rows fill the frame.
   (should (= (mr-x/quick-ask--float-cap '(10 . 790) 800 20 10) 6)))
 
-(ert-deftest quick-ask-strips-agent-notices-and-thinking ()
-  ;; A project's first question goes to a fresh session, whose output
-  ;; starts with agent-shell's session notice.
-  (should (equal (mr-x/quick-ask--strip-thinking
-                  "\n▶ Notices\n\n[session/create] sessionId=6989 phase=register\n\n\nThe answer.\n\nNext: more.\n\n")
-                 "The answer.\n\nNext: more."))
-  (should (equal (mr-x/quick-ask--strip-thinking
-                  "▶ Thinking\n\nreasoning here\n\n▶ Notices\n\n[session/create] x\n\nThe answer.")
-                 "The answer."))
-  (should (equal (mr-x/quick-ask--strip-thinking "▶ A heading the model wrote\n\nkeep this")
-                 "▶ A heading the model wrote\n\nkeep this")))
+(defun quick-ask-test--stream-chunk (chunk)
+  "Deliver CHUNK before rendering, in the same order as agent-shell."
+  (agent-shell--emit-event :event 'agent-message-chunk :data `((:text-chunk . ,chunk)))
+  (goto-char (point-max))
+  (let ((range (agent-shell-ui-update-fragment
+                (agent-shell-ui-make-fragment-model
+                 :namespace-id 1
+                 :block-id (format "%s-agent_message_chunk"
+                                   (map-elt agent-shell--state :chunked-group-count))
+                 :body chunk)
+                :append t)))
+    (save-restriction
+      (narrow-to-region (map-nested-elt range '(:body :start))
+                        (map-nested-elt range '(:body :end)))
+      (agent-shell-markdown-replace-markup :render-images nil))))
+
+(ert-deftest quick-ask-response-streaming-keeps-exact-markdown ()
+  ;; Rendering a partial list item can stash incomplete source markup.
+  ;; Quick Ask must capture raw events instead of reconstructing that text.
+  (with-temp-buffer
+    (let* ((proc (make-pipe-process :name "quick-ask-stream-test"
+                                    :buffer (current-buffer) :noquery t))
+           (mr-x/quick-ask--sessions (make-hash-table :test #'equal))
+           (mr-x/quick-ask--shell-buffer nil)
+           (agent-shell-inhibit-system-sleep nil)
+           (inhibit-read-only t))
+      (unwind-protect
+          (progn
+            (setq-local major-mode 'agent-shell-mode
+                        shell-maker--config t
+                        agent-shell--state `((:buffer . ,(current-buffer))
+                                             (:event-subscriptions . nil)
+                                             (:chunked-group-count . 1)))
+            (puthash (mr-x/quick-ask--project-directory default-directory)
+                     (current-buffer) mr-x/quick-ask--sessions)
+            ;; Reusing a session must not duplicate the text subscriptions.
+            (mr-x/quick-ask--ensure-session default-directory)
+            (mr-x/quick-ask--ensure-session default-directory)
+            (agent-shell--emit-event :event 'agent-message-chunk
+                                     :data '((:text-chunk . "Earlier turn.")))
+            (agent-shell--emit-event :event 'input-submitted :data '((:prompt . "Why?")))
+            (setq-local comint-last-input-end (copy-marker (point-min)))
+            (dolist (chunk '("- **Loc" "al selected:** `" "p` stays unchanged.\n"
+                             "- `cmd()" "` passes `'/cmd?'`."))
+              (quick-ask-test--stream-chunk chunk))
+            (agent-shell--emit-event :event 'tool-call-update
+                                     :data '((:tool-call-id . "tool") (:tool-call . "Private tool details")))
+            (map-put! agent-shell--state :chunked-group-count 2)
+            (quick-ask-test--stream-chunk "## Caveat\n\nKeep it local.")
+            (agent-shell--emit-event :event 'agent-message-chunk
+                                     :data '((:text-chunk . nil)))
+            (set-marker (process-mark proc) (point-max))
+            (should (equal (mr-x/quick-ask--last-response)
+                           "- **Local selected:** `p` stays unchanged.\n- `cmd()` passes `'/cmd?'`.\n\n## Caveat\n\nKeep it local."))
+            (let ((response (mr-x/quick-ask--last-response)))
+              (with-temp-buffer
+                (mr-x/quick-ask-mode)
+                (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+                  (mr-x/quick-ask--show-response "Why?" response))
+                (should-not (string-match-p "\\*\\*\\|`\\|##" (buffer-string)))
+                (should (string-match-p (regexp-quote "'/cmd?'") (buffer-string)))))
+            ;; A later turn with only tools must not reuse the previous answer.
+            (agent-shell--emit-event :event 'input-submitted :data '((:prompt . "Next?")))
+            (should-not (mr-x/quick-ask--last-response)))
+        (delete-process proc)))))
+
+(ert-deftest quick-ask-response-renders-markdown-without-changing-code ()
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (let ((answer "## Answer\n\nUse **shared** and `light`.\n\n```text\n# literal\n**keep me**\n- keep this too\n```"))
+      (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+        (mr-x/quick-ask--show-response "# untouched question" answer))
+      (should (equal mr-x/quick-ask--response answer))
+      (goto-char (point-min))
+      (should (search-forward "# untouched question" nil t))
+      (should (search-forward "Answer" nil t))
+      (should (get-text-property (1- (point)) 'agent-shell-markdown-source))
+      (should (search-forward "shared" nil t))
+      (should (equal (get-text-property (1- (point)) 'agent-shell-markdown-source)
+                     "**shared**"))
+      (should (search-forward "# literal\n**keep me**\n- keep this too" nil t))
+      (should-not (string-match-p "```" (buffer-string))))))
+
+(ert-deftest quick-ask-response-keeps-answer-text-that-looks-like-activity ()
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+      (mr-x/quick-ask--show-response "why?" "▶ Thinking\n\nAn example heading.\n\nKeep it."))
+    (should (equal mr-x/quick-ask--response
+                   "▶ Thinking\n\nAn example heading.\n\nKeep it."))))
 
 (ert-deftest quick-ask-terminal-fallback-reuses-bottom-window ()
   (review-session-test--with s
@@ -480,6 +613,133 @@
             (should (buffer-live-p (review-session-new-buffer s))))
         (when (buffer-live-p buf)
           (with-current-buffer buf (mr-x/quick-ask--dismiss)))))))
+
+;;; Relative numbers, keyboard focus, file links
+
+(ert-deftest quick-ask-answer-has-relative-line-numbers ()
+  ;; The card is read in evil normal state: `5j' needs numbers to count by.
+  ;; Only the answer is numbered; the ASK row and the exits are chrome.
+  (let ((buf (get-buffer-create "*quick-ask*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+          (with-current-buffer buf
+            (mr-x/quick-ask-mode)
+            (should-not display-line-numbers)
+            (mr-x/quick-ask--show-response "why?" "one\n\ntwo\nthree")
+            (should (eq display-line-numbers 'visual))
+            (goto-char (point-min))
+            (should (get-text-property (point) 'display-line-numbers-disable))
+            (search-forward "why?")
+            (should (get-text-property (line-beginning-position) 'display-line-numbers-disable))
+            (search-forward "two")
+            (should-not (get-text-property (line-beginning-position) 'display-line-numbers-disable))
+            (search-forward "dismiss")
+            (should (get-text-property (line-beginning-position) 'display-line-numbers-disable))))
+      (kill-buffer buf))))
+
+(ert-deftest quick-ask-answer-keeps-its-line-numbers-in-the-popup ()
+  ;; posframe switches line numbers off in the buffer it shows; the answer
+  ;; gets them back after every show.
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (delete-other-windows) (switch-to-buffer source) (insert "code\n")
+                       (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (cl-letf (((symbol-function 'mr-x/quick-ask--display-response) #'ignore))
+              (with-current-buffer buf
+                (setq-local mr-x/quick-ask--source-origin '(:label "x"))
+                (mr-x/quick-ask--show-response "why?" "one\ntwo")))
+            (let ((mr-x/quick-ask-placement 'float))
+              (mr-x/quick-ask--show buf))
+            (should calls)
+            (should (eq (buffer-local-value 'display-line-numbers buf) 'visual)))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-toggle-focuses-a-visible-card-before-hiding-it ()
+  ;; SPC Q from outside a visible card jumps into it; from inside, it hides.
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (buf (progn (delete-other-windows) (switch-to-buffer source)
+                       (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'bottom))
+              (mr-x/quick-ask--show buf)
+              (should (eq (window-buffer) buf))
+              (select-window (get-buffer-window source))
+              (mr-x/quick-ask-toggle)
+              (should (eq (window-buffer) buf))
+              (should-not (buffer-local-value 'mr-x/quick-ask--hidden buf))
+              (mr-x/quick-ask-toggle)
+              (should (buffer-local-value 'mr-x/quick-ask--hidden buf))
+              (should (eq (window-buffer) source))))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-toggle-focuses-the-floating-card ()
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden focused
+           (buf (progn (delete-other-windows) (switch-to-buffer source)
+                       (quick-ask-test--answer-buffer source))))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (cl-letf (((symbol-function 'mr-x/quick-ask--posframe-frame)
+                       (lambda (_) (selected-frame)))
+                      ((symbol-function 'select-frame-set-input-focus)
+                       (lambda (frame &rest _) (push frame focused))))
+              (let ((mr-x/quick-ask-placement 'float))
+                (mr-x/quick-ask--show buf)
+                (setq focused nil)
+                ;; The card is up, but keys go to the source window.
+                (should (eq (window-buffer) source))
+                (mr-x/quick-ask-toggle)
+                (should (equal focused (list (selected-frame))))
+                (should-not hidden)
+                (should-not (buffer-local-value 'mr-x/quick-ask--hidden buf)))))
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-file-links-open-in-the-source-window ()
+  ;; A file link in the answer opens where the question came from, never in
+  ;; the card's own window; the card hides so SPC Q brings it back.
+  (save-window-excursion
+    (let* ((source (get-buffer-create " *qa-code*")) calls hidden
+           (file (make-temp-file "qa" nil ".el" "x\ny\n"))
+           (buf (progn (delete-other-windows) (switch-to-buffer source)
+                       (quick-ask-test--answer-buffer source)))
+           (source-window (selected-window)))
+      (unwind-protect
+          (quick-ask-test--posframes calls hidden
+            (let ((mr-x/quick-ask-placement 'bottom))
+              (mr-x/quick-ask--show buf)
+              (should (eq (window-buffer) buf))
+              (let ((window (with-current-buffer buf
+                              (funcall agent-shell-markdown-open-file-function file))))
+                (should (eq window source-window))
+                (should (equal (buffer-file-name (window-buffer window)) file))
+                (should (eq window (selected-window)))
+                (should (buffer-local-value 'mr-x/quick-ask--hidden buf)))))
+        (when-let* ((fb (get-file-buffer file))) (kill-buffer fb))
+        (delete-file file)
+        (kill-buffer buf) (kill-buffer source)))))
+
+(ert-deftest quick-ask-file-links-in-a-review-follow-the-review-visit-style ()
+  ;; From a review pane the link opens like `review-session-visit' does:
+  ;; in-frame, panes replaced, `review-session-return' brings them back.
+  (review-session-test--with s
+    (let* ((pane (window-buffer (review-session-new-window s)))
+           (file (make-temp-file "qa" nil ".el" "x\ny\n"))
+           (buf (quick-ask-test--answer-buffer pane))
+           (review-session-visit-style 'in-frame))
+      (unwind-protect
+          (let ((window (with-current-buffer buf
+                          (funcall agent-shell-markdown-open-file-function file))))
+            (should (window-live-p window))
+            (should (equal (buffer-file-name (window-buffer window)) file))
+            (should (review-session-return-state s))
+            (should-not (window-live-p (review-session-old-window s))))
+        (when-let* ((fb (get-file-buffer file))) (kill-buffer fb))
+        (delete-file file)
+        (kill-buffer buf)))))
 
 (provide 'quick-ask-review-test)
 ;;; quick-ask-review-test.el ends here
