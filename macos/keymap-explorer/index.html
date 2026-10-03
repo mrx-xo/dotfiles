@@ -75,7 +75,7 @@
   }
   .eyebrow {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 14px;
     letter-spacing: .14em;
     text-transform: uppercase;
     color: var(--muted);
@@ -83,14 +83,14 @@
   }
   h1 {
     font-family: var(--mono);
-    font-size: clamp(20px, 3.4vw, 28px);
+    font-size: clamp(26px, 3.4vw, 36px);
     font-weight: 700;
     letter-spacing: -.01em;
     margin: 0;
     text-wrap: balance;
   }
   h1 .accent { color: var(--amber); }
-  .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 62ch; line-height: 1.5; }
+  .sub { color: var(--muted); font-size: 18px; margin: 0 0 22px; max-width: 62ch; line-height: 1.5; }
 
   .controls {
     display: flex;
@@ -110,7 +110,7 @@
   }
   .seg button {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     padding: 7px 16px;
     border: none;
@@ -129,7 +129,7 @@
   .viewpick { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .viewpick select {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     padding: 8px 10px;
     border: 1px solid var(--line);
@@ -139,12 +139,12 @@
     cursor: pointer;
   }
   .viewpick select:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
-  .viewpick .vs { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .viewpick .vs { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 
   .tabs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .tabs button {
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-size: 16px;
     font-weight: 600;
     padding: 7px 13px;
     border-radius: 8px;
@@ -166,10 +166,11 @@
 
   .reach {
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-size: 16px;
     color: var(--muted);
     margin: 0 0 10px;
-    min-height: 18px;
+    min-height: 24px;
+    line-height: 1.5;
   }
   .reach b { color: var(--ink); font-weight: 600; }
   .reach .warn { color: var(--red); font-weight: 600; }
@@ -182,6 +183,10 @@
     overflow-x: auto;
   }
   .board { position: relative; margin: 0 auto; }
+  .boardbox { position: relative; }
+  .boardbox .seg { position: absolute; top: 10px; right: 10px; z-index: 3; }
+  .boardbox .seg button { font-size: 14px; padding: 5px 12px; }
+  html.widget .boardbox .seg { display: none; }
 
   /* side-by-side (both) mode */
   .boards { display: grid; grid-template-columns: 1fr; gap: 14px; }
@@ -189,7 +194,7 @@
   .boards.split { grid-template-columns: 1fr 1fr; }
   @media (max-width: 980px) { .boards.split { grid-template-columns: 1fr; } }
   .colcap {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    font-family: var(--mono); font-size: 14px; letter-spacing: .12em;
     text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
   }
   .colcap.pro { color: var(--amber); }
@@ -279,11 +284,11 @@
     gap: 14px;
     padding: 12px 4px 6px;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 15px;
     color: var(--muted);
   }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
   .legend .l-sym i { background: var(--amber-soft); border: 1px solid var(--amber); }
   .legend .l-nav i { background: var(--blue-soft); border: 1px solid var(--blue); }
   .legend .l-hyp i { background: var(--violet-soft); border: 1px solid var(--violet); }
@@ -307,19 +312,19 @@
   }
   .card h3 {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     letter-spacing: .12em;
     text-transform: uppercase;
     color: var(--muted);
     margin: 0 0 10px;
   }
-  .card ul { margin: 0; padding-left: 18px; line-height: 1.65; font-size: 13.5px; }
+  .card ul { margin: 0; padding-left: 22px; line-height: 1.65; font-size: 17.5px; }
   .card li { margin-bottom: 4px; }
   .card li::marker { color: var(--faint); }
   .card b { font-weight: 600; }
   .card .k {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     background: var(--cap);
     border: 1px solid var(--line);
     border-radius: 5px;
@@ -333,7 +338,7 @@
   .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 4px; }
   .chip {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     padding: 4px 10px;
     border-radius: 999px;
     border: 1px solid var(--line);
@@ -346,7 +351,7 @@
   footer {
     margin-top: 26px;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 14px;
     color: var(--faint);
     line-height: 1.6;
   }
@@ -385,14 +390,11 @@
       <p class="eyebrow" id="eyebrow"></p>
       <h1>mrx keymap <span class="accent">explorer</span></h1>
     </div>
-    <div class="seg">
-      <button id="btn-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
-    </div>
   </div>
 
   <!-- ================= keebio iris se (rev. 8) ================= -->
   <div id="app-ir">
-    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v2 on board</b> since the 2026-09-29 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Walk the layers, hover any key for its QMK keycode; side by side against <b>Factory</b> rings what changed.</p>
+    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v2 on board</b> since the 2026-09-29 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Walk the layers, hover any key for its QMK keycode; side by side against <b>Proposed v3</b> (or Factory) rings what changed.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -410,6 +412,7 @@
         <button data-l="2"><span class="dot"></span>2 &middot; Nav</button>
         <button data-l="3"><span class="dot"></span>3 &middot; System</button>
         <button data-l="4"><span class="dot"></span>4 &middot; Game</button>
+        <button data-l="5"><span class="dot"></span>5 &middot; Emacs</button>
       </div>
     </div>
 
@@ -418,7 +421,12 @@
     <div class="boards" id="ir-boards">
       <div>
         <p class="colcap" id="ir-cap-a" hidden></p>
-        <div class="boardbox"><div class="board" id="ir-board"></div></div>
+        <div class="boardbox">
+          <div class="seg">
+            <button id="btn-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
+          </div>
+          <div class="board" id="ir-board"></div>
+        </div>
       </div>
       <div id="ir-col-b" hidden>
         <p class="colcap pro" id="ir-cap-b"></p>
@@ -623,15 +631,60 @@ const cur4 = sparse(T, {
   55: K('EXIT','TG 4','boot','TG(4)')
 });
 
+// ---------- PROPOSED (v3 draft) ----------
+// d1 — the hotdox Emacs layer (git 8457210) ported to the Iris, plus the
+// bookmark popup on the free Nav slot. Only the layers that differ are new;
+// the rest point at the current arrays.
+
+// Nav: #5 was the one blank on the daily-driver row. ⌃⌘B is the Hammerspoon
+// bookmark popup (macos/hammerspoon/bookmark-popup.lua), so no Mac-side change.
+const pro2 = cur2.slice();
+pro2[5] = K('Bookmk',null,'','LCG(KC_B)');
+
+// Knob: Base turns a real mouse wheel (MOUSEKEY_ENABLE), so held ⇧ / ⌘ / ⌥
+// give horizontal scroll / zoom / fast scroll from macOS with no firmware
+// code. Volume moves to Symbols; Prev/Next drop (rarely used).
+const pro0 = cur0.slice();
+pro0[42] = KNOB('Play', 'Scr▲', 'Scr▼', 'KC_MPLY', 'MS_WHLU', 'MS_WHLD');
+const pro1 = cur1.slice();
+pro1[42] = KNOB('Play', 'Vol−', 'Vol+', 'KC_MPLY', 'KC_VOLD', 'KC_VOLU');
+
+// Emacs layer (5): every letter fires the Emacs command starting with it, as
+// HYPR(letter) on its own Dvorak key. F H J K L E A T stay blank: those Hyper
+// combos are yabai / skhd. Door: both inner thumbs (#52 Bksp + #53 Tab)
+// pressed together = OSL(5), one command then back to base.
+const em = (t, l) => K(t, '✦' + l, 'hyp', 'HYPR(KC_' + l.toUpperCase() + ')');
+const pro5 = sparse(T, {
+  16: em('project','p'),   // projectile-find-file   live
+  19: em('magit','g'),     // magit-status           live
+  20: em('agent','c'),     // agent-shell toggle     proposed
+  21: em('recent','r'),    // consult-recent-file    live
+  26: em('window','o'),    // ace-window             live
+  29: em('imenu','i'),     // consult-imenu          live
+  30: em('dired','d'),     // dired-jump             live
+  34: em('search','s'),    // consult-line           live
+  38: em('ask AI','q'),    // mr-x/quick-ask         proposed
+  41: em('M-x','x'),       // execute-extended-cmd   proposed
+  44: em('buffer','b'),    // consult-buffer         live
+  45: em('bookmk','m'),    // consult-bookmark       proposed
+  46: em('wrkspc','w'),    // perspective switch     proposed
+  47: em('vterm','v'),     // mr-x/vterm-popup       proposed
+  52: K('Emacs','DOOR','boot','combo #52+#53 → OSL(5)'),
+  53: K('Emacs','DOOR','boot','combo #52+#53 → OSL(5)')
+});
+const none5 = sparse(T, {});
+
 const MAPS = {
-  fac: [fac0, fac1, fac2, facNone, facNone],
-  cur: [cur0, cur1, cur2, cur3, cur4]
+  fac: [fac0, fac1, fac2, facNone, facNone, none5],
+  cur: [cur0, cur1, cur2, cur3, cur4, none5],
+  pro: [pro0, pro1, pro2, cur3, cur4, pro5]
 };
 // Practice shares the current board's physical geometry and legends.
 window.IrisLayout = { geometry: GEO, base: cur0, symbols: cur1 };
 const LAYOUTS = {
   fac: { v: 0, status: 'retired 2026-09-28', name: 'factory' },
-  cur: { v: 1, status: 'on board — flashed 2026-09-29', name: 'current v2' }
+  cur: { v: 1, status: 'on board — flashed 2026-09-29', name: 'current v2' },
+  pro: { v: 2, status: 'draft d1 — not flashed', name: 'proposed v3' }
 };
 
 // ---------- copy ----------
@@ -651,6 +704,13 @@ const REACH = {
     'Toggle with <b>Game</b> on System. Full QWERTY, no mod-taps, <b>EXIT</b> on the right outer thumb.'
   ]
 };
+REACH.fac[5] = REACH.cur[5] =
+  '<span class="warn">Not on the board.</span> The Emacs layer is a v3 draft; browse it on <b>proposed</b>. Holding <b>✦</b> (left outer thumb) + the letter already reaches the same Emacs commands today.';
+REACH.pro = REACH.cur.slice();
+REACH.pro[0] = REACH.cur[0].replace('turn for volume, press for Play', '<b>turn to scroll</b>, press for Play; hold ⇧ / ⌘ / ⌥ while turning for horizontal / zoom / fast');
+REACH.pro[1] = REACH.cur[1].replace('Knob skips tracks.', '<b>Knob turns volume</b> (moved here from Base).');
+REACH.pro[2] = REACH.cur[2] + ' <b>New:</b> Bookmarks (⌃⌘B popup) on <b>#5</b>, the last blank on the daily-driver row.';
+REACH.pro[5] = 'Press <b>both inner thumbs</b> together (Bksp + Tab), then tap one letter: <b>every letter is its Emacs command</b>. ✦i imenu, ✦s search, ✦m bookmarks… One command, then back to base. <b>F H J K L E A T stay blank</b>: those Hyper combos are yabai.';
 
 const NOTES = {
   fac: ['Factory keymap', [
@@ -664,7 +724,16 @@ const NOTES = {
     '<b>The knob (#42) takes media:</b> base turns volume and presses Play; Symbols turns Prev/Next; Nav turns Tab◀/Tab▶ and presses Mute; System turns brightness and presses RGB toggle. Game falls through to volume.',
     '<b>Nav</b> carries what 56 keys cannot hold on base: Agenda/Recent/Scratch/Layout on the left number row, Caps Word on Tab, Nav LOCK on Shift. ⌘Tab keeps the hotdox grip: hold <b>E</b> (left ⌘) and tap the right thumb Tab.',
     '<b>Live widget:</b> the firmware broadcasts <span class="k">[0x4C, layer]</span> over raw HID so the wallpaper widget follows layers .',
-    '<span class="warn">Open:</span> an Emacs layer (drafted for the hotdox, git <span class="k">8457210</span>) is not ported yet.'
+    '<span class="warn">Open:</span> the Emacs layer (drafted for the hotdox, git <span class="k">8457210</span>) is on <b>proposed v3</b>, not flashed.'
+  ]],
+  pro: ['Proposed v3 (draft d1)', [
+    '<b>Nav #5 = Bookmarks</b> (<span class="k">LCG(KC_B)</span>): the Hammerspoon ⌃⌘B popup, next to Agenda / Recent / Scratch / Layout. The stopgap chord from the no-split weeks gets a key.',
+    '<b>Emacs layer (5), ported from the hotdox:</b> each key sends <span class="k">HYPR(letter)</span> on its own Dvorak position. 8 live in <span class="k">emacs.org</span> (i b g s r p o d), 6 bind on approval (c q x m w v).',
+    '<b>Door = both inner thumbs</b> (#52 Bksp + #53 Tab) as a QMK combo → <span class="k">OSL(5)</span>. The hotdox door was Bksp + Esc; on the Iris those sit on opposite hands, the two inner thumbs are side by side.',
+    '<span class="warn">Risk:</span> ⌃Tab (hold Bksp, tap Tab) must not fire the combo. A combo only triggers when both keys land inside <span class="k">COMBO_TERM</span> (~50 ms), so a held ⌃ then Tab is safe; a fast mash is not.',
+    '<b>Blank = reserved:</b> F H J K L E A T are yabai Hyper binds. Free for more: N U ; Z Y \' , .',
+    '<b>Knob turns a mouse wheel on Base</b> (<span class="k">MS_WHLU / MS_WHLD</span>, needs <span class="k">MOUSEKEY_ENABLE = yes</span>). Held ⇧ / ⌘ / ⌥ give horizontal / zoom / fast scroll from macOS, no handler. Volume moves to the Symbols turn; Prev/Next drop.',
+    '<b>Unchanged:</b> System, Game.'
   ]]
 };
 const NOTES_L = {   // per-layer extra card on current
@@ -675,7 +744,7 @@ const NOTES_L = {   // per-layer extra card on current
 };
 
 // ---------- render ----------
-let mode = 'single', sel1 = 'cur', sel2 = 'fac', layer = 0;
+let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
 const app = document.getElementById('app-ir');
 const boards = document.getElementById('ir-boards');
 const colB = document.getElementById('ir-col-b');
@@ -782,10 +851,10 @@ function render() {
   const sb = document.getElementById('ir-side-body');
   if (sel1 === 'cur' && NOTES_L[layer]) {
     st.textContent = 'This layer';
-    sb.innerHTML = '<p style="margin:0;font-size:13.5px;line-height:1.65">' + NOTES_L[layer] + '</p>';
+    sb.innerHTML = '<p style="margin:0;font-size:17.5px;line-height:1.65">' + NOTES_L[layer] + '</p>';
   } else {
     st.textContent = 'Flashing (runbook: FLASHING.md)';
-    sb.innerHTML = '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:13.5px">' +
+    sb.innerHTML = '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:17.5px">' +
       '<li><span class="k">qmk flash -kb keebio/iris/rev8 -km mrx</span> waits for the <span class="k">RPI-RP2</span> drive.</li>' +
       '<li>Bootloader: <b>BOOT</b> on System (Space + Enter held), or double-tap the reset button under the plate.</li>' +
       '<li><span class="warn">Flash both halves</span> with the same <span class="k">.uf2</span>. One mrx half + one factory half = dead keyboard.</li></ul>';
@@ -796,6 +865,7 @@ const selA = document.getElementById('sel-ir-a');
 const selB = document.getElementById('sel-ir-b');
 for (const s of [selA, selB]) {
   s.add(new Option('Current v2 · on board', 'cur'));
+  s.add(new Option('Proposed v3 · draft d1', 'pro'));
   s.add(new Option('Factory · retired', 'fac'));
 }
 selA.value = sel1;

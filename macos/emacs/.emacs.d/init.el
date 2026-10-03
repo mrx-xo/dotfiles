@@ -7896,6 +7896,55 @@ If the buffers already exist, kills them first."
 
 
 
+(defvar mr-x/keymap-explorer-dir
+  (expand-file-name "~/.dotfiles/macos/keymap-explorer/"))
+(defvar mr-x/keymap-explorer-port 8080)
+(defvar mr-x/keymap-explorer--process nil)
+
+(defun mr-x/keymap-explorer--port-busy-p ()
+  (ignore-errors
+    (delete-process
+     (open-network-stream "keymap-probe" nil "127.0.0.1"
+                          mr-x/keymap-explorer-port))
+    t))
+
+(defun mr-x/keymap-explorer-serve (&optional open)
+  "Start the keymap explorer live-server in the background.
+With prefix arg OPEN, also open it in the browser."
+  (interactive "P")
+  (let ((url (format "http://localhost:%d/" mr-x/keymap-explorer-port)))
+    (cond
+     ((process-live-p mr-x/keymap-explorer--process)
+      (message "Keymap explorer already up: %s" url))
+     ((mr-x/keymap-explorer--port-busy-p)
+      (message "Port %d already in use; leaving it alone"
+               mr-x/keymap-explorer-port))
+     (t
+      (let ((default-directory mr-x/keymap-explorer-dir))
+        (setq mr-x/keymap-explorer--process
+              (make-process
+               :name "keymap-explorer"
+               :buffer " *keymap-explorer-server*"
+               :command (list (or (executable-find "live-server")
+                                  "/opt/homebrew/bin/live-server")
+                              (format "--port=%d" mr-x/keymap-explorer-port)
+                              "--no-browser" "--quiet")
+               :noquery t)))
+      (message "Keymap explorer up: %s" url)))
+    (when open (browse-url url))))
+
+(defun mr-x/keymap-explorer-stop ()
+  "Stop the keymap explorer live-server started by Emacs."
+  (interactive)
+  (when (process-live-p mr-x/keymap-explorer--process)
+    (delete-process mr-x/keymap-explorer--process))
+  (setq mr-x/keymap-explorer--process nil)
+  (message "Keymap explorer stopped"))
+
+;; Always up: start a few idle seconds after the daemon boots.
+(when (daemonp)
+  (run-with-idle-timer 5 nil #'mr-x/keymap-explorer-serve))
+
 ;; Remember last position in files (like a real bookmark)
 (save-place-mode 1)
 (setq bookmark-set-fringe-mark nil)
