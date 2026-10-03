@@ -337,6 +337,166 @@ a regression here would silently bring that back."
   (should (eq (symbol-file 'mr-x/focus-ai-window 'defun)
               (symbol-file 'mr-x/register-frame 'defun))))
 
+(ert-deftest config-test-agent-shell-auto-scroll-narrowed ()
+  "Internal narrowing must not ask redisplay to measure the chat window."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (narrow-to-region 1 9)
+    (goto-char (point-max))
+    (let ((bounds (cons (point-min) (point-max)))
+          (saved-point (point))
+          (calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _) (cl-incf calls) t)))
+        (should-not (shell-maker--should-auto-scroll-p))
+        (should (zerop calls)))
+      (should (equal bounds (cons (point-min) (point-max))))
+      (should (= saved-point (point))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-wide ()
+  "A widened chat still follows a visible end, but not point in scrollback."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _)
+                   (should-not (buffer-narrowed-p))
+                   (cl-incf calls)
+                   t)))
+        (should (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))
+        (goto-char (point-min))
+        (should-not (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-other-modes ()
+  "The narrowed-chat guard must not change other shell-maker users."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (insert "First\nSecond\n")
+    (narrow-to-region 1 7)
+    (goto-char (point-max))
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _) (cl-incf calls) t)))
+        (should (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-preserves-draft ()
+  "A streamed insert above the narrowed prompt preserves draft and point."
+  (require 'agent-shell)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let* ((prompt-start (copy-marker 9))
+           (comint-last-prompt (cons prompt-start (copy-marker 16)))
+           (comint-last-output-start (copy-marker 1))
+           (comint-use-prompt-regexp nil)
+           (calls 0))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'get-buffer-window-list)
+                       (lambda (&rest _) (list (selected-window))))
+                      ((symbol-function 'pos-visible-in-window-p)
+                       (lambda (&rest _) (cl-incf calls) t)))
+              (agent-shell--with-buffer-narrowed-to prompt-start
+                (shell-maker-with-auto-scroll-edit
+                 (insert "Streamed\n"))))
+            (should (zerop calls))
+            (should-not (buffer-narrowed-p))
+            (should (eobp))
+            (should (equal (buffer-substring-no-properties
+                            prompt-start (point-max))
+                           "Agent> draft"))
+            (should (equal (buffer-substring-no-properties 1 prompt-start)
+                           "History\nStreamed\n")))
+        (set-marker (car comint-last-prompt) nil)
+        (set-marker (cdr comint-last-prompt) nil)
+        (set-marker comint-last-output-start nil)))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-hooks-advised ()
+  "Typing and visual-selection redraws must lift internal hook narrowing."
+  (require 'corfu)
+  (require 'evil)
+  (dolist (hook '(corfu--post-command evil-visual-post-command))
+    (should (advice-member-p #'mr-x/agent-shell--redisplay-without-command-narrowing
+                             hook))))
+
+(ert-deftest config-test-agent-shell-typing-corfu-redraw-wide ()
+  "Corfu must see the full chat under Emacs's labeled command-hook restriction."
+  (require 'corfu)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let ((full (cons (point-min) (point-max))) seen)
+      (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+        (cl-letf (((symbol-function 'corfu--continue-p) (lambda () t))
+                  ((symbol-function 'corfu--exhibit)
+                   (lambda () (setq seen (cons (point-min) (point-max))))))
+          (corfu--post-command))
+        (should (equal seen full))
+        (should (equal (cons (point-min) (point-max)) '(5 . 19)))))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-keeps-manual-narrowing ()
+  "Lifting the core hook restriction must preserve the user's outer narrowing."
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (narrow-to-region 3 20)
+    (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+      (should (equal
+               (mr-x/agent-shell--redisplay-without-command-narrowing
+                (lambda (value) (list value (point-min) (point-max))) 'result)
+               '(result 3 20)))
+      (should (equal (cons (point-min) (point-max)) '(5 . 19))))
+    (should (equal (cons (point-min) (point-max)) '(3 . 20)))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-other-modes ()
+  "Non-chat buffers must retain their internal command-hook restriction."
+  (with-temp-buffer
+    (insert "History\nAgent> draft")
+    (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+      (should (equal
+               (mr-x/agent-shell--redisplay-without-command-narrowing
+                (lambda () (cons (point-min) (point-max))))
+               '(5 . 19))))))
+
+(ert-deftest config-test-agent-shell-typing-line-numbers-full-width ()
+  "Gutter width must use the full transcript even inside a core restriction."
+  (with-temp-buffer
+    (insert (make-string 10000 ?\n) "Agent> draft")
+    (let ((display-line-numbers-type 'visual))
+      (with-restriction 9000 9001 :label 'long-line-optimizations-in-command-hooks
+        (mr-x/agent-shell-stable-line-numbers)
+        (should (bound-and-true-p display-line-numbers-mode))
+        (should (eq display-line-numbers 'visual))
+        (should (>= display-line-numbers-width 5))
+        (should display-line-numbers-widen)
+        (should display-line-numbers-grow-only)
+        (should (local-variable-p 'display-line-numbers-grow-only))
+        (should (memq #'display-line-numbers-update-width pre-command-hook))
+        (should (equal (cons (point-min) (point-max)) '(9000 . 9001)))))))
+
+(ert-deftest config-test-agent-shell-typing-line-numbers-keeps-settings ()
+  "Stabilizing a live chat must preserve its numbering style and larger gutter."
+  (with-temp-buffer
+    (insert "Agent> draft")
+    (setq-local display-line-numbers 'relative
+                display-line-numbers-width 7)
+    (mr-x/agent-shell-stable-line-numbers)
+    (should (eq display-line-numbers 'relative))
+    (should (= display-line-numbers-width 7))))
+
 (ert-deftest config-test-opencode-command ()
   "OpenCode is discoverable on the phone when the multiplex is installed."
   (require 'agent-shell-opencode)

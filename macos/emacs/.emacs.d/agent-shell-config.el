@@ -1,11 +1,47 @@
 ;;; -*- lexical-binding: t -*-
 
+      ;; Large transcripts trigger Emacs's labeled restriction around
+      ;; command hooks.  Corfu and Evil visual refresh can force redisplay
+      ;; from those hooks; lift only that internal restriction, not a
+      ;; user's own narrowing, and retain the long-line optimizations.
+      (defun mr-x/agent-shell--redisplay-without-command-narrowing (original &rest args)
+        "Run ORIGINAL without Emacs's internal command-hook restriction in chats."
+        (if (derived-mode-p 'agent-shell-mode)
+            (without-restriction :label 'long-line-optimizations-in-command-hooks
+              (apply original args))
+          (apply original args)))
+
+      (with-eval-after-load 'corfu
+        (advice-add 'corfu--post-command :around
+                    #'mr-x/agent-shell--redisplay-without-command-narrowing))
+
+      (with-eval-after-load 'evil
+        (advice-add 'evil-visual-post-command :around
+                    #'mr-x/agent-shell--redisplay-without-command-narrowing))
+
+      (defun mr-x/agent-shell-stable-line-numbers ()
+        "Keep chat line numbers and their gutter stable during temporary narrowing."
+        (require 'display-line-numbers)
+        (setq-local display-line-numbers-widen t
+                    display-line-numbers-width-start t
+                    display-line-numbers-grow-only t)
+        (without-restriction :label 'long-line-optimizations-in-command-hooks
+          (save-restriction
+            (widen)
+            (let ((width (if (numberp display-line-numbers-width)
+                             display-line-numbers-width 1))
+                  (display-line-numbers-type
+                   (or display-line-numbers display-line-numbers-type)))
+              (display-line-numbers-mode 1)
+              (setq-local display-line-numbers-width
+                          (max width display-line-numbers-width))))))
+
       (use-package agent-shell
         :ensure (:host github :repo "xenodium/agent-shell")
         :demand t
         :after (acp shell-maker)
         :hook ((agent-shell-mode . orgtbl-mode)  ;; Auto-align org tables
-               (agent-shell-mode . display-line-numbers-mode)  ;; Show line numbers
+               (agent-shell-mode . mr-x/agent-shell-stable-line-numbers)
                (agent-shell-mode . (lambda ()
                                      ;; Make sent input text green like strings
                                      (face-remap-add-relative 'comint-highlight-input
@@ -3520,6 +3556,15 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
 (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 
 
+
+(defun mr-x/agent-shell--defer-narrowed-auto-scroll (original &rest args)
+  "Skip ORIGINAL's visibility probe while an agent chat is narrowed."
+  (unless (and (derived-mode-p 'agent-shell-mode) (buffer-narrowed-p))
+    (apply original args)))
+
+(with-eval-after-load 'shell-maker
+  (advice-add 'shell-maker--should-auto-scroll-p :around
+              #'mr-x/agent-shell--defer-narrowed-auto-scroll))
 
 ;; Prompt follow: pull the view down so the live prompt is the bottom line.
 ;; Runs just before redisplay (never a frame with the prompt floating) and
