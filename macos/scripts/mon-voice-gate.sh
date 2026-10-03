@@ -20,6 +20,8 @@ case "$cmd" in
   romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;
+  # which way the Dells face on NEMESIS (they swap places)
+  flip|flip\ normal|flip\ flipped) set -- $cmd ;;
   *)
     echo "mon-voice-gate: refused: '$cmd'" >&2
     exit 1
