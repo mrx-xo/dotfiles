@@ -802,4 +802,38 @@ Return (OLD-TEXT NEW-TEXT STARTS SOURCE-STARTS)."
   (should (eq (lookup-key (evil-get-auxiliary-keymap review-pane-mode-map 'normal) (kbd "C-y"))
               #'review-session-scroll-line-up)))
 
+(ert-deftest review-session-layout-extras-after-the-last-row ()
+  ;; ROW equal to the row count puts the lines after the last row.
+  (pcase-let* ((`(,old ,new ,starts ,sources)
+                (review-session-test--layout-extras
+                 "a\nb\n" "a\nB\n"
+                 (list (list 2 'new "NOTE\n"))))
+               (old-lines (split-string old "\n")) (new-lines (split-string new "\n")))
+    (should (= (length old-lines) (length new-lines)))
+    (should (equal starts [0 1 2]))
+    (should (equal sources [0 1 3]))
+    (should (equal (nth 2 new-lines) "NOTE"))
+    (should (string-match-p "B\\'" (nth 1 new-lines)))
+    ;; The trailing lines belong to the virtual row and are extra lines.
+    (should (= (get-text-property (string-match "NOTE" new) 'review-row new) 2))
+    (should (get-text-property (string-match "NOTE" new) 'review-extra new))))
+
+(ert-deftest review-session-layout-extras-above-the-count-are-dropped ()
+  (pcase-let ((`(,_old ,new ,starts ,_sources)
+               (review-session-test--layout-extras "a\n" "A\n" (list (list 5 'new "NOTE\n")))))
+    (should-not (string-match-p "NOTE" new))
+    (should (equal starts [0]))))
+
+(ert-deftest review-session-comment-count-by-path ()
+  (let ((s (make-review-session :comments '((:id 1 :path "a.el") (:id 2 :path "b.el") (:id 3 :path "a.el")))))
+    (should (= (review-session-comment-count s) 3))
+    (should (= (review-session-comment-count s "a.el") 2))
+    (should (= (review-session-comment-count s "zzz.el") 0))))
+
+(ert-deftest review-session-quit-query-can-keep-the-review ()
+  (let* ((review-session--current (make-review-session))
+         (review-session-quit-query-functions (list (lambda (_s) nil))))
+    (should-error (review-session-quit t) :type 'user-error)
+    (should review-session--current)))
+
 (provide 'review-session-test)
