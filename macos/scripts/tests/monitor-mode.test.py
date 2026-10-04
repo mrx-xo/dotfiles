@@ -149,5 +149,185 @@ class ClaimTest(unittest.TestCase):
         self.assertFalse(lock.exists(), "lock released on exit")
 
 
+ROMULUS = "8C207E30-FF6D-4624-A998-F6D7962597F6"
+REMUS = "0CDDE5CC-F566-4B56-85FD-48B8EA229946"
+LUPA = "56FEF42D-88B7-46E3-9C9B-7746A0929EB7"
+
+# A display dropped with --connected=off stops enumerating and its DDC reads
+# fail, like the real BetterDisplay; $HOME/visible is the enumerated set.
+FAKE_BETTERDISPLAY = r'''
+echo "$*" >> "$HOME/bd.log"
+uuid=$(printf '%s\n' "$@" | sed -n 's/^--uuid=//p')
+case "$*" in
+  *--connected=off*) grep -v "$uuid" "$HOME/visible" > "$HOME/visible.new"
+                     mv "$HOME/visible.new" "$HOME/visible" ;;
+  *--connected=on*)  echo "$uuid" >> "$HOME/visible" ;;
+  get*) grep -q "$uuid" "$HOME/visible" || exit 1
+        echo 4370 ;;
+esac
+exit 0
+'''
+
+
+class FakeDesk(unittest.TestCase):
+    """ROMULUS, REMUS and LUPA all on POLLUX, behind the fake BetterDisplay."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.state = self.home / ".local/state/monitor-mode"
+        self.state.mkdir(parents=True)
+        (self.state / "romulus").write_text("pollux\n")
+        (self.state / "remus").write_text("pollux\n")
+        self.show(ROMULUS, REMUS, LUPA)
+        bindir = self.home / "bin"
+        bindir.mkdir()
+        for name, body in {
+            "betterdisplaycli": FAKE_BETTERDISPLAY,
+            "displayplacer": 'sed "s/^/Persistent screen id: /" "$HOME/visible"',
+            "osascript": "exit 0",
+            "ssh": "exit 0",
+            # enumerated displays, so the restore wait sees a reconnect at once
+            "yabai": 'cat "$HOME/visible"',
+        }.items():
+            exe = bindir / name
+            exe.write_text("#!/bin/bash\n" + body + "\n")
+            exe.chmod(0o755)
+        self.env = dict(os.environ, HOME=self.tmp.name, MONITOR_MODE_LOCK_TRIES="2",
+                        PATH=str(bindir) + ":/usr/bin:/bin")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def show(self, *uuids):
+        (self.home / "visible").write_text("".join(u + "\n" for u in uuids))
+
+    def visible(self):
+        return set((self.home / "visible").read_text().split())
+
+    def machine(self, display):
+        return (self.state / display).read_text().strip()
+
+    def run_mm(self, *args):
+        return subprocess.run(["/bin/bash", str(SCRIPT), *args], env=self.env,
+                              capture_output=True, text=True, timeout=20)
+
+
+class SoloTest(FakeDesk):
+    def test_solo_leaves_only_the_named_dell_on_pollux(self):
+        r = self.run_mm("solo", "remus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {REMUS})
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertEqual(self.machine("romulus"), "off")
+        self.assertEqual(self.machine("lupa"), "off")
+
+    def test_solo_pulls_the_named_dell_back_from_another_machine(self):
+        (self.state / "remus").write_text("nemesis\n")
+        self.show(ROMULUS, LUPA)
+        r = self.run_mm("solo", "remus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {REMUS})
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_solo_leaves_a_dell_showing_another_machine_alone(self):
+        (self.state / "romulus").write_text("nemesis\n")
+        self.show(REMUS, LUPA)
+        r = self.run_mm("solo", "remus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.visible(), {REMUS})
+
+    def test_solo_off_brings_back_what_solo_dropped(self):
+        self.run_mm("solo", "remus")
+        r = self.run_mm("solo", "off")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("lupa"), "pollux")
+
+    def test_solo_off_leaves_a_dell_showing_another_machine_alone(self):
+        (self.state / "romulus").write_text("nemesis\n")
+        self.show(REMUS, LUPA)
+        self.run_mm("solo", "remus")
+        self.run_mm("solo", "off")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.visible(), {REMUS, LUPA})
+
+    def test_a_preset_brings_a_dropped_dell_back(self):
+        self.run_mm("solo", "remus")
+        r = self.run_mm("romulus", "pollux")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(ROMULUS, self.visible())
+        self.assertEqual(self.machine("romulus"), "pollux")
+
+    def test_reset_brings_lupa_back(self):
+        self.run_mm("solo", "remus")
+        r = self.run_mm("reset")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+        self.assertEqual(self.machine("lupa"), "pollux")
+
+    def test_solo_without_a_display_is_refused(self):
+        r = self.run_mm("solo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("usage", r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+
+    def test_json_reports_a_dropped_dell_as_off(self):
+        self.run_mm("solo", "remus")
+        import json
+        data = json.loads(self.run_mm("json").stdout)
+        self.assertEqual(data["romulus"]["machine"], "off")
+        self.assertEqual(data["remus"]["machine"], "pollux")
+
+
+class KillTest(FakeDesk):
+    def test_kill_drops_just_that_display(self):
+        r = self.run_mm("kill", "lupa")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS})
+        self.assertEqual(self.machine("lupa"), "off")
+        self.assertEqual(self.machine("romulus"), "pollux")
+
+    def test_kill_again_brings_lupa_back(self):
+        self.run_mm("kill", "lupa")
+        r = self.run_mm("kill", "lupa")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+        self.assertEqual(self.machine("lupa"), "pollux")
+
+    def test_kill_again_brings_a_dell_back(self):
+        self.run_mm("kill", "romulus")
+        self.assertEqual(self.visible(), {REMUS, LUPA})
+        self.assertEqual(self.machine("romulus"), "off")
+        r = self.run_mm("kill", "romulus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+        self.assertEqual(self.machine("romulus"), "pollux")
+
+    def test_kill_refuses_a_dell_showing_another_machine(self):
+        (self.state / "remus").write_text("nemesis\n")
+        self.show(ROMULUS, LUPA)
+        r = self.run_mm("kill", "remus")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.machine("remus"), "nemesis")
+        self.assertEqual(self.visible(), {ROMULUS, LUPA})
+
+    def test_kill_refuses_the_last_display(self):
+        self.show(REMUS)
+        r = self.run_mm("kill", "remus")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("last display", r.stderr)
+        self.assertEqual(self.visible(), {REMUS})
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_kill_without_a_display_is_refused(self):
+        r = self.run_mm("kill")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("usage", r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+
+
 if __name__ == "__main__":
     unittest.main()

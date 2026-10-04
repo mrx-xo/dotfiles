@@ -20,6 +20,10 @@ case "$cmd" in
   romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;
+  # POLLUX on one Dell only; off reconnects what that dropped
+  solo\ romulus|solo\ remus|solo\ off) set -- $cmd ;;
+  # one display off POLLUX; again brings it back
+  kill\ romulus|kill\ remus|kill\ lupa) set -- $cmd ;;
   # which way the Dells face on NEMESIS (they swap places)
   flip|flip\ normal|flip\ flipped) set -- $cmd ;;
   *)
