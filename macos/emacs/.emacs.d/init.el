@@ -9514,8 +9514,22 @@ Appends to the current year's transaction file."
                             "toggle romulus" "toggle remus"
                             "romulus pollux" "romulus nemesis"
                             "remus pollux" "remus nemesis" "remus work"
-                            "flip" "flip normal" "flip flipped"))))
+                            "flip" "flip normal" "flip flipped"
+                            "solo romulus" "solo remus" "solo off"
+                            "kill romulus" "kill remus" "kill lupa"))))
   (apply #'mr-x/mon--run (split-string command)))
+
+(defun mr-x/mon-kill (display)
+  "Drop DISPLAY from POLLUX, or bring it back if it is already dropped."
+  (interactive
+   (list (completing-read "mon kill: " '("romulus" "remus" "lupa") nil t)))
+  (mr-x/mon--run "kill" display))
+
+(defun mr-x/mon-solo (target)
+  "POLLUX on one Dell and nothing else; TARGET off reconnects what that dropped."
+  (interactive
+   (list (completing-read "mon solo: " '("romulus" "remus" "off") nil t)))
+  (mr-x/mon--run "solo" target))
 
 (defun mr-x/mon-flip ()
   "Toggle which way the Dells face on NEMESIS: normal (west) <-> flipped (east)."
