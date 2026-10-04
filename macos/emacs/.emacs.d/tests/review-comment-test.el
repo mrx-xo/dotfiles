@@ -449,5 +449,66 @@
       (with-current-buffer "*review-comment*" (review-comment-compose-cancel))
       (should-not (get-buffer "*review-comment*")))))
 
+(ert-deftest review-comment-drafts-of-an-unasked-quit-survive-a-restart ()
+  ;; The frame is closed by the window manager, then Emacs restarts: the
+  ;; in-memory carry is gone, so the saved record must still hold them.
+  (review-comment-test--with s
+    (review-comment-test--at s 'new 3)
+    (review-comment-dwim)
+    (review-comment-test--write "Across a restart.")
+    (let ((key (review-source-key (review-source-recipe (review-session-source s)))))
+      (review-session-quit)
+      (clrhash review-comment--carried)
+      (clrhash review-store--memory)
+      (let ((record (review-store-load key)))
+        (should record)
+        (should (equal (mapcar (lambda (d) (plist-get d :body)) (plist-get record :comments))
+                       '("Across a restart.")))))))
+
+(ert-deftest review-comment-discarded-drafts-leave-no-record ()
+  (review-comment-test--with s
+    (review-comment-test--at s 'new 3)
+    (review-comment-dwim)
+    (review-comment-test--write "Discard me.")
+    (let ((key (review-source-key (review-source-recipe (review-session-source s)))))
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+        (review-session-quit t))
+      (clrhash review-store--memory)
+      (should-not (review-store-load key)))))
+
+(ert-deftest review-comment-provider-error-leaves-the-compose-usable ()
+  ;; A provider that signals instead of calling back must not leave the
+  ;; compose read-only and "posting" for ever.
+  (review-comment-test--with-drafts s
+    (let ((review-comment-submit-function
+           (lambda (&rest _) (error "No token for this host"))))
+      (review-comment-submit s 'comment)
+      (with-current-buffer "*review-comment*"
+        (insert "Summary.")
+        (review-comment-compose-finish)
+        (should-not buffer-read-only)
+        (should-not (plist-get review-comment--compose :posting))
+        (should (equal (buffer-string) "Summary.")))
+      (should (= (length (review-session-comments s)) 2)))))
+
+(ert-deftest review-comment-success-after-the-review-closed-clears-the-carried-drafts ()
+  ;; The review frame is closed while the post is in flight.  Its drafts
+  ;; were carried; once posted they must not come back to be sent twice.
+  (review-comment-test--with-drafts s
+    (let* (finish
+           (key (review-source-key (review-source-recipe (review-session-source s))))
+           (review-comment-submit-function
+            (lambda (_s _v _summary _d success _f) (setq finish success))))
+      (review-comment-submit s 'comment)
+      (with-current-buffer "*review-comment*" (review-comment-compose-finish))
+      (review-session-quit)
+      (should (gethash key review-comment--carried))
+      (funcall finish)
+      (should-not (gethash key review-comment--carried))
+      (clrhash review-store--memory)
+      (should-not (plist-get (review-store-load key) :comments))
+      (let ((again (review-session-start (review-comment-test--source))))
+        (should-not (review-session-comments again))))))
+
 (provide 'review-comment-test)
 ;;; review-comment-test.el ends here
