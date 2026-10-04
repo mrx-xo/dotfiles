@@ -247,6 +247,33 @@ progress block and the file list is still drawn."
       (should (window-live-p w))
       (should-not (window-parameter w 'window-side)))))
 
+(ert-deftest review-panel-follows-the-current-file-in-a-long-list ()
+  ;; Every re-render erased the buffer, which sent the window back to its
+  ;; top: past the first screen of files the panel showed the wrong ones.
+  (save-window-excursion
+    (let* ((spec (mapcar (lambda (i) (list (format "f%02d.el" i) 'modified "a\n" "b\n"))
+                         (number-sequence 0 79)))
+           (s (review-session-start (review-session-test--source spec))))
+      (unwind-protect
+          (progn
+            (review-panel-open s)
+            (let ((window (get-buffer-window (review-session-panel s))))
+              (select-window (review-session-new-window s))
+              (review-session-show 60)
+              (with-current-buffer (review-session-panel s)
+                (should (eq (get-text-property (window-point window) 'review-file) 60))
+                (should (> (window-start window) (point-min))))
+              ;; The next file is a row away: the list stays where it is.
+              (let ((start (window-start window)))
+                (review-session-show 61)
+                (with-current-buffer (review-session-panel s)
+                  (should (eq (get-text-property (window-point window) 'review-file) 61))
+                  (should (> (window-start window) (point-min)))
+                  (should (< (abs (- (count-lines (point-min) (window-start window))
+                                     (count-lines (point-min) start)))
+                             8))))))
+        (review-session-quit)))))
+
 (ert-deftest review-panel-fold-toggles-file-at-point ()
   (review-panel-test--with s
     (review-panel-open s)

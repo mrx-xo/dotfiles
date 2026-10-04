@@ -479,6 +479,8 @@ renders the strip."
                (file (get-text-property (point) 'review-file))
                (hunk (get-text-property (point) 'review-hunk))
                (window (get-buffer-window (current-buffer) t))
+               ;; Erasing the buffer sends the window back to its top.
+               (start-line (and window (count-lines (point-min) (window-start window))))
                (render (lambda ()
                          ;; Measure in the panel's own frame and font.
                          (cons (review-panel-render s review-panel--toggled review-panel--collapsed
@@ -500,7 +502,30 @@ renders the strip."
                   (while (and (< (point) (point-max))
                               (eq (get-text-property (point) 'review-file) file)
                               (not (eq (get-text-property (point) 'review-hunk) hunk)))
-                    (forward-line)))))))))))
+                    (forward-line))))))
+          (when window (review-panel--keep-scroll s window start-line)))))))
+
+(defvar-local review-panel--followed nil
+  "The session's current file when the panel last followed it.")
+
+(defun review-panel--keep-scroll (session window start-line)
+  "Put WINDOW back at START-LINE after a re-render, with its file in view.
+When SESSION moves to another file from the panes, the panel's point
+follows it, and the list scrolls only when that row has left the window.
+With the panel selected, or the file unchanged, point stays on the row
+it was on."
+  (let ((current (review-session-current session)))
+    (unless (or (eq window (selected-window)) (eql current review-panel--followed))
+      (when-let ((pos (text-property-any (point-min) (point-max) 'review-file current)))
+        (goto-char pos)))
+    (setq review-panel--followed current))
+  (let* ((line (count-lines (point-min) (line-beginning-position)))
+         (height (window-body-height window))
+         (start (cond ((< line start-line) (max 0 (- line 2)))
+                      ((>= line (+ start-line height -2)) (max 0 (- line (/ height 2))))
+                      (t start-line))))
+    (set-window-start window (save-excursion (goto-char (point-min)) (forward-line start) (point)) t)
+    (set-window-point window (point))))
 
 (defun review-panel--resized (frame)
   "Reflow the panel when its window in FRAME changes width."
