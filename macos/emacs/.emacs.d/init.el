@@ -7682,7 +7682,10 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
           (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
 
     (defun mr-x/review-comment--hide-box (buffer)
-      (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buffer))))
+      "Hide BUFFER's box, and its window when the box fell back to one."
+      (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buffer)))
+      ;; Without a workable posframe the box was shown as a window.
+      (review-comment--hide-window buffer))
 
     (add-to-list 'review-comment-compose-styles
                  '(box mr-x/review-comment--show-box mr-x/review-comment--hide-box))

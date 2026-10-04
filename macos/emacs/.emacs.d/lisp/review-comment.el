@@ -524,25 +524,50 @@ review is posted, or FAILURE with a message.")
       (setq buffer-read-only on
             review-comment--compose (plist-put review-comment--compose :posting on)))))
 
+(defun review-comment--posted (session key)
+  "Forget the drafts of SESSION, whose review has key KEY, now that they are posted.
+The review may have closed or been replaced while the post was in
+flight: its carried drafts, a live review of the same PR and its saved
+record are cleared too, so nothing posted can be sent twice."
+  (setf (review-session-comments session) nil)
+  (when key
+    (remhash key review-comment--carried)
+    (let ((live review-session--current))
+      (cond
+       ((eq live session) nil)
+       ((and live (equal (review-comment--key live) key))
+        (setf (review-session-comments live) nil)
+        (review-comment--changed live))
+       (t (when-let ((record (review-store-load key)))
+            (when (plist-get record :comments)
+              (let ((record (plist-put record :comments nil)))
+                (puthash key record review-store--memory)
+                (review-store--write record)))))))))
+
 (defun review-comment--post (session verdict body)
   "Post SESSION's drafts as one review with VERDICT and summary BODY."
   (let* ((drafts (review-session-comments session))
          (outdated (seq-filter (lambda (d) (plist-get d :outdated)) drafts))
          (live (seq-remove (lambda (d) (plist-get d :outdated)) drafts))
-         (n (length live)))
+         (n (length live))
+         (key (review-comment--key session))
+         (failure (lambda (message)
+                    (review-comment--posting nil)
+                    (message "Review not posted: %s" message))))
     (review-comment--posting t)
     (message "Posting the review...")
-    (funcall review-comment-submit-function session verdict
-             (review-comment--summary body outdated) live
-             (lambda ()
-               (setf (review-session-comments session) nil)
-               (review-comment--posting nil)
-               (review-comment--compose-close)
-               (review-comment--changed session)
-               (message "Review posted with %d line comment%s" n (if (= n 1) "" "s")))
-             (lambda (message)
-               (review-comment--posting nil)
-               (message "Review not posted: %s" message)))))
+    ;; A provider that signals before it can call back is a failed post.
+    (condition-case err
+        (funcall review-comment-submit-function session verdict
+                 (review-comment--summary body outdated) live
+                 (lambda ()
+                   (review-comment--posted session key)
+                   (review-comment--posting nil)
+                   (review-comment--compose-close)
+                   (review-comment--changed session)
+                   (message "Review posted with %d line comment%s" n (if (= n 1) "" "s")))
+                 failure)
+      (error (funcall failure (error-message-string err))))))
 
 (defun review-comment-submit (session verdict)
   "Write a summary, then post SESSION's drafts as one review with VERDICT.

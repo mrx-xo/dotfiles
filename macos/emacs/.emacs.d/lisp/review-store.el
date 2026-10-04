@@ -370,6 +370,13 @@ instead, so it can be resumed: a walkthrough is the agent's work."
       (condition-case err (review-store-save session)
         (error (message "Review: could not save the review as it quits: %s"
                         (error-message-string err)))))
+     ;; Unsent draft comments: an interactive quit asked and emptied
+     ;; them, so these are from a quit nobody chose (a closed frame).
+     ;; Keep the record, or a restart would lose what was written.
+     ((review-session-comments session)
+      (condition-case err (review-store-save session)
+        (error (message "Review: could not save the unsent comments: %s"
+                        (error-message-string err)))))
      (review-session-keep-on-quit nil)
      (t (review-store-drop (review-source-key recipe))))))
 
