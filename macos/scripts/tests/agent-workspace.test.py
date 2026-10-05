@@ -81,6 +81,34 @@ class WorkspaceTest(unittest.TestCase):
         self.m.toggle(self.state)
         self.assertIn(("window", "--focus", "101"), self.calls)
 
+    def test_toggle_brings_agent_space_to_the_current_display(self):
+        # Parked and already showing on another monitor, focusing it in place
+        # would only move keyboard focus to a screen nobody is looking at.
+        self.spaces[1]["is-visible"] = False
+        self.spaces[2]["is-visible"] = True
+        def yabai(*args, **kwargs):
+            self.calls.append(args)
+            if args == ("space", "agent", "--display", "1"):
+                self.spaces[2].update({"display": 1, "is-visible": False})
+                self.spaces[1]["is-visible"] = True
+            if args == ("query", "--spaces"):
+                return json.dumps(self.spaces)
+            if args == ("query", "--windows"):
+                return json.dumps(self.windows)
+            return ""
+        self.m.yabai.side_effect = yabai
+        self.m.toggle(self.state)
+        move, focus = ("space", "agent", "--display", "1"), ("space", "--focus", "agent")
+        self.assertIn(move, self.calls)
+        self.assertLess(self.calls.index(move), self.calls.index(focus))
+        # The return point must not ask for the agent space to be shown again.
+        self.assertNotIn(30, json.loads(self.state.read_text())["visible"])
+
+    def test_toggle_leaves_agent_space_on_the_current_display_alone(self):
+        self.spaces[2]["display"] = 1
+        self.m.toggle(self.state)
+        self.assertFalse(any("--display" in c for c in self.calls))
+
     def test_return_uses_stable_space_id_after_indices_change(self):
         snapshot = self.m.snapshot()
         self.windows = []
