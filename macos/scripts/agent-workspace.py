@@ -117,13 +117,17 @@ def background_launch():
 
 def toggle(state_file=None):
     path = state_file or STATE / "return.json"
-    ensure_space()
+    agent = ensure_space()
     current = next((s for s in query("spaces") if s["has-focus"]), None)
     if current and current["label"] == "agent":
         if not path.exists():
             raise RuntimeError("No saved return window; visit another desktop first.")
         restore(json.loads(path.read_text()))
     else:
+        # Visit on the display in use. Move before the snapshot, so the return
+        # point records what the vacated display falls back to.
+        if current and agent["display"] != current["display"]:
+            yabai("space", "agent", "--display", str(current["display"]))
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(snapshot()))
