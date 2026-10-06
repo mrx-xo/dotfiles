@@ -102,6 +102,7 @@
 
   (mr-x/leader-def
     "SPC" '(execute-extended-command :wk "M-x")
+    "u"   '(universal-argument :wk "universal arg")  ; mirrors the Mac leader
     ;; files
     "f"   '(:ignore t :wk "file")
     "f f" '(find-file :wk "find file")
