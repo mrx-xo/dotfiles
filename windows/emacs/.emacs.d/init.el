@@ -526,12 +526,12 @@
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
 (require 'agent-shell-extras)
 
-;; The repo's .dir-locals.el sets mr-x/project-cmd-alist (per-project commands,
+;; The repo's .dir-locals.el sets mr-x/project-commands (per-project commands,
 ;; consumed by mr-x/project-command on the Mac side). This Windows config
 ;; doesn't use it, but Emacs still processes the dir-local on every visit and
-;; would prompt unless the value is known-safe. The `-alist' name is non-risky,
-;; so this predicate silences the prompt for good.
-(put 'mr-x/project-cmd-alist 'safe-local-variable #'listp)
+;; flags the `-commands' suffix as risky, prompting every time. Mirror the Mac
+;; side's predicate so the value is known-safe.
+(put 'mr-x/project-commands 'safe-local-variable #'listp)
 
 (provide 'init)
 ;;; init.el ends here
