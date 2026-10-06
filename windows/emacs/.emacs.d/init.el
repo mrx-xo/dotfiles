@@ -144,45 +144,10 @@
     ;; quit / restart
     "q"   '(:ignore t :wk "quit/restart")
     "q r" '(restart-emacs :wk "restart emacs")
-    "q q" '(save-buffers-kill-terminal :wk "quit emacs"))
+    "q q" '(save-buffers-kill-terminal :wk "quit emacs")))
 
-  ;; ---- Agent Shell (only commands present in this agent-shell build) ----
-  (mr-x/leader-def
-    "c"     '(:ignore t :wk "agent-shell")
-    "c c"   '(agent-shell :wk "start")
-    "c n"   '(mr-x/agent-shell-new-smart :wk "new shell (smart)")
-    "c o"   '(agent-shell-other-buffer :wk "other buffer")
-    "c i"   '(agent-shell-interrupt :wk "interrupt")
-    "c q"   '(agent-shell-prompt-queue :wk "queue request")
-    "c p"   '(agent-shell-yank-dwim :wk "paste (smart)")
-    "c d"   '(agent-shell-send-dwim :wk "send dwim")
-    "c R"   '(agent-shell-send-region :wk "send region")
-    "c f"   '(agent-shell-send-file :wk "send file")
-    "c F"   '(agent-shell-send-other-file :wk "send other file")
-    "c s"   '(agent-shell-send-screenshot :wk "send screenshot")
-    "c T"   '(agent-shell-open-transcript :wk "transcript")
-    "c ."   '(agent-shell-set-session-model :wk "set model")
-    "c ,"   '(:ignore t :wk "prompts")
-    "c , p" '(agent-shell-prompt-compose :wk "compose prompt")
-    "c m"   '(:ignore t :wk "mode/permissions")
-    "c m m" '(agent-shell-set-session-mode :wk "pick mode")
-    "c m c" '(agent-shell-cycle-session-mode :wk "cycle mode")
-    "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "default")
-    "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "acceptEdits")) :wk "accept edits")
-    "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "plan")) :wk "plan")
-    "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "dontAsk")) :wk "don't ask")
-    "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "bypass perms")
-    "c l"   '(:ignore t :wk "logs")
-    "c l l" '(agent-shell-toggle-logging :wk "toggle logging")
-    "c l v" '(agent-shell-view-traffic :wk "view traffic")
-    "c l a" '(agent-shell-view-acp-logs :wk "view acp logs")
-    "c l r" '(agent-shell-reset-logs :wk "reset logs")
-    "c a"   '(:ignore t :wk "recall")
-    "c a s" '(agent-recall-consult-search :wk "search")
-    "c a b" '(agent-recall-browse :wk "browse")
-    "c a r" '(agent-recall-resume :wk "resume")
-    "c a B" '(agent-recall-backfill :wk "backfill")
-    "c a t" '(agent-recall-stats :wk "stats")))
+;; The SPC c (agent-shell) map lives in lisp/agent-shell-extras.el, where
+;; it mirrors the Mac's map key for key.
 
 ;; ---------- Theme: Gruvbox ----------
 (use-package doom-themes
@@ -360,7 +325,7 @@
 (use-package acp)                  ; ACP transport (MELPA)
 (use-package shell-maker)          ; shell infrastructure agent-shell builds on
 
-;; SPC c n — new agent shell, replacing the current window when already in one
+;; SPC c c — new agent shell, replacing the current window when already in one
 ;; (ported from the macOS config; uses agent-shell internals, so require it first).
 (defun mr-x/agent-shell-new-smart ()
   "Create a new agent shell, replacing the current window if already in one."
@@ -384,43 +349,6 @@
           (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
         (pop-to-buffer shell-buffer)))))
 
-;; SPC c m d/e/p/a/b — set the agent-shell session mode (permission level)
-;; directly, skipping the completing-read picker (ported from the macOS config).
-(defun mr-x/agent-shell-set-mode-direct (mode-id)
-  "Set agent-shell session mode directly by MODE-ID, skipping the picker."
-  (require 'agent-shell)
-  (let* ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
-                  (seq-first (agent-shell-project-buffers))))
-         (state (and buf (buffer-local-value 'agent-shell--state buf))))
-    (unless buf (user-error "No agent-shell buffer found"))
-    (with-current-buffer buf
-      (unless (map-nested-elt state '(:session :id))
-        (user-error "No active session"))
-      (let ((current (map-nested-elt state '(:session :mode-id))))
-        (when (and current (string= mode-id current))
-          (user-error "Already in %s mode"
-                      (or (agent-shell--resolve-session-mode-name
-                           mode-id (agent-shell--get-available-modes state))
-                          mode-id)))
-        (agent-shell--send-request
-         :state state
-         :client (map-elt state :client)
-         :request (acp-make-session-set-mode-request
-                   :session-id (map-nested-elt state '(:session :id))
-                   :mode-id mode-id)
-         :buffer buf
-         :on-success (lambda (_)
-                       (let ((session (map-elt (agent-shell--state) :session)))
-                         (map-put! session :mode-id mode-id)
-                         (map-put! (agent-shell--state) :session session)
-                         (message "Session mode: %s"
-                                  (or (agent-shell--resolve-session-mode-name
-                                       mode-id (agent-shell--get-available-modes (agent-shell--state)))
-                                      mode-id)))
-                       (agent-shell--update-header-and-mode-line))
-         :on-failure (lambda (err _)
-                       (message "Failed to set mode: %s" err)))))))
-
 (use-package agent-shell
   :after (acp shell-maker)
   :custom
@@ -437,16 +365,16 @@
                                                         :foreground "#fabd2f"))))
   :config
   ;; Use your existing Claude CLI login — no API key needed.
-  (setq agent-shell-anthropic-default-model-id "claude-opus-4-8")  ; change to taste
+  (setq agent-shell-anthropic-default-model-id "default")  ; Opus 5.5 1M; aliases resolve in claude-agent-acp
   (setq agent-shell-anthropic-authentication
         (agent-shell-anthropic-make-authentication :login t))
   ;; Inherit the shell environment (PATH, ANTHROPIC_API_KEY if you set one, etc.)
   (setq agent-shell-anthropic-claude-environment
         (agent-shell-make-environment-variables :inherit-env t))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
-  ;;   SPC c p (agent-shell-yank-dwim)   -> pastes a clipboard image; uses the
+  ;;   p in a shell (agent-shell-yank-dwim) -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),
-  ;;     so just Win+Shift+S a region, then SPC c p. Works with no extra config.
+  ;;     so just Win+Shift+S a region, then p. Works with no extra config.
   ;;   SPC c s (agent-shell-send-screenshot) -> launches the native ms-screenclip
   ;;     overlay (Windows' equivalent of `screencapture -i`) via a wrapper script.
   ;;     The default command is the X11 tool /usr/bin/import, which doesn't exist
@@ -472,15 +400,22 @@
     ;; doesn't spam "<f18> is undefined" in the echo area.
     (global-set-key (kbd "<f18>")   #'ignore)
     (global-set-key (kbd "s-<f18>") #'ignore))
-  ;; evil-collection binds insert-state RET to `newline'; make RET submit instead.
+  ;; Chat mode is a cosmetic relabel declined on 2026-09-23 (same call as
+  ;; the Mac). The persistent prompt stays on at its upstream default.
+  (setq agent-shell-chat-mode-enabled nil)
+  ;; evil-collection binds insert-state RET to `newline' and normal-state RET
+  ;; to the bare `shell-maker-submit'; make both run `agent-shell-submit',
+  ;; upstream's own RET: it queues the prompt while the agent is busy (M-RET
+  ;; steers instead) and falls through to `shell-maker-submit' when idle, so
+  ;; the refs advice still fires.
   (with-eval-after-load 'evil
-    (evil-define-key 'insert agent-shell-mode-map
-      (kbd "RET") #'shell-maker-submit
-      [return]    #'shell-maker-submit)
+    (evil-define-key '(normal insert) agent-shell-mode-map
+      (kbd "RET") #'agent-shell-submit
+      [return]    #'agent-shell-submit)
     ;; Win+Enter submits from any mode (Windows port of Mac's Cmd+Enter "lazy mode").
     (evil-define-key '(normal insert) agent-shell-mode-map
-      (kbd "s-<return>") #'shell-maker-submit
-      [s-return]         #'shell-maker-submit))
+      (kbd "s-<return>") #'agent-shell-submit
+      [s-return]         #'agent-shell-submit))
   ;; Make Claude Code the default agent, with a clean ◇ prompt (modal "possibility").
   (setq agent-shell-preferred-agent-config
         (agent-shell-make-agent-config

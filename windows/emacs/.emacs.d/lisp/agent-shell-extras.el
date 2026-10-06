@@ -1,14 +1,15 @@
 ;;; agent-shell-extras.el --- MrX agent-shell comfort layer on Vengeance -*- lexical-binding: t; -*-
 
 ;; Port of the macOS agent-shell UX: major-pane side panel + display
-;; routing, smart editing keys, launch presets, and picker-based send
-;; commands.  The portable modules (major-pane.el, mr-x-agent-send.el)
-;; are NOT copied — they load straight from the repo's macos/ lisp dir
+;; routing, smart editing keys, launch presets, clone, mode words, refs,
+;; picker-based send commands, and the SPC c leader map.  The portable
+;; modules (major-pane.el, mr-x-agent-send.el, agent-shell-refs.el) are
+;; NOT copied — they load straight from the repo's macos/ lisp dir
 ;; (init.el puts it on load-path), so MrX improvements flow here free.
 ;;
 ;; Deliberately left on the Mac side for now (need Windows shims or
 ;; uninstalled packages): agent-shell-manager/-attention/-sidebar,
-;; permission quick-keys + F13-F16, refs/inbox/pins, agent-terminal.
+;; permission quick-keys + F13-F16, inbox/pins, agent-terminal.
 
 ;;; Code:
 
@@ -120,10 +121,11 @@ be loaded."
   (define-key agent-shell-mode-map (kbd "<backtab>") #'agent-shell-cycle-session-mode)
 
   ;; C-<return> sends the prompt from anywhere in the buffer — port of the
-  ;; Mac binding.  Plain RET is the shell-maker remap of comint-send-input
-  ;; to `shell-maker-submit', which is exactly what we reuse here; it jumps
-  ;; to the prompt itself before sending, so C-RET works from history too.
-  (define-key agent-shell-mode-map (kbd "C-<return>") #'shell-maker-submit)
+  ;; Mac binding.  `agent-shell-submit' is what plain RET runs (upstream
+  ;; remaps comint-send-input to it): queue while busy, M-RET to steer,
+  ;; `shell-maker-submit' when idle.  It jumps to the prompt itself before
+  ;; sending, so C-RET works from history too.
+  (define-key agent-shell-mode-map (kbd "C-<return>") #'agent-shell-submit)
 
   ;; Smart insert/append/paste — jump to the prompt when point sits in
   ;; the history area, refuse politely while the shell is busy.
@@ -180,7 +182,7 @@ be loaded."
     ;; repeated here so evil's insert-state map can't shadow it).
     (evil-define-key '(normal insert) agent-shell-mode-map
       (kbd "s-<backspace>") #'mr-x/agent-shell-clear-prompt
-      (kbd "C-<return>") #'shell-maker-submit)))
+      (kbd "C-<return>") #'agent-shell-submit)))
 
 ;; ---------------------------------------------------------------------------
 ;; Launch presets: model + permission-mode in one keystroke.
@@ -188,17 +190,16 @@ be loaded."
 ;; Both `:default-model-id' and `:default-session-mode-id' are
 ;; config-level and applied the instant a session starts, so a "preset"
 ;; is just the preferred config with those two overridden.
-;; Valid IDs (from the live ACP session): models "default" (Opus 1M)
-;; "opus[1m]" "claude-fable-5[1m]" "sonnet" "haiku"; modes "auto"
+;; Valid IDs (from the live ACP session): models "default" (Opus 5.5 1M)
+;; "opus[1m]" "fable[1m]" "sonnet" "haiku"; modes "auto"
 ;; "default" "acceptEdits" "plan" "dontAsk" "bypassPermissions".
 ;; ---------------------------------------------------------------------------
 
 (defvar mr-x/agent-shell-presets
-  '((?f "Fable · Bypass"  "claude-fable-5[1m]" "bypassPermissions")
-    (?o "Opus · Bypass"   "opus[1m]"           "bypassPermissions")
-    (?s "Sonnet · Accept" "sonnet"             "acceptEdits")
-    (?p "Opus · Plan"     "default"            "plan")
-    (?h "Haiku · Auto"    "haiku"              "auto"))
+  '((?f "Fable 5.1 · Bypass" "fable[1m]" "bypassPermissions")
+    (?o "Opus 5.5 · Bypass"  "opus[1m]"  "bypassPermissions")
+    (?s "Sonnet 5 · Accept"  "sonnet"    "acceptEdits")
+    (?p "Opus 5.5 · Plan"    "default"   "plan"))
   "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID).
 Each launches a fresh shell with that model and permission mode.")
 
@@ -280,31 +281,321 @@ model first, then the mode, then report the applied preset."
           :on-success
           (lambda () (message "Agent preset applied: %s" label))))))))
 
-(defun mr-x/agent-shell-preset-dwim (&optional arg)
-  "Apply a preset to the current chat, or launch a fresh preset shell.
-Bare call applies the preset's model + permission mode to the current
-agent-shell session in place.  With prefix ARG (`C-u'), instead spawn a
-fresh shell locked to that preset."
-  (interactive "P")
-  (if arg
-      (call-interactively #'mr-x/agent-shell-start-preset)
-    (call-interactively #'mr-x/agent-shell-apply-preset)))
+;; ---------------------------------------------------------------------------
+;; Clone: a fresh shell wearing the current shell's agent, model,
+;; permission mode, effort and directory.  An independent session; no
+;; history is copied.
+;; ---------------------------------------------------------------------------
+
+(defun mr-x/agent-shell--clone-config (source)
+  "Copy SOURCE's agent config pinned to its live model + permission mode.
+SOURCE is an agent-shell buffer."
+  (with-current-buffer source
+    (unless (derived-mode-p 'agent-shell-mode)
+      (error "Not an agent-shell buffer: %s" (buffer-name source)))
+    (let* ((state (agent-shell--state))
+           (config (copy-alist (map-elt state :agent-config)))
+           (model-id (agent-shell--current-model-id state))
+           (mode-id (agent-shell--current-mode-id state)))
+      (when model-id
+        (setf (alist-get :default-model-id config)
+              (lambda () model-id)))
+      (when mode-id
+        (setf (alist-get :default-session-mode-id config)
+              (lambda () mode-id)))
+      config)))
+
+(defun mr-x/agent-shell--set-effort (effort &optional on-success)
+  "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
+Found by ACP category `thought_level', not id: Claude and OpenCode name
+the option \"effort\", Codex \"reasoning_effort\".  Errors when the
+agent has no such option or does not offer EFFORT."
+  (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
+                                                     "thought_level")))
+    (unless opt (user-error "This agent has no effort setting"))
+    (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
+                      (map-elt opt :options))
+      (user-error "Effort %s not offered here" effort))
+    (if (equal effort (map-elt opt :current-value))
+        (when on-success (funcall on-success))
+      (agent-shell--set-session-config-option
+       :config-id (map-elt opt :id) :value effort
+       :on-success on-success))))
+
+(defun mr-x/agent-shell--set-effort-when-ready (buf effort tries)
+  "Set BUF's effort to EFFORT once its session exists, retrying TRIES times.
+The session id lands seconds after spawn."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (if (map-nested-elt agent-shell--state '(:session :id))
+          (mr-x/agent-shell--set-effort effort)
+        (if (> tries 0)
+            (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                         buf effort (1- tries))
+          (message "agent clone: %s never became ready for effort set"
+                   (buffer-name buf)))))))
+
+(defun mr-x/agent-shell-clone ()
+  "Start a fresh shell with the current shell's agent, model, and directory.
+This creates an independent session; it does not fork or copy history.
+Display uses agent-shell's normal path so major-pane controls placement."
+  (interactive)
+  (require 'agent-shell)
+  (unless (derived-mode-p 'agent-shell-mode)
+    (user-error "Not in an agent-shell buffer"))
+  (let* ((effort (agent-shell--current-thought-level-id (agent-shell--state)))
+         (buf (agent-shell--start
+               :config (mr-x/agent-shell--clone-config (current-buffer))
+               :new-session t
+               ;; MrX sets `agent-shell-session-strategy' to `new'
+               ;; globally; here it is still `prompt', and a clone must
+               ;; never offer to resume something else.
+               :session-strategy 'new)))
+    (when effort
+      (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready buf effort 60))
+    buf))
 
 ;; ---------------------------------------------------------------------------
-;; Leader bindings: pane management (SPC &) + additions under SPC c.
-;; Extends/overrides the SPC c map from init.el.
+;; Show, hide and focus the project's shell.
+;; ---------------------------------------------------------------------------
+
+(defun mr-x/agent-shell-toggle ()
+  "Toggle agent shell display (fixed to find project shells)."
+  (interactive)
+  (require 'agent-shell)
+  (let ((shell-buffer (cond
+                       (agent-shell-prefer-viewport-interaction
+                        (agent-shell-viewport--buffer))
+                       ((derived-mode-p 'agent-shell-mode)
+                        (current-buffer))
+                       ((or (derived-mode-p 'agent-shell-viewport-view-mode)
+                            (derived-mode-p 'agent-shell-viewport-edit-mode))
+                        (agent-shell--current-shell))
+                       (t (seq-first (agent-shell-project-buffers))))))
+    (unless shell-buffer
+      (user-error "No agent shell buffers available for current project"))
+    (if-let ((window (get-buffer-window shell-buffer)))
+        (if (and (> (count-windows) 1)
+                 (not (bound-and-true-p transient--prefix)))
+            (delete-window window)
+          (switch-to-prev-buffer))
+      (agent-shell--display-buffer shell-buffer))))
+
+(defun mr-x/focus-ai-window ()
+  "Focus the agent-shell window if visible, otherwise show a message."
+  (interactive)
+  (let ((ai-window nil))
+    (walk-windows
+     (lambda (w)
+       (when (and (not ai-window)
+                  (eq (buffer-local-value 'major-mode (window-buffer w))
+                      'agent-shell-mode))
+         (setq ai-window w))))
+    (if ai-window
+        (select-window ai-window)
+      (mr-x/agent-shell-toggle))))
+
+;; ---------------------------------------------------------------------------
+;; Mode words: SPC c m d/e/p/a/b name a permission level by the rig's
+;; word for it (`major-pane-mode-words'), resolved against whatever the
+;; chat's agent offers.
+;; ---------------------------------------------------------------------------
+
+(defun mr-x/agent-shell--mode-buffer ()
+  "The agent-shell buffer a mode key acts on: this one, else the project's."
+  (require 'agent-shell)
+  (let ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+                 (seq-first (agent-shell-project-buffers)))))
+    (unless buf (user-error "No agent-shell buffer found"))
+    (unless (map-nested-elt (buffer-local-value 'agent-shell--state buf)
+                            '(:session :id))
+      (user-error "No active session"))
+    buf))
+
+(defun mr-x/agent-shell-set-mode-direct (mode-id)
+  "Set agent-shell session mode directly by MODE-ID, skipping the picker.
+Goes through agent-shell's own setter, which updates the `mode' config
+option when the agent has one and only falls back to session/set_mode
+otherwise, so the banner sees the change."
+  (with-current-buffer (mr-x/agent-shell--mode-buffer)
+    (when (equal mode-id (agent-shell--current-mode-id (agent-shell--state)))
+      (user-error "Already in %s mode" (or (agent-shell--resolve-session-mode-name
+                                            mode-id (agent-shell--get-available-modes
+                                                     (agent-shell--state)))
+                                           mode-id)))
+    (agent-shell--config-option-set-mode-id
+     :mode-id mode-id
+     :on-failure (lambda (err &rest _) (message "Failed to set mode: %s" err)))))
+
+(defun mr-x/agent-shell--preset-mode-word (mode-id)
+  "Short lowercase word for session MODE-ID.
+The table lives in `major-pane-mode-words' so the banner and the
+SPC c m keys cannot drift apart."
+  (require 'major-pane)
+  (major-pane-mode-word mode-id))
+
+(defun mr-x/agent-shell--codex-plan-option (state)
+  "Codex's `collaboration_mode' option in STATE when it offers \"plan\".
+Codex keeps Plan out of its permission modes; Claude and OpenCode don't."
+  (when-let ((opt (agent-shell--config-option-by-category state "collaboration_mode")))
+    (when (seq-find (lambda (v) (equal "plan" (map-elt v :value)))
+                    (map-elt opt :options))
+      opt)))
+
+(defun mr-x/agent-shell-set-mode-word (&rest words)
+  "Switch to the first offered mode whose word is one of WORDS.
+Words come from `mr-x/agent-shell--preset-mode-word', so \"full\" means
+bypassPermissions on Claude, agent-full-access on Codex and bypass on
+OpenCode.  Codex Plan lives in `collaboration_mode', handled here too."
+  (with-current-buffer (mr-x/agent-shell--mode-buffer)
+    (let* ((state (agent-shell--state))
+           (modes (agent-shell--get-available-modes state))
+           (hit (seq-find (lambda (m)
+                            (member (mr-x/agent-shell--preset-mode-word
+                                     (map-elt m :id))
+                                    words))
+                          modes))
+           (plan-opt (mr-x/agent-shell--codex-plan-option state)))
+      (cond
+       (hit
+        ;; Leaving Codex Plan: drop the collaboration mode too.
+        (when (and plan-opt (equal "plan" (map-elt plan-opt :current-value)))
+          (agent-shell--set-session-config-option
+           :config-id (map-elt plan-opt :id) :value "default"))
+        (unless (equal (map-elt hit :id) (agent-shell--current-mode-id state))
+          (mr-x/agent-shell-set-mode-direct (map-elt hit :id))))
+       ((and plan-opt (member "plan" words))
+        (agent-shell--set-session-config-option
+         :config-id (map-elt plan-opt :id) :value "plan"
+         :on-success (lambda () (message "Session mode: Plan"))))
+       (t
+        (user-error "No %s mode here; offered: %s"
+                    (string-join words "/")
+                    (mapconcat (lambda (m) (map-elt m :id)) modes ", ")))))))
+
+;; ---------------------------------------------------------------------------
+;; Refs: select text anywhere, attach it as context for the next prompt.
+;; The module (lisp/agent-shell-refs.el, shared) is pure Elisp: pulse +
+;; overlays + font-lock, nerd-icons optional.  Its modeline indicator
+;; rides `mode-line-misc-info', which doom-modeline's stock layout shows.
+;; ---------------------------------------------------------------------------
+
+(require 'agent-shell-refs)
+
+(defun mr-x/agent-shell-refs-capture-and-go ()
+  "Capture region as a ref, drop its [ref N] marker at the prompt,
+land in insert mode ready to write about it.  Use SPC c a R for a
+silent context-only capture with no marker."
+  (interactive)
+  (agent-shell-refs-capture)
+  (when-let* ((buf (agent-shell-refs--find-shell-buffer)))
+    ;; Just-captured ref is newest in capture order → number = count.
+    ;; insert-marker handles the window-focus jump itself.
+    (let ((n (length (buffer-local-value 'agent-shell-refs--list buf))))
+      (agent-shell-refs-insert-marker n))
+    (mr-x/agent-shell-smart-insert)))
+
+(defun mr-x/agent-shell-refs-reply-and-go (n)
+  "Insert a [ref N] reply marker at the prompt, land in insert mode."
+  (interactive "NReply to ref: ")
+  (agent-shell-refs-insert-marker n)
+  (mr-x/agent-shell-smart-insert))
+
+;; One named command per digit so which-key shows real names,
+;; not anonymous lambdas.
+(dotimes (i 9)
+  (let ((n (1+ i)))
+    (defalias (intern (format "mr-x/agent-shell-refs-reply-%d" n))
+      (lambda () (interactive) (mr-x/agent-shell-refs-reply-and-go n))
+      (format "Insert a [ref %d] reply marker and enter insert mode." n))))
+
+(with-eval-after-load 'agent-shell
+  (agent-shell-refs-setup)
+  (with-eval-after-load 'evil
+    ;; Visual mode: capture selection as a ref
+    (evil-define-key 'visual agent-shell-mode-map
+      (kbd "C-c r") #'agent-shell-refs-capture)
+    ;; Normal mode: manage refs
+    (evil-define-key 'normal agent-shell-mode-map
+      (kbd "C-c r") #'agent-shell-refs-preview
+      (kbd "C-c R") #'agent-shell-refs-clear)))
+
+;; ---------------------------------------------------------------------------
+;; Leader bindings.  SPC c mirrors MrX's map key for key (emacs.org,
+;; "Agent Shell"), minus the commands that have not been ported yet.
+;; Those keys stay free so both machines keep one layout:
+;;   e fork          u park           C preset + where   x Sol one-shot
+;;   B z manager     S test env       j attention        , r test prompt
+;;   ! block->vterm  I inbox          H y Y syzygy       N phone push
+;;   l W watcher     v V L terminal   1 2 3 0 perms      k K catalogue
+;;   g G goose       / s d  / s s  / b d  / w  recall
 ;; ---------------------------------------------------------------------------
 
 (mr-x/leader-def
-  "c t" '(major-pane-toggle :wk "toggle pane")
-  "c P" '(mr-x/agent-shell-preset-dwim :wk "preset in-place (C-u: new shell)")
-  "c b" '(major-pane-swap-buffer :wk "swap panel buffer")
-  ;; Picker-based send commands replace the plain agent-shell-send-* binds.
-  "c r" '(mr-x/agent-send-region-no-switch :wk "send region (stay)")
-  "c R" '(mr-x/agent-send-region :wk "send region (go)")
-  "c f" '(mr-x/agent-send-file :wk "send file")
-  "c F" '(mr-x/agent-send-other-file :wk "send other file")
-  "c s" '(mr-x/agent-send-screenshot :wk "send screenshot"))
+  "c"     '(:ignore t :wk "agent-shell")
+  "c c"   '(mr-x/agent-shell-new-smart :wk "new chat (Claude, here)")
+  "c n"   '(mr-x/agent-shell-clone :wk "clone shell (model + here)")
+  "c P"   '(mr-x/agent-shell-start-preset :wk "preset → new shell")
+  "c t"   '(mr-x/agent-shell-toggle :wk "toggle agent shell")
+  "c w"   '(mr-x/focus-ai-window :wk "focus AI window")
+  "c b"   '(major-pane-swap-buffer :wk "swap panel buffer")
+  "c ,"   '(:ignore t :wk "prompts")
+  "c , p" '(agent-shell-prompt-compose :wk "compose prompt")
+  "c p"   '(mr-x/agent-shell-apply-preset :wk "preset → current shell")
+  "c r"   '(mr-x/agent-send-region-no-switch :wk "send region (stay)")
+  "c R"   '(mr-x/agent-send-region :wk "send region (go)")
+  "c f"   '(mr-x/agent-send-file :wk "send file")
+  "c F"   '(mr-x/agent-send-other-file :wk "send other file")
+  "c d"   '(agent-shell-send-dwim :wk "send dwim (region/error)")
+  "c s"   '(mr-x/agent-send-screenshot :wk "send screenshot")
+  "c i"   '(agent-shell-interrupt :wk "interrupt")
+  "c o"   '(agent-shell-other-buffer :wk "other buffer (viewport/shell)")
+  "c m"   '(:ignore t :wk "mode")
+  "c m m" '(agent-shell-set-session-mode :wk "pick mode...")
+  "c m o" '(agent-shell-set-session-config-option :wk "set option...")
+  "c m c" '(agent-shell-cycle-session-mode :wk "cycle")
+  ;; Words, not ids: each resolves against whatever the chat's agent
+  ;; offers (see `mr-x/agent-shell-set-mode-word').
+  "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "manual" "ask" "build")) :wk "manual")
+  "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "accept edits")) :wk "accept edits")
+  "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "plan")) :wk "plan")
+  "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "auto")) :wk "auto")
+  "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-word "full")) :wk "full")
+  "c ."   '(agent-shell-set-session-model :wk "set model")
+  "c T"   '(agent-shell-open-transcript :wk "open transcript")
+  "c q"   '(agent-shell-prompt-queue :wk "queue request")
+  "c l"   '(:ignore t :wk "logs")
+  "c l l" '(agent-shell-toggle-logging :wk "toggle logging")
+  "c l v" '(agent-shell-view-traffic :wk "view traffic")
+  "c l a" '(agent-shell-view-acp-logs :wk "view acp logs")
+  "c l r" '(agent-shell-reset-logs :wk "reset logs")
+  "c a"   '(:ignore t :wk "refs")
+  "c a r" '(mr-x/agent-shell-refs-capture-and-go :wk "capture ref + go")
+  "c a R" '(agent-shell-refs-capture :wk "capture ref")
+  "c a c" '(agent-shell-refs-clear :wk "clear refs")
+  "c a p" '(agent-shell-refs-preview :wk "preview refs")
+  "c a d" '(agent-shell-refs-remove :wk "remove ref")
+  ;; SPC c a 1..9 — pair the next words you type with queued ref N.
+  ;; Spelled out: `mr-x/leader-def' is a macro, so a dotimes can't
+  ;; feed it computed keys the way the Mac's general-define-key loop does.
+  "c a n" '(mr-x/agent-shell-refs-reply-and-go :wk "reply to ref…")
+  "c a 1" '(mr-x/agent-shell-refs-reply-1 :wk "reply to ref 1")
+  "c a 2" '(mr-x/agent-shell-refs-reply-2 :wk "reply to ref 2")
+  "c a 3" '(mr-x/agent-shell-refs-reply-3 :wk "reply to ref 3")
+  "c a 4" '(mr-x/agent-shell-refs-reply-4 :wk "reply to ref 4")
+  "c a 5" '(mr-x/agent-shell-refs-reply-5 :wk "reply to ref 5")
+  "c a 6" '(mr-x/agent-shell-refs-reply-6 :wk "reply to ref 6")
+  "c a 7" '(mr-x/agent-shell-refs-reply-7 :wk "reply to ref 7")
+  "c a 8" '(mr-x/agent-shell-refs-reply-8 :wk "reply to ref 8")
+  "c a 9" '(mr-x/agent-shell-refs-reply-9 :wk "reply to ref 9")
+  "c /"     '(:ignore t :wk "recall")
+  "c / s"   '(:ignore t :wk "search")
+  "c / s c" '(agent-recall-consult-search :wk "consult")
+  "c / b"   '(:ignore t :wk "browse")
+  "c / b a" '(agent-recall-browse :wk "all")
+  "c / r"   '(agent-recall-resume :wk "resume")
+  "c / B"   '(agent-recall-backfill :wk "backfill")
+  "c / t"   '(agent-recall-stats :wk "stats"))
 
 (mr-x/leader-def
   "&" '(:ignore t :wk "pane")
