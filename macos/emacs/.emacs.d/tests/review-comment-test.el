@@ -241,10 +241,17 @@
 
 (ert-deftest review-comment-only-one-compose-at-a-time ()
   (review-comment-test--with s
-    (review-comment-test--at s 'new 3)
-    (review-comment-dwim)
-    (review-comment-test--at s 'new 4)
-    (should-error (review-comment-dwim) :type 'user-error)
+    ;; A compose that is on screen: a second c is refused.  (One that
+    ;; lost its window is brought back instead; see the test below.)
+    (let ((review-comment-compose-styles
+           (list (list 'shown (lambda (buffer &rest _) (display-buffer buffer '((display-buffer-at-bottom))))
+                       #'review-comment--hide-window)))
+          (review-comment-compose-style 'shown))
+      (review-comment-test--at s 'new 3)
+      (review-comment-dwim)
+      (should (get-buffer-window "*review-comment*" t))
+      (review-comment-test--at s 'new 4)
+      (should-error (review-comment-dwim) :type 'user-error))
     ;; A quit while composing closes the buffer and raises nothing.
     (let ((review-session--pausing t)) (review-session-quit))
     (should-not (get-buffer "*review-comment*"))))
@@ -509,6 +516,50 @@
       (should-not (plist-get (review-store-load key) :comments))
       (let ((again (review-session-start (review-comment-test--source))))
         (should-not (review-session-comments again))))))
+
+(ert-deftest review-comment-close-leaves-the-compose-window-before-hiding ()
+  ;; The box is a child frame with keyboard focus.  Deleting it while it
+  ;; is selected aborted the kill and left the buffer behind, so the
+  ;; close must move the selection to the pane first.
+  (review-comment-test--with s
+    (let* (hidden-from
+           (review-comment-compose-styles
+            (list (list 'probe
+                        (lambda (buffer _window _position)
+                          (select-window (display-buffer buffer '((display-buffer-at-bottom)))))
+                        (lambda (buffer)
+                          (setq hidden-from (window-buffer (selected-window)))
+                          (review-comment--hide-window buffer)))))
+           (review-comment-compose-style 'probe)
+           (pane (get-buffer-window (review-session-new-buffer s))))
+      (when pane
+        (select-window pane)
+        (review-comment-test--at s 'new 3)
+        (review-comment-dwim)
+        (should (eq (window-buffer (selected-window)) (get-buffer "*review-comment*")))
+        (review-comment-test--write "Leave first.")
+        (should-not (eq hidden-from (get-buffer "*review-comment*")))
+        (should-not (get-buffer "*review-comment*"))
+        (should (= (length (review-session-comments s)) 1))))))
+
+(ert-deftest review-comment-c-brings-back-a-compose-that-lost-its-window ()
+  ;; If the box vanishes (its frame deleted by something else), `c' shows
+  ;; the compose again with its text instead of refusing for ever.
+  (review-comment-test--with s
+    (let* ((shown 0)
+           (review-comment-compose-styles
+            (list (list 'probe (lambda (&rest _) (cl-incf shown)) #'ignore)))
+           (review-comment-compose-style 'probe))
+      (review-comment-test--at s 'new 3)
+      (review-comment-dwim)
+      (with-current-buffer "*review-comment*" (insert "half typed"))
+      (should (= shown 1))
+      ;; No window shows it: a second c re-shows it rather than erroring.
+      (review-comment-test--at s 'new 4)
+      (review-comment-dwim)
+      (should (= shown 2))
+      (should (equal (with-current-buffer "*review-comment*" (buffer-string)) "half typed"))
+      (should-not (review-session-comments s)))))
 
 (provide 'review-comment-test)
 ;;; review-comment-test.el ends here

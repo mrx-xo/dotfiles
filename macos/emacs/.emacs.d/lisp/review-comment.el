@@ -316,11 +316,30 @@ from.  An empty text cancels unless ALLOW-EMPTY."
     (review-comment--compose-show buffer)
     buffer))
 
+(defun review-comment--leave (buffer window)
+  "Select WINDOW, or another live window, if BUFFER's own window is selected.
+A floating compose is a child frame with the keyboard focus; deleting
+or hiding it while it is selected aborts half way and leaves the buffer
+behind.  Its child frames go here too, before the hide, for that reason."
+  (when (eq (window-buffer (selected-window)) buffer)
+    (let ((target (if (window-live-p window) window
+                    (seq-find (lambda (w) (and (not (eq (window-buffer w) buffer))
+                                               (not (frame-parent (window-frame w)))))
+                              (window-list-1 nil 'nomini t)))))
+      (when (window-live-p target)
+        (unless (eq (window-frame target) (selected-frame))
+          (select-frame-set-input-focus (window-frame target)))
+        (select-window target))))
+  (dolist (w (get-buffer-window-list buffer nil t))
+    (when (frame-parent (window-frame w))
+      (ignore-errors (delete-frame (window-frame w) t)))))
+
 (defun review-comment--compose-close ()
   "Hide and kill the compose buffer, and go back to the pane it came from."
   (when-let ((buffer (get-buffer review-comment--compose-name)))
     (let* ((c (buffer-local-value 'review-comment--compose buffer))
            (window (plist-get c :window)))
+      (review-comment--leave buffer window)
       (ignore-errors (funcall (nth 2 (review-comment--style (plist-get c :style))) buffer))
       ;; The buffer is this package's own and never worth a question:
       ;; perspective's query refuses a kill from another frame, and a
@@ -374,13 +393,22 @@ from.  An empty text cancels unless ALLOW-EMPTY."
     (user-error "Not in a review pane"))
   (let* ((session review-pane--session)
          (window (selected-window))
-         (existing (review-comment--draft-at session (point))))
-    (if existing
-        (let ((id (plist-get existing :id)))
-          (review-comment--compose session (concat "Edit comment on " (review-comment--label existing))
-                                   window (point)
-                                   (lambda (body) (review-comment--update session id body))
-                                   (plist-get existing :body)))
+         (existing (review-comment--draft-at session (point)))
+         (open (get-buffer review-comment--compose-name)))
+    (cond
+     ;; A compose whose box vanished: show it again rather than refuse.
+     ((and open (not (get-buffer-window open t)))
+      (with-current-buffer open
+        (setq review-comment--compose (plist-put review-comment--compose :window window)))
+      (review-comment--compose-show open)
+      (message "Back to the comment being written"))
+     (existing
+      (let ((id (plist-get existing :id)))
+        (review-comment--compose session (concat "Edit comment on " (review-comment--label existing))
+                                 window (point)
+                                 (lambda (body) (review-comment--update session id body))
+                                 (plist-get existing :body))))
+     (t
       (let ((target (review-comment--target session))
             (position (point)))
         ;; Leaving the selection also takes Evil out of its visual state.
@@ -388,7 +416,7 @@ from.  An empty text cancels unless ALLOW-EMPTY."
         (review-comment--compose session (concat "Comment on " (review-comment--label target))
                                  window position
                                  (lambda (body)
-                                   (review-comment--add session (append target (list :body body)))))))))
+                                   (review-comment--add session (append target (list :body body))))))))))
 
 (defun review-comment-delete ()
   "Delete the draft comment at point, after asking."
