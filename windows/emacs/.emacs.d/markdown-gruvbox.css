@@ -1,0 +1,68 @@
+/* Gruvbox dark for markdown-mode's browser preview (C-c C-c p).
+   Linked by `markdown-css-paths' in init.el.  Colours match the
+   markdown-mode and shr faces there; the token classes at the bottom
+   are pandoc's syntax-highlighting classes (skylighting). */
+
+html { background: #282828; }
+body {
+  max-width: 48rem; margin: 2rem auto; padding: 0 1.5rem;
+  color: #ebdbb2; background: #282828;
+  font: 17px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+h1, h2, h3 { color: #fe8019; font-weight: 700; line-height: 1.25; margin: 1.6em 0 0.6em; }
+h4, h5     { color: #fabd2f; font-weight: 700; }
+h6         { color: #928374; font-weight: 700; }
+h1 { font-size: 2em; border-bottom: 1px solid #3c3836; padding-bottom: 0.3em; }
+h2 { font-size: 1.6em; }
+h3 { font-size: 1.3em; }
+
+a { color: #83a598; text-decoration: underline; }
+a:hover { color: #8ec07c; }
+strong { color: #fabd2f; }
+em { color: #d3869b; }
+hr { border: 0; border-top: 1px solid #504945; margin: 2em 0; }
+
+code, pre {
+  font: 0.92em "SpaceMono Nerd Font", "FiraCode Nerd Font Mono", ui-monospace, monospace;
+  color: #8ec07c; background: #3c3836; border-radius: 4px;
+}
+code { padding: 0.1em 0.35em; }
+pre { padding: 0.9em 1.1em; overflow-x: auto; line-height: 1.45; }
+pre code { padding: 0; background: none; color: #ebdbb2; }
+
+blockquote {
+  margin: 1em 0; padding: 0.2em 1em; color: #928374; font-style: italic;
+  border-left: 4px solid #504945;
+}
+
+ul, ol { padding-left: 1.6em; }
+li::marker { color: #b8bb26; }
+input[type="checkbox"] { accent-color: #b8bb26; }
+
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #504945; padding: 0.4em 0.8em; }
+th { background: #3c3836; color: #fabd2f; }
+tr:nth-child(even) td { background: #32302f; }
+
+img { max-width: 100%; }
+
+/* pandoc / skylighting token classes */
+.sourceCode .kw, .sourceCode .cf { color: #fb4934; }           /* keyword, control flow */
+.sourceCode .dt                  { color: #fabd2f; }           /* data type */
+.sourceCode .dv, .sourceCode .bn,
+.sourceCode .fl, .sourceCode .cn,
+.sourceCode .sc                  { color: #d3869b; }           /* numbers, constants, special chars */
+.sourceCode .st, .sourceCode .vs,
+.sourceCode .ss, .sourceCode .ch { color: #b8bb26; }           /* strings, chars */
+.sourceCode .co, .sourceCode .do,
+.sourceCode .an, .sourceCode .cv,
+.sourceCode .in                  { color: #928374; font-style: italic; }  /* comments, docs */
+.sourceCode .fu                  { color: #8ec07c; }           /* function */
+.sourceCode .va, .sourceCode .ot { color: #83a598; }           /* variable, other */
+.sourceCode .bu, .sourceCode .pp { color: #fe8019; }           /* builtin, preprocessor */
+.sourceCode .at, .sourceCode .re { color: #fabd2f; }           /* attribute, region marker */
+.sourceCode .im                  { color: #8ec07c; }           /* import */
+.sourceCode .op, .sourceCode .ex { color: #ebdbb2; }           /* operator, extension */
+.sourceCode .al                  { color: #fb4934; font-weight: 700; }   /* alert */
+.sourceCode .er                  { color: #fb4934; text-decoration: underline; }

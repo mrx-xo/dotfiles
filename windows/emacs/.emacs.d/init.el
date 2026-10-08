@@ -269,6 +269,85 @@
   (setq ls-lisp-use-insert-directory-program nil
         ls-lisp-dirs-first t)
   ;; h/l navigate like a file tree; Y copies the bare filename.
+;; ---------- Markdown: editing + gruvbox preview inside Emacs ----------
+;; Same editing stack as the Mac: markdown-mode wearing the gruvbox faces
+;; (they match the preview), poly-markdown owning .md so fenced code blocks
+;; get their language's highlighting.  This Emacs build has no xwidgets, so
+;; the Mac's markdown-xwidget preview cannot run here; the preview is
+;; pandoc -> eww (markdown-live-preview-mode: C-c C-c l, re-renders on save,
+;; also on the Mac's C-c C-c x), with the eww/shr faces set to gruvbox
+;; below.  C-c C-c p still opens the pandoc HTML in the browser.
+;; pandoc: scoop install pandoc.
+(use-package markdown-mode
+  :custom
+  ;; A list, not a string, so the filter path survives markdown-mode's
+  ;; space-splitting.  The filter maps fence languages pandoc cannot
+  ;; highlight (elisp, sh, ps1...) onto ones it can.
+  (markdown-command
+   (list "pandoc" "--lua-filter"
+         (expand-file-name "dotfiles/windows/emacs/.emacs.d/pandoc-lang-aliases.lua"
+                           (or (getenv "USERPROFILE") "~"))))
+  (markdown-live-preview-delete-export 'delete-on-export)  ; no .html litter
+  ;; Browser preview (C-c C-c p) wears gruvbox too: markdown-mode links
+  ;; this stylesheet into the page, and pandoc's token classes give the
+  ;; code blocks syntax colours there.  Repo path, not ~ (see dired home).
+  (markdown-css-paths
+   (list (concat "file:///"
+                 (expand-file-name "dotfiles/windows/emacs/.emacs.d/markdown-gruvbox.css"
+                                   (or (getenv "USERPROFILE") "~")))))
+  :bind (:map markdown-mode-map
+         ("C-c C-c x" . markdown-live-preview-mode))
+  :config
+  ;; Gruvbox-styled markdown faces (matches preview CSS)
+  (custom-set-faces
+   ;; Headings - orange
+   '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+   '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+   '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+   '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+   '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
+   '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
+   ;; Code - aqua
+   '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   ;; Links - blue
+   '(markdown-link-face ((t (:foreground "#83a598"))))
+   '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
+   ;; Bold/Italic - yellow/purple
+   '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
+   '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
+   ;; Lists - green
+   '(markdown-list-face ((t (:foreground "#b8bb26"))))
+   ;; Blockquote - gray
+   '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
+   ;; Markup characters - dimmed
+   '(markdown-markup-face ((t (:foreground "#665c54"))))))
+
+;; Syntax highlighting in markdown code blocks
+(use-package polymode)
+
+(use-package poly-markdown
+  :after (polymode markdown-mode)
+  :mode ("\.md\'" . poly-markdown-mode)
+  :config
+  ;; Suppress org-element parser errors in polymode indirect buffers
+  ;; (org-mode chokes on markdown ** syntax in ```org code blocks)
+  (add-to-list 'warning-suppress-types '(org-element)))
+
+;; The rendered preview lives in eww; shr draws it with these faces, so
+;; the preview wears the same gruvbox as the source buffer.
+(with-eval-after-load 'shr
+  (custom-set-faces
+   '(shr-h1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+   '(shr-h2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+   '(shr-h3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+   '(shr-h4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+   '(shr-h5 ((t (:foreground "#fabd2f" :weight bold))))
+   '(shr-h6 ((t (:foreground "#928374" :weight bold))))
+   '(shr-code ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(shr-link ((t (:foreground "#83a598" :underline t))))))
+
   ;; Bound on dired-mode-map at config time so it wins over evil-collection
   ;; without the buffer-local-keymap timing issues of evil-local-set-key.
   (evil-define-key 'normal dired-mode-map
@@ -479,8 +558,8 @@
  '(package-selected-packages
    '(agent-recall consult corfu dired-preview doom-modeline doom-themes
                   evil-collection general ligature lua-mode marginalia
-                  nerd-icons-completion nerd-icons-dired orderless
-                  org-modern vertico)))
+                  markdown-mode nerd-icons-completion nerd-icons-dired
+                  orderless org-modern poly-markdown polymode vertico)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
