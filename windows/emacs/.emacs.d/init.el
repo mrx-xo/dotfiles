@@ -86,6 +86,10 @@
   :config
   (evil-collection-init))
 
+;; evil binds C-w f (SPC w f) to `ffap-other-window', which Emacs 30 no
+;; longer autoloads, so the key was void until ffap happened to load.
+(autoload 'ffap-other-window "ffap" nil t)
+
 ;; ---------- Leader key (SPC) via general.el ----------
 (use-package which-key
   :init (which-key-mode)
@@ -118,6 +122,7 @@
     "b"   '(:ignore t :wk "buffer")
     "b b" '(switch-to-buffer :wk "switch")
     "b k" '(kill-current-buffer :wk "kill")
+    "b r" '(revert-buffer :wk "revert buffer")
     ;; dired
     "d"   '(:ignore t :wk "dired")
     "d d" '(dired :wk "open dired")
@@ -141,6 +146,9 @@
     "g f" '(magit-fetch :wk "fetch")
     ;; windows
     "w"   '(:keymap evil-window-map :package evil :wk "window")
+    ;; window layout history, same letters as the Mac
+    "h"   '(winner-undo :wk "winner undo")
+    "l"   '(winner-redo :wk "winner redo")
     ;; quit / restart
     "q"   '(:ignore t :wk "quit/restart")
     "q r" '(restart-emacs :wk "restart emacs")
@@ -148,6 +156,9 @@
 
 ;; The SPC c (agent-shell) map lives in lisp/agent-shell-extras.el, where
 ;; it mirrors the Mac's map key for key.
+
+;; Window-layout undo/redo for SPC h / SPC l.
+(winner-mode 1)
 
 ;; ---------- Theme: Gruvbox ----------
 (use-package doom-themes
@@ -485,6 +496,10 @@
   ;; evil-collection binds insert-state RET to `newline' and normal-state RET
   ;; to the bare `shell-maker-submit'; make both run `agent-shell-submit',
   ;; upstream's own RET: it queues the prompt while the agent is busy (M-RET
+  ;; Never show the "new session / resume previous" picker: every shell
+  ;; starts fresh, same as the Mac. Deliberate resumes go through
+  ;; agent-recall, which passes session ids explicitly and ignores this.
+  (setq agent-shell-session-strategy 'new)
   ;; steers instead) and falls through to `shell-maker-submit' when idle, so
   ;; the refs advice still fires.
   (with-eval-after-load 'evil
