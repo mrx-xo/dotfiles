@@ -89,6 +89,10 @@ be loaded."
              major-pane-capture-buffer
              major-pane-set-home-frame
              major-pane-new-chat
+             major-pane-new-ejected-chat
+             major-pane-mark-read
+             major-pane-anchor-toggle
+             major-pane-set-placement
              major-pane-close-conversation
              major-pane-close-all-conversations
              major-pane-eject-conversation
@@ -601,9 +605,13 @@ silent context-only capture with no marker."
   "&" '(:ignore t :wk "pane")
   "& w" '(major-pane-focus :wk "focus pane")
   "& n" '(major-pane-new-chat :wk "new chat")
+  "& N" '(major-pane-new-ejected-chat :wk "new ejected chat (C-u: new frame)")
   "& l" '(major-pane-set-label :wk "label conversation")
+  "& r" '(major-pane-mark-read :wk "mark read (clear green)")
+  "& p" '(major-pane-anchor-toggle :wk "anchor tab left (blue rail)")
   "& b" '(major-pane-capture-buffer :wk "capture buffer into pane")
   "& h" '(major-pane-set-home-frame :wk "lock pane to this frame")
+  "& m" '(major-pane-set-placement :wk "pane placement")
   "& k" '(major-pane-close-conversation :wk "close conversation")
   "& K" '(major-pane-close-all-conversations :wk "close all")
   "& e" '(major-pane-eject-conversation :wk "eject to main window")
