@@ -2295,7 +2295,6 @@ left alone."
     (message "Loading in regular Emacs!"))
 
   (defun mr-x/set-font-faces ()
-    (message "Setting faces!")
     ;; tty frames (e.g. emacsclient -t over ssh from CALLIOPE) can't see GUI
     ;; fonts — find-font returns nil for everything and the Menlo fallback
     ;; would clobber the default face on ALL frames, GUI included. Fonts are
@@ -3253,21 +3252,37 @@ current window layout."
   (defvar mr-x/sketchybar-persp--timer nil
     "Debounce timer for sketchybar perspective updates.")
 
+  (defun mr-x/sketchybar--root-frame (&optional frame)
+    "FRAME's top-level ancestor.
+Child frames (corfu, posframe, the comment box) carry no perspective of
+their own; the perspective shown belongs to the frame they sit on."
+    (let ((f (or frame (selected-frame))))
+      (while (frame-parameter f 'parent-frame)
+        (setq f (frame-parameter f 'parent-frame)))
+      f))
+
   (defun mr-x/sketchybar-update-persp--do ()
     "Actually push perspective state to sketchybar (called by debounce timer)."
     (setq mr-x/sketchybar-persp--timer nil)
-    (when (and (bound-and-true-p persp-mode)
-               (not (string-match-p "SCRATCHPAD"
-                                    (or (frame-parameter nil 'title) ""))))
-      (let* ((active (persp-current-name))
-             (all-names (persp-names))
-             (all-str (mapconcat #'identity all-names ","))
-             (frame-title (or (frame-parameter nil 'title) "")))
-        (start-process "sketchybar-persp" nil "bash" "-c"
-                       (format "sketchybar --trigger emacs_persp_update EMACS_PERSP_NAME=%s EMACS_PERSP_ALL=%s EMACS_PERSP_FRAME_TITLE=%s"
-                               (shell-quote-argument active)
-                               (shell-quote-argument all-str)
-                               (shell-quote-argument frame-title))))))
+    (let ((frame (mr-x/sketchybar--root-frame)))
+      (when (and (bound-and-true-p persp-mode)
+                 (not (string-match-p "SCRATCHPAD"
+                                      (or (frame-parameter frame 'title) ""))))
+        (let* ((active (with-selected-frame frame (persp-current-name)))
+               (all-names (delq nil (with-selected-frame frame (persp-names))))
+               (all-str (mapconcat #'identity all-names ","))
+               (frame-title (or (frame-parameter frame 'title) "")))
+          ;; The debounce timer fires with whatever frame is selected then.
+          ;; A frame without a perspective (a child frame, a frame still
+          ;; being born) has nothing to report; `shell-quote-argument' on
+          ;; nil was the "Error running timer ... (wrong-type-argument
+          ;; arrayp nil)" in the daemon log.
+          (when active
+            (start-process "sketchybar-persp" nil "bash" "-c"
+                           (format "sketchybar --trigger emacs_persp_update EMACS_PERSP_NAME=%s EMACS_PERSP_ALL=%s EMACS_PERSP_FRAME_TITLE=%s"
+                                   (shell-quote-argument active)
+                                   (shell-quote-argument all-str)
+                                   (shell-quote-argument frame-title))))))))
 
   (defun mr-x/sketchybar-update-persp (&rest _)
     "Push current perspective name to sketchybar (debounced 0.15s)."
@@ -7583,7 +7598,30 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     ;; Token lives in ~/.authinfo (machine omphalos.io/api/v1, login marcos^forge).
     (add-to-list 'forge-alist
                  '("omphalos.io" "omphalos.io/api/v1" "omphalos.io"
-                   forge-forgejo-repository)))
+                   forge-forgejo-repository))
+
+    ;; `forge-topics-mode' names itself through `(:eval (forge-topics-buffer-desc))',
+    ;; which reads the buffer-local `forge--buffer-topics-spec'.  A topics
+    ;; buffer that has the mode but no spec makes every redisplay of its
+    ;; window log "Error during redisplay: (eval (forge-topics-buffer-desc) t)
+    ;; signaled (wrong-type-argument ... nil)".  One such buffer lived for
+    ;; days in the 2026-09-30 daemon run (691 log lines) and died with the
+    ;; crash before it could be inspected; nothing in this config re-enters
+    ;; the mode, so its origin is unknown.  Show a placeholder instead and
+    ;; report the buffer once, so the next one says where it came from.
+    (defvar mr-x/forge--specless-reported nil
+      "Topics buffers already reported by `forge-topics-buffer-desc@mr-x/specless-guard'.")
+    (define-advice forge-topics-buffer-desc (:around (fn) mr-x/specless-guard)
+      (if (bound-and-true-p forge--buffer-topics-spec)
+          (funcall fn)
+        (unless (memq (current-buffer) mr-x/forge--specless-reported)
+          (push (current-buffer) mr-x/forge--specless-reported)
+          (message "forge: %S has no topics spec (size %d, repo %S, frames %S)"
+                   (buffer-name) (buffer-size)
+                   (bound-and-true-p forge-buffer-repository)
+                   (mapcar (lambda (w) (frame-parameter (window-frame w) 'name))
+                           (get-buffer-window-list nil nil t))))
+        "Topics?")))
 
   ;; Highlight source syntax in raw patches (including Forgejo review diffs),
   ;; falling back to the hunk when full file/revision context is unavailable.
