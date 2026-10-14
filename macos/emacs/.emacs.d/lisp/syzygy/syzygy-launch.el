@@ -22,6 +22,7 @@ session. Clear an entry to re-read it.")
 
 (defconst syzygy-launch--claude-model-aliases
   '(("fable[1m]" "claude-fable-5-1[1m]" "claude-fable-5-1")
+    ("claude-fable-5-1" "claude-fable-5-1" "claude-fable-5-1[1m]" "claude-fable-5-1-1m")
     ("opus[1m]" "opus[1m]" "opus"))
   "Historical rig IDs and their supported advertised replacements.")
 
@@ -117,6 +118,12 @@ the same models without that historical suffix.  Unknown IDs stay unknown."
                   (and (stringp model)
                        (list model (concat model "[1m]") (concat model "-1m")))))))
     (or (seq-find (lambda (id) (syzygy-launch--known choices id)) candidates)
+        ;; Recent adapters expose Fable by a short ID. Verify the advertised
+        ;; version before translating a saved, version-specific selection.
+        (and (equal agent "claude")
+             (member model '("fable[1m]" "claude-fable-5-1"))
+             (equal (alist-get 'name (syzygy-launch--known choices "fable")) "Fable 5.1")
+             "fable")
         model)))
 
 (defun syzygy-launch--normalize-settings (settings agents)
@@ -267,7 +274,8 @@ in order.  A refusal is an error, not agent-shell's optional-default warning."
       (when (equal (alist-get 'agent settings) "claude")
         (setq model (syzygy-launch--resolve-model
                      "claude" model
-                     (mapcar (lambda (m) `((id . ,(map-elt m :model-id))))
+                     (mapcar (lambda (m) `((id . ,(map-elt m :model-id))
+                                          (name . ,(map-elt m :name))))
                              (agent-shell--get-available-models (agent-shell--state))))))
       (syzygy-launch--confirm
        "Model" model (lambda () (agent-shell--current-model-id (agent-shell--state)))
