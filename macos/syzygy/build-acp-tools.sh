@@ -112,7 +112,8 @@ ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
 # + local d34f21b (New chat stepper review fixes: load order, pin focus, resume edges)
 # + local dec7228 (selectable History text; New chat photos with recoverable delivery and one-tap Start; Stop stays busy during command-list updates)
 # + local 7f25643 (preset/clone launches return exact recovery buffers; clone retries reopen instead of duplicating; Sonnet 5.5 label)
-ACP_MOBILE_COMMIT="7f256438f5fb29ac485cdf5a2cd239fb867ec386"
+# + local 6a895db (disabled New chat Start explains missing or unsupported selections)
+ACP_MOBILE_COMMIT="6a895dbd2da989c8e2c459189e0c79398599f208"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

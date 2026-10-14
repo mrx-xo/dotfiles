@@ -360,6 +360,29 @@
         (setf (alist-get 'mode settings) "obsolete-mode")
         (should-error (syzygy-launch--validate settings agents))))))
 
+(ert-deftest syzygy-launch-fable-short-id-keeps-saved-presets-usable ()
+  ;; Explicit context variants retain their requested context guarantee;
+  ;; a bare advertised alias is not evidence that it supports that variant.
+  (dolist (id '("claude-fable-5-1[1m]" "claude-fable-5-1-1m"))
+    (should (equal (syzygy-launch--resolve-model
+                    "claude" id '(((id . "fable") (name . "Fable 5.1")))) id)))
+  (let ((mr-x/agent-shell-presets '((?f "Fable 5.1" "claude-fable-5-1" "bypassPermissions")))
+        (syzygy-launch--capabilities (make-hash-table :test #'equal)))
+    (puthash "claude" '((models . [((id . "fable") (name . "Fable 5.1"))])
+                        (modes . [((id . "bypassPermissions"))]) (efforts . []))
+             syzygy-launch--capabilities)
+    (cl-letf (((symbol-function 'buffer-list) (lambda () nil))
+              ((symbol-function 'syzygy-launch--configs)
+               (lambda () '(("claude" . ((:identifier . claude-code)))))))
+      (let ((agents (syzygy-launch--catalog)))
+        (dolist (id '("claude-fable-5-1" "fable[1m]"))
+          (should (syzygy-launch--validate
+                   `((agent . "claude") (model . ,id) (mode . "bypassPermissions")) agents))
+          (should (equal (syzygy-launch--resolve-model
+                          "claude" id '(((id . "fable") (name . "Fable 5.1")))) "fable"))
+          (should (equal (syzygy-launch--resolve-model
+                          "claude" id '(((id . "fable") (name . "Fable 5.2")))) id)))))))
+
 (ert-deftest syzygy-launch-context-only-catalogue-keeps-bare-preset-usable ()
   (let ((mr-x/agent-shell-presets '((?f "Fable" "claude-fable-5-1" "bypassPermissions")))
         (syzygy-launch--capabilities (make-hash-table :test #'equal)))

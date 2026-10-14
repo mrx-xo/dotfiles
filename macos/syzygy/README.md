@@ -127,12 +127,19 @@ and checked again together before sending. Refusals identify the failed
 setting and preserve the adapter's error; daemon `*Messages*` also records
 the failure and buffer name. A late success never sends a held prompt.
 
-Claude presets use the advertised `claude-fable-5-1` and `opus` IDs. Saved
-`fable[1m]` and `opus[1m]` drafts/pins remain compatible through an explicit,
-Claude-only alias map. An adapter-added 1M suffix is accepted for a bare ID;
+Claude presets and saved drafts/pins keep historical model IDs through an
+explicit, Claude-only alias map. The saved Fable 5.1 IDs `claude-fable-5-1`
+and `fable[1m]` also resolve to `fable` when the adapter advertises that short
+ID as **Fable 5.1**; a different advertised version is not substituted.
+`opus[1m]` remains compatible too. An adapter-added 1M suffix is accepted for a bare ID;
 different model generations and permission modes are never treated as equal.
 Warm catalogues do not invent unsupported preset choices. Sonnet's preset
 and phone label both say 5.5.
+
+If Start is disabled on the Prompt step, the inline explanation identifies
+a missing project, loading catalogue, or unsupported agent/model/permissions/
+effort selection. Tap the agent summary above it to repair stale settings;
+the draft stays intact. Closing and reopening New chat refreshes the catalogue.
 
 Verified 2026-10-01: all ten rig presets started empty real sessions and
 confirmed their model, permissions and requested effort; historical Claude
