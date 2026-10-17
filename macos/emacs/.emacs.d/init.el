@@ -6763,45 +6763,13 @@ TRAMP can't match under a PTY — both need pipe mode."
   ;; (compat is declared early, near the elpaca bootstrap, so it's queued
   ;; before everything that depends on it.)
 
-  ;; Pin an active minibuffer to the frame that opened it.  The Emacs 28+
-  ;; default (t) relocates it to whichever frame becomes selected — with
-  ;; yabai's focus-follows-mouse, grazing another client frame mid-completion
-  ;; teleports the vertico session there.
-  (setq minibuffer-follows-selected-frame nil)
-
-  ;; Keep the echo area from getting stuck tall.  The default (grow-only)
-  ;; never shrinks until the echo area is fully cleared, so one multi-line
-  ;; eldoc doc left the strip at a quarter of the frame.  Eldoc stays on one
-  ;; line; the full doc is in M-x eldoc-doc-buffer.
-  (setq resize-mini-windows t)
-  (setq eldoc-echo-area-use-multiline-p nil)
+  ;; Search input and picker keys are shared with the Windows config.
+  (require 'mr-x-minibuffer)
 
   (use-package vertico
     :ensure t
     :init
-    (vertico-mode 1)
-    :config
-    (setq vertico-count 15)
-    ;; Shrink with the candidate list instead of holding the tallest height.
-    (setq vertico-resize t)
-    (setq vertico-cycle t)
-    ;; Evil-friendly navigation in minibuffer
-    (define-key vertico-map (kbd "C-j") #'vertico-next)
-    (define-key vertico-map (kbd "C-k") #'vertico-previous)
-    (define-key vertico-map (kbd "C-l") #'vertico-insert))
-
-  ;; Saner filename completion: RET drills into directories instead of
-  ;; opening dired, DEL deletes whole path components, and typing ~/ or /
-  ;; mid-path tidies the shadowed prefix.  Only affects file completion —
-  ;; RET everywhere else keeps normal accept-and-exit.
-  (use-package vertico-directory
-    :ensure nil            ;; ships inside the vertico package
-    :after vertico
-    :bind (:map vertico-map
-           ("RET"   . vertico-directory-enter)
-           ("DEL"   . vertico-directory-delete-char)
-           ("M-DEL" . vertico-directory-delete-word))
-    :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
+    (vertico-mode 1))
 
   (use-package orderless
     :ensure t
