@@ -234,6 +234,11 @@
   (doom-modeline-buffer-encoding nil))     ; hide the UTF-8/encoding segment
 
 ;; ---------- Completion stack (makes LSP feel good) ----------
+;; Share interaction with the Mac while keeping package.el installation here.
+(require 'mr-x-minibuffer
+         (expand-file-name "dotfiles/macos/emacs/.emacs.d/lisp/mr-x-minibuffer.el"
+                           (or (getenv "USERPROFILE") "~")))
+
 (use-package vertico
   :init (vertico-mode))
 
@@ -257,8 +262,6 @@
   ;; Use consult for xref
   (setq xref-show-xrefs-function #'consult-xref
         xref-show-definitions-function #'consult-xref)
-  ;; Preview on consult-line: grab symbol at point
-  (consult-customize consult-line :initial (thing-at-point 'symbol))
   ;; Auto-preview in consult-imenu
   (consult-customize consult-imenu :preview-key 'any))
 
