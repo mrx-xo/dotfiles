@@ -445,6 +445,16 @@
   ;; Inherit the shell environment (PATH, ANTHROPIC_API_KEY if you set one, etc.)
   (setq agent-shell-anthropic-claude-environment
         (agent-shell-make-environment-variables :inherit-env t))
+  ;; SYZYGY: run Claude through acp-multiplex so acp-mobile can mirror the
+  ;; session to the phone (same wrapping as the Mac config). Both binaries
+  ;; are cross-compiled from ~/src on the Mac and copied to %USERPROFILE%\bin,
+  ;; which is not on Emacs's PATH here, hence the absolute path. Without the
+  ;; exe, agent-shell keeps its direct claude-agent-acp default.
+  (when (eq system-type 'windows-nt)
+    (let ((multiplex (expand-file-name "bin/acp-multiplex.exe" (getenv "USERPROFILE"))))
+      (when (file-executable-p multiplex)
+        (setq agent-shell-anthropic-claude-acp-command
+              (list multiplex "claude-agent-acp")))))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
   ;;   SPC c p (agent-shell-yank-dwim)   -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),

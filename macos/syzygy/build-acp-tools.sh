@@ -20,7 +20,8 @@ BIN_DIR="$HOME/.local/bin"
 # + local 39e79c8 (shut the agent down when the primary frontend disconnects; fixes orphaned codex-acp after an Emacs crash)
 # + local fdfb2cf (synthesize `[steer]` user chunk for `_session/steering`)
 # + local 9577ffd (fake-phone scripts and README)
-ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
+# + local 88eacdd (portable process liveness probe; builds for Windows/NEMESIS)
+ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
@@ -113,7 +114,8 @@ ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
 # + local dec7228 (selectable History text; New chat photos with recoverable delivery and one-tap Start; Stop stays busy during command-list updates)
 # + local 7f25643 (preset/clone launches return exact recovery buffers; clone retries reopen instead of duplicating; Sonnet 5.5 label)
 # + local 6a895db (disabled New chat Start explains missing or unsupported selections)
-ACP_MOBILE_COMMIT="6a895dbd2da989c8e2c459189e0c79398599f208"
+# + local d5303cc (portable process liveness probe + PATH separator; builds for Windows/NEMESIS)
+ACP_MOBILE_COMMIT="d5303ccb729f4e96f83b1946e91a8e2ccb462698"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

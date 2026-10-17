@@ -89,6 +89,16 @@ tail ~/Library/Logs/acp-mobile/acp-mobile.err.log
   (no history, same as `SPC c n`), label suffixed ` 2`.
 - Session lifetime is coupled to the Emacs daemon (accepted trade-off, R3.3).
 
+## Windows (NEMESIS)
+
+Both Go tools build for Windows from the same pinned commits
+(`GOOS=windows GOARCH=amd64 go build`); the only platform code is the
+process-liveness probe in `procalive_{unix,windows}.go`. Setup, paths,
+the at-logon task and health checks for the Windows box live in
+[`windows/README.md`](../../windows/README.md#syzygy-phone-access-acp-mobile-on-nemesis).
+Scope there is view-and-reply on existing Claude chats; the SYZYGY Lisp
+that drives presets, history and resume is not loaded by the Windows Emacs.
+
 ## Wake-on-LAN facts (this M4)
 
 - `pmset -g | grep womp` → already `1`

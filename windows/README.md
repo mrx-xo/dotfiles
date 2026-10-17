@@ -15,6 +15,73 @@ Personal Windows configs, managed as symlinks from this repo.
 The repo is the source of truth — edit files here (or in their live location, since
 they're symlinked, it's the same file) and git tracks the changes.
 
+## Shared Emacs picker behavior
+
+Both Emacs configs load
+[`mr-x-minibuffer.el`](../macos/emacs/.emacs.d/lisp/mr-x-minibuffer.el).
+Its location under `macos/` is historical; edit this one module for both
+platforms instead of adding separate Consult/Vertico interaction settings.
+Package installation remains in each platform's init file.
+
+`C-s` starts with empty input; the symbol at point remains available in
+search history. In the bottom picker, Enter accepts the highlighted command,
+search result, or file. A selected directory is entered without closing the
+picker. Directory-aware deletion and picker sizing also match the Mac.
+This does not change Corfu completion popups inside editing buffers.
+
+After editing, load the module with `M-x load-file` in the running Emacs;
+no daemon restart is needed. If search still prefills or Enter returns partial
+input, check for later platform overrides of `consult-line`'s `:initial` or
+`vertico-map`'s `RET`, then reload the module. To roll back, restore the prior
+module and matching init changes together, and load the restored settings.
+
+Behavior tests live in
+[`minibuffer-tests.el`](../macos/emacs/.emacs.d/tests/minibuffer-tests.el).
+Run them with the installed Consult/Vertico packages on each platform.
+Window placement and Super-key delivery are separate work.
+
+## SYZYGY phone access (acp-mobile on NEMESIS)
+
+The same Go pair the Macs run, cross-compiled for Windows. Emacs starts
+Claude through `acp-multiplex.exe`, which exposes each session as a Unix
+socket under `%TEMP%\acp-multiplex\<pid>.sock`; `acp-mobile.exe` serves
+those to the phone on port 8090 behind `tailscale serve`, so the URL is
+`https://vengeance.<tailnet>.ts.net` and only the tailnet can reach it.
+Scope today is view and reply on existing Claude chats. New-chat presets,
+history/resume and the other phone controls call SYZYGY Lisp that the
+Windows Emacs does not load yet; they fail with an error instead of working.
+
+Pieces:
+
+- Binaries: `%USERPROFILE%\bin\acp-{multiplex,mobile}.exe`, built on the Mac
+  with `GOOS=windows GOARCH=amd64 go build` from `~/src/acp-multiplex` and
+  `~/src/acp-mobile` on the `syzygy` branches, then copied with
+  `scp ... vengeance:bin/`. `%USERPROFILE%\bin` is not on Emacs's PATH, so
+  `init.el` points `agent-shell-anthropic-claude-acp-command` at the absolute
+  exe when it exists and otherwise keeps the direct `claude-agent-acp`.
+- State: `%USERPROFILE%\.acp-mobile\` holds `authkey`, `link` (the URL to
+  open on the phone), `vapid.json`, and `out.log` / `err.log`. Go resolves
+  home to `%USERPROFILE%`; Emacs resolves `~` to `%APPDATA%`. Keep that in
+  mind before sharing a path between the two.
+- Startup: [`scripts/acp-mobile-task.ps1`](scripts/acp-mobile-task.ps1)
+  registers a hidden at-logon scheduled task (`acp-mobile`, S4U, no stored
+  password). `-Start` also (re)starts it now. HTTPS was enabled once with
+  `tailscale serve --bg 8090`; it persists.
+
+Health check, from NEMESIS:
+
+```
+powershell -NoProfile -Command "Get-ScheduledTask acp-mobile | Select -Expand State"
+dir %TEMP%\acp-multiplex
+type %USERPROFILE%\.acp-mobile\err.log
+```
+
+No `.sock` files means no Claude session has been started through the
+multiplex since the last reboot; the command variable only takes effect for
+shells started after `init.el` loaded with the exe present. Rotate the key by
+deleting `authkey` and restarting the task. Updating the binaries is a new
+cross-compile plus `scp`, then rerun the task script with `-Start`.
+
 ## Setup on a new machine
 
 1. Enable **Developer Mode** (Settings → Privacy & security → For developers),
