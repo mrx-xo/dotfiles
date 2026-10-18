@@ -121,8 +121,25 @@ be loaded."
 ;; ---------------------------------------------------------------------------
 
 (with-eval-after-load 'agent-shell
-  ;; S-<tab> cycles the session mode (permission level).
-  (define-key agent-shell-mode-map (kbd "<backtab>") #'agent-shell-cycle-session-mode)
+  ;; Pane tab navigation without Super/Windows-key interception.  Browser
+  ;; style: C-<tab> / C-S-<tab> cycle the pane's conversation tabs.  The
+  ;; GUI delivers shift-tab as C-S-<tab>; a TTY spells it C-S-<iso-lefttab>.
+  ;; This overrides upstream's C-<tab> session-mode cycle, which never got
+  ;; used; cycling stays reachable on the leader (SPC c m c).  The C-M
+  ;; arrows stay as a fallback; expression navigation is untouched elsewhere.
+  (define-key agent-shell-mode-map (kbd "C-<tab>") #'major-pane-next-tab)
+  (define-key agent-shell-mode-map (kbd "C-S-<tab>") #'major-pane-prev-tab)
+  (define-key agent-shell-mode-map (kbd "C-S-<iso-lefttab>") #'major-pane-prev-tab)
+  (define-key agent-shell-mode-map (kbd "C-M-<left>") #'major-pane-prev-tab)
+  (define-key agent-shell-mode-map (kbd "C-M-<right>") #'major-pane-next-tab)
+  (define-key agent-shell-mode-map (kbd "<backtab>") nil)
+  ;; evil-collection re-pins C-<tab> to the mode cycle in its normal-state
+  ;; auxiliary map, which outranks the mode map; override it per state.
+  (with-eval-after-load 'evil
+    (evil-define-key '(normal insert visual motion) agent-shell-mode-map
+      (kbd "C-<tab>")           #'major-pane-next-tab
+      (kbd "C-S-<tab>")         #'major-pane-prev-tab
+      (kbd "C-S-<iso-lefttab>") #'major-pane-prev-tab))
 
   ;; C-<return> sends the prompt from anywhere in the buffer — port of the
   ;; Mac binding.  `agent-shell-submit' is what plain RET runs (upstream
