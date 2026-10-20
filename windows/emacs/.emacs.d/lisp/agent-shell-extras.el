@@ -183,6 +183,31 @@ be loaded."
         (call-interactively #'agent-shell-yank-dwim)
       (message "Shell is busy — can't paste yet")))
 
+  ;; Text-first paste for insert-state C-v.  FluidVoice delivers a dictation
+  ;; by writing the transcript to the clipboard, sending Ctrl+V, then
+  ;; restoring the previous clipboard ~650ms later.  Upstream remaps `yank'
+  ;; to `agent-shell-yank-dwim', whose image probe is a synchronous
+  ;; `powershell Get-Clipboard -Format image' call that alone outlasts that
+  ;; window, so its trailing `yank' read the restored (old) clipboard.  Read
+  ;; the text straight away; only probe for an image when there is none.
+  ;; `p' keeps the image-first dwim.
+  (defun mr-x/agent-shell-paste-text-first ()
+    "Yank clipboard text at the prompt, else fall back to `agent-shell-yank-dwim'."
+    (interactive)
+    (let ((text (ignore-errors (gui-get-selection 'CLIPBOARD 'STRING))))
+      (cond
+       ((or (null text) (string-empty-p text))
+        (call-interactively #'agent-shell-yank-dwim))
+       ((progn
+          (unless (shell-maker-point-at-last-prompt-p)
+            (goto-char (point-max)))
+          (shell-maker-point-at-last-prompt-p))
+        (call-interactively #'yank))
+       (t
+        ;; Never drop a dictation: park it where `p' can fetch it.
+        (kill-new text)
+        (message "Shell is busy — transcript saved to the kill ring (p to paste)")))))
+
   (defun mr-x/agent-shell-clear-prompt ()
     "Clear the current prompt input in agent-shell."
     (interactive)
@@ -198,6 +223,8 @@ be loaded."
       (kbd "o") #'mr-x/agent-shell-smart-append
       (kbd "O") #'mr-x/agent-shell-smart-append
       (kbd "p") #'mr-x/agent-shell-smart-paste)
+    (evil-define-key 'insert agent-shell-mode-map
+      (kbd "C-v") #'mr-x/agent-shell-paste-text-first)
     ;; Win+Backspace clears the prompt (port of Mac's Cmd+Backspace).
     ;; C-<return> sends from either state (see the mode-map bind above;
     ;; repeated here so evil's insert-state map can't shadow it).

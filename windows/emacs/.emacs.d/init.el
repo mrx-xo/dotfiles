@@ -89,7 +89,15 @@
         evil-want-C-u-scroll t
         evil-undo-system 'undo-redo)
   :config
-  (evil-mode 1))
+  (evil-mode 1)
+  ;; FluidVoice (Windows dictation) delivers a transcript by writing the
+  ;; clipboard and sending a synthetic Ctrl+V, then restores the old clipboard
+  ;; ~650ms later. Evil's insert-state C-v is `evil-quoted-insert' and the
+  ;; global one is `scroll-up-command', so the paste silently vanished. Make
+  ;; C-v a clipboard yank everywhere except normal/visual state, where it
+  ;; stays `evil-visual-block'. C-q still does quoted-insert.
+  (global-set-key (kbd "C-v") #'yank)
+  (define-key evil-insert-state-map (kbd "C-v") #'yank))
 
 (use-package evil-collection
   :after evil
