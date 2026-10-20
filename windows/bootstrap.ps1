@@ -178,6 +178,31 @@ if ((Test-Path $ahkExe) -and (Test-Path $gamePauseScript)) {
 }
 
 # ---------------------------------------------------------------------------
+# FluidVoice overlay keep-on-top (AutoHotkey) — autostart on login.
+# Works around altic-dev/FluidVoice#996 (Windows 0.0.10): the dictation pill
+# is shown without activation but never re-asserted topmost, so on a
+# multi-monitor desktop it lands behind the foreground app. No hotkeys; see
+# autohotkey\fluid-overlay-topmost.ahk. Drop this block once upstream fixes it.
+# ---------------------------------------------------------------------------
+$fluidOverlayScript = "$repo\autohotkey\fluid-overlay-topmost.ahk"
+
+if ((Test-Path $ahkExe) -and (Test-Path $fluidOverlayScript)) {
+    $ws = New-Object -ComObject WScript.Shell
+    $fluidOverlayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "FluidVoice Overlay.lnk"
+    if (-not (Test-StartupDisabled $fluidOverlayLnk)) {
+        $sc = $ws.CreateShortcut($fluidOverlayLnk)
+        $sc.TargetPath       = $ahkExe
+        $sc.Arguments        = "`"$fluidOverlayScript`""
+        $sc.WorkingDirectory = Split-Path $fluidOverlayScript -Parent
+        $sc.Description       = "Keep the FluidVoice dictation overlay on top"
+        $sc.Save()
+        Write-Host "Created FluidVoice overlay shortcut -> $fluidOverlayLnk" -ForegroundColor Green
+    }
+} else {
+    Write-Host "AutoHotkey or fluid-overlay-topmost.ahk not found - skipping FluidVoice overlay shortcut." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
 # OBS Skate clip hotkey (AutoHotkey) — autostart on login.
 # Win+Shift+O launches OBS armed for Skate (Skate profile/scene + replay buffer,
 # minimized to tray); tap F10 after a trick to save the last 5 min to
