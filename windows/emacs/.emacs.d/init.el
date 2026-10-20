@@ -65,7 +65,17 @@
                ((member "Consolas"           (font-family-list)) "Consolas 13"))))
     (when font
       (set-frame-font font nil t)                          ; all current frames
-      (add-to-list 'default-frame-alist `(font . ,font))))) ; future frames
+      (add-to-list 'default-frame-alist `(font . ,font)))  ; future frames
+    ;; Symbol fallback.  Left alone, Emacs on Windows sends Dingbats and the
+    ;; geometric blocks to MS Gothic, which claims the ranges but lacks the
+    ;; org-modern heading stars (U+2726 drew as a hex box).  Segoe UI Symbol
+    ;; ships with Windows and has all of them.  Needs a GUI frame, same as
+    ;; the font above, hence inside this function.
+    (when (member "Segoe UI Symbol" (font-family-list))
+      (dolist (range '((#x2700 . #x27BF)      ; Dingbats: ❖ ✦ ✧
+                       (#x2B00 . #x2BFF)      ; Misc Symbols and Arrows: ⬡
+                       (#x25A0 . #x25FF)))    ; Geometric Shapes: ◈ ◇ ▸
+        (set-fontset-font t range "Segoe UI Symbol" nil 'prepend)))))
 
 (if (daemonp)
     ;; No GUI frame at daemon startup — set the font once a client frame opens.
@@ -176,6 +186,11 @@
 ;; Needs an Emacs built with Harfbuzz (standard on Windows 28+).
 ;; If glyphs look broken, check (bound-and-true-p emacs-version) >= 28 + harfbuzz.
 (use-package ligature
+  :custom
+  ;; Not in org: the set below composes "**"/"***" into one glyph, and once
+  ;; org-modern has replaced the last star and org-hide has blanked the rest,
+  ;; the leftover composition drew a stray asterisk after every heading star.
+  (ligature-ignored-major-modes '(minibuffer-inactive-mode org-mode))
   :config
   ;; Enable the standard Fira Code ligature set in all programming + text buffers.
   (ligature-set-ligatures
@@ -247,24 +262,66 @@
   (corfu-auto-prefix 2))
 
 ;; ---------- Org ----------
+;; Keyword colours: the Mac's dark palette (mr-x/palettes in emacs.org:
+;; red, orange, mint, muted) as text, not pill backgrounds.
+;; Top level, not :init, because use-package expands :custom before :init.
+(defconst my/org-todo-faces
+  '(("TODO"      . (:foreground "#FF1800" :weight bold))
+    ("NEXT"      . (:foreground "#fe8019" :weight bold))
+    ("WAIT"      . (:foreground "#B7CBA8" :weight bold))
+    ("DONE"      . (:foreground "#62656A" :weight bold))
+    ("CANCELLED" . (:foreground "#62656A" :weight bold)))
+  "TODO keyword faces used by both org and org-modern.")
+
 (use-package org
   :ensure nil                          ; built-in
   :custom
   (org-startup-indented t)             ; clean nested indentation
   (org-pretty-entities t)              ; \alpha -> α
   (org-hide-emphasis-markers t)        ; hide the *_/ markup chars
-  (org-ellipsis " ▾")                  ; nicer fold indicator
+  (org-ellipsis " ‧")                  ; fold indicator, same dot as the Mac
   (org-startup-folded 'content)        ; open folded to headings
   (org-log-done 'time)                 ; stamp a time when you mark DONE
   (org-src-fontify-natively t)         ; syntax-highlight code blocks
   (org-edit-src-content-indentation 0)
   (org-todo-keywords
-   '((sequence "TODO(t)" "NEXT(n)" "WAIT(w)" "|" "DONE(d)" "CANCELLED(c)"))))
+   '((sequence "TODO(t)" "NEXT(n)" "WAIT(w)" "|" "DONE(d)" "CANCELLED(c)")))
+  (org-todo-keyword-faces my/org-todo-faces)
+  :config
+  ;; Heading faces ported from the Mac emacs.org: a gruvbox ramp down the
+  ;; levels (orange, gold, green, aqua, purple, then two greys), level 1
+  ;; slightly larger.
+  (custom-set-faces
+   '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+   '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+   '(org-level-3 ((t (:foreground "#b8bb26"))))
+   '(org-level-4 ((t (:foreground "#8ec07c"))))
+   '(org-level-5 ((t (:foreground "#d3869b"))))
+   '(org-level-6 ((t (:foreground "#505050"))))
+   '(org-level-7 ((t (:foreground "#404040"))))
+   '(org-link ((t (:foreground "#83a598" :underline t))))))
 
 (use-package org-modern              ; modern, clean org styling
   :after org
   :hook ((org-mode . org-modern-mode)
-         (org-agenda-finalize . org-modern-agenda)))
+         (org-agenda-finalize . org-modern-agenda))
+  :custom
+  ;; Same heading bullets as the Mac, one glyph per level.
+  (org-modern-star 'replace)
+  (org-modern-replace-stars "❖✦⬡◈✧◇▸")
+  (org-modern-hide-stars nil)
+  (org-modern-table nil)
+  ;; Foreground-only faces: org-modern then skips its inverse-video
+  ;; `org-modern-todo' label, so keywords are coloured text, no background.
+  (org-modern-todo-faces my/org-todo-faces)
+  :config
+  ;; org-modern pads each keyword with a space on both sides (hardcoded
+  ;; display properties, the pill's inner padding).  Without a pill that
+  ;; is just a two-space gap on either side of TODO, so drop it.
+  (defun my/org-modern-todo-unpad ()
+    "Remove the display padding org-modern puts around a TODO keyword."
+    (remove-list-of-text-properties (match-beginning 1) (match-end 1) '(display)))
+  (advice-add 'org-modern--todo :after #'my/org-modern-todo-unpad))
 
 ;; ---------- Dired ----------
 (use-package dired
