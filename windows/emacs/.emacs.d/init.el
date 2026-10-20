@@ -99,6 +99,31 @@
   (global-set-key (kbd "C-v") #'yank)
   (define-key evil-insert-state-map (kbd "C-v") #'yank))
 
+;; FluidVoice bridge. autohotkey\fluidvoice.ahk swallows Fluid's injected
+;; Ctrl+V while an Emacs frame is foreground, writes the transcript to a
+;; file and calls this through emacsclient. Any clipboard read from inside
+;; Emacs races Fluid's ~650ms clipboard restore whenever Emacs is busy (it
+;; pasted older transcripts); handing the text over directly cannot.
+(defun mr-x/fluid-insert-file (file)
+  "Insert the FluidVoice transcript held in FILE where the user is typing.
+In an agent-shell, jump to the prompt first. The text also goes on the
+kill ring, so `p' recovers it if the insertion is refused."
+  (let ((text (with-temp-buffer
+                (let ((coding-system-for-read 'utf-8))
+                  (insert-file-contents file))
+                (buffer-string)))
+        (frame (or (seq-find #'frame-focus-state (frame-list))
+                   (selected-frame))))
+    (kill-new text)
+    (with-selected-window (frame-selected-window frame)
+      (when (and (derived-mode-p 'agent-shell-mode)
+                 (not (shell-maker-point-at-last-prompt-p)))
+        (goto-char (point-max)))
+      (condition-case err
+          (insert-for-yank text)
+        (error (message "FluidVoice: %s — transcript saved to the kill ring (p to paste)"
+                        (error-message-string err)))))))
+
 (use-package evil-collection
   :after evil
   :config

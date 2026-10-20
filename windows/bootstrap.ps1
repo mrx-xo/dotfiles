@@ -178,28 +178,28 @@ if ((Test-Path $ahkExe) -and (Test-Path $gamePauseScript)) {
 }
 
 # ---------------------------------------------------------------------------
-# FluidVoice overlay keep-on-top (AutoHotkey) — autostart on login.
-# Works around altic-dev/FluidVoice#996 (Windows 0.0.10): the dictation pill
-# is shown without activation but never re-asserted topmost, so on a
-# multi-monitor desktop it lands behind the foreground app. No hotkeys; see
-# autohotkey\fluid-overlay-topmost.ahk. Drop this block once upstream fixes it.
+# FluidVoice glue (AutoHotkey) — autostart on login.
+# Two Windows 0.0.10 workarounds: keeps the dictation overlay on top
+# (altic-dev/FluidVoice#996, it lands behind apps on multi-monitor) and
+# bridges dictation into Emacs without the clipboard race. No hotkeys; see
+# autohotkey\fluidvoice.ahk. Drop this block once upstream fixes both.
 # ---------------------------------------------------------------------------
-$fluidOverlayScript = "$repo\autohotkey\fluid-overlay-topmost.ahk"
+$fluidScript = "$repo\autohotkey\fluidvoice.ahk"
 
-if ((Test-Path $ahkExe) -and (Test-Path $fluidOverlayScript)) {
+if ((Test-Path $ahkExe) -and (Test-Path $fluidScript)) {
     $ws = New-Object -ComObject WScript.Shell
-    $fluidOverlayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "FluidVoice Overlay.lnk"
-    if (-not (Test-StartupDisabled $fluidOverlayLnk)) {
-        $sc = $ws.CreateShortcut($fluidOverlayLnk)
+    $fluidLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "FluidVoice.lnk"
+    if (-not (Test-StartupDisabled $fluidLnk)) {
+        $sc = $ws.CreateShortcut($fluidLnk)
         $sc.TargetPath       = $ahkExe
-        $sc.Arguments        = "`"$fluidOverlayScript`""
-        $sc.WorkingDirectory = Split-Path $fluidOverlayScript -Parent
-        $sc.Description       = "Keep the FluidVoice dictation overlay on top"
+        $sc.Arguments        = "`"$fluidScript`""
+        $sc.WorkingDirectory = Split-Path $fluidScript -Parent
+        $sc.Description       = "FluidVoice glue: overlay on top, dictation into Emacs"
         $sc.Save()
-        Write-Host "Created FluidVoice overlay shortcut -> $fluidOverlayLnk" -ForegroundColor Green
+        Write-Host "Created FluidVoice shortcut -> $fluidLnk" -ForegroundColor Green
     }
 } else {
-    Write-Host "AutoHotkey or fluid-overlay-topmost.ahk not found - skipping FluidVoice overlay shortcut." -ForegroundColor Yellow
+    Write-Host "AutoHotkey or fluidvoice.ahk not found - skipping FluidVoice shortcut." -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------
