@@ -4,6 +4,9 @@ local M = {}
 function M.new(api, config)
   local self = {config = config, generation = 0, attempts = 0, lastResult = "idle"}
   local log = api.logger.new("sidecar", "info")
+  -- Automatic attempts per wake/unlock. Every failed attempt makes macOS
+  -- show its own "Unable to connect" alert, so the default is one.
+  local maxAttempts = tonumber(config.maxAttempts) or 1
 
   function self:connected()
     for _, screen in ipairs(api.screen.allScreens()) do
@@ -45,7 +48,7 @@ function M.new(api, config)
         log.w("Connection failed: " .. self.lastResult)
         if manual then
           api.alert.show("Sidecar failed: wake and unlock your iPad, then retry")
-        elseif self.attempts < 4 then
+        elseif self.attempts < maxAttempts then
           self.timer = api.timer.doAfter(15, function()
             self.timer = nil
             self:attempt(false)

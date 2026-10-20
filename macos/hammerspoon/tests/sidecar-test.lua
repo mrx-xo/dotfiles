@@ -38,6 +38,7 @@ local function fixture(connected, wake)
     end
     error("No pending timer for " .. delay)
   end
+  f.api = api
   local module = assert(loadfile(path))()
   f.controller = module.new(api, {device = "Test iPad", binary = "/test/SidecarLauncher",
     wakeBinary = wake and "/test/pymobiledevice3" or nil, wakeDevice = wake and "test-udid" or nil})
@@ -65,8 +66,23 @@ test("manual request connects configured device and suppresses duplicate request
   assert(#f.alerts == 1)
 end)
 
-test("login and wake schedule one connection, with bounded retries", function()
+test("login and wake schedule one connection and no retry by default", function()
   local f = fixture(false)
+  f.controller:start()
+  f.event(1); f.event(2)
+  f:fire(5)
+  assert(#f.tasks == 1)
+  f.tasks[1].callback(4, "device locked", "")
+  assert(#f.tasks == 1, "a failed automatic attempt must not retry")
+  for _, timer in ipairs(f.timers) do assert(timer.stopped) end
+  assert(#f.alerts == 0, "automatic failures must be quiet")
+end)
+
+test("maxAttempts opts into bounded retries", function()
+  local f = fixture(false)
+  f.controller.config.maxAttempts = 4
+  local module = assert(loadfile(path))()
+  f.controller = module.new(f.api, f.controller.config)
   f.controller:start()
   f.event(1); f.event(2)
   f:fire(5)
