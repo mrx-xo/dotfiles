@@ -200,6 +200,113 @@ kill ring, so `p' recovers it if the insertion is refused."
 ;; The SPC c (agent-shell) map lives in lisp/agent-shell-extras.el, where
 ;; it mirrors the Mac's map key for key.
 
+;; ---------- Terminal (SPC v) ----------
+;; vterm and eat need a Unix pty, which native Windows Emacs doesn't have.
+;; ghostel is the first real terminal here: libghostty-vt in a Zig dynamic
+;; module, ConPTY underneath on Windows.  It takes vterm's seat in the SPC v
+;; group (same letters as the Mac), eshell drops to SPC v e, and Windows
+;; Terminal stays on SPC v V for anything that wants its own window.
+(use-package ghostel
+  :custom
+  ;; `ghostel-shell' defaults to $SHELL, which this Emacs build sets to its
+  ;; own cmdproxy.exe.  pwsh 7 is not installed; 5.1 carries the riced
+  ;; profile from windows/powershell/.
+  (ghostel-shell '("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+                   "-NoLogo"))
+  ;; Keep the DLL out of elpa/: Windows cannot delete a loaded DLL, so a
+  ;; package upgrade would fail halfway with the module in use.
+  (ghostel-module-directory (expand-file-name "ghostel/" user-emacs-directory))
+  ;; First use fetches the prebuilt module plus Microsoft's ConPTY
+  ;; redistributable from GitHub releases instead of asking.
+  (ghostel-module-auto-install 'download))
+
+;; Cursor/point sync for evil states; insert state on entry.
+(use-package evil-ghostel
+  :after (ghostel evil)
+  :hook (ghostel-mode . evil-ghostel-mode))
+
+;; eshell visual commands (less, htop, lazygit...) run in a ghostel buffer.
+(use-package ghostel-eshell
+  :ensure ghostel
+  :hook (eshell-load . ghostel-eshell-visual-command-mode))
+
+;; Popups share the bottom slot: the popup ghostel gets its own buffer name
+;; so plain `ghostel' buffers (SPC v b) are left to display normally.
+(defconst mr-x/ghostel-popup-name "*ghostel-popup*"
+  "Buffer name of the SPC v v ghostel popup.")
+
+(add-to-list 'display-buffer-alist
+             `(,(regexp-quote mr-x/ghostel-popup-name)
+               (display-buffer-in-side-window)
+               (side . bottom)
+               (window-height . 0.3)))
+
+(add-to-list 'display-buffer-alist
+             '("\\*.*eshell\\*"
+               (display-buffer-in-side-window)
+               (side . bottom)
+               (window-height . 0.3)))
+
+(defun mr-x/ghostel-popup ()
+  "Toggle a bottom ghostel popup, started at the project root when in one."
+  (interactive)
+  (let ((win (get-buffer-window mr-x/ghostel-popup-name)))
+    (if win
+        (delete-window win)
+      (let ((default-directory (if (project-current)
+                                   (project-root (project-current))
+                                 default-directory))
+            (ghostel-buffer-name mr-x/ghostel-popup-name))
+        (ghostel)))))
+
+(defun mr-x/ghostel-in-dir ()
+  "Open a new ghostel in a directory chosen via prompt."
+  (interactive)
+  (let ((default-directory (read-directory-name "ghostel dir: ")))
+    (ghostel-new)))
+
+(defun mr-x/eshell-popup ()
+  "Toggle a bottom eshell, at the project root when in a project."
+  (interactive)
+  (let ((win (seq-find (lambda (w)
+                         (eq (buffer-local-value 'major-mode (window-buffer w))
+                             'eshell-mode))
+                       (window-list))))
+    (if win
+        (delete-window win)
+      (if (project-current)
+          (project-eshell)
+        (eshell)))))
+
+(defun mr-x/windows-terminal-here ()
+  "Open a Windows Terminal tab at the project root, else `default-directory'."
+  (interactive)
+  (let* ((proj (project-current))
+         (dir (if proj (project-root proj) default-directory))
+         ;; No trailing backslash: wt reads \" as an escaped quote.
+         (dir (subst-char-in-string
+               ?/ ?\\ (directory-file-name (expand-file-name dir)))))
+    (start-process "wt" nil "wt.exe" "-w" "0" "nt" "-d" dir)))
+
+;; Insert-state RET in eshell runs `newline' instead of sending the command
+;; (same evil-collection snag agent-shell has below).  Make it send.
+(with-eval-after-load 'esh-mode
+  (with-eval-after-load 'evil
+    (evil-define-key '(normal insert) eshell-mode-map
+      (kbd "RET") #'eshell-send-input
+      [return]    #'eshell-send-input)))
+
+(with-eval-after-load 'general
+  (mr-x/leader-def
+    "v"   '(:ignore t :wk "terminal")
+    "v v" '(mr-x/ghostel-popup :wk "ghostel popup")
+    "v b" '(ghostel :wk "ghostel buffer")
+    "v n" '(ghostel-new :wk "new ghostel")
+    "v d" '(mr-x/ghostel-in-dir :wk "ghostel in dir")
+    "v e" '(mr-x/eshell-popup :wk "eshell popup")
+    "v E" '(eshell :wk "eshell buffer")
+    "v V" '(mr-x/windows-terminal-here :wk "Windows Terminal (project)")))
+
 ;; Window-layout undo/redo for SPC h / SPC l.
 (winner-mode 1)
 

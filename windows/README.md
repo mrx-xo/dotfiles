@@ -15,6 +15,35 @@ Personal Windows configs, managed as symlinks from this repo.
 The repo is the source of truth — edit files here (or in their live location, since
 they're symlinked, it's the same file) and git tracks the changes.
 
+## Terminal in Emacs (ghostel)
+
+vterm and eat need a Unix pty, so native Windows Emacs went without a real
+terminal until [ghostel](https://github.com/dakra/ghostel): libghostty-vt (the
+Ghostty VT engine) in a Zig dynamic module, driving ConPTY on Windows. It takes
+vterm's seat in the `SPC v` group, same letters as the Mac:
+
+- `SPC v v` toggle a bottom ghostel popup (project root when in a project)
+- `SPC v b` ghostel as a normal buffer, `SPC v n` a fresh one, `SPC v d` in a chosen dir
+- `SPC v e` / `SPC v E` eshell popup / buffer (eshell visual commands open in ghostel)
+- `SPC v V` Windows Terminal tab at the project root
+
+The shell is Windows PowerShell 5.1 with the riced profile (pwsh 7 is not
+installed). First `SPC v v` downloads the prebuilt module and Microsoft's ConPTY
+redistributable from GitHub releases into `%APPDATA%\.emacs.d\ghostel\`, kept out
+of `elpa\` because Windows cannot delete a loaded DLL during a package upgrade.
+`M-x ghostel-download-module` refreshes it after a ghostel update.
+
+Tests (config only, no terminal spawned):
+
+```bash
+cd ~/dotfiles/windows/emacs/.emacs.d && env -u HOME emacs --batch \
+  -l "$APPDATA/.emacs.d/init.el" -l tests/ghostel-test.el -f ert-run-tests-batch-and-exit
+```
+
+`env -u HOME` matters: Git Bash exports `HOME=C:\Users\<you>`, which makes Emacs
+put `~` there, while the daemon (no `HOME`) uses `%APPDATA%`. Without it a batch
+run reinstalls every package into a second `C:\Users\<you>\.emacs.d`.
+
 ## Setup on a new machine
 
 1. Enable **Developer Mode** (Settings → Privacy & security → For developers),
