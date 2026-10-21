@@ -39,7 +39,7 @@
       --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: var(--red); --line: #262a33;
     }
   }
-  :root[data-theme="dark"] {
+  :root[data-theme="dark"], html.widget.overlay {
     --bg: #131519; --panel: #1a1d23; --cap: #232730; --cap-hi: #2a2f3a;
     --cap-edge: #343947; --cap-shadow: #0d0f13; --ink: #e6e8ee; --muted: #8b8f99;
     --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
@@ -382,6 +382,19 @@
   html.widget .controls { margin-bottom: 8px; }
   html.widget .tabs button { font-size: 11px; padding: 4px 10px; }
   html.widget .boardbox { overflow: hidden; }
+  /* Hammerspoon enables window transparency only for the summoned overlay.
+     Keep keycaps opaque so text stays legible over a busy application. */
+  html.widget.overlay { background: transparent; }
+  html.widget.overlay body { background: transparent; padding: 12px; }
+  html.widget.overlay .wrap {
+    background: rgba(19, 21, 25, .88);
+    border: 1px solid rgba(230, 232, 238, .22);
+    border-radius: 20px;
+    padding: 14px;
+  }
+  html.widget.overlay .boardbox { background: transparent; border-color: rgba(230, 232, 238, .12); }
+  html.widget.overlay .tabs button { background: #232730; color: #e6e8ee; }
+  html.widget.overlay .tabs button.on { border-color: #8b8f99; background: #343947; }
 </style>
 
 <div class="wrap">

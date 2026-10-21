@@ -15,8 +15,23 @@ local RECTS = {
 
 -- ---- webviews --------------------------------------------------------------
 local views = {}      -- board id -> hs.webview
+local readyViews = {} -- JavaScript must wait for didFinishNavigation
 local visible = true  -- recreated visible by default on every reload
+local overlayScreen = nil -- UUID while summoned; wallpaper visibility is kept separately
 local lastModsJS = "window.__setMods({cmd:false,alt:false,shift:false,ctrl:false,fn:false})"
+
+local function applyPresentation(wv)
+  local overlay = overlayScreen ~= nil
+  wv:level(overlay and hs.drawing.windowLevels.floating or hs.drawing.windowLevels.desktopIcon)
+  wv:transparent(overlay)
+  wv:shadow(overlay)
+  wv:behaviorAsLabels(overlay and {"canJoinAllSpaces", "stationary", "fullScreenAuxiliary"}
+    or {"canJoinAllSpaces", "stationary"})
+  if readyViews[wv] then
+    wv:evaluateJavaScript('document.documentElement.classList.toggle("overlay",'
+      .. tostring(overlay) .. ');window.dispatchEvent(new Event("resize"))')
+  end
+end
 
 local function makeView(hash, initJS)
   local wv = hs.webview.new(hs.geometry.rect(0, 0, 100, 100))
@@ -28,8 +43,10 @@ local function makeView(hash, initJS)
   wv:navigationCallback(function(action, webview)
     -- don't evaluateJavaScript before the page is ready (PRD edge case)
     if action == "didFinishNavigation" then
+      readyViews[webview] = true
       webview:evaluateJavaScript(lastModsJS)
       if initJS then webview:evaluateJavaScript(initJS) end
+      applyPresentation(webview)
     end
   end)
   wv:url("file://" .. HTML .. hash)
@@ -39,16 +56,43 @@ end
 views.ir = makeView("#widget")
 M.views = views   -- reachable from `hs -c` for debugging
 
--- position on the portrait display, or hide when it's absent / toggled off
+-- Resolve yabai's live numbering, not Hammerspoon's screen enumeration order.
+local function displayScreen(index)
+  local suffix = ""
+  if index ~= nil then
+    index = tonumber(index)
+    if not index or index % 1 ~= 0 or index < 1 or index > 5 then return nil end
+    suffix = " " .. index
+  end
+  local output, ok = hs.execute("/opt/homebrew/bin/yabai -m query --displays --display" .. suffix)
+  if not ok then return nil end
+  local decoded, display = pcall(hs.json.decode, output)
+  if not decoded or type(display) ~= "table" or type(display.uuid) ~= "string" then return nil end
+  return hs.screen.find(display.uuid)
+end
+
+-- Popup placement follows a screen UUID through display renumbering.
 local function place()
-  local screen = hs.screen.find(SCREEN_PATTERN)
-  if not screen or not visible then
+  local screen
+  if overlayScreen then
+    screen = hs.screen.find(overlayScreen) or displayScreen() or hs.screen.mainScreen()
+    if screen then overlayScreen = screen:getUUID() end
+  else
+    screen = hs.screen.find(SCREEN_PATTERN)
+  end
+  if not screen or (not overlayScreen and not visible) then
     for _, wv in pairs(views) do wv:hide() end
     return
   end
   local f = screen:frame()
   for id, wv in pairs(views) do
     local r = RECTS[id]
+    if overlayScreen then
+      local width = math.min(1080, f.w - 48)
+      local height = math.min(520, f.h - 48, width * 520 / 1080)
+      r = {x = (f.w - width) / 2, y = (f.h - height) / 2, w = width, h = height}
+    end
+    applyPresentation(wv)
     wv:frame(hs.geometry.rect(f.x + r.x, f.y + r.y, r.w, r.h))
     wv:show()
   end
@@ -57,6 +101,33 @@ end
 function M.toggle()
   visible = not visible
   place()
+end
+
+function M.toggleOverlay()
+  if overlayScreen then
+    overlayScreen = nil
+    -- Reset even if the wallpaper was hidden before summoning.
+    for _, wv in pairs(views) do applyPresentation(wv) end
+  else
+    local screen = displayScreen() or hs.screen.mainScreen()
+    if not screen then return end
+    overlayScreen = screen:getUUID()
+  end
+  place()
+end
+
+-- Return a routing result for skhd's helper. A missing destination consumes
+-- the action while summoned; it must never move the underlying app instead.
+function M.moveToDisplay(index)
+  if not overlayScreen then return "inactive" end
+  local screen = displayScreen(index)
+  if not screen then
+    hs.alert.show("Keymap: display unavailable")
+    return "unavailable"
+  end
+  overlayScreen = screen:getUUID()
+  place()
+  return "moved"
 end
 
 -- ---- live modifiers: one eventtap fans out to every webview ----------------
@@ -175,6 +246,7 @@ end
 
 hs.hotkey.bind({ "cmd", "ctrl" }, "K", M.toggle)
 hs.hotkey.bind({ "cmd", "ctrl", "shift" }, "K", M.toggleKeys)
+hs.hotkey.bind({ "cmd", "ctrl", "alt" }, "K", M.toggleOverlay)
 
 place()
 
