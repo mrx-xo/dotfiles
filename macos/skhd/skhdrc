@@ -62,22 +62,23 @@ hyper - t : yabai -m window --toggle float
 
 hyper - f : yabai -m window --toggle zoom-fullscreen
 
-# move window to specific monitor by label
+# Move the summoned keymap overlay, otherwise the focused window; follow it.
+# Numbers are yabai's current display indices (they can change on disconnect).
 
 # Laptop display
-hyper - 1 : yabai -m window --display 1; yabai -m display --focus 1
+hyper - 1 : ~/.dotfiles/macos/scripts/keymap-display.sh 1
 
 # Vertical Monitor
-hyper - 2 : yabai -m window --display 2; yabai -m display --focus 2
+hyper - 2 : ~/.dotfiles/macos/scripts/keymap-display.sh 2
 
 # Main Left Monitor
-hyper - 3 : yabai -m window --display 3; yabai -m display --focus 3
+hyper - 3 : ~/.dotfiles/macos/scripts/keymap-display.sh 3
 
 # Main Right Monitor
-hyper - 4 : yabai -m window --display 4; yabai -m display --focus 4
+hyper - 4 : ~/.dotfiles/macos/scripts/keymap-display.sh 4
 
 # iPad (Sidecar)
-hyper - 5 : yabai -m window --display 5; yabai -m display --focus 5
+hyper - 5 : ~/.dotfiles/macos/scripts/keymap-display.sh 5
 
 # Focus only - no window movement
 meh - 1 : yabai -m display --focus 1

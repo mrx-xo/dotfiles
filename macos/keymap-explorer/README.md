@@ -107,12 +107,47 @@ wallpaper widget (`~/.dotfiles/macos/hammerspoon/keymap-widget.lua`) renders
 it on the portrait Dell. See `live-keymap-widget-prd.md`.
 
 - ⌘⌃K (or `hs -c "keymapWidget.toggle()"`) hides and shows it.
+- ⌘⌃⌥K (`Cmd+Ctrl+Alt+K`, or `hs -c "keymapWidget.toggleOverlay()"`)
+  summons a translucent floating panel on yabai's currently focused display.
+  Press again to return to the previous wallpaper/hidden state. Summoning
+  leaves keyboard focus in your working app; layer tracking and key flashes
+  continue using the same webview.
+- **Meh + 1–5** selects a display before summoning. While the overlay is
+  visible, **Hyper + 1–5** moves it to that display and follows it, using
+  the same current yabai numbering as skhd. With the overlay closed, those
+  keys move the focused application as usual. Display focus can select a
+  different application on the destination, just like the existing shortcut.
+  An unavailable destination leaves the overlay in place. If its monitor
+  disconnects, it relocates to the focused display (or the main display).
 - ⌘⌃⇧K (or `hs -c "keymapWidget.toggleKeys()"`) turns per-keypress flash
   on and off. Off stops the eventtap entirely.
 - Live layer tracking reads the firmware's raw HID broadcast through
   `~/.dotfiles/macos/scripts/keymap-widget-hid.py`. It needs the broadcast
   build flashed (see ROADMAP.md); until then the widget stays on Base and
   the listener retries every 30 s.
+
+The floating panel stays above ordinary app windows and requests full-screen
+auxiliary behavior; native full-screen apps need separate live verification.
+Wallpaper mode still belongs to the portrait display. Its visibility toggle
+changes the saved wallpaper state while the floating panel is open.
+
+After editing the widget host, reload Hammerspoon with `hs -c 'hs.reload()'`;
+after editing shortcuts, run `skhd --reload`. Reloading Hammerspoon returns
+to visible wallpaper mode. If Hyper-number routing fails, check
+`macos/scripts/keymap-display.sh`: it falls back to ordinary yabai window
+movement when Hammerspoon is stopped. An IPC timeout or error leaves apps in
+place instead of guessing which window to move. Dismiss the overlay to restore
+normal window targeting without changing any configuration.
+
+Regression checks for display routing and presentation state:
+
+```bash
+python3 ~/.dotfiles/macos/scripts/tests/keymap-display.test.py
+```
+
+```bash
+hs -c 'dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/tests/keymap-widget-test.lua")'
+```
 
 Three globals let Hammerspoon (or the DevTools console) drive the page:
 
