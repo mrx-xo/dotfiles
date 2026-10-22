@@ -16,11 +16,21 @@ set -euo pipefail
 MAC="34:5A:60:C0:95:87"
 MM="${MONITOR_MODE_SH:-$HOME/.dotfiles/macos/scripts/monitor-mode.sh}"
 
-# KOMAX grammar: "fire nemesis" with no Dell armed (NYX only) must not wake
-# VENGEANCE; AIDOS on a sleeping PC is not a thing worth a summon.
-if [ "${1:-}" = fire ] && ! "$MM" armed | grep -qx 'romulus\|remus' \
-   && [ -n "$("$MM" armed)" ]; then
-  exec "$MM" "$@"
+# KOMAX grammar: snapshot the armed set once, here, so it cannot expire or be
+# pressed over during the wake, and pass it to fire explicitly. With no Dell
+# armed (NYX only) do not wake VENGEANCE: AIDOS on a sleeping PC is not a
+# thing worth a summon. Captured first, then tested: a grep -q on the live
+# pipe would SIGPIPE the second line and read as "no Dell" (pipefail).
+if [ "${1:-}" = fire ] && [ -n "${2:-}" ]; then
+  armed=$("$MM" armed | tr '\n' ' ')
+  "$MM" disarm
+  if [ -n "${armed// /}" ]; then
+    set -- "$1" "$2" $armed
+    case " $armed " in
+      *" romulus "*|*" remus "*) ;;
+      *) exec "$MM" "$@" ;;
+    esac
+  fi
 fi
 
 notify() {

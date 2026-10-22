@@ -20,8 +20,20 @@ function M.new(api, config)
   function self:held()
     if not config.holdPath then return false end
     local h = io.open(config.holdPath, "r")
-    if h then h:close(); return true end
-    return false
+    if not h then return false end
+    h:close()
+    return true
+  end
+
+  -- A connect made elsewhere (Control Center, the iPad) ends the AIDOS
+  -- session; a stale hold would silently block every later auto-connect.
+  -- Checked only when an automatic connect is about to be scheduled: right
+  -- after our own disconnect the Sidecar screen can still be enumerated for
+  -- a moment, so a check inside held() would drop a fresh hold.
+  function self:holding()
+    if not self:held() then return false end
+    if self:connected() then self:release(); return false end
+    return true
   end
 
   function self:hold()
@@ -150,7 +162,7 @@ function M.new(api, config)
   end
 
   function self:schedule()
-    if config.autoConnect == false or self.task or self:held() then return end
+    if config.autoConnect == false or self.task or self:holding() then return end
     self:cancel()
     self.attempts = 0
     self.timer = api.timer.doAfter(5, function()

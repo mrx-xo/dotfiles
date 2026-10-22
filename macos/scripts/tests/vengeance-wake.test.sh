@@ -11,12 +11,13 @@ for s in osascript python3; do
   printf '#!/usr/bin/env bash\necho "%s $*" >> "$HOME/calls.log"; exit 0\n' "$s" > "$T/bin/$s"
 done
 # VENGEANCE asleep: every ssh fails
-printf '#!/usr/bin/env bash\necho "ssh $*" >> "$HOME/calls.log"; exit 255\n' > "$T/bin/ssh"
+printf '#!/usr/bin/env bash\necho "ssh $*" >> "$HOME/calls.log"; [ -e "$HOME/awake" ] && exit 0; exit 255\n' > "$T/bin/ssh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/sleep"
 cat > "$T/bin/monitor-mode.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "monitor-mode $*" >> "$HOME/calls.log"
-[ "$1" = armed ] && cat "$HOME/armed-stub" 2>/dev/null
+# one write per line, like the real armed_list (grep -q closing the pipe early must not matter)
+[ "$1" = armed ] && while IFS= read -r l; do echo "$l"; done < "$HOME/armed-stub"
 exit 0
 STUB
 chmod +x "$T/bin/"*
@@ -32,6 +33,17 @@ check "only NYX armed: fire goes straight to monitor-mode" "monitor-mode fire ne
 printf 'romulus\nnyx\n' > "$T/armed-stub"
 run fire nemesis
 check "a Dell armed while asleep: magic packet sent" "python3" 0
+check "the armed set is cleared at entry so it cannot expire or be consumed twice" "monitor-mode disarm" 0
+
+touch "$T/awake"
+printf 'romulus\nnyx\n' > "$T/armed-stub"
+run fire nemesis
+check "awake fast path: the snapshot is passed to fire explicitly" "monitor-mode fire nemesis romulus nyx" 0
+rm -f "$T/awake"
+
+printf 'romulus\nremus\n' > "$T/armed-stub"
+run fire nemesis
+check "two Dells armed: magic packet still sent (no SIGPIPE false negative)" "python3" 0
 
 : > "$T/armed-stub"
 run fire nemesis
