@@ -571,7 +571,7 @@
 
   <!-- ================= komax (keychron k0 max) ================= -->
   <div id="app-km" hidden>
-    <p class="sub">The <b>Keychron K0 Max</b>, called <b>KOMAX</b>: a 27-key numpad with a macro column and a knob, QMK under Keychron's own firmware. <b>Stock keymap on the pad</b>: nothing programmed in Launcher yet. <b>Proposed v1</b> is the desk grammar from the KOMAX plan: tap the screens, then the machine. Hover any key for its keycode.</p>
+    <p class="sub">The <b>Keychron K0 Max</b>, called <b>KOMAX</b>: a 27-key numpad with a macro column and a knob, QMK, built from Keychron's fork like the Iris is built from mainline. <b>Stock keymap on the pad</b> until flash day. <b>Proposed v1</b> is the desk grammar from the KOMAX plan, compiled and waiting: tap the screens, then the machine. Hover any key for its keycode.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -632,7 +632,7 @@
       </div>
     </div>
 
-    <footer>layout ledger: stock = Keychron default (on the pad since 2026-10-19) &rarr; v1 = desk grammar (ready for Launcher, not on the pad) &middot; KOMAX ledger in VERSIONS.md &middot; source of truth: the pad's own memory, set in Keychron Launcher &middot; geometry: LAYOUT_tenkey_27 from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware, branch 2025q3) &middot; stock layers and encoder map from keymaps/default/keymap.c &middot; plan: docs/active/plans/2026-10-21-komax-desk-grammar.md</footer>
+    <footer>layout ledger: stock = Keychron default (on the pad since 2026-10-19) &rarr; v1 = desk grammar (built, flash pending) &middot; KOMAX ledger in VERSIONS.md &middot; source of truth: ~/qmk_keychron keyboards/keychron/k0_max/keymaps/mrx (Keychron fork, branch 2025q3, local branch mrx) &middot; geometry: LAYOUT_tenkey_27 from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware, branch 2025q3) &middot; stock layers and encoder map from keymaps/default/keymap.c &middot; plan: docs/active/plans/2026-10-21-komax-desk-grammar.md</footer>
   </div>
   </div>
 </div>
@@ -1191,7 +1191,7 @@ const pro1 = cur1.slice();   // unchanged, but nothing reaches it once #23 is NE
 const MAPS = { cur: [cur0, cur1], pro: [pro0, pro1] };
 const LAYOUTS = {
   cur: { status: 'on the pad — Keychron default keymap', name: 'stock' },
-  pro: { status: 'ready for Launcher — not on the pad yet', name: 'proposed v1' }
+  pro: { status: 'built, flash pending — not on the pad yet', name: 'proposed v1' }
 };
 
 // ---------- copy ----------
@@ -1202,24 +1202,25 @@ const REACH = {
   ],
   pro: [
     '<b>Screen, then machine.</b> Tap screens (<b>ROMULUS</b>, <b>REMUS</b>, <b>NYX</b>) to arm them, then a machine (<b>POLLUX</b>, <b>NEMESIS</b>, or the knob press for <b>WORK</b>) to send them there. Nothing armed: POLLUX or NEMESIS moves both Dells. Arming expires 3 s after the last screen tap. Greyed keys stay stock.',
-    '<span class="warn">unreachable on v1</span> (decided 2026-10-22). #23 becomes NEMESIS, so nothing holds Fn: Bluetooth slots, 2.4 GHz pairing, RGB and the media keys go with it. The pad stays on POLLUX through its 2.4 GHz dongle and Bluetooth is unused, so that is the planned cost. Re-pairing the dongle needs Fn: restore it in Launcher over USB-C first.'
+    '<span class="warn">unreachable on v1</span> (decided 2026-10-22). #23 becomes NEMESIS, so nothing holds Fn: Bluetooth slots, 2.4 GHz pairing, RGB and the media keys go with it. The pad stays on POLLUX through its 2.4 GHz dongle and Bluetooth is unused, so that is the planned cost. The layer is still in the firmware behind a hidden door: hold the <b>knob press</b> and <b>Enter</b> together, then tap <b>P2P4G</b> (#4) to re-pair the dongle or any lighting key.'
   ]
 };
 const NOTES = {
   cur: ['Stock keymap', [
-    'Keychron\'s <span class="k">keymaps/default</span> (qmk_firmware branch <span class="k">2025q3</span>, <span class="k">LAYOUT_tenkey_27</span>). Nothing has been programmed in Launcher yet.',
-    '<b>M1&ndash;M4 are empty macro slots</b> (<span class="k">MC_1</span>&ndash;<span class="k">MC_4</span>): they send nothing until Launcher assigns them.',
+    'Keychron\'s <span class="k">keymaps/default</span> (qmk_firmware branch <span class="k">2025q3</span>, <span class="k">LAYOUT_tenkey_27</span>), as shipped.',
+    '<b>M1&ndash;M4 are empty macro slots</b> (<span class="k">MC_1</span>&ndash;<span class="k">MC_4</span>): they send nothing.',
     '<b>The bottom-left key is Fn</b> (<span class="k">MO(1)</span>), not a fifth macro key.',
     '<b>Host-side stopgap, not on the pad:</b> while KOMAX sat on NEMESIS, <span class="k">pad-fluid.ahk</span> turned <span class="k">*</span> into F20 for Fluid dictation. The desk-grammar plan retires it.',
     '<b>No live layer tracking:</b> Keychron\'s firmware sends no raw-HID layer frame, so the widget stays on Base. Key flash still works.'
   ]],
-  pro: ['Proposed v1 (ready for Launcher)', [
+  pro: ['Proposed v1 (built, flash pending)', [
     'From the KOMAX desk-grammar plan: <b>M1</b> F13 ROMULUS, <b>M2</b> F14 REMUS, <b>M3</b> F15 NYX, <b>M4</b> F16 POLLUX, <b>M5</b> F17 NEMESIS, <b>knob press</b> F19 WORK. skhd turns each into <span class="k">monitor-mode.sh arm</span> or <span class="k">fire</span>.',
     '<b>Colour = machine:</b> green POLLUX, red NEMESIS, amber the work laptop. Blue keys are screens.',
     '<b>Decided 2026-10-22: NEMESIS takes the Fn key</b> (#23, cap printed Fn). The stock firmware has four macro slots plus Fn; the plan\'s M5 is that key. The Fn layer goes with it.',
-    '<b>Daily connection: the 2.4 GHz dongle on POLLUX</b> (decided 2026-10-22). The cable is only for Launcher. Re-pairing the dongle needs Fn, so restore Fn in Launcher first if it ever drops.',
+    '<b>Daily connection: the 2.4 GHz dongle on POLLUX</b> (decided 2026-10-22). The USB-C cable is for flashing. If the dongle ever drops: knob press + Enter opens the hidden Fn layer, then <span class="k">P2P4G</span> (#4) re-pairs.',
     '<b>Unchanged:</b> the numpad, the Esc / Del / Tab / Bksp row, and the knob turn (volume). Greyed in this view.',
-    'Set in <b>Keychron Launcher</b> over USB-C, not flashed. F13 to F19 because macOS ignores F20 and up from hardware keyboards.'
+    '<b>Compiled firmware, flashed like the Iris</b>: <span class="k">keymaps/mrx</span> in a checkout of Keychron\'s QMK fork, <span class="k">VIA_ENABLE = no</span> so Launcher cannot override it. F13 to F19 because macOS ignores F20 and up from hardware keyboards.',
+    '<b>Night lights:</b> "good night" / "good morning" send a raw-HID frame (tag <span class="k">0x4E</span>) that darkens the pad and restores its saved look, by cable or through the dongle. Same message as the Iris; <span class="k">keyboard-lights off|on</span> on POLLUX.'
   ]]
 };
 
@@ -1338,8 +1339,8 @@ function render() {
   document.getElementById('km-side-title').textContent = 'Programming (runbook: FLASHING.md)';
   document.getElementById('km-side-body').innerHTML =
     '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:17.5px">' +
-    '<li>Not flashed: keys are set in <b>Keychron Launcher</b> (<span class="k">launcher.keychron.com</span>, Chromium) and saved on the pad.</li>' +
-    '<li>Launcher needs the <b>USB-C cable</b>; the 2.4 GHz dongle and Bluetooth cannot program it.</li>' +
+    '<li>Compiled firmware: <span class="k">qmk compile -kb keychron/k0_max -km mrx</span> in <span class="k">~/qmk_keychron</span> (Keychron fork, branch 2025q3).</li>' +
+    '<li>Flash over the <b>USB-C cable</b>: hold <b>Esc</b> while plugging in (bootmagic), then <span class="k">qmk flash</span>. The dongle cannot flash it.</li>' +
     '<li>After a change, record it in the KOMAX ledger in <span class="k">VERSIONS.md</span> and update the data here.</li></ul>';
 }
 
@@ -1347,7 +1348,7 @@ const selA = document.getElementById('sel-km-a');
 const selB = document.getElementById('sel-km-b');
 for (const s of [selA, selB]) {
   s.add(new Option('Stock · on the pad', 'cur'));
-  s.add(new Option('Proposed v1 · ready for Launcher', 'pro'));
+  s.add(new Option('Proposed v1 · built, flash pending', 'pro'));
 }
 selA.value = sel1;
 selB.value = sel2;
