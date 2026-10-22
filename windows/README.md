@@ -151,10 +151,59 @@ GlazeWM's modifier, so you drive the WM from the home row.
 scoop install kanata vcredist2022
 ```
 
-Wired like GlazeWM: not symlinked — `bootstrap.ps1` makes a login shortcut running
-`kanata --cfg <repo file>`. Validate edits with `kanata --cfg kanata\kanata.kbd --check`.
-Tune `tap-time` / `hold-time` in the config if you get misfires. (kanata only remaps
-non-elevated windows unless it runs elevated.)
+### How it runs
+
+kanata runs as the **`kanata` scheduled task**: elevated (RunLevel Highest), at
+logon, launching the GUI build `kanata_windows_gui_winIOv2_x64.exe --cfg <repo file>`
+directly. `bootstrap.ps1` registers it when run elevated; by hand:
+
+```powershell
+scripts\kanata-ctl.ps1 install     # elevated shell
+```
+
+Why elevated: kanata can only inject into windows at or below its own integrity
+level. Unelevated, when an elevated window (UAC prompt, Task Manager, admin
+terminal, anti-cheat) took focus while a home-row mod was held, the key-up never
+landed and the modifier stuck — usually Super, so every key became Win+key
+(Win+C Copilot, Win+I Settings) and the keyboard looked dead until a bare modifier
+was tapped. That was the "keys randomly stop working" bug (diagnosed 2026-07-20,
+fix re-landed 2026-10-20). The old unelevated `kanata.lnk` Startup shortcut is
+gone; a leftover `kanata.lnk.disabled` is harmless.
+
+Why the task launches the exe directly: Task Scheduler then owns the process, so
+ending the task kills kanata with the task owner's ordinary rights. Through
+`run-hidden.vbs` the process is orphaned and an unelevated caller cannot kill it.
+
+### Escape hatch
+
+`autohotkey\kanata-hatch.ahk` (autostarted by `bootstrap.ps1`, unelevated):
+
+- **Win+Shift+K** toggles kanata off / on and releases every modifier. The hotkey
+  is wildcarded, so it still fires with a stuck modifier attached.
+- **Tray icon → `kanata: toggle`** does the same by mouse, for when the keyboard is
+  the problem.
+
+From a terminal, no elevation needed:
+
+```powershell
+scripts\kanata-ctl.ps1 status | start | stop | restart
+```
+
+`restart` is the reload after editing `kanata.kbd`. Validate edits first with
+`kanata --cfg kanata\kanata.kbd --check`. Tune `tap-time` / `hold-time` if you get
+misfires.
+
+### Troubleshooting
+
+- **Keys dead or everything is Win+key**: Win+Shift+K (or tap each of Ctrl, Alt,
+  Shift and Win once). If kanata was off, Win+Shift+K again turns it back on.
+- **Task fails at logon** (`status` shows a non-zero result, no process): scoop's
+  `apps\kanata\current` junction is probably dangling after an update — `scoop reset
+  kanata`, then `kanata-ctl.ps1 start`.
+- **`stop` says a copy outside the task is running**: something started kanata by
+  hand; kill it from an elevated shell, then use the task only.
+- **Park it**: `schtasks /change /tn kanata /disable` keeps the task but stops it
+  starting at logon; `kanata-ctl.ps1 uninstall` removes it.
 
 ## Ollama background service
 
