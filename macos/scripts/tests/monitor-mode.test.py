@@ -1,4 +1,5 @@
 """Exercise monitor handoff without touching physical displays or Windows."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -345,6 +346,19 @@ class KomaxDesk(FakeDesk):
             exe.write_text("#!/bin/bash\n" + body + "\n")
             exe.chmod(0o755)
         self.env["MONITOR_MODE_ARM_SECONDS"] = "1"
+        sidecar = bindir / "sidecar"
+        sidecar.write_text(
+            "#!/bin/bash\n"
+            'echo "$1" >> "$HOME/sidecar.log"\n'
+            '[ -e "$HOME/sidecar-fails" ] && { echo "Sidecar failed"; exit 1; }\n'
+            '[ "$1" = status ] && echo "iPad connected; auto-connect on; last result: idle; hold off"\n'
+            "exit 0\n")
+        sidecar.chmod(0o755)
+        self.env["SIDECAR_BIN"] = str(sidecar)
+
+    def sidecar_calls(self):
+        log = self.home / "sidecar.log"
+        return log.read_text().split() if log.exists() else []
 
     def calls(self):
         log = self.home / "calls.log"
@@ -464,6 +478,56 @@ class FireTest(KomaxDesk):
             shutil.rmtree(lock, ignore_errors=True)
         self.run_mm("fire", "nemesis")
         self.assertEqual(self.machine("romulus"), "nemesis")
+
+
+class NyxTest(KomaxDesk):
+    def test_nyx_nemesis_holds_then_disconnects(self):
+        r = self.run_mm("nyx", "nemesis")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_nyx_pollux_releases_then_connects(self):
+        self.run_mm("nyx", "pollux")
+        self.assertEqual(self.sidecar_calls(), ["release", "connect"])
+
+    def test_nyx_work_is_refused(self):
+        self.assertNotEqual(self.run_mm("nyx", "work").returncode, 0)
+        self.assertEqual(self.sidecar_calls(), [])
+
+    def test_fire_with_only_nyx_touches_no_dell_and_no_ssh(self):
+        self.run_mm("arm", "nyx"); self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertNotIn("ssh ", self.calls())
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_fire_with_dell_and_nyx_does_both(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "nyx"); self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_fire_nyx_to_work_is_ignored(self):
+        self.run_mm("arm", "nyx"); self.run_mm("fire", "work")
+        self.assertEqual(self.sidecar_calls(), [])
+
+    def test_nyx_failure_does_not_block_dells(self):
+        (self.home / "sidecar-fails").touch()
+        self.run_mm("arm", "nyx"); self.run_mm("arm", "romulus")
+        r = self.run_mm("fire", "nemesis")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertIn("NYX", self.calls())
+
+    def test_json_shape_is_unchanged(self):
+        keys = set(json.loads(self.run_mm("json").stdout).keys())
+        self.assertTrue(keys <= {"romulus", "remus", "lupa"}, keys)
+        self.assertNotIn("nyx", keys)
+        self.assertNotIn("armed", keys)
+
+    def test_status_reports_nyx(self):
+        out = self.run_mm("status").stdout
+        self.assertIn("nyx:", out)
+        self.assertIn("pollux", out.split("nyx:")[1])
 
 
 if __name__ == "__main__":

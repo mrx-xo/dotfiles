@@ -36,8 +36,14 @@
 #   monitor-mode.sh flip            # normal (west) <-> flipped (east)
 #   monitor-mode.sh flip normal|flipped
 #
+# KOMAX grammar (screen, then machine; docs/active/specs/2026-10-21-komax-desk-grammar-design.md):
+#   monitor-mode.sh arm romulus|remus|nyx    # toggle a screen in the armed set (expires in 3s)
+#   monitor-mode.sh fire pollux|nemesis|work # armed screens -> machine; empty set = both Dells
+#   monitor-mode.sh armed                    # the armed set, fleet order
+#   monitor-mode.sh nyx pollux|nemesis       # NYX: Sidecar display, or AIDOS remote (held)
+#
 # Diagnostics:
-#   monitor-mode.sh status          # which machine each Dell shows, facing
+#   monitor-mode.sh status          # which machine each Dell shows, NYX, facing
 #   monitor-mode.sh hz              # real GDI refresh of NEMESIS displays (~25s)
 #
 # Escape hatch (ignores the state files; use when state got funky):
@@ -118,6 +124,7 @@ CLAIMS="$STATE_DIR/claims"   # claims/<display>: holder=, set=, restore=
 ARMED="$STATE_DIR/armed"     # KOMAX grammar: screens named and waiting for a machine
 ARMED_AT="$STATE_DIR/armed-at"  # stamp of the last press; the expiry compares it
 ARM_SECONDS="${MONITOR_MODE_ARM_SECONDS:-3}"
+SIDECAR_BIN="${SIDECAR_BIN:-$HOME/.local/bin/sidecar}"  # NYX: Sidecar (POLLUX) or AIDOS (NEMESIS)
 LOCK_HELD=0
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
@@ -538,8 +545,22 @@ arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already arme
   if [ -s "$ARMED" ]; then arm_schedule_expiry; else rm -f "$ARMED_AT"; fi
 }
 
+nyx_set() {  # nyx_set <pollux|nemesis>: POLLUX = Sidecar connected, NEMESIS = AIDOS in front
+  local out
+  case "$1" in
+    pollux)  out=$("$SIDECAR_BIN" release 2>&1) && out=$("$SIDECAR_BIN" connect 2>&1) ;;
+    nemesis) out=$("$SIDECAR_BIN" hold 2>&1) && out=$("$SIDECAR_BIN" disconnect 2>&1) ;;
+    *) return 1 ;;
+  esac || { notify "NYX: ${out:-sidecar helper failed}"; return 1; }
+  return 0
+}
+
+nyx_machine() {  # nyx_machine -> pollux|nemesis
+  if "$SIDECAR_BIN" status 2>/dev/null | grep -q '^iPad connected'; then echo pollux; else echo nemesis; fi
+}
+
 fire() {  # fire <pollux|nemesis|work>: every armed screen -> machine, then clear
-  local m="$1" set s rc=0 moved=""
+  local m="$1" set s rc=0 moved="" dells=0
   set=$(armed_list)
   if [ -z "$set" ]; then
     if [ "$m" = work ]; then notify "Work laptop: nothing armed"; return 0; fi
@@ -550,8 +571,9 @@ fire() {  # fire <pollux|nemesis|work>: every armed screen -> machine, then clea
     case "$s" in
       romulus)
         if [ "$m" = work ]; then notify "ROMULUS cannot show the work laptop"; continue; fi
-        set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
+        dells=1; set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
       remus)
+        dells=1
         if set_display remus "$m"; then
           moved="$moved REMUS"
           if [ "$m" = work ]; then
@@ -561,12 +583,14 @@ fire() {  # fire <pollux|nemesis|work>: every armed screen -> machine, then clea
           fi
         else rc=1; fi ;;
       nyx)
-        notify "NYX: not wired yet" ;;
+        case "$m" in
+          pollux|nemesis) nyx_set "$m" && moved="$moved NYX" || rc=1 ;;
+        esac ;;
     esac
   done
   [ -n "$moved" ] && notify "$(echo $moved | sed 's/ / + /g') -> $(label "$m")"
-  sync_windows
-  maybe_restore
+  # NYX alone never touches a Dell, so Windows has nothing to learn.
+  if [ "$dells" = 1 ]; then sync_windows; maybe_restore; fi
   return $rc
 }
 
@@ -755,6 +779,12 @@ case "${1:-}" in
       *) echo "usage: $(basename "$0") fire <pollux|nemesis|work>" >&2; exit 1 ;;
     esac
     ;;
+  nyx)
+    case "${2:-}" in
+      pollux|nemesis) nyx_set "$2" || exit 1; notify "NYX -> $(label "$2")" ;;
+      *) echo "usage: $(basename "$0") nyx <pollux|nemesis>" >&2; exit 1 ;;
+    esac
+    ;;
   arm)
     case "${2:-}" in
       romulus|remus|nyx) arm_toggle "$2" ;;
@@ -771,6 +801,8 @@ case "${1:-}" in
     done
     if ddc_visible lupa; then conn=connected; else conn=disconnected; fi
     printf '%-9s %s (%s)\n' "lupa:" "$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux)" "$conn"
+    hold=$("$SIDECAR_BIN" status 2>/dev/null | sed -n 's/.*hold \(on\|off\).*/\1/p')
+    printf '%-9s %s (hold %s)\n' "nyx:" "$(nyx_machine)" "${hold:-unknown}"
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
   hz)
@@ -782,7 +814,7 @@ case "${1:-}" in
       || { echo "hz probe failed; NEMESIS asleep or unreachable" >&2; exit 1; }
     ;;
   *)
-    sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
