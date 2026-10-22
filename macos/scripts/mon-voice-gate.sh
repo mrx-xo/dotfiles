@@ -19,6 +19,7 @@ case "$cmd" in
   pollux\ nemesis|nemesis\ pollux|pollux\ work) set -- $cmd ;;
   romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
+  lupa\ pollux|lupa\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;
   # POLLUX on one Dell only; off reconnects what that dropped
   solo\ romulus|solo\ remus|solo\ off) set -- $cmd ;;
@@ -26,6 +27,10 @@ case "$cmd" in
   kill\ romulus|kill\ remus|kill\ lupa) set -- $cmd ;;
   # which way the Dells face on NEMESIS (they swap places)
   flip|flip\ normal|flip\ flipped) set -- $cmd ;;
+  # keyboard lighting for good night / good morning (keyboard-lights, not monitor-mode)
+  keyboards\ off|keyboards\ on)
+    exec "$HOME/.dotfiles/macos/scripts/keyboard-lights" "${cmd#keyboards }"
+    ;;
   *)
     echo "mon-voice-gate: refused: '$cmd'" >&2
     exit 1
