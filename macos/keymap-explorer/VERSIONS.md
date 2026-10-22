@@ -54,3 +54,26 @@ git history up to `c39eb8b`. Both boards died on 2026-08-03.
 - Knob on Base turns a mouse wheel (`MS_WHLU` / `MS_WHLD`, needs
   `MOUSEKEY_ENABLE = yes`); held Shift / Cmd / Alt give horizontal / zoom /
   fast scroll from macOS. Volume moves to the Symbols turn; Prev/Next drop.
+
+## Ledger: KOMAX (Keychron K0 Max)
+
+The macro pad that replaced the Creator Micro (2026-10-21). Wireless numpad,
+rotary knob top-left, M1-M5 macro column; pinned to POLLUX by USB-C to the
+iVANKY dock (the Keychron Launcher needs the cable anyway). Firmware is
+Keychron's QMK fork with no raw HID broadcast, so the explorer page
+(`komax.html`) is a static legend with no live layer tracking.
+
+### Factory: retired 2026-10-21
+- Stock numpad, M1-M5 unbound, knob volume.
+- While the pad sat on VENGEANCE (2026-10-20) an AutoHotkey stopgap turned
+  numpad `*` into F20 for Fluid Voice; retired with this keymap.
+
+### v1: draft, flashed in Launcher by Marcos (date to be filled in)
+- Screen, then machine (spec: `docs/active/specs/2026-10-21-komax-desk-grammar-design.md`).
+- M1 `F13` ROMULUS, M2 `F14` REMUS, M3 `F15` NYX (screens, arm).
+- M4 `F16` POLLUX, M5 `F17` NEMESIS, knob press `F19` work laptop (machines, fire).
+- Numpad, knob turn and the wireless-slot keys stay stock. F18 is never sent
+  (kanata's dummy key on NEMESIS).
+- Mac side: `macos/skhd/skhdrc` KOMAX block -> `monitor-mode.sh arm|fire`,
+  NEMESIS through `vengeance-wake.sh fire nemesis`.
+

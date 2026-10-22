@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KOMAX keymap, v1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #faf8f4; --ink: #1f1d1a; --muted: #6b6762; --line: #d8d3cb;
+    --cap: #f1ede6; --cap-hi: #ffffff; --cap-shadow: #cfc9bf;
+    --screen: #1e6e77; --screen-soft: rgba(30,110,119,.14);
+    --machine: #b25d1c; --machine-soft: rgba(178,93,28,.14);
+    --knob: #4a7c3f; --knob-soft: rgba(74,124,63,.16);
+    --u: 64px;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, "Helvetica Neue", sans-serif;
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+  .wrap { max-width: 760px; margin: 32px auto; padding: 0 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .board {
+    display: grid; grid-template-columns: repeat(5, var(--u)); grid-auto-rows: var(--u);
+    gap: calc(var(--u) * 0.12); padding: calc(var(--u) * 0.3);
+    background: #e9e4dc; border-radius: 14px; width: max-content;
+  }
+  .key {
+    border: 2px solid var(--line); border-radius: 9px; background: var(--cap);
+    box-shadow: 0 3px 0 var(--cap-shadow); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px; font-family: var(--mono);
+    min-width: 0;
+  }
+  .key .legend { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+  .key .code { font-size: 10px; color: var(--muted); }
+  .key.stock { background: transparent; border-style: dashed; box-shadow: none; }
+  .key.stock .legend { color: var(--muted); font-weight: 400; }
+  .key.screen { border-color: var(--screen); background: linear-gradient(180deg, var(--cap-hi), var(--screen-soft)); }
+  .key.screen .legend { color: var(--screen); }
+  .key.machine { border-color: var(--machine); background: linear-gradient(180deg, var(--cap-hi), var(--machine-soft)); }
+  .key.machine .legend { color: var(--machine); }
+  .key.knob { border-radius: 50%; border-color: var(--knob); background: radial-gradient(circle at 38% 32%, var(--cap-hi), var(--knob-soft) 80%); }
+  .key.knob .legend { color: var(--knob); }
+  .tall { grid-row: span 2; }
+  .wide { grid-column: span 2; }
+  .legendbox { margin-top: 18px; font-size: 14px; line-height: 1.5; }
+  .legendbox b { font-family: var(--mono); }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; border: 2px solid; }
+  .sw-screen { border-color: var(--screen); background: var(--screen-soft); }
+  .sw-machine { border-color: var(--machine); background: var(--machine-soft); }
+  .sw-knob { border-color: var(--knob); background: var(--knob-soft); border-radius: 50%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>KOMAX</h1>
+  <div class="eyebrow">Keychron K0 Max, keymap v1 (Launcher), wired USB-C to the iVANKY dock, pinned to POLLUX. Ledger: VERSIONS.md</div>
+
+  <div class="board" id="komax">
+    <!-- row 0: knob, then the four wireless-slot keys (stock) -->
+    <div class="key knob bound" id="knob"><span class="legend">WORK</span><span class="code">F19</span></div>
+    <div class="key stock"><span class="legend">BT1</span></div>
+    <div class="key stock"><span class="legend">BT2</span></div>
+    <div class="key stock"><span class="legend">BT3</span></div>
+    <div class="key stock"><span class="legend">2.4G</span></div>
+    <!-- row 1 -->
+    <div class="key screen bound" id="m1"><span class="legend">ROMULUS</span><span class="code">F13</span></div>
+    <div class="key stock"><span class="legend">num</span></div>
+    <div class="key stock"><span class="legend">/</span></div>
+    <div class="key stock"><span class="legend">*</span></div>
+    <div class="key stock"><span class="legend">-</span></div>
+    <!-- row 2 -->
+    <div class="key screen bound" id="m2"><span class="legend">REMUS</span><span class="code">F14</span></div>
+    <div class="key stock"><span class="legend">7</span></div>
+    <div class="key stock"><span class="legend">8</span></div>
+    <div class="key stock"><span class="legend">9</span></div>
+    <div class="key stock tall"><span class="legend">+</span></div>
+    <!-- row 3 -->
+    <div class="key screen bound" id="m3"><span class="legend">NYX</span><span class="code">F15</span></div>
+    <div class="key stock"><span class="legend">4</span></div>
+    <div class="key stock"><span class="legend">5</span></div>
+    <div class="key stock"><span class="legend">6</span></div>
+    <!-- row 4 -->
+    <div class="key machine bound" id="m4"><span class="legend">POLLUX</span><span class="code">F16</span></div>
+    <div class="key stock"><span class="legend">1</span></div>
+    <div class="key stock"><span class="legend">2</span></div>
+    <div class="key stock"><span class="legend">3</span></div>
+    <div class="key stock tall"><span class="legend">enter</span></div>
+    <!-- row 5 -->
+    <div class="key machine bound" id="m5"><span class="legend">NEMESIS</span><span class="code">F17</span></div>
+    <div class="key stock wide"><span class="legend">0</span></div>
+    <div class="key stock"><span class="legend">.</span></div>
+  </div>
+
+  <div class="legendbox">
+    <div><span class="swatch sw-screen"></span><b>Screens</b> arm: press one or more, they wait three seconds.</div>
+    <div><span class="swatch sw-machine"></span><b>Machines</b> fire: every armed screen goes there. Nothing armed means both Dells.</div>
+    <div><span class="swatch sw-knob"></span><b>Knob press</b> is the work laptop (REMUS only, LUPA follows). Knob turn stays volume.</div>
+    <div>NYX to POLLUX is Sidecar; NYX to NEMESIS is the AIDOS remote. The numpad is stock. Mac bindings: <b>macos/skhd/skhdrc</b>; logic: <b>macos/scripts/monitor-mode.sh arm|fire</b>.</div>
+  </div>
+</div>
+</body>
+</html>
