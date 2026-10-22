@@ -4,6 +4,7 @@ local configPath = os.getenv("HOME") .. "/.config/sidecar/config.json"
 local config = hs.fs.attributes(configPath) and hs.json.read(configPath)
 if config and type(config.device) == "string" and config.device ~= "" then
   config.binary = os.getenv("HOME") .. "/.local/share/sidecar/SidecarLauncher-cli"
+  config.holdPath = os.getenv("HOME") .. "/.local/state/monitor-mode/nyx-hold"
   if type(config.wakeDevice) == "string" and config.wakeDevice ~= "" then
     config.wakeBinary = os.getenv("HOME") .. "/.local/bin/pymobiledevice3"
   end

@@ -1,8 +1,10 @@
 """Exercise monitor handoff without touching physical displays or Windows."""
+import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -327,6 +329,249 @@ class KillTest(FakeDesk):
         self.assertEqual(r.returncode, 1)
         self.assertIn("usage", r.stderr)
         self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+
+
+class KomaxDesk(FakeDesk):
+    """FakeDesk plus logging stubs for the KOMAX grammar (arm / fire / nyx)."""
+
+    def setUp(self):
+        super().setUp()
+        bindir = self.home / "bin"
+        for name, body in {
+            "sketchybar": 'echo "sketchybar $*" >> "$HOME/calls.log"',
+            "osascript": 'echo "osascript $*" >> "$HOME/calls.log"',
+            "ssh": 'echo "ssh $*" >> "$HOME/calls.log"',
+        }.items():
+            exe = bindir / name
+            exe.write_text("#!/bin/bash\n" + body + "\n")
+            exe.chmod(0o755)
+        self.env["MONITOR_MODE_ARM_SECONDS"] = "1"
+        sidecar = bindir / "sidecar"
+        sidecar.write_text(
+            "#!/bin/bash\n"
+            'echo "$1" >> "$HOME/sidecar.log"\n'
+            '[ -e "$HOME/sidecar-fails" ] && { echo "Sidecar \\"quoted\\" failed"; exit 1; }\n'
+            '[ "$1" = connect ] && [ -e "$HOME/connect-fails-once" ] && { rm "$HOME/connect-fails-once"; echo "SidecarErrorDeviceTimedOut"; exit 1; }\n'
+            '[ "$1" = status ] && echo "iPad connected; auto-connect on; last result: idle; hold off"\n'
+            "exit 0\n")
+        sidecar.chmod(0o755)
+        self.env["SIDECAR_BIN"] = str(sidecar)
+
+    def sidecar_calls(self):
+        log = self.home / "sidecar.log"
+        return log.read_text().split() if log.exists() else []
+
+    def calls(self):
+        log = self.home / "calls.log"
+        return log.read_text() if log.exists() else ""
+
+    def armed(self):
+        return self.run_mm("armed").stdout
+
+
+class ArmTest(KomaxDesk):
+    def test_arm_adds_and_press_again_removes(self):
+        self.assertEqual(self.run_mm("arm", "romulus").returncode, 0)
+        self.assertEqual(self.armed(), "romulus\n")
+        self.run_mm("arm", "remus")
+        self.assertEqual(self.armed(), "romulus\nremus\n")
+        self.run_mm("arm", "romulus")
+        self.assertEqual(self.armed(), "remus\n")
+
+    def test_armed_is_fleet_ordered_regardless_of_press_order(self):
+        for s in ("nyx", "remus", "romulus"):
+            self.run_mm("arm", s)
+        self.assertEqual(self.armed(), "romulus\nremus\nnyx\n")
+
+    def test_arm_expires(self):
+        self.run_mm("arm", "romulus")
+        time.sleep(1.6)
+        self.assertEqual(self.armed(), "")
+
+    def test_press_restarts_expiry(self):
+        self.run_mm("arm", "romulus")
+        time.sleep(0.7)
+        self.run_mm("arm", "remus")
+        time.sleep(0.7)
+        self.assertEqual(self.armed(), "romulus\nremus\n")
+
+    def test_arm_rejects_unknown_screen(self):
+        self.assertNotEqual(self.run_mm("arm", "lupa").returncode, 0)
+        self.assertEqual(self.armed(), "")
+
+    def test_arm_renders_indicator(self):
+        self.run_mm("arm", "nyx")
+        self.assertIn("sketchybar --set komax_armed label=NYX drawing=on", self.calls())
+        self.run_mm("arm", "nyx")
+        self.assertIn("drawing=off", self.calls())
+
+
+class FireTest(KomaxDesk):
+    def test_empty_set_pollux_or_nemesis_moves_both_dells_only(self):
+        r = self.run_mm("fire", "nemesis")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "nemesis")
+        self.assertFalse((self.state / "lupa").exists(), "LUPA untouched")
+
+    def test_empty_set_work_does_nothing_and_notifies(self):
+        r = self.run_mm("fire", "work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertIn("nothing armed", self.calls())
+
+    def test_only_armed_screens_move(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_fire_clears_the_armed_set_and_indicator(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("fire", "pollux")
+        self.assertEqual(self.armed(), "")
+        self.assertIn("drawing=off", self.calls())
+
+    def test_remus_to_work_takes_lupa_and_back(self):
+        self.run_mm("arm", "remus"); self.run_mm("fire", "work")
+        self.assertEqual(self.machine("remus"), "work")
+        self.assertEqual(self.machine("lupa"), "work")
+        self.run_mm("arm", "remus"); self.run_mm("fire", "pollux")
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertEqual(self.machine("lupa"), "pollux")
+
+    def test_romulus_to_work_is_skipped_but_remus_still_moves(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
+        self.run_mm("fire", "work")
+        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("remus"), "work")
+
+    def test_fire_syncs_windows_once(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
+        self.run_mm("fire", "nemesis")
+        self.assertEqual(self.calls().count("ssh "), 1)
+
+    def test_fire_waits_for_the_lock(self):
+        holder = subprocess.Popen(["sleep", "30"])
+        try:
+            lock = self.state / "lock.d"
+            lock.mkdir()
+            (lock / "pid").write_text(str(holder.pid))
+            r = self.run_mm("fire", "nemesis")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("busy", r.stderr)
+            self.assertEqual(self.machine("romulus"), "pollux")
+        finally:
+            holder.kill()
+
+    def fire_behind_lock(self, machine, during):
+        """Hold the lock, start fire (it waits), run `during`, release, wait for fire."""
+        import shutil
+        holder = subprocess.Popen(["sleep", "30"])
+        lock = self.state / "lock.d"
+        lock.mkdir()
+        (lock / "pid").write_text(str(holder.pid))
+        env = dict(self.env, MONITOR_MODE_LOCK_TRIES="40")
+        fire = subprocess.Popen(["/bin/bash", str(SCRIPT), "fire", machine], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        try:
+            time.sleep(0.5)
+            during()
+        finally:
+            holder.kill()
+            shutil.rmtree(lock, ignore_errors=True)
+        out, err = fire.communicate(timeout=30)
+        return fire.returncode, out + err
+
+    def test_arm_during_fire_is_not_consumed(self):
+        self.run_mm("arm", "remus")
+        rc, _ = self.fire_behind_lock("nemesis", lambda: self.run_mm("arm", "romulus"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.machine("remus"), "nemesis")
+        self.assertEqual(self.machine("romulus"), "pollux", "pressed while fire waited: must survive for the next fire")
+        self.assertEqual(self.armed(), "romulus\n")
+
+    def test_set_snapshotted_before_waiting_so_expiry_cannot_widen_a_fire(self):
+        self.run_mm("arm", "romulus")
+        rc, _ = self.fire_behind_lock("nemesis", lambda: time.sleep(1.6))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux", "expired-while-waiting must not become 'both Dells'")
+
+    def test_fire_with_explicit_screens_ignores_the_armed_set(self):
+        self.run_mm("arm", "remus")
+        r = self.run_mm("fire", "nemesis", "romulus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_disarm_clears_the_set_and_indicator(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("disarm")
+        self.assertEqual(self.armed(), "")
+        self.assertIn("drawing=off", self.calls())
+
+
+class NyxTest(KomaxDesk):
+    def test_nyx_nemesis_holds_then_disconnects(self):
+        r = self.run_mm("nyx", "nemesis")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_nyx_pollux_releases_then_connects(self):
+        self.run_mm("nyx", "pollux")
+        self.assertEqual(self.sidecar_calls(), ["release", "connect"])
+
+    def test_nyx_pollux_retries_connect_once_after_a_timeout(self):
+        (self.home / "connect-fails-once").touch()
+        r = self.run_mm("nyx", "pollux")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sidecar_calls(), ["release", "connect", "connect"])
+
+    def test_nyx_work_is_refused(self):
+        self.assertNotEqual(self.run_mm("nyx", "work").returncode, 0)
+        self.assertEqual(self.sidecar_calls(), [])
+
+    def test_fire_with_only_nyx_touches_no_dell_and_no_ssh(self):
+        self.run_mm("arm", "nyx"); self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertNotIn("ssh ", self.calls())
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_fire_with_dell_and_nyx_does_both(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "nyx"); self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+
+    def test_fire_nyx_to_work_is_ignored(self):
+        self.run_mm("arm", "nyx"); self.run_mm("fire", "work")
+        self.assertEqual(self.sidecar_calls(), [])
+
+    def test_nyx_failure_does_not_block_dells(self):
+        (self.home / "sidecar-fails").touch()
+        self.run_mm("arm", "nyx"); self.run_mm("arm", "romulus")
+        r = self.run_mm("fire", "nemesis")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertIn("NYX", self.calls())
+
+    def test_nyx_failure_text_is_safe_for_osascript(self):
+        (self.home / "sidecar-fails").touch()
+        self.run_mm("nyx", "nemesis")
+        self.assertIn("NYX: Sidecar quoted failed", self.calls())
+
+    def test_json_shape_is_unchanged(self):
+        keys = set(json.loads(self.run_mm("json").stdout).keys())
+        self.assertTrue(keys <= {"romulus", "remus", "lupa"}, keys)
+        self.assertNotIn("nyx", keys)
+        self.assertNotIn("armed", keys)
+
+    def test_status_reports_nyx(self):
+        out = self.run_mm("status").stdout
+        self.assertIn("nyx:", out)
+        self.assertIn("pollux", out.split("nyx:")[1])
+        self.assertIn("(hold off)", out.split("nyx:")[1])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,82 @@ function M.new(api, config)
     return false
   end
 
+  -- KOMAX grammar: while held, NYX is the AIDOS remote and no automatic
+  -- connect may steal it back. The marker file survives reloads and logins.
+  function self:held()
+    if not config.holdPath then return false end
+    local h = io.open(config.holdPath, "r")
+    if not h then return false end
+    h:close()
+    return true
+  end
+
+  -- A connect made elsewhere (Control Center, the iPad) ends the AIDOS
+  -- session; a stale hold would silently block every later auto-connect.
+  -- Checked only when an automatic connect is about to be scheduled: right
+  -- after our own disconnect the Sidecar screen can still be enumerated for
+  -- a moment, so a check inside held() would drop a fresh hold.
+  function self:holding()
+    if not self:held() then return false end
+    if self:connected() then self:release(); return false end
+    return true
+  end
+
+  function self:hold()
+    self:cancel()
+    if config.holdPath then
+      local h = io.open(config.holdPath, "w")
+      if h then h:write("held\n"); h:close() end
+    end
+  end
+
+  function self:release()
+    if config.holdPath then os.remove(config.holdPath) end
+  end
+
+  -- Each phase owns its callback/deadline. A late callback must not finish
+  -- or launch a second helper after timeout or cancellation.
+  function self:run(generation, binary, args, timeout, callback)
+    local done = false
+    local function complete(code, output, err)
+      if done or generation ~= self.generation then return end
+      done = true
+      if self.deadline then self.deadline:stop(); self.deadline = nil end
+      self.task = nil
+      callback(code, output, err)
+    end
+    local task = api.task.new(binary, complete, args)
+    self.task = task
+    if not task or not task:start() then
+      complete(1, "Unable to start connection helper", "")
+      return
+    end
+    self.deadline = api.timer.doAfter(timeout, function()
+      complete(1, "Connection helper timed out", "")
+      task:terminate()
+    end)
+  end
+
+  function self:disconnect()
+    if not self:connected() then self.lastResult = "not connected"; return self.lastResult end
+    if self.task then return "Connection already in progress" end
+    self:cancel()
+    local generation = self.generation
+    self.lastResult = "disconnecting"
+    self:run(generation, config.binary, {"disconnect", config.device}, 25, function(code, output, err)
+      if generation ~= self.generation then return end
+      self.generation = self.generation + 1
+      if code == 0 then
+        self.lastResult = "disconnected"
+        log.i("Disconnected configured iPad")
+      else
+        self.lastResult = (output or "") .. (err or "")
+        log.w("Disconnect failed: " .. self.lastResult)
+      end
+    end)
+    return self.lastResult
+  end
+
   function self:cancel()
     self.generation = self.generation + 1
     if self.timer then self.timer:stop(); self.timer = nil end
@@ -56,27 +132,8 @@ function M.new(api, config)
         end
       end
     end
-    -- Each phase owns its callback/deadline. A late wake callback must not
-    -- finish or launch a second connection after timeout or cancellation.
     local function run(binary, args, timeout, callback)
-      local done = false
-      local function complete(code, output, err)
-        if done or generation ~= self.generation then return end
-        done = true
-        if self.deadline then self.deadline:stop(); self.deadline = nil end
-        self.task = nil
-        callback(code, output, err)
-      end
-      local task = api.task.new(binary, complete, args)
-      self.task = task
-      if not task or not task:start() then
-        complete(1, "Unable to start connection helper", "")
-        return
-      end
-      self.deadline = api.timer.doAfter(timeout, function()
-        complete(1, "Connection helper timed out", "")
-        task:terminate()
-      end)
+      self:run(generation, binary, args, timeout, callback)
     end
     local function connect()
       self.lastResult = "connecting"
@@ -97,6 +154,7 @@ function M.new(api, config)
 
   function self:connect()
     if self.task then return "Connection already in progress" end
+    self:release()
     self:cancel()
     self.attempts = 0
     self:attempt(true)
@@ -104,7 +162,7 @@ function M.new(api, config)
   end
 
   function self:schedule()
-    if config.autoConnect == false or self.task then return end
+    if config.autoConnect == false or self.task or self:holding() then return end
     self:cancel()
     self.attempts = 0
     self.timer = api.timer.doAfter(5, function()
@@ -114,9 +172,10 @@ function M.new(api, config)
   end
 
   function self:status()
-    return string.format("%s; auto-connect %s; last result: %s",
+    return string.format("%s; auto-connect %s; last result: %s; hold %s",
       self:connected() and "iPad connected" or "iPad not connected",
-      config.autoConnect == false and "off" or "on", self.lastResult)
+      config.autoConnect == false and "off" or "on", self.lastResult,
+      self:held() and "on" or "off")
   end
 
   function self:start()
