@@ -47,7 +47,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   the fallback is swapping the pair (Esc on 53, Tab on 43).
 
 ### v3: built 2026-10-22, flash pending (both halves)
-- keymap: `qmk_firmware` commit `858e7dda3e` (`keyboards/keebio/iris/keymaps/mrx/`),
+- keymap: `qmk_firmware` commit `38e72183ea` (`keyboards/keebio/iris/keymaps/mrx/`),
   `keebio_iris_rev8_mrx.uf2`. Everything below is in `keymap.c` now; the
   explorer cross-check (`pro*` arrays against `keymap.c`, 223 keycodes) passed.
 - Night lights: `raw_hid_receive` answers tag `0x4E` (off saves the
@@ -105,7 +105,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   grammar plan retires it.
 
 ### v1: built 2026-10-22, flash pending
-- keymap: `~/qmk_keychron` commit `db9854a` (`keyboards/keychron/k0_max/keymaps/mrx/`),
+- keymap: `~/qmk_keychron` commit `3427816` (`keyboards/keychron/k0_max/keymaps/mrx/`),
   `keychron_k0_max_mrx.bin`, `VIA_ENABLE = no`, `RAW_ENABLE = yes`,
   `COMBO_ENABLE = yes`. Two small patches to the fork's common code ride on
   the same branch (weak `kc_raw_hid_rx_user` and `indicator_enable_allowed`
