@@ -14,11 +14,6 @@ hyper - a : ~/.dotfiles/macos/scripts/org-agenda-frame.sh
 hyper - space : ~/.dotfiles/macos/scripts/scratchpad-emacs.sh scratch
 # hyper - g : magit — pending a focus-emacs-then-magit helper script
 
-# Claude permissions (Worklouder macro pad)
-f13 : emacsclient --eval "(mr-x/agent-shell-allow)"
-f14 : emacsclient --eval "(mr-x/agent-shell-deny)"
-f15 : emacsclient --eval "(mr-x/agent-shell-allow-always)"
-f16 : emacsclient --eval "(mr-x/agent-shell-view-diff)"
 cmd + shift - a : ~/.dotfiles/macos/scripts/org-agenda-frame.sh
 cmd + shift - r : ~/.dotfiles/macos/scripts/emacs-restart.sh
 cmd + shift + alt - r : ~/.dotfiles/macos/scripts/emacs-restart-restore.sh
@@ -99,22 +94,18 @@ ctrl + alt - r : ~/.dotfiles/macos/scripts/vengeance-wake.sh nemesis pollux
 # per-display toggles POLLUX <-> NEMESIS (3/4 match yabai display indices)
 ctrl + alt - 3 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle romulus
 ctrl + alt - 4 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle remus
-# Creator Micro macro pad, monitors layer (firmware keymaps/mrx, CM v3).
-# Every preset key is a full desk state, idempotent.
-# NOTE: macOS ignores F20+ from hardware keyboards — F13-F19 only.
-# nemesis IS the summon: vengeance-wake.sh fast-paths to monitor-mode when
-# VENGEANCE is already up, else WoL -> wait for SSH -> handover.
-f17 : ~/.dotfiles/macos/scripts/vengeance-wake.sh nemesis
-f18 : ~/.dotfiles/macos/scripts/monitor-mode.sh pollux
-alt - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh pollux nemesis
-shift - f17 : ~/.dotfiles/macos/scripts/monitor-mode.sh pollux work
-# v4 draft d1: nemesis pollux (ROMULUS -> NEMESIS, REMUS stays POLLUX).
-# Like nemesis, NEMESIS-on-glass implies awake, so it routes through
-# vengeance-wake. The pad key lands at the v4 flash; ctrl+alt-r covers it from the keyboard now.
-alt - f18 : ~/.dotfiles/macos/scripts/vengeance-wake.sh nemesis pollux
-# secondary transition keys (flip one display POLLUX <-> NEMESIS)
-f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle romulus
-shift - f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh toggle remus
+# KOMAX (Keychron K0 Max), screen then machine. M1-M3 arm a screen, M4/M5
+# and the knob press fire at a machine; nothing armed = both Dells (work: nothing).
+# Spec: docs/active/specs/2026-10-21-komax-desk-grammar-design.md; rig notes
+# "Monitor Mode". macOS ignores F20+ from hardware keyboards; F18 stays free
+# (kanata's dummy key on NEMESIS). NEMESIS fires route through vengeance-wake,
+# which skips the wake when only NYX is armed.
+f13 : ~/.dotfiles/macos/scripts/monitor-mode.sh arm romulus
+f14 : ~/.dotfiles/macos/scripts/monitor-mode.sh arm remus
+f15 : ~/.dotfiles/macos/scripts/monitor-mode.sh arm nyx
+f16 : ~/.dotfiles/macos/scripts/monitor-mode.sh fire pollux
+f17 : ~/.dotfiles/macos/scripts/vengeance-wake.sh fire nemesis
+f19 : ~/.dotfiles/macos/scripts/monitor-mode.sh fire work
 
 alt + shift - b : yabai -m space --balance
 alt + shift - r : yabai --restart-service
