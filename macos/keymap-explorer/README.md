@@ -28,11 +28,10 @@ keys 0-26).
 
 ## What it shows
 
-- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game · 5 Emacs
-  (proposed only)
-- **Current v2** (on board, flashed 2026-09-29), **Proposed v3** (draft,
-  not flashed), and **Factory** (retired). Side by side compares layouts.
-- **Proposed changes** always compare against Current v2, in Single view
+- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game · 5 Emacs.
+- **Current v3** (both halves flashed 2026-10-22), **Previous v2** and
+  **Factory** (retired). Side by side compares layouts.
+- **v3 changes** compares the flashed release against retired v2, in Single view
   or on either side of Side by side. Changed keys have a dedicated cyan fill,
   thick outline, and a `Δ` marker, distinct from layer colours. The light theme
   uses a darker cyan accent with deeper text for contrast. Layer tabs show
@@ -40,10 +39,10 @@ keys 0-26).
   with no changes.
 - The left inner key (#42) is a rotary knob: press legend plus per-layer
   turn actions from `encoder_map`.
-- **Proposed screenshot key**: hold Space + Enter (System), tap the Base
+- **Screenshot key**: hold Space + Enter (System), tap the Base
   `S` position (#34), labeled `Shot · Area`. `LSG(KC_4)` sends Cmd+Shift+4
   to start CleanShot X area selection using its existing shortcut. Explorer
-  draft only: Current v2 and the firmware remain unchanged.
+  and firmware now agree; physical shortcut acceptance remains pending.
 
 ## Practice
 
@@ -119,15 +118,15 @@ requires a generated local catalog; no test dependencies ship with the page.
 A 27-key numpad with a macro column and a knob (USB `0x3434:0x0A06`, QMK
 under Keychron's own firmware). Layers 0 Base and 1 Fn.
 
-- **Stock** is what is on the pad: Keychron's `keymaps/default`. M1 to M4 are
-  empty macro slots that send nothing, and the bottom-left key is **Fn**
-  (`MO(1)`), not a fifth macro key.
-- **Proposed v1 (draft d1)** is the desk grammar from
+- **Current v1** is on the pad, flashed 2026-10-22 from commit `3427816`
+  in `~/qmk_keychron`. **Stock** is retained as a retired comparison.
+- **v1 changes** shows the desk grammar from
   `docs/active/plans/2026-10-21-komax-desk-grammar.md`: blue screen keys
   (ROMULUS, REMUS, NYX) arm, coloured machine keys (POLLUX green, NEMESIS
   red, the knob press WORK amber) fire. Unchanged keys are greyed in this
-  view, and the Fn tab says why Fn is unreachable once the plan's M5 lands
-  on #23.
+  view. The physical **M5** cap (#23, the former Fn position) sends F17.
+  Hold **knob press + Enter** together for the retained Fn layer; **0**
+  toggles lighting and the physical **X** key re-pairs the dongle.
 - **Legend only, no live layer tracking.** The KOMAX keymap does not send
   the `[0x4C, layer]` raw-HID frame the Iris firmware broadcasts, so the
   widget stays on Base. Key flash works: numpad keys arrive as `pad7`,
@@ -136,8 +135,9 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
   is out, `VIA_ENABLE = no`). Keymap `keyboards/keychron/k0_max/keymaps/mrx/`
   in `~/qmk_keychron`, a checkout of Keychron's QMK fork (branch `2025q3`,
   local branch `mrx`). See the KOMAX section in `FLASHING.md`; after a flash
-  record it in the KOMAX ledger in `VERSIONS.md` and update `cur0`/`cur1` in
-  the KOMAX block of `index.html`.
+  record it in the KOMAX ledger in `VERSIONS.md` and update `MAPS.cur` in
+  the KOMAX block of `index.html`. Bootloader entry uses the **circle (○)**
+  key immediately right of the knob, which sends Esc despite its symbol cap.
 - Geometry is `LAYOUT_tenkey_27` from `keyboards/keychron/k0_max/keyboard.json`;
   the stock layers come from `keymaps/default/keymap.c`.
 - **Night lights.** Both boards answer `keyboard-lights off|on`
@@ -145,6 +145,10 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
   darkens the lighting and later restores the saved look without touching
   EEPROM. "good night" / "good morning" reach it through Home Assistant and
   `mon-voice-gate.sh`. Design: `docs/active/specs/2026-10-22-keyboard-flash-day-design.md`.
+  Bench-verified 2026-10-22: Iris both halves and KOMAX by cable and dongle
+  stay dark while typing, survive repeated off commands, and restore the
+  same look. Iris also restores its saved look after a power cycle while
+  dark. Voice acceptance and the remaining physical layout checks are pending.
 
 ## Widget mode (the wallpaper overlay)
 
@@ -218,6 +222,6 @@ document.
 ## Source of truth
 
 - Keymap: `~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c`
-  (the explorer's `cur0`-`cur4` mirror it key for key)
+  (the explorer's `MAPS.cur` mirrors all six layers)
 - Geometry: `LAYOUT` from `keyboards/keebio/iris/rev8/keyboard.json`
 - Factory layers: `keyboards/keebio/iris/keymaps/default/keymap.json`

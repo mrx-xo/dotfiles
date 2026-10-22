@@ -35,7 +35,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   Shift.
 - `VIA_ENABLE = no`: the compiled keymap is the only one.
 
-### v2: on board, flashed 2026-09-29 (both halves, verified)
+### v2: retired 2026-10-22 (both halves flashed 2026-09-29)
 - keymap: `qmk_firmware` commit `aa41906e08` (`keyboards/keebio/iris/keymaps/mrx/`)
 - v1 layout plus the raw HID layer broadcast
   (`[0x4C, layer]`, master half only) for the wallpaper widget.
@@ -46,7 +46,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   Evil (Symbols instead of Esc on fast rolls), try `PERMISSIVE_HOLD` first;
   the fallback is swapping the pair (Esc on 53, Tab on 43).
 
-### v3: built 2026-10-22, flash pending (both halves)
+### v3: on board, flashed 2026-10-22 (both halves)
 - keymap: `qmk_firmware` commit `38e72183ea` (`keyboards/keebio/iris/keymaps/mrx/`),
   `keebio_iris_rev8_mrx.uf2`. Everything below is in `keymap.c` now; the
   explorer cross-check (`pro*` arrays against `keymap.c`, 223 keycodes) passed.
@@ -55,9 +55,14 @@ branch `mrx`). Its entries cite that checkout's commit.
   reply `[0x4E, lit]`). `night_lights.c` is host-tested; the Game beacon
   stays off while dark. The `[0x4C, layer]` broadcast is unchanged.
 - `rules.mk`: `MOUSEKEY_ENABLE = yes`, `COMBO_ENABLE = yes`, `SRC += night_lights.c`.
-- To promote: flash both halves (FLASHING.md), check the Nav row, `?`, knob
-  scroll and the Emacs door, then rename this entry `v3: on board, flashed
-  <date>` and mark v2 retired.
+- Right half: recovered with a direct UF2 copy after the guided flasher's
+  spinner prevented its copy; v3 raw-HID reply and typing confirmed.
+  Left half: fixed `iris-flash` completed and verified the home row.
+- Lighting verified on both halves with the wallpaper widget running:
+  off twice, dark during typing, on restores the same look, and a power
+  cycle while dark restores the saved look without an on command.
+- Remaining physical acceptance: Nav row, direct `?`, knob scroll,
+  Emacs door and a Hyper command, and CleanShot area capture.
 
 #### v3 draft history (explorer only until 2026-10-22)
 - **Before flashing (found 2026-10-22):** `keymap.c` is still v2, so v3 has
@@ -92,7 +97,7 @@ branch `mrx`). Its entries cite that checkout's commit.
 
 ## Ledger: KOMAX (Keychron K0 Max, keychron/k0_max)
 
-### Stock: on the pad since 2026-10-19
+### Stock: retired 2026-10-22 (on the pad since 2026-10-19)
 - Keychron `keymaps/default` (qmk_firmware branch `2025q3`), never touched in
   Launcher. Retired by firmware v1 (compiled keymap).
 - Base: knob press Mute, turn volume; Esc Del Tab Bksp; M1 to M4 empty macro
@@ -104,24 +109,22 @@ branch `mrx`). Its entries cite that checkout's commit.
   numpad `*` to F20 for Fluid dictation while the pad sat there. The desk
   grammar plan retires it.
 
-### v1: built 2026-10-22, flash pending
+### v1: on the pad, flashed 2026-10-22
 - keymap: `~/qmk_keychron` commit `3427816` (`keyboards/keychron/k0_max/keymaps/mrx/`),
   `keychron_k0_max_mrx.bin`, `VIA_ENABLE = no`, `RAW_ENABLE = yes`,
   `COMBO_ENABLE = yes`. Two small patches to the fork's common code ride on
   the same branch (weak `kc_raw_hid_rx_user` and `indicator_enable_allowed`
   hooks).
-- Night lights over raw HID by cable and, with `WILRESS_RAW_ENABLE`, through
-  the 2.4 GHz dongle; whether the dongle forwards host-to-pad frames is the
-  first bench check. Keychron's indicators (reconnect blink, battery, wake)
-  are gated so a dark pad stays dark until "good morning".
+- Night lights verified by cable and through the 2.4 GHz dongle: both
+  receive commands and reply, repeated off is safe, typing stays dark,
+  and on restores the same colour, brightness and effect. Longer idle/wake
+  behavior is not yet physically verified.
 - The desk grammar from `docs/active/plans/2026-10-21-komax-desk-grammar.md`:
   M1 F13 ROMULUS, M2 F14 REMUS, M3 F15 NYX (screens, arm); M4 F16 POLLUX,
   M5 F17 NEMESIS, knob press F19 WORK (machines, fire).
 - Numpad, Esc/Del/Tab/Bksp and the knob turn stay stock.
-- Decided 2026-10-22: **NEMESIS takes the Fn key (#23)**. The cap is printed
-  Fn; the stock firmware has four macro slots plus Fn, and the plan's M5 is
-  that key. The Fn layer (Bluetooth slots, 2.4 GHz pairing, RGB, media) goes
-  with it.
+- **NEMESIS takes the former Fn position (#23)**. The physical cap is
+  printed **M5**. The Fn layer remains behind the knob+Enter combo.
 - Daily connection: the **2.4 GHz dongle on POLLUX** (decided 2026-10-22);
   the USB-C cable is for flashing. Move the dongle off NEMESIS first.
 - The Fn layer stays in the firmware behind a hidden door: hold the knob
@@ -129,7 +132,9 @@ branch `mrx`). Its entries cite that checkout's commit.
   the dongle and the `UG_*` keys set the lighting.
 - Keys: M1 `KC_F13`, M2 `KC_F14`, M3 `KC_F15`, M4 `KC_F16`, #23 `KC_F17`,
   knob press `KC_F19`; everything else stock Base.
-- To promote: flash over USB-C (FLASHING.md), check the six keys, the numpad
-  and the knob wired and then on the dongle, then rename this entry
-  `v1: on the pad, <date>`, mark Stock retired, and copy the six keys into
-  `cur0` in the KOMAX block of `index.html`.
+- Bootloader entry and USB flash verified: hold the physical **circle (○)**
+  key immediately right of the knob while plugging in; `dfu-util` detects
+  `0483:df11`. Firmware downloaded successfully and the pad reconnected.
+- Remaining physical acceptance: six desk-grammar keys, numpad and knob
+  behavior, hidden Fn/re-pair controls, and the voice routine. The current
+  explorer map now reflects the flashed firmware.
