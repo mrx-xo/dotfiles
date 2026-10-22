@@ -3137,13 +3137,27 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   					  ; keybindings section
     (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
 
-    ;; ── Hyper Emacs layer (hotdox v4 draft d1) ──────────────────────────
-    ;; The hotdox emits real ✦ Hyper; skhd only claims a handful of Hyper
-    ;; combos (e/a/f/h/j/k/l/t/space/1-4) for yabai, so every other Hyper
-    ;; letter falls straight through to Emacs.  These 8 are the Emacs layer:
-    ;; a firmware MO(_EMACS) sends HYPR(<letter>) per key, but they also work
-    ;; today by holding Hyper on the home row.  Keep in sync with the layer
-    ;; in macos/keymap-explorer/index.html (pro5).
+    ;; ── Hyper Emacs layer (Iris v3 draft, from the hotdox v4 d1) ────────
+    ;; The keyboard emits real ✦ Hyper; skhd only claims a handful of Hyper
+    ;; combos (e/a/f/h/j/k/l/t/space/1-5) for yabai and friends, so every
+    ;; other Hyper letter falls straight through to Emacs.  Hyper+B was
+    ;; agent-workspace until 2026-10-22; that moved to Meh+B so B could be
+    ;; buffers here.  The Iris v3 Emacs layer sends HYPR(<letter>) per key,
+    ;; and every letter also works today by holding Hyper on the home row.
+    ;; Keep in sync with the layer in macos/keymap-explorer/index.html (pro5).
+    ;;
+    ;; Hybrid model (2026-10-22): most letters are one direct command; c m v
+    ;; w open the matching SPC menu instead, replayed as C-SPC <letter> (the
+    ;; leader's global prefix) so which-key shows the same labelled menu in
+    ;; every evil state.
+    (defun mr-x/hyper-leader-menu (letter)
+      "Return a command that opens the SPC LETTER leader menu.
+    Replays C-SPC LETTER, the leader's global prefix, so the menu and its
+    which-key labels are exactly the ones SPC LETTER shows."
+      (let ((keys (listify-key-sequence (kbd (concat "C-SPC " letter)))))
+        (lambda ()
+          (interactive)
+          (setq unread-command-events (append keys unread-command-events)))))
     (global-set-key (kbd "H-i") #'consult-imenu)        ; imenu
     (global-set-key (kbd "H-b") #'consult-buffer)       ; buffers
     (global-set-key (kbd "H-g") #'magit-status)         ; magit
@@ -3152,6 +3166,12 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
     (global-set-key (kbd "H-p") #'projectile-find-file) ; project find
     (global-set-key (kbd "H-o") #'ace-window)           ; jump window
     (global-set-key (kbd "H-d") #'dired-jump)           ; dired here
+    (global-set-key (kbd "H-q") #'mr-x/quick-ask)       ; ask AI (= SPC q)
+    (global-set-key (kbd "H-x") #'execute-extended-command) ; M-x
+    (global-set-key (kbd "H-c") (mr-x/hyper-leader-menu "c")) ; Agent Shell menu
+    (global-set-key (kbd "H-m") (mr-x/hyper-leader-menu "m")) ; bookmarks menu
+    (global-set-key (kbd "H-v") (mr-x/hyper-leader-menu "v")) ; vterm menu
+    (global-set-key (kbd "H-w") (mr-x/hyper-leader-menu "w")) ; window menu
 
     (global-set-key (kbd "C-<escape>") #'universal-argument)
     (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
