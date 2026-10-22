@@ -15,9 +15,21 @@ the reconnect/backoff policy lives in Hammerspoon, not here.
 Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
 """
 
+import ctypes
 import sys
 
 import hid
+
+# hidapi seizes a device by default on macOS, which locks every other client
+# out: keyboard-lights (the good night / good morning sender) could not reach
+# the board while this listener ran. cython-hidapi 0.15 does not expose
+# hid_darwin_set_open_exclusive, but the symbol is in its bundled hidapi, so
+# flip it through ctypes before the first open. Both processes open
+# non-exclusively and macOS delivers input reports to each of them.
+try:
+    ctypes.CDLL(hid.__file__).hid_darwin_set_open_exclusive(0)
+except (AttributeError, OSError):
+    pass  # not macOS, or a hidapi without the call: exclusive open as before
 
 VID, PID = 0xCB10, 0x8256  # keyboards/keebio/iris/{info,rev8/keyboard}.json
 USAGE_PAGE, USAGE = 0xFF60, 0x61  # QMK raw HID
