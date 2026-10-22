@@ -464,21 +464,52 @@ class FireTest(KomaxDesk):
         finally:
             holder.kill()
 
-    def test_arm_during_fire_is_not_consumed(self):
+    def fire_behind_lock(self, machine, during):
+        """Hold the lock, start fire (it waits), run `during`, release, wait for fire."""
+        import shutil
         holder = subprocess.Popen(["sleep", "30"])
+        lock = self.state / "lock.d"
+        lock.mkdir()
+        (lock / "pid").write_text(str(holder.pid))
+        env = dict(self.env, MONITOR_MODE_LOCK_TRIES="40")
+        fire = subprocess.Popen(["/bin/bash", str(SCRIPT), "fire", machine], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
         try:
-            lock = self.state / "lock.d"
-            lock.mkdir()
-            (lock / "pid").write_text(str(holder.pid))
-            r = self.run_mm("arm", "romulus")
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(self.armed(), "romulus\n")
+            time.sleep(0.5)
+            during()
         finally:
             holder.kill()
-            import shutil
             shutil.rmtree(lock, ignore_errors=True)
-        self.run_mm("fire", "nemesis")
+        out, err = fire.communicate(timeout=30)
+        return fire.returncode, out + err
+
+    def test_arm_during_fire_is_not_consumed(self):
+        self.run_mm("arm", "remus")
+        rc, _ = self.fire_behind_lock("nemesis", lambda: self.run_mm("arm", "romulus"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.machine("remus"), "nemesis")
+        self.assertEqual(self.machine("romulus"), "pollux", "pressed while fire waited: must survive for the next fire")
+        self.assertEqual(self.armed(), "romulus\n")
+
+    def test_set_snapshotted_before_waiting_so_expiry_cannot_widen_a_fire(self):
+        self.run_mm("arm", "romulus")
+        rc, _ = self.fire_behind_lock("nemesis", lambda: time.sleep(1.6))
+        self.assertEqual(rc, 0)
         self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux", "expired-while-waiting must not become 'both Dells'")
+
+    def test_fire_with_explicit_screens_ignores_the_armed_set(self):
+        self.run_mm("arm", "remus")
+        r = self.run_mm("fire", "nemesis", "romulus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_disarm_clears_the_set_and_indicator(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("disarm")
+        self.assertEqual(self.armed(), "")
+        self.assertIn("drawing=off", self.calls())
 
 
 class NyxTest(KomaxDesk):

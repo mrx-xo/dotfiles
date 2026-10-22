@@ -278,4 +278,22 @@ test("status reports the hold", function()
   f.controller:release()
 end)
 
+
+test("a Sidecar connect made outside Hammerspoon releases the hold", function()
+  local f = fixture(false)
+  f.controller:start()
+  f.controller:hold()
+  f.connected = true           -- Control Center / the iPad reconnected it
+  f.event(2)                   -- next unlock
+  assert(not f.controller:held(), "connected while held: the hold must drop")
+  assert(io.open(f.holdPath, "r") == nil)
+end)
+
+test("a marker on disk while already connected is released at start", function()
+  local f = fixture(true)
+  local h = assert(io.open(f.holdPath, "w")); h:write("1"); h:close()
+  f.controller:start()
+  assert(not f.controller:held())
+end)
+
 print(string.format("%d Sidecar tests passed", count))

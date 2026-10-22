@@ -38,7 +38,8 @@
 #
 # KOMAX grammar (screen, then machine; docs/active/specs/2026-10-21-komax-desk-grammar-design.md):
 #   monitor-mode.sh arm romulus|remus|nyx    # toggle a screen in the armed set (expires in 3s)
-#   monitor-mode.sh fire pollux|nemesis|work # armed screens -> machine; empty set = both Dells
+#   monitor-mode.sh fire pollux|nemesis|work [screens] # armed (or named) screens -> machine; none = both Dells
+#   monitor-mode.sh disarm                   # clear the armed set
 #   monitor-mode.sh armed                    # the armed set, fleet order
 #   monitor-mode.sh nyx pollux|nemesis       # NYX: Sidecar display, or AIDOS remote (held)
 #
@@ -567,14 +568,17 @@ nyx_machine() {  # nyx_machine -> pollux|nemesis
   if "$SIDECAR_BIN" status 2>/dev/null | grep -q '^iPad connected'; then echo pollux; else echo nemesis; fi
 }
 
-fire() {  # fire <pollux|nemesis|work>: every armed screen -> machine, then clear
+fire() {  # fire <pollux|nemesis|work> [screens]: screens -> machine
+  # The set is snapshotted and cleared BEFORE the lock (see the dispatcher):
+  # a fire that waits behind another switch, or behind a VENGEANCE wake, must
+  # act on what was armed when the key was pressed, not on what is left.
   local m="$1" set s rc=0 moved="" dells=0
-  set=$(armed_list)
+  shift
+  set="$*"
   if [ -z "$set" ]; then
     if [ "$m" = work ]; then notify "Work laptop: nothing armed"; return 0; fi
-    set=$'romulus\nremus'
+    set="romulus remus"
   fi
-  armed_clear; armed_render
   for s in $set; do
     case "$s" in
       romulus)
@@ -702,8 +706,15 @@ displays_power() {  # displays_power <sleep|wake>
   if [ "$1" = sleep ]; then pmset displaysleepnow; else caffeinate -u -t 1; fi
 }
 
+# fire: snapshot the armed set now, before we might wait on the lock.
+FIRE_SET=""
+if [ "${1:-}" = fire ] && [ -n "${2:-}" ]; then
+  if [ -n "${3:-}" ]; then FIRE_SET="${*:3}"; else FIRE_SET=$(armed_list | tr '\n' ' '); fi
+  armed_clear; armed_render
+fi
+
 case "${1:-}" in
-  status|check|displays|json|arm|armed|"") ;;
+  status|check|displays|json|arm|armed|disarm|"") ;;
   *)
     acquire_lock || exit 1
     touch "$BUSY"
@@ -783,9 +794,12 @@ case "${1:-}" in
     ;;
   fire)
     case "${2:-}" in
-      pollux|nemesis|work) fire "$2" || exit 1 ;;
-      *) echo "usage: $(basename "$0") fire <pollux|nemesis|work>" >&2; exit 1 ;;
+      pollux|nemesis|work) fire "$2" $FIRE_SET || exit 1 ;;
+      *) echo "usage: $(basename "$0") fire <pollux|nemesis|work> [romulus remus nyx]" >&2; exit 1 ;;
     esac
+    ;;
+  disarm)
+    armed_clear; armed_render
     ;;
   nyx)
     case "${2:-}" in
