@@ -115,6 +115,9 @@ FACING="$STATE_DIR/facing"   # normal | flipped (see flip)
 BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
 LOCK="$STATE_DIR/lock.d"     # mkdir lock: ONAR, AIDOS and the macro pad take turns
 CLAIMS="$STATE_DIR/claims"   # claims/<display>: holder=, set=, restore=
+ARMED="$STATE_DIR/armed"     # KOMAX grammar: screens named and waiting for a machine
+ARMED_AT="$STATE_DIR/armed-at"  # stamp of the last press; the expiry compares it
+ARM_SECONDS="${MONITOR_MODE_ARM_SECONDS:-3}"
 LOCK_HELD=0
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
@@ -487,6 +490,54 @@ status_json() {
   printf '}\n'
 }
 
+# KOMAX grammar: screen, then machine. A screen press arms; a machine press
+# fires at every armed screen. See docs/active/specs/2026-10-21-komax-desk-grammar-design.md.
+armed_list() {  # armed screens in fleet order, one per line
+  local s
+  [ -s "$ARMED" ] || return 0
+  for s in romulus remus nyx; do
+    grep -qx "$s" "$ARMED" && echo "$s"
+  done
+  return 0
+}
+
+armed_clear() { rm -f "$ARMED" "$ARMED_AT"; }
+
+armed_render() {  # sketchybar item komax_armed: names while armed, hidden otherwise
+  command -v sketchybar >/dev/null 2>&1 || return 0
+  local names
+  names=$(armed_list | tr '[:lower:]' '[:upper:]' | paste -sd ' ' -)
+  if [ -n "$names" ]; then
+    sketchybar --set komax_armed label="$names" drawing=on >/dev/null 2>&1 || true
+  else
+    sketchybar --set komax_armed label="" drawing=off >/dev/null 2>&1 || true
+  fi
+}
+
+arm_schedule_expiry() {  # clear the set ARM_SECONDS after the last press
+  local stamp="$(date +%s).$RANDOM.$$"
+  echo "$stamp" > "$ARMED_AT"
+  (
+    sleep "$ARM_SECONDS"
+    if [ "$(cat "$ARMED_AT" 2>/dev/null)" = "$stamp" ]; then
+      armed_clear; armed_render
+    fi
+  ) >/dev/null 2>&1 </dev/null &
+  disown 2>/dev/null || true
+}
+
+arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already armed
+  if [ -s "$ARMED" ] && grep -qx "$1" "$ARMED"; then
+    grep -vx "$1" "$ARMED" > "$ARMED.new" || true
+    mv "$ARMED.new" "$ARMED"
+    [ -s "$ARMED" ] || rm -f "$ARMED"
+  else
+    echo "$1" >> "$ARMED"
+  fi
+  armed_render
+  if [ -s "$ARMED" ]; then arm_schedule_expiry; else rm -f "$ARMED_AT"; fi
+}
+
 toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
   if [ "$(current_machine "$1")" = nemesis ]; then
     set_display "$1" pollux && notify "$(label "$1") -> POLLUX"
@@ -588,7 +639,7 @@ displays_power() {  # displays_power <sleep|wake>
 }
 
 case "${1:-}" in
-  status|check|displays|json|"") ;;
+  status|check|displays|json|arm|armed|"") ;;
   *)
     acquire_lock || exit 1
     touch "$BUSY"
@@ -665,6 +716,15 @@ case "${1:-}" in
     ;;
   json)
     status_json
+    ;;
+  arm)
+    case "${2:-}" in
+      romulus|remus|nyx) arm_toggle "$2" ;;
+      *) echo "usage: $(basename "$0") arm <romulus|remus|nyx>" >&2; exit 1 ;;
+    esac
+    ;;
+  armed)
+    armed_list
     ;;
   status)
     for d in romulus remus; do
