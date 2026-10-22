@@ -14,6 +14,14 @@
 set -euo pipefail
 
 MAC="34:5A:60:C0:95:87"
+MM="${MONITOR_MODE_SH:-$HOME/.dotfiles/macos/scripts/monitor-mode.sh}"
+
+# KOMAX grammar: "fire nemesis" with no Dell armed (NYX only) must not wake
+# VENGEANCE; AIDOS on a sleeping PC is not a thing worth a summon.
+if [ "${1:-}" = fire ] && ! "$MM" armed | grep -qx 'romulus\|remus' \
+   && [ -n "$("$MM" armed)" ]; then
+  exec "$MM" "$@"
+fi
 
 notify() {
   osascript -e "display notification \"$1\" with title \"VENGEANCE\"" || true
@@ -38,7 +46,7 @@ PY
 # up, skip the wake dance and go straight to the handover.
 if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
   if [ -n "${1:-}" ]; then
-    ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
+    "$MM" "$@"
   else
     notify "VENGEANCE is already awake"
   fi
@@ -54,7 +62,7 @@ for i in $(seq 1 45); do
     notify "VENGEANCE is awake (${i}x2s)"
     if [ -n "${1:-}" ]; then
       sleep 2
-      ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
+      "$MM" "$@"
     fi
     exit 0
   fi

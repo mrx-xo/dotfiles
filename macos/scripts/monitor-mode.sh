@@ -538,6 +538,38 @@ arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already arme
   if [ -s "$ARMED" ]; then arm_schedule_expiry; else rm -f "$ARMED_AT"; fi
 }
 
+fire() {  # fire <pollux|nemesis|work>: every armed screen -> machine, then clear
+  local m="$1" set s rc=0 moved=""
+  set=$(armed_list)
+  if [ -z "$set" ]; then
+    if [ "$m" = work ]; then notify "Work laptop: nothing armed"; return 0; fi
+    set=$'romulus\nremus'
+  fi
+  armed_clear; armed_render
+  for s in $set; do
+    case "$s" in
+      romulus)
+        if [ "$m" = work ]; then notify "ROMULUS cannot show the work laptop"; continue; fi
+        set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
+      remus)
+        if set_display remus "$m"; then
+          moved="$moved REMUS"
+          if [ "$m" = work ]; then
+            set_display lupa work && moved="$moved LUPA" || rc=1
+          elif [ "$m" = pollux ] && [ "$(current_machine lupa)" = work ]; then
+            set_display lupa pollux && moved="$moved LUPA" || rc=1
+          fi
+        else rc=1; fi ;;
+      nyx)
+        notify "NYX: not wired yet" ;;
+    esac
+  done
+  [ -n "$moved" ] && notify "$(echo $moved | sed 's/ / + /g') -> $(label "$m")"
+  sync_windows
+  maybe_restore
+  return $rc
+}
+
 toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
   if [ "$(current_machine "$1")" = nemesis ]; then
     set_display "$1" pollux && notify "$(label "$1") -> POLLUX"
@@ -716,6 +748,12 @@ case "${1:-}" in
     ;;
   json)
     status_json
+    ;;
+  fire)
+    case "${2:-}" in
+      pollux|nemesis|work) fire "$2" || exit 1 ;;
+      *) echo "usage: $(basename "$0") fire <pollux|nemesis|work>" >&2; exit 1 ;;
+    esac
     ;;
   arm)
     case "${2:-}" in

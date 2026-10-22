@@ -391,5 +391,80 @@ class ArmTest(KomaxDesk):
         self.assertIn("drawing=off", self.calls())
 
 
+class FireTest(KomaxDesk):
+    def test_empty_set_pollux_or_nemesis_moves_both_dells_only(self):
+        r = self.run_mm("fire", "nemesis")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "nemesis")
+        self.assertFalse((self.state / "lupa").exists(), "LUPA untouched")
+
+    def test_empty_set_work_does_nothing_and_notifies(self):
+        r = self.run_mm("fire", "work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertIn("nothing armed", self.calls())
+
+    def test_only_armed_screens_move(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+        self.assertEqual(self.machine("remus"), "pollux")
+
+    def test_fire_clears_the_armed_set_and_indicator(self):
+        self.run_mm("arm", "romulus")
+        self.run_mm("fire", "pollux")
+        self.assertEqual(self.armed(), "")
+        self.assertIn("drawing=off", self.calls())
+
+    def test_remus_to_work_takes_lupa_and_back(self):
+        self.run_mm("arm", "remus"); self.run_mm("fire", "work")
+        self.assertEqual(self.machine("remus"), "work")
+        self.assertEqual(self.machine("lupa"), "work")
+        self.run_mm("arm", "remus"); self.run_mm("fire", "pollux")
+        self.assertEqual(self.machine("remus"), "pollux")
+        self.assertEqual(self.machine("lupa"), "pollux")
+
+    def test_romulus_to_work_is_skipped_but_remus_still_moves(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
+        self.run_mm("fire", "work")
+        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("remus"), "work")
+
+    def test_fire_syncs_windows_once(self):
+        self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
+        self.run_mm("fire", "nemesis")
+        self.assertEqual(self.calls().count("ssh "), 1)
+
+    def test_fire_waits_for_the_lock(self):
+        holder = subprocess.Popen(["sleep", "30"])
+        try:
+            lock = self.state / "lock.d"
+            lock.mkdir()
+            (lock / "pid").write_text(str(holder.pid))
+            r = self.run_mm("fire", "nemesis")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("busy", r.stderr)
+            self.assertEqual(self.machine("romulus"), "pollux")
+        finally:
+            holder.kill()
+
+    def test_arm_during_fire_is_not_consumed(self):
+        holder = subprocess.Popen(["sleep", "30"])
+        try:
+            lock = self.state / "lock.d"
+            lock.mkdir()
+            (lock / "pid").write_text(str(holder.pid))
+            r = self.run_mm("arm", "romulus")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.armed(), "romulus\n")
+        finally:
+            holder.kill()
+            import shutil
+            shutil.rmtree(lock, ignore_errors=True)
+        self.run_mm("fire", "nemesis")
+        self.assertEqual(self.machine("romulus"), "nemesis")
+
+
 if __name__ == "__main__":
     unittest.main()
