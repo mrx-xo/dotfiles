@@ -504,7 +504,7 @@
 
   <!-- ================= keebio iris se (rev. 8) ================= -->
   <div id="app-ir">
-    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v2 on board</b> since the 2026-09-29 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Hover any key for its QMK keycode. <b>Proposed v3</b> highlights changes from Current v2 on every layer; use side by side to compare layouts.</p>
+    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v3 on board</b> since the 2026-10-22 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Hover any key for its QMK keycode. <b>v3 changes</b> highlights what changed from retired v2; use side by side to compare layouts.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -552,7 +552,7 @@
       <span class="l-green"><i style="border-radius:50%"></i>knob (press / turn)</span>
       <span class="l-trns"><i></i>transparent (falls through)</span>
       <span class="l-chg" id="ir-change-legend"><i></i>changed vs left board</span>
-      <span class="l-pro-change" id="ir-pro-change-legend" hidden><i></i>Δ proposed change vs Current v2</span>
+      <span class="l-pro-change" id="ir-pro-change-legend" hidden><i></i>Δ v3 change vs previous v2</span>
     </div>
 
     <div class="notes">
@@ -566,12 +566,12 @@
       </div>
     </div>
 
-    <footer>layout ledger: factory = Keebio default (VIA, retired 2026-09-28) &rarr; v1 = keymaps/mrx (retired 2026-09-29) &rarr; v2 = + layer broadcast, Tab/Esc swap (on board, flashed 2026-09-29, both halves) &middot; full history in VERSIONS.md &middot; source of truth: ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c &middot; geometry: LAYOUT from keyboards/keebio/iris/rev8/keyboard.json (drawn unrotated, as QMK lists it) &middot; factory layers from keebio/iris/keymaps/default/keymap.json</footer>
+    <footer>layout ledger: factory = Keebio default (VIA, retired 2026-09-28) &rarr; v1 = keymaps/mrx (retired 2026-09-29) &rarr; v2 = + layer broadcast, Tab/Esc swap (retired 2026-10-22) &rarr; v3 = Nav reorder, knob scroll, Emacs layer, night lights (on board, flashed 2026-10-22, both halves) &middot; full history in VERSIONS.md &middot; source of truth: ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c &middot; geometry: LAYOUT from keyboards/keebio/iris/rev8/keyboard.json (drawn unrotated, as QMK lists it) &middot; factory layers from keebio/iris/keymaps/default/keymap.json</footer>
   </div>
 
   <!-- ================= komax (keychron k0 max) ================= -->
   <div id="app-km" hidden>
-    <p class="sub">The <b>Keychron K0 Max</b>, called <b>KOMAX</b>: a 27-key numpad with a macro column and a knob, QMK, built from Keychron's fork like the Iris is built from mainline. <b>Stock keymap on the pad</b> until flash day. <b>Proposed v1</b> is the desk grammar from the KOMAX plan, compiled and waiting: tap the screens, then the machine. Hover any key for its keycode.</p>
+    <p class="sub">The <b>Keychron K0 Max</b>, called <b>KOMAX</b>: a 27-key numpad with a macro column and a knob, QMK, built from Keychron's fork like the Iris is built from mainline. <b>v1 flashed 2026-10-22.</b> The compiled desk grammar is on the pad: tap the screens, then the machine. Hover any key for its keycode.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -618,7 +618,7 @@
       <span class="l-trns"><i></i>transparent (falls through)</span>
       <span class="l-stock" id="km-stock-legend" hidden><i></i>stock, unchanged</span>
       <span class="l-chg" id="km-change-legend"><i></i>changed vs left board</span>
-      <span class="l-pro-change" id="km-pro-change-legend" hidden><i></i>&Delta; proposed change vs stock</span>
+      <span class="l-pro-change" id="km-pro-change-legend" hidden><i></i>&Delta; v1 change vs stock</span>
     </div>
 
     <div class="notes">
@@ -632,7 +632,7 @@
       </div>
     </div>
 
-    <footer>layout ledger: stock = Keychron default (on the pad since 2026-10-19) &rarr; v1 = desk grammar (built, flash pending) &middot; KOMAX ledger in VERSIONS.md &middot; source of truth: ~/qmk_keychron keyboards/keychron/k0_max/keymaps/mrx (Keychron fork, branch 2025q3, local branch mrx) &middot; geometry: LAYOUT_tenkey_27 from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware, branch 2025q3) &middot; stock layers and encoder map from keymaps/default/keymap.c &middot; plan: docs/active/plans/2026-10-21-komax-desk-grammar.md</footer>
+    <footer>layout ledger: stock = Keychron default (retired 2026-10-22) &rarr; v1 = desk grammar + night lights (flashed 2026-10-22) &middot; KOMAX ledger in VERSIONS.md &middot; source of truth: ~/qmk_keychron keyboards/keychron/k0_max/keymaps/mrx (Keychron fork, branch 2025q3, local branch mrx) &middot; geometry: LAYOUT_tenkey_27 from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware, branch 2025q3) &middot; stock layers and encoder map from keymaps/default/keymap.c &middot; plan: docs/active/plans/2026-10-21-komax-desk-grammar.md</footer>
   </div>
   </div>
 </div>
@@ -733,9 +733,9 @@ const fac2 = sparse(T, {
 });
 const facNone = sparse(T, {});
 
-// ---------- CURRENT v1 (keymaps/mrx, flashed 2026-09-28) ----------
-// Mirrors ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c key for
-// key; encoder_map turns ride on the #42 knob entries.
+// ---------- PREVIOUS v2 (retired 2026-10-22) ----------
+// Retired v2 baseline; current v3 is assembled below.
+// Encoder turns ride on the #42 knob entries.
 const cur0 = [
   K('Esc',null,'','KC_ESC'), ...row('1','2','3','4','5','6','7','8','9','0'), K('Bksp',null,'','KC_BSPC'),
   K('Tab',null,'','KC_TAB'), ...row("'",',','.','P','Y','F','G','C','R','L','/'),
@@ -815,10 +815,10 @@ const cur4 = sparse(T, {
   55: K('EXIT','TG 4','boot','TG(4)')
 });
 
-// ---------- PROPOSED (v3 draft) ----------
+// ---------- CURRENT v3 (flashed 2026-10-22, both halves) ----------
 // d1 — the hotdox Emacs layer (git 8457210) ported to the Iris, plus the
 // bookmark popup on the free Nav slot. Only the layers that differ are new;
-// the rest point at the current arrays.
+// the rest point at the previous-version arrays.
 
 // Nav: #5 was the one blank on the daily-driver row. ⌃⌘B is the Hammerspoon
 // bookmark popup (macos/hammerspoon/bookmark-popup.lua), so no Mac-side change.
@@ -874,15 +874,17 @@ const none5 = sparse(T, {});
 
 const MAPS = {
   fac: [fac0, fac1, fac2, facNone, facNone, none5],
-  cur: [cur0, cur1, cur2, cur3, cur4, none5],
+  prev: [cur0, cur1, cur2, cur3, cur4, none5],
+  cur: [pro0, pro1, pro2, pro3, cur4, pro5],
   pro: [pro0, pro1, pro2, pro3, cur4, pro5]
 };
 // Practice shares the current board's physical geometry and legends.
-window.IrisLayout = { geometry: GEO, base: cur0, symbols: cur1 };
+window.IrisLayout = { geometry: GEO, base: MAPS.cur[0], symbols: MAPS.cur[1] };
 const LAYOUTS = {
   fac: { v: 0, status: 'retired 2026-09-28', name: 'factory' },
-  cur: { v: 1, status: 'on board — flashed 2026-09-29', name: 'current v2' },
-  pro: { v: 2, status: 'draft d1 — not flashed', name: 'proposed v3' }
+  prev: { v: 2, status: 'retired 2026-10-22', name: 'previous v2' },
+  cur: { v: 3, status: 'on board — flashed 2026-10-22, both halves', name: 'current v3' },
+  pro: { v: 3, status: 'on board — changes since v2', name: 'v3 changes' }
 };
 
 // ---------- copy ----------
@@ -903,12 +905,12 @@ const REACH = {
   ]
 };
 REACH.fac[5] = REACH.cur[5] =
-  '<span class="warn">Not on the board.</span> The Emacs layer is a v3 draft; browse it on <b>proposed</b>. Holding <b>✦</b> (left outer thumb) + the letter already reaches the same Emacs commands today.';
+  '<span class="warn">Not in this version.</span> This retired layout has no Emacs layer; browse it on <b>current v3</b>. Holding <b>✦</b> (left outer thumb) + the letter already reaches the same Emacs commands today.';
 REACH.pro = REACH.cur.slice();
 REACH.pro[0] = REACH.cur[0].replace('turn for volume, press for Play', '<b>turn to scroll</b>, press for Play; hold ⇧ / ⌘ / ⌥ while turning for horizontal / zoom / fast');
 REACH.pro[1] = REACH.cur[1].replace('Knob skips tracks.', '<b>Knob turns volume</b> (moved here from Base).') + ' <b>#23</b> (Base <span class="k">/</span>) types <span class="k">?</span> directly, no Shift.';
-REACH.pro[2] = REACH.cur[2] + ' <b>New:</b> Bookmarks (⌃⌘B popup) on <b>#5</b>, the last blank on the daily-driver row.';
-REACH.pro[3] = REACH.cur[3] + ' <b>Draft:</b> tap <b>S (#34)</b> for <b>Shot · Area</b>: ⌘⇧4 starts CleanShot X area selection.';
+REACH.pro[2] = REACH.cur[2] + ' <b>Top letter row (#13–#17):</b> Agenda, Recent, Layout, Bookmarks (⌃⌘B), Scratch. Home, End, PgUp and PgDn are on the number row.';
+REACH.pro[3] = REACH.cur[3] + ' Tap <b>S (#34)</b> for <b>Shot · Area</b>: ⌘⇧4 starts CleanShot X area selection.';
 REACH.pro[5] = 'Press <b>both inner thumbs</b> together (Bksp + Tab), then tap one letter: <b>every letter is its Emacs command</b>. ✦i imenu, ✦s search, ✦m bookmarks… One command, then back to base. <b>F H J K L E A T stay blank</b>: those Hyper combos are yabai.';
 
 const NOTES = {
@@ -917,18 +919,18 @@ const NOTES = {
     'Retired by the v1 flash. <span class="k">VIA_ENABLE = no</span> in mrx, so the compiled keymap is the only one.',
     'Get it back: <b>Lower + R</b> (left) or <b>Raise + Del</b> (right) on factory firmware, or flash Keebio\'s default <span class="k">.uf2</span>.'
   ]],
-  cur: ['How v2 is laid out', [
+  cur: ['Previous v2 (retired)', [
     '<b>Home-row mods, mirrored:</b> ⌃ ⌥ ⌘ ⇧ ◆ on A O E U I, ✦ ⇧ ⌘ ⌥ ⌃ on D H T N S.',
     '<b>Thumbs:</b> left Space/Sym outer, Bksp/⌃ inner; right Tab inner, Enter/Nav outer. The outermost thumbs hold <span class="k">✦</span> / <span class="k">◆</span>, so ✦ H/J/K/L focus stays cross-hand (✦ on <b>D</b> is the same finger as <b>H</b>).',
     '<b>The knob (#42) takes media:</b> base turns volume and presses Play; Symbols turns Prev/Next; Nav turns Tab◀/Tab▶ and presses Mute; System turns brightness and presses RGB toggle. Game falls through to volume.',
     '<b>Nav</b> carries what 56 keys cannot hold on base: Agenda/Recent/Scratch/Layout on the left number row, Caps Word on Tab, Nav LOCK on Shift. ⌘Tab keeps the hotdox grip: hold <b>E</b> (left ⌘) and tap the right thumb Tab.',
     '<b>Live widget:</b> the firmware broadcasts <span class="k">[0x4C, layer]</span> over raw HID so the wallpaper widget follows layers .',
-    '<span class="warn">Open:</span> the Emacs layer (drafted for the hotdox, git <span class="k">8457210</span>) is on <b>proposed v3</b>, not flashed.'
+    'This retired v2 layout has no Emacs layer. Select <b>current v3</b> for the flashed Emacs layer and thumb combo.'
   ]],
-  pro: ['Proposed v3 (draft d1)', [
+  pro: ['v3 changes since v2', [
     '<b>Symbols #23 = ?</b> (<span class="k">KC_QUES</span>): the Base <span class="k">/</span> position types a question mark directly while Symbols is held, no Shift.',
     '<b>Nav daily drivers move up a row:</b> Agenda / Recent / Layout / Bookmarks (new, <span class="k">LCG(KC_B)</span>, the Hammerspoon ⌃⌘B popup) / Scratch now sit on the top letter row (#13-#17). Home / End / PgUp / PgDn swap onto the number row.',
-    '<b>System #34 = Shot · Area</b> (<span class="k">LSG(KC_4)</span>): hold Space + Enter, tap the Base S position. Sends ⌘⇧4 to start CleanShot X area selection; explorer draft only, not on the board.',
+    '<b>System #34 = Shot · Area</b> (<span class="k">LSG(KC_4)</span>): hold Space + Enter, tap the Base S position. Sends ⌘⇧4 to start CleanShot X area selection; flashed on both halves.',
     '<b>Emacs layer (5), ported from the hotdox:</b> each key sends <span class="k">HYPR(letter)</span> on its own Dvorak position. All 14 are bound in <span class="k">emacs.org</span> (2026-10-22). Hybrid: most letters are one command; <b>▸ c m v w</b> open their <span class="k">SPC</span> menu (Agent Shell, bookmarks, vterm, window), replayed as <span class="k">C-SPC</span> so which-key labels match.',
     '<b>Door = both inner thumbs</b> (#52 Bksp + #53 Tab) as a QMK combo → <span class="k">OSL(5)</span>. The hotdox door was Bksp + Esc; on the Iris those sit on opposite hands, the two inner thumbs are side by side.',
     '<span class="warn">Risk:</span> ⌃Tab (hold Bksp, tap Tab) must not fire the combo. A combo only triggers when both keys land inside <span class="k">COMBO_TERM</span> (~50 ms), so a held ⌃ then Tab is safe; a fast mash is not.',
@@ -937,11 +939,16 @@ const NOTES = {
     '<b>Unchanged:</b> Game.'
   ]]
 };
+REACH.prev = REACH.cur;
+REACH.cur = REACH.pro;
+NOTES.prev = NOTES.cur;
+NOTES.cur = ['Current v3', NOTES.pro[1]];
+
 const NOTES_L = {   // per-layer extra card on current
   1: '<span class="k">{ }</span> top, <span class="k">( )</span> home, <span class="k">[ ]</span> bottom on the left middle+index; <span class="k">&amp; = * + |</span> on right home.',
   2: 'One activator, right thumb <b>Enter</b>. The left hand gets arrows, tabs and daily drivers; the right hand gets the numpad. Tap <b>Nav LOCK</b> for long numpad runs.',
   3: 'Tri-layer: <span class="k">update_tri_layer_state(1, 2, 3)</span>.',
-  4: 'Solid red RGB while active, via <span class="k">rgb_matrix_indicators_user</span>. The knob and <b>#43</b> stay transparent, so volume and Sym still work mid-game.'
+  4: 'Solid red RGB while active, via <span class="k">rgb_matrix_indicators_user</span>. The knob and <b>#43</b> stay transparent, so scrolling and Sym still work mid-game.'
 };
 
 // ---------- render ----------
@@ -970,7 +977,7 @@ const LI = x => '<li>' + x + '</li>';
 
 const keyDiffers = (key, other) => JSON.stringify(key) !== JSON.stringify(other);
 const proposedChangeCounts = MAPS.pro.map((keys, l) =>
-  keys.filter((key, i) => keyDiffers(key, MAPS.cur[l][i])).length);
+  keys.filter((key, i) => keyDiffers(key, MAPS.prev[l][i])).length);
 
 function drawBoard(board, vw, ringVs) {
   const w = board.parentElement.clientWidth - 28;
@@ -984,7 +991,7 @@ function drawBoard(board, vw, ringVs) {
   board.style.height = (UH * u) + 'px';
   board.innerHTML = '';
   const keys = MAPS[vw][layer];
-  const base = vw === 'pro' ? MAPS.cur[layer] : ringVs ? MAPS[ringVs][layer] : null;
+  const base = vw === 'pro' ? MAPS.prev[layer] : ringVs ? MAPS[ringVs][layer] : null;
   const mods = window.__mods || {};
   keys.forEach((k, i) => {
     const [x, y] = GEO[i];
@@ -1046,7 +1053,7 @@ function render() {
     badge.hidden = !proposedVisible;
     badge.textContent = 'Δ ' + count;
     badge.classList.toggle('zero', count === 0);
-    badge.setAttribute('aria-label', count + ' proposed ' + (count === 1 ? 'change' : 'changes'));
+    badge.setAttribute('aria-label', count + ' release ' + (count === 1 ? 'change' : 'changes'));
   });
   const summary = document.getElementById('ir-pro-change-summary');
   const count = proposedChangeCounts[layer];
@@ -1054,8 +1061,8 @@ function render() {
   summary.hidden = !proposedVisible;
   summary.classList.toggle('empty', count === 0);
   summary.textContent = count
-    ? 'Δ ' + count + ' proposed ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from Current v2'
-    : 'No proposed changes in ' + layerName + ' · matches Current v2';
+    ? 'Δ ' + count + ' release ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from previous v2'
+    : 'No release changes in ' + layerName + ' · matches previous v2';
   app.classList.toggle('both', both);
   boards.classList.toggle('split', both);
   colB.hidden = !both;
@@ -1094,8 +1101,9 @@ function render() {
 const selA = document.getElementById('sel-ir-a');
 const selB = document.getElementById('sel-ir-b');
 for (const s of [selA, selB]) {
-  s.add(new Option('Current v2 · on board', 'cur'));
-  s.add(new Option('Proposed v3 · draft d1', 'pro'));
+  s.add(new Option('Current v3 · on board', 'cur'));
+  s.add(new Option('Previous v2 · retired', 'prev'));
+  s.add(new Option('v3 changes · vs previous v2', 'pro'));
   s.add(new Option('Factory · retired', 'fac'));
 }
 selA.value = sel1;
@@ -1147,7 +1155,7 @@ const K = (t, h, k, c, tok) => ({ t, h: h || null, k: k || '', c: c || '', tok: 
 const T = K('▽', null, 'trns', 'KC_TRNS');
 const KNOB = (t, ccw, cw, c, k, tok) => Object.assign(K(t, null, 'knob ' + (k || ''), c, tok), { e: [ccw, cw] });
 
-// ---------- STOCK (keymaps/default — what the pad shipped with, still on it) ----------
+// ---------- STOCK (keymaps/default — retired 2026-10-22) ----------
 const cur0 = [
   KNOB('mute', 'vol−', 'vol+', 'KC_MUTE (knob)'),
   K('esc', null, '', 'KC_ESC', 'esc'), K('del', null, '', 'KC_DEL', 'del'),
@@ -1177,7 +1185,7 @@ const cur1 = [
   K('Fn', 'held', 'lt2', 'MO(1) (held)'), K('rgb', null, 'nav', 'UG_TOGG'), K('next', null, 'nav', 'KC_MNXT'), T
 ];
 
-// ---------- PROPOSED v1 (the desk grammar, docs/active/plans/2026-10-21-komax-desk-grammar.md) ----------
+// ---------- CURRENT v1 (the desk grammar, docs/active/plans/2026-10-21-komax-desk-grammar.md) ----------
 // Screens arm, machines fire. Colour = machine. Everything else stays stock.
 const pro0 = cur0.slice();
 pro0[0]  = KNOB('WORK', 'vol−', 'vol+', 'KC_F19 (knob press) · fire: work laptop', 'mwork', 'f19');
@@ -1186,12 +1194,14 @@ pro0[10] = K('REMUS',   'screen', 'scr',  'KC_F14 · arm REMUS', 'f14');
 pro0[15] = K('NYX',     'screen', 'scr',  'KC_F15 · arm NYX', 'f15');
 pro0[19] = K('POLLUX',  'machine', 'mpol', 'KC_F16 · fire: POLLUX', 'f16');
 pro0[23] = K('NEMESIS', 'machine', 'mnem', 'KC_F17 · fire: NEMESIS (replaces Fn)', 'f17');
-const pro1 = cur1.slice();   // unchanged, but nothing reaches it once #23 is NEMESIS
+const pro1 = cur1.slice();
+pro1[23] = T; // Compiled Fn layer falls through to F17; knob+Enter holds Fn.
 
-const MAPS = { cur: [cur0, cur1], pro: [pro0, pro1] };
+const MAPS = { prev: [cur0, cur1], cur: [pro0, pro1], pro: [pro0, pro1] };
 const LAYOUTS = {
-  cur: { status: 'on the pad — Keychron default keymap', name: 'stock' },
-  pro: { status: 'built, flash pending — not on the pad yet', name: 'proposed v1' }
+  prev: { status: 'retired 2026-10-22 — Keychron default', name: 'stock' },
+  cur: { status: 'on the pad — flashed 2026-10-22', name: 'current v1' },
+  pro: { status: 'on the pad — changes since stock', name: 'v1 changes' }
 };
 
 // ---------- copy ----------
@@ -1202,7 +1212,7 @@ const REACH = {
   ],
   pro: [
     '<b>Screen, then machine.</b> Tap screens (<b>ROMULUS</b>, <b>REMUS</b>, <b>NYX</b>) to arm them, then a machine (<b>POLLUX</b>, <b>NEMESIS</b>, or the knob press for <b>WORK</b>) to send them there. Nothing armed: POLLUX or NEMESIS moves both Dells. Arming expires 3 s after the last screen tap. Greyed keys stay stock.',
-    '<span class="warn">unreachable on v1</span> (decided 2026-10-22). #23 becomes NEMESIS, so nothing holds Fn: Bluetooth slots, 2.4 GHz pairing, RGB and the media keys go with it. The pad stays on POLLUX through its 2.4 GHz dongle and Bluetooth is unused, so that is the planned cost. The layer is still in the firmware behind a hidden door: hold the <b>knob press</b> and <b>Enter</b> together, then tap <b>P2P4G</b> (#4) to re-pair the dongle or any lighting key.'
+    'Hold the <b>knob press + Enter</b> together to reach Fn. The top row has Bluetooth slots and <b>P2P4G</b> on the physical <b>X</b> key for dongle re-pairing. Numpad lighting and media controls remain available; <b>0</b> toggles RGB and the knob turns brightness.'
   ]
 };
 const NOTES = {
@@ -1213,16 +1223,21 @@ const NOTES = {
     '<b>Host-side stopgap, not on the pad:</b> while KOMAX sat on NEMESIS, <span class="k">pad-fluid.ahk</span> turned <span class="k">*</span> into F20 for Fluid dictation. The desk-grammar plan retires it.',
     '<b>No live layer tracking:</b> Keychron\'s firmware sends no raw-HID layer frame, so the widget stays on Base. Key flash still works.'
   ]],
-  pro: ['Proposed v1 (built, flash pending)', [
+  pro: ['v1 changes since stock', [
     'From the KOMAX desk-grammar plan: <b>M1</b> F13 ROMULUS, <b>M2</b> F14 REMUS, <b>M3</b> F15 NYX, <b>M4</b> F16 POLLUX, <b>M5</b> F17 NEMESIS, <b>knob press</b> F19 WORK. skhd turns each into <span class="k">monitor-mode.sh arm</span> or <span class="k">fire</span>.',
     '<b>Colour = machine:</b> green POLLUX, red NEMESIS, amber the work laptop. Blue keys are screens.',
-    '<b>Decided 2026-10-22: NEMESIS takes the Fn key</b> (#23, cap printed Fn). The stock firmware has four macro slots plus Fn; the plan\'s M5 is that key. The Fn layer goes with it.',
+    '<b>M5 (#23) sends F17 for NEMESIS.</b> This physical cap reads M5; it occupied the stock Fn position. Hold <b>knob press + Enter</b> to reach the retained Fn layer.',
     '<b>Daily connection: the 2.4 GHz dongle on POLLUX</b> (decided 2026-10-22). The USB-C cable is for flashing. If the dongle ever drops: knob press + Enter opens the hidden Fn layer, then <span class="k">P2P4G</span> (#4) re-pairs.',
     '<b>Unchanged:</b> the numpad, the Esc / Del / Tab / Bksp row, and the knob turn (volume). Greyed in this view.',
     '<b>Compiled firmware, flashed like the Iris</b>: <span class="k">keymaps/mrx</span> in a checkout of Keychron\'s QMK fork, <span class="k">VIA_ENABLE = no</span> so Launcher cannot override it. F13 to F19 because macOS ignores F20 and up from hardware keyboards.',
     '<b>Night lights:</b> "good night" / "good morning" send a raw-HID frame (tag <span class="k">0x4E</span>) that darkens the pad and restores its saved look, by cable or through the dongle. Same message as the Iris; <span class="k">keyboard-lights off|on</span> on POLLUX.'
   ]]
 };
+
+REACH.prev = REACH.cur;
+REACH.cur = REACH.pro;
+NOTES.prev = NOTES.cur;
+NOTES.cur = ['Current v1', NOTES.pro[1]];
 
 // ---------- render ----------
 let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
@@ -1236,7 +1251,7 @@ const board2 = document.getElementById('km-board2');
 const LI = x => '<li>' + x + '</li>';
 const keyDiffers = (key, other) => JSON.stringify(key) !== JSON.stringify(other);
 const proposedChangeCounts = MAPS.pro.map((keys, l) =>
-  keys.filter((key, i) => keyDiffers(key, MAPS.cur[l][i])).length);
+  keys.filter((key, i) => keyDiffers(key, MAPS.prev[l][i])).length);
 
 function drawBoard(board, vw, ringVs) {
   const w = board.parentElement.clientWidth - 28;
@@ -1249,7 +1264,7 @@ function drawBoard(board, vw, ringVs) {
   board.style.height = (UH * u) + 'px';
   board.innerHTML = '';
   const keys = MAPS[vw][layer];
-  const base = vw === 'pro' ? MAPS.cur[layer] : ringVs ? MAPS[ringVs][layer] : null;
+  const base = vw === 'pro' ? MAPS.prev[layer] : ringVs ? MAPS[ringVs][layer] : null;
   keys.forEach((k, i) => {
     const [x, y, kw, kh] = GEO[i];
     const d = document.createElement('div');
@@ -1307,7 +1322,7 @@ function render() {
     badge.hidden = !proposedVisible;
     badge.textContent = 'Δ ' + count;
     badge.classList.toggle('zero', count === 0);
-    badge.setAttribute('aria-label', count + ' proposed ' + (count === 1 ? 'change' : 'changes'));
+    badge.setAttribute('aria-label', count + ' release ' + (count === 1 ? 'change' : 'changes'));
   });
   const summary = document.getElementById('km-pro-change-summary');
   const count = proposedChangeCounts[layer];
@@ -1315,8 +1330,8 @@ function render() {
   summary.hidden = !proposedVisible;
   summary.classList.toggle('empty', count === 0);
   summary.textContent = count
-    ? 'Δ ' + count + ' proposed ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from stock'
-    : 'No proposed changes in ' + layerName + ' · matches stock';
+    ? 'Δ ' + count + ' release ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from stock'
+    : 'No release changes in ' + layerName + ' · matches stock';
   boards.classList.toggle('split', both);
   colB.hidden = !both;
   capA.hidden = !both;
@@ -1340,15 +1355,16 @@ function render() {
   document.getElementById('km-side-body').innerHTML =
     '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:17.5px">' +
     '<li>Compiled firmware: <span class="k">qmk compile -kb keychron/k0_max -km mrx</span> in <span class="k">~/qmk_keychron</span> (Keychron fork, branch 2025q3).</li>' +
-    '<li>Flash over the <b>USB-C cable</b>: hold <b>Esc</b> while plugging in (bootmagic), then <span class="k">qmk flash</span>. The dongle cannot flash it.</li>' +
+    '<li>Flash over the <b>USB-C cable</b>: hold the <b>circle (○) key immediately right of the knob</b> while plugging in (Esc position, bootmagic), then <span class="k">qmk flash</span>. The dongle cannot flash it.</li>' +
     '<li>After a change, record it in the KOMAX ledger in <span class="k">VERSIONS.md</span> and update the data here.</li></ul>';
 }
 
 const selA = document.getElementById('sel-km-a');
 const selB = document.getElementById('sel-km-b');
 for (const s of [selA, selB]) {
-  s.add(new Option('Stock · on the pad', 'cur'));
-  s.add(new Option('Proposed v1 · built, flash pending', 'pro'));
+  s.add(new Option('Current v1 · on the pad', 'cur'));
+  s.add(new Option('Stock · retired', 'prev'));
+  s.add(new Option('v1 changes · vs stock', 'pro'));
 }
 selA.value = sel1;
 selB.value = sel2;
@@ -1441,8 +1457,8 @@ window.__flashKey = function (tok, down) {
 // ===========================================================================
 (() => {
 const EYEBROW = {
-  ir: 'keebio iris se · rev. 8 · rp2040 · 56 keys + knob · layout v2 on board',
-  km: 'keychron k0 max · komax · 27 keys + knob · stock keymap on the pad'
+  ir: 'keebio iris se · rev. 8 · rp2040 · 56 keys + knob · layout v3 on board',
+  km: 'keychron k0 max · komax · 27 keys + knob · layout v1 on the pad'
 };
 const idxButtons = [document.getElementById('btn-idx'), document.getElementById('btn-km-idx')];
 for (const b of idxButtons) {

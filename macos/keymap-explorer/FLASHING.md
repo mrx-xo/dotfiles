@@ -90,9 +90,10 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
 
 ## KOMAX: flashing from Keychron's fork
 
-Written 2026-10-22 before the first flash; steps marked *unverified* get
-confirmed on the bench and this note goes away. The old Launcher section
-is in git history up to `cb63fe1`.
+Bootloader entry, USB flashing and lighting by cable and dongle verified
+2026-10-22. Physical desk-grammar and hidden Fn/re-pair acceptance remain
+pending; see VERSIONS.md. The old Launcher section is in git history up to
+`cb63fe1`.
 
 ### Facts
 
@@ -131,7 +132,7 @@ cd ~/qmk_keychron && QMK_HOME=~/qmk_keychron qmk compile -kb keychron/k0_max -km
    ```
 
    or, with the built file, `dfu-util -a 0 -d 0483:df11 -s 0x8000000:leave -D keychron_k0_max_mrx.bin`.
-3. Check wired: M1 to M4, the Fn key and the knob press arm and fire
+3. Check wired: M1 to M5 and the knob press arm and fire
    (`skhd -o`, or the sketchybar armed indicator); numpad and knob turn
    stock.
 4. Unplug the cable, switch to **2.4 GHz**, dongle in POLLUX: it should
@@ -142,7 +143,7 @@ cd ~/qmk_keychron && QMK_HOME=~/qmk_keychron qmk compile -kb keychron/k0_max -km
 The stock Fn layer is still compiled in, behind a chord: hold the **knob
 press** and **Enter** (#26) together (`COMBO_TERM` 80 ms). While held:
 
-- `P2P4G` (#4, the Bksp position) re-pairs the dongle: hold it with the
+- `P2P4G` (#4, the physical **X** key at the top-right, Bksp position) re-pairs the dongle: hold it with the
   dongle plugged into the target machine.
 - `UG_TOGG` on #24 (the `0` key; the knob press is busy holding the door),
   `UG_NEXT` / `UG_VALU` / `UG_HUEU` and friends on the numpad set the
@@ -155,8 +156,10 @@ press** and **Enter** (#26) together (`COMBO_TERM` 80 ms). While held:
 ~/.dotfiles/macos/scripts/keyboard-lights off
 ```
 
-Expect `komax: off` by cable. Then on the dongle: if it prints
-`komax: no reply`, the closed dongle firmware does not forward host-to-pad
-raw HID; record that in VERSIONS.md and accept cable-only (the pad's own
-idle sleep darkens it overnight). Keys pressed while dark must not relight
-it; `keyboard-lights on` brings the saved look back.
+Cable and dongle both returned `komax: off` in the 2026-10-22 bench test.
+If a later dongle test prints `komax: no reply`, check the pad's power,
+2.4 GHz mode, dongle connection and pairing, then retry after waking it.
+A timeout alone does not establish that the dongle cannot forward raw HID:
+this dongle already passed that test. Compare with the cable path if the
+problem persists and record the observed failure. Keys pressed while dark
+must not relight it; `keyboard-lights on` brings the saved look back.

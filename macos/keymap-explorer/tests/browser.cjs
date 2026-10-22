@@ -10,6 +10,9 @@ const assert = require('node:assert/strict');
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     const url = pathToFileURL(path.resolve(__dirname, '../index.html')).href;
     await page.goto(url + '#practice');
+    // Practice must follow the flashed v3 layout, including its direct ? key.
+    assert.equal(await page.evaluate(() => window.IrisLayout.symbols[23].c), 'KC_QUES');
+    assert.deepEqual(await page.evaluate(() => window.IrisLayout.base[42].e), ['Scr▲', 'Scr▼']);
     await page.getByRole('button', {name:'Start a round',exact:true}).click();
     assert.equal(await page.locator('.practice-key').count(), 56);
     const card = async () => page.evaluate(() => window.IRIS_BINDINGS.cards.find(c =>
@@ -73,7 +76,7 @@ const assert = require('node:assert/strict');
     assert.equal(await page.locator('#ir-board .key').count(), 56);
     await page.locator('#sel-ir-a').selectOption('fac');
     assert.match(await page.locator('#ir-board').textContent(), /Q/);
-    // A local draft may exist independently of the practice feature.
+    // Current v3 is flashed; the changes view compares it with retired v2.
     if (await page.locator('#sel-ir-a option[value="pro"]').count()) {
       await page.locator('#sel-ir-a').selectOption('cur');
       await page.locator('#ir-tabs button[data-l="3"]').click();
@@ -83,7 +86,10 @@ const assert = require('node:assert/strict');
         title: key.title
       })));
       const currentSystem = await systemKeys('#ir-board');
-      assert.deepEqual(currentSystem[34], {tap:'▽', hold:null, title:'#34 · KC_TRNS'});
+      assert.deepEqual(currentSystem[34], {tap:'Shot', hold:'Area', title:'#34 · LSG(KC_4)'});
+      await page.locator('#sel-ir-a').selectOption('prev');
+      const previousSystem = await systemKeys('#ir-board');
+      assert.deepEqual(previousSystem[34], {tap:'▽', hold:null, title:'#34 · KC_TRNS'});
       await page.locator('#sel-ir-a').selectOption('pro');
       const shot = page.locator('#ir-board .key').nth(34);
       assert.equal(await shot.locator('.tap').textContent(), 'Shot');
@@ -91,11 +97,11 @@ const assert = require('node:assert/strict');
       assert.equal(await shot.getAttribute('title'), '#34 · LSG(KC_4)');
       const proposedSystem = await systemKeys('#ir-board');
       assert.deepEqual(proposedSystem.flatMap((key,i) =>
-        JSON.stringify(key) === JSON.stringify(currentSystem[i]) ? [] : [i]), [34]);
+        JSON.stringify(key) === JSON.stringify(previousSystem[i]) ? [] : [i]), [34]);
       assert.deepEqual(await page.locator('#ir-board .key').evaluateAll(keys =>
         keys.flatMap((key,i) => key.classList.contains('pro-change') ? [i] : [])), [34]);
       assert.equal(await page.locator('#ir-tabs button[data-l="3"] .change-count').textContent(), 'Δ 1');
-      assert.match(await page.locator('#ir-pro-change-summary').textContent(), /1 proposed change in System/);
+      assert.match(await page.locator('#ir-pro-change-summary').textContent(), /1 release change in System/);
       await page.locator('#sel-ir-a').selectOption('cur');
       assert.deepEqual(await systemKeys('#ir-board'), currentSystem);
       assert.equal(await page.locator('#ir-board .pro-change').count(), 0);
@@ -165,8 +171,10 @@ const assert = require('node:assert/strict');
     await page.locator('#bd-km').click();
     assert.ok(await page.locator('#app-ir').isHidden());
     assert.equal(await page.locator('#km-board .key').count(), 27);
-    assert.equal(await page.locator('#km-board .key').nth(0).getAttribute('title'), '#0 · KC_MUTE (knob)');
+    assert.match(await page.locator('#km-board .key').nth(0).getAttribute('title'), /KC_F19/);
     assert.equal(await page.locator('#km-board .key').nth(8).getAttribute('title'), '#8 · KC_PAST');
+    assert.match(await page.locator('#km-board .key').nth(23).getAttribute('title'), /KC_F17/);
+    await page.locator('#sel-km-a').selectOption('prev');
     assert.match(await page.locator('#km-board .key').nth(23).getAttribute('title'), /MO\(1\)/);
     await page.locator('#sel-km-a').selectOption('pro');
     const legends = await page.locator('#km-board .key .tap').allTextContents();
@@ -176,7 +184,11 @@ const assert = require('node:assert/strict');
       keys.flatMap((key,i) => key.classList.contains('pro-change') ? [i] : [])), [0,5,10,15,19,23]);
     assert.equal(await page.locator('#km-tabs button[data-l="0"] .change-count').textContent(), 'Δ 6');
     await page.locator('#km-tabs button[data-l="1"]').click();
-    assert.match(await page.locator('#km-reach').textContent(), /unreachable/);
+    assert.match(await page.locator('#km-reach').textContent(), /knob press \+ Enter/);
+    assert.equal(await page.locator('#km-board .key').nth(23).getAttribute('title'), '#23 · KC_TRNS');
+    assert.match(await page.locator('#km-board .key').nth(24).getAttribute('title'), /UG_TOGG/);
+    await page.locator('#sel-km-a').selectOption('cur');
+    assert.match(await page.locator('#km-reach').textContent(), /knob press \+ Enter/);
     await page.locator('#bd-ir').click();
     assert.ok(await page.locator('#app-km').isHidden());
     assert.equal(await page.locator('#ir-board .key').count(), 56);
@@ -217,6 +229,6 @@ const assert = require('node:assert/strict');
     await broken.getByRole('button', {name:'Start a round',exact:true}).click();
     assert.match(await broken.locator('#practice-source').textContent(), /session-only/);
     assert.match(await broken.locator('#practice-round').textContent(), /COMMAND 1/);
-    console.log('Browser checks passed: full round, wrong key, hints, focus/Escape/Tab, persistence, themes, search, layouts, draft-only area capture, narrow screen, KOMAX board and widget, widget, missing catalog, unavailable storage.');
+    console.log('Browser checks passed: full round, wrong key, hints, focus/Escape/Tab, persistence, themes, search, layouts, flashed v3 area capture and retired comparisons, narrow screen, KOMAX board and widget, widget, missing catalog, unavailable storage.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode=1; });
