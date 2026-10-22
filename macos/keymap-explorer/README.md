@@ -1,13 +1,16 @@
 # mrx keymap explorer
 
 Interactive visualizer for the **Keebio Iris SE** (USB name `Iris Rev. 8`,
-RP2040, QMK target `keebio/iris/rev8`): static HTML/CSS/JavaScript, no build
-or runtime dependencies. Walk the layers, compare layout versions, or practice
-your actual Emacs leader bindings in short recall rounds.
+RP2040, QMK target `keebio/iris/rev8`) and the **KOMAX** macro pad (Keychron
+K0 Max): static HTML/CSS/JavaScript, no build or runtime dependencies. Walk
+the layers, compare layout versions, or practice your actual Emacs leader
+bindings in short recall rounds. The **board** picker at the top switches
+between them.
 
 The hotdox76v2 and the Creator Micro used to live here too. Both boards are
 gone (2026-08-03); their explorers, ledgers and flashing runbook are in git
-history up to `c39eb8b`.
+history up to `c39eb8b`. KOMAX took over the Creator Micro's slot on
+2026-10-21: page, widget, ledger and docs.
 
 - **Next steps: [ROADMAP.md](ROADMAP.md)**
 - **Version ledger: [VERSIONS.md](VERSIONS.md)**
@@ -20,15 +23,27 @@ agent-open "file://$HOME/.dotfiles/macos/keymap-explorer/index.html"
 ```
 
 `#idx` in the hash numbers every key (0-55, `LAYOUT` order), same as the
-`key #s` button.
+`key #s` button. `#komax` opens the KOMAX board (`#komax&idx` numbers its
+keys 0-26).
 
 ## What it shows
 
-- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game
-- **Current v2** (on board, flashed 2026-09-29) and **Factory** (retired).
-  Side by side rings differing keys.
+- **Layers**: 0 Base · 1 Symbols · 2 Nav · 3 System · 4 Game · 5 Emacs
+  (proposed only)
+- **Current v2** (on board, flashed 2026-09-29), **Proposed v3** (draft,
+  not flashed), and **Factory** (retired). Side by side compares layouts.
+- **Proposed changes** always compare against Current v2, in Single view
+  or on either side of Side by side. Changed keys have a dedicated cyan fill,
+  thick outline, and a `Δ` marker, distinct from layer colours. The light theme
+  uses a darker cyan accent with deeper text for contrast. Layer tabs show
+  change counts; the selected layer's summary explicitly identifies layers
+  with no changes.
 - The left inner key (#42) is a rotary knob: press legend plus per-layer
   turn actions from `encoder_map`.
+- **Proposed screenshot key**: hold Space + Enter (System), tap the Base
+  `S` position (#34), labeled `Shot · Area`. `LSG(KC_4)` sends Cmd+Shift+4
+  to start CleanShot X area selection using its existing shortcut. Explorer
+  draft only: Current v2 and the firmware remain unchanged.
 
 ## Practice
 
@@ -99,12 +114,43 @@ Set `PLAYWRIGHT_MODULE` to an existing Playwright installation and optionally
 `BROWSER_EXECUTABLE` to the browser binary for a headless run. The browser suite
 requires a generated local catalog; no test dependencies ship with the page.
 
+## KOMAX (Keychron K0 Max)
+
+A 27-key numpad with a macro column and a knob (USB `0x3434:0x0A06`, QMK
+under Keychron's own firmware). Layers 0 Base and 1 Fn.
+
+- **Stock** is what is on the pad: Keychron's `keymaps/default`. M1 to M4 are
+  empty macro slots that send nothing, and the bottom-left key is **Fn**
+  (`MO(1)`), not a fifth macro key.
+- **Proposed v1 (draft d1)** is the desk grammar from
+  `docs/active/plans/2026-10-21-komax-desk-grammar.md`: blue screen keys
+  (ROMULUS, REMUS, NYX) arm, coloured machine keys (POLLUX green, NEMESIS
+  red, the knob press WORK amber) fire. Unchanged keys are greyed in this
+  view, and the Fn tab says why Fn is unreachable once the plan's M5 lands
+  on #23.
+- **Legend only, no live layer tracking.** Keychron's firmware never sends
+  the `[0x4C, layer]` raw-HID frame the Iris firmware broadcasts, so the
+  widget stays on Base. Key flash works: numpad keys arrive as `pad7`,
+  `pad*`, `padclear` and so on, and F13 to F19 as `f13` to `f19`.
+- **Programmed in Keychron Launcher, not flashed.** See the KOMAX section in
+  `FLASHING.md`, then record the change in the KOMAX ledger in
+  `VERSIONS.md` and update `cur0`/`cur1` in the KOMAX block of `index.html`.
+- Source of truth: the pad's own memory. Geometry is `LAYOUT_tenkey_27`
+  from `keyboards/keychron/k0_max/keyboard.json` and the stock layers come
+  from `keymaps/default/keymap.c`, both in Keychron's `qmk_firmware`,
+  branch `2025q3`.
+
 ## Widget mode (the wallpaper overlay)
 
 `index.html#widget` strips all chrome except the board and a small
-layer-tab row, and scales the board to fill the window. The Hammerspoon
-wallpaper widget (`~/.dotfiles/macos/hammerspoon/keymap-widget.lua`) renders
-it on the portrait Dell. See `live-keymap-widget-prd.md`.
+layer-tab row, and scales the board to fill the window; `#komax&widget` does
+the same for KOMAX. The Hammerspoon wallpaper widget
+(`~/.dotfiles/macos/hammerspoon/keymap-widget.lua`) renders both on the
+portrait Dell, the Iris on top and KOMAX centred below it. See
+`live-keymap-widget-prd.md`.
+
+- The summoned overlay (⌘⌃⌥K) shows the **Iris only**; KOMAX hides while it
+  is up and returns to the wallpaper on dismiss.
 
 - ⌘⌃K (or `hs -c "keymapWidget.toggle()"`) hides and shows it.
 - ⌘⌃⌥K (`Cmd+Ctrl+Alt+K`, or `hs -c "keymapWidget.toggleOverlay()"`)

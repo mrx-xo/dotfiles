@@ -75,7 +75,79 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('#ir-board').textContent(), /Q/);
     // A local draft may exist independently of the practice feature.
     if (await page.locator('#sel-ir-a option[value="pro"]').count()) {
+      await page.locator('#sel-ir-a').selectOption('cur');
+      await page.locator('#ir-tabs button[data-l="3"]').click();
+      const systemKeys = board => page.locator(`${board} .key`).evaluateAll(keys => keys.map(key => ({
+        tap: key.querySelector('.tap').textContent,
+        hold: key.querySelector('.hold')?.textContent ?? null,
+        title: key.title
+      })));
+      const currentSystem = await systemKeys('#ir-board');
+      assert.deepEqual(currentSystem[34], {tap:'▽', hold:null, title:'#34 · KC_TRNS'});
       await page.locator('#sel-ir-a').selectOption('pro');
+      const shot = page.locator('#ir-board .key').nth(34);
+      assert.equal(await shot.locator('.tap').textContent(), 'Shot');
+      assert.equal(await shot.locator('.hold').textContent(), 'Area');
+      assert.equal(await shot.getAttribute('title'), '#34 · LSG(KC_4)');
+      const proposedSystem = await systemKeys('#ir-board');
+      assert.deepEqual(proposedSystem.flatMap((key,i) =>
+        JSON.stringify(key) === JSON.stringify(currentSystem[i]) ? [] : [i]), [34]);
+      assert.deepEqual(await page.locator('#ir-board .key').evaluateAll(keys =>
+        keys.flatMap((key,i) => key.classList.contains('pro-change') ? [i] : [])), [34]);
+      assert.equal(await page.locator('#ir-tabs button[data-l="3"] .change-count').textContent(), 'Δ 1');
+      assert.match(await page.locator('#ir-pro-change-summary').textContent(), /1 proposed change in System/);
+      await page.locator('#sel-ir-a').selectOption('cur');
+      assert.deepEqual(await systemKeys('#ir-board'), currentSystem);
+      assert.equal(await page.locator('#ir-board .pro-change').count(), 0);
+      await page.locator('#btn-ir-both').click();
+      await page.locator('#sel-ir-b').selectOption('pro');
+      assert.deepEqual(await systemKeys('#ir-board'), currentSystem);
+      assert.deepEqual(await systemKeys('#ir-board2'), proposedSystem);
+      assert.equal(await page.locator('#ir-board2 .pro-change').count(), 1);
+      assert.ok(await page.locator('#ir-board2 .key').nth(34).evaluate(key => key.classList.contains('pro-change')));
+      await page.locator('#btn-ir-single').click();
+      await page.locator('#sel-ir-a').selectOption('pro');
+      await page.locator('#ir-tabs button[data-l="1"]').click();
+      // Proposal indicators must stay distinct from every layer/category colour.
+      for (const theme of ['gruvbox', 'paper', 'midnight']) {
+        await page.locator('#practice-theme').selectOption(theme);
+        const colours = await page.evaluate(() => {
+          const key = document.querySelector('#ir-board .pro-change');
+          const accent = getComputedStyle(key).outlineColor;
+          const count = document.querySelector('#ir-tabs .change-count:not(.zero)');
+          const summary = document.getElementById('ir-pro-change-summary');
+          const delta = getComputedStyle(key, '::after');
+          const rgba = value => value.match(/[\d.]+/g).map(Number);
+          const composite = (front, back) => back.map((v,i) => v * (1 - (front[3] ?? 1)) + front[i] * (front[3] ?? 1));
+          const background = node => node
+            ? composite(rgba(getComputedStyle(node).backgroundColor), background(node.parentElement))
+            : [255,255,255];
+          const luminance = colour => colour.slice(0,3).map(v => v/255)
+            .map(v => v <= .04045 ? v/12.92 : ((v+.055)/1.055)**2.4)
+            .reduce((n,v,i) => n + v * [.2126,.7152,.0722][i],0);
+          const contrast = (a,b) => (Math.max(luminance(a),luminance(b))+.05) / (Math.min(luminance(a),luminance(b))+.05);
+          return {
+            accent,
+            categories: [...document.querySelectorAll('#ir-tabs .dot')].map(n => getComputedStyle(n).backgroundColor),
+            indicators: [
+              delta.backgroundColor,
+              getComputedStyle(count).borderTopColor,
+              getComputedStyle(summary).borderLeftColor,
+              getComputedStyle(document.querySelector('.l-pro-change i')).borderTopColor
+            ],
+            textContrast: {
+              count: contrast(rgba(getComputedStyle(count).color), background(count)),
+              summary: contrast(rgba(getComputedStyle(summary).color), background(summary)),
+              delta: contrast(rgba(delta.color), rgba(delta.backgroundColor))
+            }
+          };
+        });
+        assert.ok(!colours.categories.includes(colours.accent), `Proposal accent reuses a layer colour in ${theme}`);
+        assert.ok(colours.indicators.every(colour => colour === colours.accent), `Proposal indicators disagree in ${theme}`);
+        for (const [indicator, contrast] of Object.entries(colours.textContrast))
+          assert.ok(contrast >= 4.5, `${indicator} contrast is ${contrast.toFixed(2)}:1 in ${theme}; expected at least 4.5:1`);
+      }
+      await page.locator('#practice-theme').selectOption('gruvbox');
       await page.locator('#ir-tabs button[data-l="5"]').click();
       assert.match(await page.locator('#ir-board').textContent(), /imenu/);
     }
@@ -86,9 +158,48 @@ const assert = require('node:assert/strict');
     await page.setViewportSize({width:390,height:844});
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({path:'/tmp/iris-practice-mobile.png'});
+    // KOMAX (Keychron K0 Max): its own board page, Iris untouched.
+    await page.setViewportSize({width:1440,height:1100});
+    await page.goto(url + '#explore');
+    await page.reload();
+    await page.locator('#bd-km').click();
+    assert.ok(await page.locator('#app-ir').isHidden());
+    assert.equal(await page.locator('#km-board .key').count(), 27);
+    assert.equal(await page.locator('#km-board .key').nth(0).getAttribute('title'), '#0 · KC_MUTE (knob)');
+    assert.equal(await page.locator('#km-board .key').nth(8).getAttribute('title'), '#8 · KC_PAST');
+    assert.match(await page.locator('#km-board .key').nth(23).getAttribute('title'), /MO\(1\)/);
+    await page.locator('#sel-km-a').selectOption('pro');
+    const legends = await page.locator('#km-board .key .tap').allTextContents();
+    for (const name of ['ROMULUS','REMUS','NYX','POLLUX','NEMESIS','WORK'])
+      assert.ok(legends.includes(name), `KOMAX v1 is missing the ${name} legend`);
+    assert.deepEqual(await page.locator('#km-board .key').evaluateAll(keys =>
+      keys.flatMap((key,i) => key.classList.contains('pro-change') ? [i] : [])), [0,5,10,15,19,23]);
+    assert.equal(await page.locator('#km-tabs button[data-l="0"] .change-count').textContent(), 'Δ 6');
+    await page.locator('#km-tabs button[data-l="1"]').click();
+    assert.match(await page.locator('#km-reach').textContent(), /unreachable/);
+    await page.locator('#bd-ir').click();
+    assert.ok(await page.locator('#app-km').isHidden());
+    assert.equal(await page.locator('#ir-board .key').count(), 56);
+    // Practice hides every board and brings back the one you left.
+    await page.locator('#bd-km').click();
+    await page.getByRole('button', {name:'Practice',exact:true}).first().click();
+    assert.ok(await page.locator('#app-km').isHidden());
+    await page.getByRole('button', {name:'Explore',exact:true}).click();
+    assert.ok(await page.locator('#app-km').isVisible());
+    await page.goto(url + '#komax&widget');
+    await page.reload();
+    assert.equal(await page.locator('#km-board .key').count(), 27);
+    assert.ok(await page.locator('#app-ir').isHidden());
+    await page.evaluate(() => { window.__setMods({shift:true}); window.__setLayer(1); window.__flashKey('pad7',true); });
+    assert.ok(await page.locator('#km-tabs button[data-l="1"]').evaluate(b => b.classList.contains('on')));
+    await page.evaluate(() => window.__setLayer(0));
+    await page.evaluate(() => window.__flashKey('pad7',true));
+    assert.equal(await page.locator('#km-board .press').count(), 1);
+    assert.equal(await page.locator('#km-board .press').getAttribute('title'), '#11 · KC_P7');
     await page.goto(url + '#widget');
     await page.reload();
     assert.equal(await page.locator('#practice').count(), 0);
+    assert.ok(await page.locator('#app-km').isHidden());
     await page.evaluate(() => { window.__setLayer(2); window.__setMods({shift:true}); window.__flashKey('7',true); });
     assert.equal(await page.locator('#ir-board .key').count(), 56);
     assert.ok(await page.locator('#ir-board .press').count() > 0);
@@ -106,6 +217,6 @@ const assert = require('node:assert/strict');
     await broken.getByRole('button', {name:'Start a round',exact:true}).click();
     assert.match(await broken.locator('#practice-source').textContent(), /session-only/);
     assert.match(await broken.locator('#practice-round').textContent(), /COMMAND 1/);
-    console.log('Browser checks passed: full round, wrong key, hints, focus/Escape/Tab, persistence, themes, search, layouts, narrow screen, widget, missing catalog, unavailable storage.');
+    console.log('Browser checks passed: full round, wrong key, hints, focus/Escape/Tab, persistence, themes, search, layouts, draft-only area capture, narrow screen, KOMAX board and widget, widget, missing catalog, unavailable storage.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode=1; });

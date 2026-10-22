@@ -1,7 +1,9 @@
 # keymap explorer roadmap
 
-Status: active. Scope: the Keebio Iris SE layout, the explorer, and the
-wallpaper widget. Owner: `macos/keymap-explorer/`.
+Status: active. Scope: the Keebio Iris SE layout, the KOMAX macro pad
+page, the explorer, and the wallpaper widget. Owner:
+`macos/keymap-explorer/`. KOMAX's behaviour (the desk grammar) is owned by
+`docs/active/plans/2026-10-21-komax-desk-grammar.md`.
 
 The hotdox76v2 / Creator Micro roadmap this replaced is in git history up to
 `c39eb8b`.
@@ -35,16 +37,13 @@ The older milestones below retain firmware/widget context. Consult
 
 ## Next
 
-1. **Flash the v2 draft (layer broadcast)** so the widget follows layers.
-   Already built; flash both halves per FLASHING.md. Then confirm with:
-
-   ```bash
-   /opt/homebrew/bin/python3 ~/.dotfiles/macos/scripts/keymap-widget-hid.py
-   ```
-
-   It should print `L0` at once and `L1`/`L2` as you hold Sym and Nav.
-2. **Commit the Iris keymap** in `~/qmk_firmware` so the ledger can cite a
-   commit hash like the old boards did.
+1. **Iris v3 and KOMAX v1 together** (planned 2026-10-22). Iris v3 needs:
+   v3 written into `keymap.c` with `MOUSEKEY_ENABLE` and
+   `COMBO_ENABLE`, a build, then both halves flashed. Done earlier: v2 is
+   flashed and verified on both halves, and committed as `aa41906e08`.
+2. **KOMAX v1 onto the pad** (desk-grammar plan, Task 6 Step 2): set the six
+   keys in Keychron Launcher, then promote v1 in `VERSIONS.md` and in the
+   KOMAX `cur0` data. Fn-key question settled 2026-10-22: NEMESIS takes it.
 3. **Port the Emacs layer.** It was drafted for the hotdox (v4 d1, git
    `8457210`): hold a key, the other hand taps a `HYPR(x)` chord for imenu,
    buffers, magit, search, recent, project, window, dired. The Emacs side

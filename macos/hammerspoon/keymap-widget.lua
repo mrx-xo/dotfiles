@@ -1,6 +1,8 @@
 -- keymap-widget.lua — live keymap widget on the portrait display's wallpaper.
--- One hs.webview renders keymap-explorer's index.html in widget mode (the
--- Keebio Iris SE) and a flagsChanged eventtap feeds it held-modifier state. Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
+-- Two hs.webviews render keymap-explorer's index.html in widget mode (the
+-- Keebio Iris SE on top, the KOMAX macro pad below) and a flagsChanged
+-- eventtap feeds them held-modifier state. The summoned overlay is Iris-only.
+-- Spec: ~/.dotfiles/macos/keymap-explorer/live-keymap-widget-prd.md
 -- Loaded from init.lua via dofile; exposed as the global `keymapWidget` for hs -c.
 
 local M = {}
@@ -11,7 +13,10 @@ local SCREEN_PATTERN = "S2725HS"          -- the portrait Dell, 1080x1920
 -- rects are offsets into the portrait screen's frame
 local RECTS = {
   ir = { x = 0, y = 60, w = 1080, h = 520 },     -- iris: 15u wide, shallow
+  km = { x = 280, y = 640, w = 520, h = 660 },   -- komax: 5.25u x 6.25u, tall
 }
+-- Views the summoned overlay shows; the rest hide while it is up.
+local OVERLAY = { ir = true }
 
 -- ---- webviews --------------------------------------------------------------
 local views = {}      -- board id -> hs.webview
@@ -54,6 +59,7 @@ local function makeView(hash, initJS)
 end
 
 views.ir = makeView("#widget")
+views.km = makeView("#komax&widget")
 M.views = views   -- reachable from `hs -c` for debugging
 
 -- Resolve yabai's live numbering, not Hammerspoon's screen enumeration order.
@@ -87,6 +93,11 @@ local function place()
   local f = screen:frame()
   for id, wv in pairs(views) do
     local r = RECTS[id]
+    if overlayScreen and not OVERLAY[id] then
+      applyPresentation(wv)
+      wv:hide()
+      goto continue
+    end
     if overlayScreen then
       local width = math.min(1080, f.w - 48)
       local height = math.min(520, f.h - 48, width * 520 / 1080)
@@ -95,6 +106,7 @@ local function place()
     applyPresentation(wv)
     wv:frame(hs.geometry.rect(f.x + r.x, f.y + r.y, r.w, r.h))
     wv:show()
+    ::continue::
   end
 end
 
@@ -166,6 +178,7 @@ M.keyTap = hs.eventtap.new({ ktypes.keyDown, ktypes.keyUp }, function(e)
   local tok = KEYTOK[name]
       or (#name == 1 and name:lower())
       or (name:match("^f%d+$") and name)
+      or (name:match("^pad.") and name)   -- KOMAX numpad: pad7, pad*, padclear
   if not tok then return false end
   local js = string.format("window.__flashKey(%q,%s)",
     tok, e:getType() == ktypes.keyDown and "true" or "false")
@@ -199,6 +212,8 @@ M.keyTap:start()   -- flash enabled by default; ⌘⌃⇧K or keymapWidget.toggl
 -- fall back to the board's resting layer while down.
 local HID_PY = "/opt/homebrew/bin/python3"
 local HID_SCRIPT = os.getenv("HOME") .. "/.dotfiles/macos/scripts/keymap-widget-hid.py"
+-- No KOMAX entry: it runs Keychron's stock firmware, which never sends the
+-- 0x4C layer frame, so its view stays on its base layer.
 local HID_BOARDS = {
   ir = { vid = "0xCB10", pid = "0x8256", fallback = 0 },  -- keebio/iris/rev8
 }
