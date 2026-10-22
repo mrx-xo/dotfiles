@@ -548,10 +548,18 @@ arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already arme
 nyx_set() {  # nyx_set <pollux|nemesis>: POLLUX = Sidecar connected, NEMESIS = AIDOS in front
   local out
   case "$1" in
-    pollux)  out=$("$SIDECAR_BIN" release 2>&1) && out=$("$SIDECAR_BIN" connect 2>&1) ;;
+    pollux)
+      # The first connect right after a disconnect can time out on the iPad
+      # side (SidecarErrorDeviceTimedOut, seen 2026-10-21); one retry lands it.
+      out=$("$SIDECAR_BIN" release 2>&1) &&
+        { out=$("$SIDECAR_BIN" connect 2>&1) || { sleep 3; out=$("$SIDECAR_BIN" connect 2>&1); }; } ;;
     nemesis) out=$("$SIDECAR_BIN" hold 2>&1) && out=$("$SIDECAR_BIN" disconnect 2>&1) ;;
     *) return 1 ;;
-  esac || { notify "NYX: ${out:-sidecar helper failed}"; return 1; }
+  esac || {
+    # Helper output can carry quotes and Lua tracebacks; osascript must never see them.
+    out=$(printf '%s' "$out" | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
+    notify "NYX: ${out:-sidecar helper failed}"; return 1
+  }
   return 0
 }
 
@@ -801,7 +809,9 @@ case "${1:-}" in
     done
     if ddc_visible lupa; then conn=connected; else conn=disconnected; fi
     printf '%-9s %s (%s)\n' "lupa:" "$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux)" "$conn"
-    hold=$("$SIDECAR_BIN" status 2>/dev/null | sed -n 's/.*hold \(on\|off\).*/\1/p')
+    case "$("$SIDECAR_BIN" status 2>/dev/null)" in
+      *"hold on"*) hold=on ;; *"hold off"*) hold=off ;; *) hold=unknown ;;
+    esac
     printf '%-9s %s (hold %s)\n' "nyx:" "$(nyx_machine)" "${hold:-unknown}"
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;

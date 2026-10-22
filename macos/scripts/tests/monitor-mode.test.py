@@ -350,7 +350,8 @@ class KomaxDesk(FakeDesk):
         sidecar.write_text(
             "#!/bin/bash\n"
             'echo "$1" >> "$HOME/sidecar.log"\n'
-            '[ -e "$HOME/sidecar-fails" ] && { echo "Sidecar failed"; exit 1; }\n'
+            '[ -e "$HOME/sidecar-fails" ] && { echo "Sidecar \\"quoted\\" failed"; exit 1; }\n'
+            '[ "$1" = connect ] && [ -e "$HOME/connect-fails-once" ] && { rm "$HOME/connect-fails-once"; echo "SidecarErrorDeviceTimedOut"; exit 1; }\n'
             '[ "$1" = status ] && echo "iPad connected; auto-connect on; last result: idle; hold off"\n'
             "exit 0\n")
         sidecar.chmod(0o755)
@@ -490,6 +491,12 @@ class NyxTest(KomaxDesk):
         self.run_mm("nyx", "pollux")
         self.assertEqual(self.sidecar_calls(), ["release", "connect"])
 
+    def test_nyx_pollux_retries_connect_once_after_a_timeout(self):
+        (self.home / "connect-fails-once").touch()
+        r = self.run_mm("nyx", "pollux")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sidecar_calls(), ["release", "connect", "connect"])
+
     def test_nyx_work_is_refused(self):
         self.assertNotEqual(self.run_mm("nyx", "work").returncode, 0)
         self.assertEqual(self.sidecar_calls(), [])
@@ -518,6 +525,11 @@ class NyxTest(KomaxDesk):
         self.assertEqual(self.machine("romulus"), "nemesis")
         self.assertIn("NYX", self.calls())
 
+    def test_nyx_failure_text_is_safe_for_osascript(self):
+        (self.home / "sidecar-fails").touch()
+        self.run_mm("nyx", "nemesis")
+        self.assertIn("NYX: Sidecar quoted failed", self.calls())
+
     def test_json_shape_is_unchanged(self):
         keys = set(json.loads(self.run_mm("json").stdout).keys())
         self.assertTrue(keys <= {"romulus", "remus", "lupa"}, keys)
@@ -528,6 +540,7 @@ class NyxTest(KomaxDesk):
         out = self.run_mm("status").stdout
         self.assertIn("nyx:", out)
         self.assertIn("pollux", out.split("nyx:")[1])
+        self.assertIn("(hold off)", out.split("nyx:")[1])
 
 
 if __name__ == "__main__":
