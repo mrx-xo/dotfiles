@@ -1,5 +1,8 @@
 -- Run in Hammerspoon: hs -c 'dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/tests/sidecar-test.lua")'
-local path = os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/sidecar.lua"
+-- The module under test lives beside this tests/ directory, so a worktree
+-- checkout tests its own copy rather than ~/.dotfiles.
+local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
+local path = here .. "../sidecar.lua"
 local function fixture(connected, wake)
   local f = {timers = {}, tasks = {}, alerts = {}, connected = connected}
   local api = {
@@ -40,7 +43,10 @@ local function fixture(connected, wake)
   end
   f.api = api
   local module = assert(loadfile(path))()
+  f.holdPath = os.tmpname()
+  os.remove(f.holdPath)
   f.controller = module.new(api, {device = "Test iPad", binary = "/test/SidecarLauncher",
+    holdPath = f.holdPath,
     wakeBinary = wake and "/test/pymobiledevice3" or nil, wakeDevice = wake and "test-udid" or nil})
   return f
 end
@@ -215,6 +221,61 @@ test("display wake respects disabled automatic mode", function()
   f.controller.config.autoConnect = false
   f.controller:start(); f.event(7)
   assert(#f.tasks == 0 and #f.timers == 0)
+end)
+
+
+test("disconnect runs the CLI disconnect for the configured device", function()
+  local f = fixture(true)
+  f.controller:disconnect()
+  assert(#f.tasks == 1 and f.tasks[1].args[1] == "disconnect" and f.tasks[1].args[2] == "Test iPad")
+end)
+
+test("disconnect when not connected is a no-op", function()
+  local f = fixture(false)
+  assert(f.controller:disconnect() == "not connected" and #f.tasks == 0)
+end)
+
+test("hold writes the marker and blocks automatic connects", function()
+  local f = fixture(false)
+  f.controller:start()
+  f.controller:hold()
+  local h = io.open(f.holdPath, "r"); assert(h ~= nil); h:close()
+  f.event(2)
+  for _, timer in ipairs(f.timers) do assert(timer.stopped, "held: unlock must not schedule a connect") end
+  assert(#f.tasks == 0, "held: unlock must not connect")
+  os.remove(f.holdPath)
+end)
+
+test("release removes the marker and automatic connects resume", function()
+  local f = fixture(false)
+  f.controller:start()
+  f.controller:hold(); f.controller:release()
+  assert(io.open(f.holdPath, "r") == nil)
+  f.event(2); f:fire(5)
+  assert(#f.tasks == 1)
+end)
+
+test("a marker left on disk is honoured at start", function()
+  local f = fixture(false)
+  local h = assert(io.open(f.holdPath, "w")); h:write("1"); h:close()
+  f.controller:start()
+  assert(#f.timers == 0 or f.timers[#f.timers].stopped, "start must not schedule while held")
+  assert(f.controller:held())
+  os.remove(f.holdPath)
+end)
+
+test("manual connect releases the hold", function()
+  local f = fixture(false)
+  f.controller:hold(); f.controller:connect()
+  assert(not f.controller:held())
+end)
+
+test("status reports the hold", function()
+  local f = fixture(false)
+  assert(f.controller:status():find("hold off", 1, true))
+  f.controller:hold()
+  assert(f.controller:status():find("hold on", 1, true))
+  f.controller:release()
 end)
 
 print(string.format("%d Sidecar tests passed", count))
