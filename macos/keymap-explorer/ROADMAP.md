@@ -41,9 +41,11 @@ The older milestones below retain firmware/widget context. Consult
    v3 written into `keymap.c` with `MOUSEKEY_ENABLE` and
    `COMBO_ENABLE`, a build, then both halves flashed. Done earlier: v2 is
    flashed and verified on both halves, and committed as `aa41906e08`.
-2. **KOMAX v1 onto the pad** (desk-grammar plan, Task 6 Step 2): set the six
-   keys in Keychron Launcher, then promote v1 in `VERSIONS.md` and in the
-   KOMAX `cur0` data. Fn-key question settled 2026-10-22: NEMESIS takes it.
+2. **KOMAX v1 onto the pad** (flash-day plan
+   `docs/active/plans/2026-10-22-keyboard-flash-day.md`, Task 7): firmware
+   built from Keychron's fork, flash per FLASHING.md, then promote v1 in
+   `VERSIONS.md` and in the KOMAX `cur0` data. Fn-key question settled
+   2026-10-22: NEMESIS takes it; the Fn layer hides behind knob press + Enter.
 3. **Port the Emacs layer.** It was drafted for the hotdox (v4 d1, git
    `8457210`): hold a key, the other hand taps a `HYPR(x)` chord for imenu,
    buffers, magit, search, recent, project, window, dired. The Emacs side

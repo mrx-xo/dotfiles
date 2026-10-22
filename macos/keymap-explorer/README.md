@@ -128,17 +128,23 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
   red, the knob press WORK amber) fire. Unchanged keys are greyed in this
   view, and the Fn tab says why Fn is unreachable once the plan's M5 lands
   on #23.
-- **Legend only, no live layer tracking.** Keychron's firmware never sends
+- **Legend only, no live layer tracking.** The KOMAX keymap does not send
   the `[0x4C, layer]` raw-HID frame the Iris firmware broadcasts, so the
   widget stays on Base. Key flash works: numpad keys arrive as `pad7`,
   `pad*`, `padclear` and so on, and F13 to F19 as `f13` to `f19`.
-- **Programmed in Keychron Launcher, not flashed.** See the KOMAX section in
-  `FLASHING.md`, then record the change in the KOMAX ledger in
-  `VERSIONS.md` and update `cur0`/`cur1` in the KOMAX block of `index.html`.
-- Source of truth: the pad's own memory. Geometry is `LAYOUT_tenkey_27`
-  from `keyboards/keychron/k0_max/keyboard.json` and the stock layers come
-  from `keymaps/default/keymap.c`, both in Keychron's `qmk_firmware`,
-  branch `2025q3`.
+- **Compiled firmware, flashed like the Iris** (decided 2026-10-22; Launcher
+  is out, `VIA_ENABLE = no`). Keymap `keyboards/keychron/k0_max/keymaps/mrx/`
+  in `~/qmk_keychron`, a checkout of Keychron's QMK fork (branch `2025q3`,
+  local branch `mrx`). See the KOMAX section in `FLASHING.md`; after a flash
+  record it in the KOMAX ledger in `VERSIONS.md` and update `cur0`/`cur1` in
+  the KOMAX block of `index.html`.
+- Geometry is `LAYOUT_tenkey_27` from `keyboards/keychron/k0_max/keyboard.json`;
+  the stock layers come from `keymaps/default/keymap.c`.
+- **Night lights.** Both boards answer `keyboard-lights off|on`
+  (`macos/scripts/keyboard-lights`): a raw-HID frame, tag `0x4E`, that
+  darkens the lighting and later restores the saved look without touching
+  EEPROM. "good night" / "good morning" reach it through Home Assistant and
+  `mon-voice-gate.sh`. Design: `docs/active/specs/2026-10-22-keyboard-flash-day-design.md`.
 
 ## Widget mode (the wallpaper overlay)
 
