@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -327,6 +328,67 @@ class KillTest(FakeDesk):
         self.assertEqual(r.returncode, 1)
         self.assertIn("usage", r.stderr)
         self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+
+
+class KomaxDesk(FakeDesk):
+    """FakeDesk plus logging stubs for the KOMAX grammar (arm / fire / nyx)."""
+
+    def setUp(self):
+        super().setUp()
+        bindir = self.home / "bin"
+        for name, body in {
+            "sketchybar": 'echo "sketchybar $*" >> "$HOME/calls.log"',
+            "osascript": 'echo "osascript $*" >> "$HOME/calls.log"',
+            "ssh": 'echo "ssh $*" >> "$HOME/calls.log"',
+        }.items():
+            exe = bindir / name
+            exe.write_text("#!/bin/bash\n" + body + "\n")
+            exe.chmod(0o755)
+        self.env["MONITOR_MODE_ARM_SECONDS"] = "1"
+
+    def calls(self):
+        log = self.home / "calls.log"
+        return log.read_text() if log.exists() else ""
+
+    def armed(self):
+        return self.run_mm("armed").stdout
+
+
+class ArmTest(KomaxDesk):
+    def test_arm_adds_and_press_again_removes(self):
+        self.assertEqual(self.run_mm("arm", "romulus").returncode, 0)
+        self.assertEqual(self.armed(), "romulus\n")
+        self.run_mm("arm", "remus")
+        self.assertEqual(self.armed(), "romulus\nremus\n")
+        self.run_mm("arm", "romulus")
+        self.assertEqual(self.armed(), "remus\n")
+
+    def test_armed_is_fleet_ordered_regardless_of_press_order(self):
+        for s in ("nyx", "remus", "romulus"):
+            self.run_mm("arm", s)
+        self.assertEqual(self.armed(), "romulus\nremus\nnyx\n")
+
+    def test_arm_expires(self):
+        self.run_mm("arm", "romulus")
+        time.sleep(1.6)
+        self.assertEqual(self.armed(), "")
+
+    def test_press_restarts_expiry(self):
+        self.run_mm("arm", "romulus")
+        time.sleep(0.7)
+        self.run_mm("arm", "remus")
+        time.sleep(0.7)
+        self.assertEqual(self.armed(), "romulus\nremus\n")
+
+    def test_arm_rejects_unknown_screen(self):
+        self.assertNotEqual(self.run_mm("arm", "lupa").returncode, 0)
+        self.assertEqual(self.armed(), "")
+
+    def test_arm_renders_indicator(self):
+        self.run_mm("arm", "nyx")
+        self.assertIn("sketchybar --set komax_armed label=NYX drawing=on", self.calls())
+        self.run_mm("arm", "nyx")
+        self.assertIn("drawing=off", self.calls())
 
 
 if __name__ == "__main__":
