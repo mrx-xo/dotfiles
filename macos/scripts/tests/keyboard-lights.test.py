@@ -130,8 +130,22 @@ class OffOn(unittest.TestCase):
         self.assertIn("iris: off", out)
         self.assertIn("komax: no reply", out)
 
-    def test_wrong_reply_is_unconfirmed(self):
-        fake = FakeHid([IRIS], {raw_path(*IRIS): reply(1)})  # said off, board says on
+    def test_reply_reports_the_boards_actual_state(self):
+        """A board whose lighting was already off answers 'on' with 0: that is
+        a confirmation (the spec says it stays off), reported as it is."""
+        fake = FakeHid([IRIS], {raw_path(*IRIS): reply(0)})
+        code, out, _ = run(fake, "on")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines(), ["iris: off", "komax: not connected"])
+
+    def test_silence_is_unconfirmed(self):
+        fake = FakeHid([IRIS], {raw_path(*IRIS): None})
+        code, out, _ = run(fake, "on")
+        self.assertEqual(code, 1)
+        self.assertIn("iris: no reply", out)
+
+    def test_other_tags_are_skipped_until_the_reply(self):
+        fake = FakeHid([IRIS], {raw_path(*IRIS): bytes([0x4C, 0x02]) + bytes(30)})  # only layer frames
         code, out, _ = run(fake, "off")
         self.assertEqual(code, 1)
         self.assertIn("iris: no reply", out)

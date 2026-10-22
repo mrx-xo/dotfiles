@@ -128,9 +128,10 @@ press** and **Enter** (#26) together (`COMBO_TERM` 80 ms). While held:
 
 - `P2P4G` (#4, the Bksp position) re-pairs the dongle: hold it with the
   dongle plugged into the target machine.
-- `UG_TOGG` (knob press), `UG_NEXT` / `UG_VALU` / `UG_HUEU` and friends set
-  the lighting; the knob turn changes brightness. These write EEPROM, so
-  they survive a power cycle. The night-lights message never does.
+- `UG_TOGG` on #24 (the `0` key; the knob press is busy holding the door),
+  `UG_NEXT` / `UG_VALU` / `UG_HUEU` and friends on the numpad set the
+  lighting; the knob turn changes brightness. These write EEPROM, so they
+  survive a power cycle. The night-lights message never does.
 
 ### Night lights on the bench
 
