@@ -63,6 +63,20 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
 
 ## Troubleshooting
 
+- **Flasher says the drive is still mounted, and typing stops:** the half is
+  still in its bootloader. A spinner bug fixed on 2026-10-22 redirected
+  `gum`'s stderr, causing `inappropriate ioctl for device` before the copy
+  started. Keep stderr attached to the terminal and use `--show-error`.
+  With `RPI-RP2` mounted, copy the built firmware directly to recover:
+
+  ```bash
+  /bin/cp -X ~/qmk_firmware/keebio_iris_rev8_mrx.uf2 /Volumes/RPI-RP2/
+  ```
+
+  Wait for the drive to disappear and the Iris to reconnect, then check
+  typing with the Mac cable still in that half. The regression test is
+  `python3 macos/scripts/tests/iris-flash.test.py`; it copies only to a
+  temporary directory and never touches a keyboard.
 - **Mac does not see the board:** check the USB cable is actually plugged in
   before theorizing. It happened once.
 - **Keyboard dead after a flash:** the other half is still on different
@@ -91,7 +105,8 @@ is in git history up to `cb63fe1`.
   bootloader, output `keychron_k0_max_mrx.bin`.
 - `VIA_ENABLE = no`: Launcher cannot see or change the keymap. The pad's
   USB id stays `0x3434:0x0A06`; the Keychron Link dongle is `0x3434:0xD030`.
-- Bootmagic is matrix `[0, 1]` = **Esc** (not the knob). The `.bin` step
+- Bootmagic is matrix `[0, 1]` = **Esc**, whose physical keycap is **○**:
+  immediately right of the knob, above `num clear`. The `.bin` step
   needs `dfu-suffix` (`brew install dfu-util`).
 
 ### Build
@@ -104,10 +119,11 @@ cd ~/qmk_keychron && QMK_HOME=~/qmk_keychron qmk compile -kb keychron/k0_max -km
 
 ### Flash
 
-1. Put the mode switch on **cable** and plug the USB-C cable into POLLUX
-   while holding **Esc** (bootmagic). *Unverified*: it should enumerate as
-   `STM32 BOOTLOADER` (`dfu-util -l`). If not, unplug, hold Esc before the
-   cable goes in and keep holding until it shows up.
+1. Put the mode switch on **cable** and plug the USB-C cable into the Mac
+   while holding **○**, immediately right of the knob, above `num clear`
+   (the firmware's Esc position). Verified 2026-10-22: this enters STM32
+   DFU mode, visible as `0483:df11` in `dfu-util -l`. If absent, unplug,
+   hold **○** before the cable goes in and keep holding until it shows up.
 2. Flash:
 
    ```bash

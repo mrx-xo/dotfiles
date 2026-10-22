@@ -155,7 +155,8 @@ flash_half() {  # flash_half <half> <n> <total>
   if [ "$DEMO" = 1 ]; then
     gum spin --spinner dot --title "copying firmware" -- sleep 1.5
   else
-    gum spin --spinner dot --title "copying firmware" -- cp -X "$UF2" "$DRIVE/" 2>/dev/null
+    # gum needs terminal stderr; redirecting it can abort before cp starts.
+    gum spin --spinner dot --title "copying firmware" --show-error -- cp -X "$UF2" "$DRIVE/"
   fi
   if wait_until 15 "waiting for the half to reboot" drive_gone; then
     ok "firmware written, half rebooted"
