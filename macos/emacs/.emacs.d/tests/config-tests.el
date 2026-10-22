@@ -2809,3 +2809,20 @@ Together these hid 106 lines of roaming/notes/homelab.org."
     (goto-char (point-min))
     (evil-visual-line)
     (should (region-active-p))))
+
+(ert-deftest config-test-hyper-emacs-layer ()
+  "Every Iris v3 Emacs-layer letter is bound; c m v w replay their SPC menu.
+The firmware sends HYPR(<letter>), so an unbound letter is a dead key."
+  (dolist (pair '(("i" . consult-imenu) ("b" . consult-buffer)
+                  ("g" . magit-status) ("s" . consult-line)
+                  ("r" . consult-recent-file) ("p" . projectile-find-file)
+                  ("o" . ace-window) ("d" . dired-jump)
+                  ("q" . mr-x/quick-ask) ("x" . execute-extended-command)))
+    (should (eq (global-key-binding (kbd (concat "H-" (car pair)))) (cdr pair))))
+  (dolist (letter '("c" "m" "v" "w"))
+    (let ((cmd (global-key-binding (kbd (concat "H-" letter))))
+          (unread-command-events nil))
+      (should (commandp cmd))
+      (funcall cmd)
+      (should (equal unread-command-events
+                     (listify-key-sequence (kbd (concat "C-SPC " letter))))))))
