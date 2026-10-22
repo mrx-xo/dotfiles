@@ -36,8 +36,15 @@
 #   monitor-mode.sh flip            # normal (west) <-> flipped (east)
 #   monitor-mode.sh flip normal|flipped
 #
+# KOMAX grammar (screen, then machine; docs/active/specs/2026-10-21-komax-desk-grammar-design.md):
+#   monitor-mode.sh arm romulus|remus|nyx    # toggle a screen in the armed set (expires in 3s)
+#   monitor-mode.sh fire pollux|nemesis|work [screens] # armed (or named) screens -> machine; none = both Dells
+#   monitor-mode.sh disarm                   # clear the armed set
+#   monitor-mode.sh armed                    # the armed set, fleet order
+#   monitor-mode.sh nyx pollux|nemesis       # NYX: Sidecar display, or AIDOS remote (held)
+#
 # Diagnostics:
-#   monitor-mode.sh status          # which machine each Dell shows, facing
+#   monitor-mode.sh status          # which machine each Dell shows, NYX, facing
 #   monitor-mode.sh hz              # real GDI refresh of NEMESIS displays (~25s)
 #
 # Escape hatch (ignores the state files; use when state got funky):
@@ -115,6 +122,10 @@ FACING="$STATE_DIR/facing"   # normal | flipped (see flip)
 BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
 LOCK="$STATE_DIR/lock.d"     # mkdir lock: ONAR, AIDOS and the macro pad take turns
 CLAIMS="$STATE_DIR/claims"   # claims/<display>: holder=, set=, restore=
+ARMED="$STATE_DIR/armed"     # KOMAX grammar: screens named and waiting for a machine
+ARMED_AT="$STATE_DIR/armed-at"  # stamp of the last press; the expiry compares it
+ARM_SECONDS="${MONITOR_MODE_ARM_SECONDS:-3}"
+SIDECAR_BIN="${SIDECAR_BIN:-$HOME/.local/bin/sidecar}"  # NYX: Sidecar (POLLUX) or AIDOS (NEMESIS)
 LOCK_HELD=0
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
@@ -487,6 +498,114 @@ status_json() {
   printf '}\n'
 }
 
+# KOMAX grammar: screen, then machine. A screen press arms; a machine press
+# fires at every armed screen. See docs/active/specs/2026-10-21-komax-desk-grammar-design.md.
+armed_list() {  # armed screens in fleet order, one per line
+  local s
+  [ -s "$ARMED" ] || return 0
+  for s in romulus remus nyx; do
+    grep -qx "$s" "$ARMED" && echo "$s"
+  done
+  return 0
+}
+
+armed_clear() { rm -f "$ARMED" "$ARMED_AT"; }
+
+armed_render() {  # sketchybar item komax_armed: names while armed, hidden otherwise
+  command -v sketchybar >/dev/null 2>&1 || return 0
+  local names
+  names=$(armed_list | tr '[:lower:]' '[:upper:]' | paste -sd ' ' -)
+  if [ -n "$names" ]; then
+    sketchybar --set komax_armed label="$names" drawing=on >/dev/null 2>&1 || true
+  else
+    sketchybar --set komax_armed label="" drawing=off >/dev/null 2>&1 || true
+  fi
+}
+
+arm_schedule_expiry() {  # clear the set ARM_SECONDS after the last press
+  local stamp="$(date +%s).$RANDOM.$$"
+  echo "$stamp" > "$ARMED_AT"
+  (
+    sleep "$ARM_SECONDS"
+    if [ "$(cat "$ARMED_AT" 2>/dev/null)" = "$stamp" ]; then
+      armed_clear; armed_render
+    fi
+  ) >/dev/null 2>&1 </dev/null &
+  disown 2>/dev/null || true
+}
+
+arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already armed
+  if [ -s "$ARMED" ] && grep -qx "$1" "$ARMED"; then
+    grep -vx "$1" "$ARMED" > "$ARMED.new" || true
+    mv "$ARMED.new" "$ARMED"
+    [ -s "$ARMED" ] || rm -f "$ARMED"
+  else
+    echo "$1" >> "$ARMED"
+  fi
+  armed_render
+  if [ -s "$ARMED" ]; then arm_schedule_expiry; else rm -f "$ARMED_AT"; fi
+}
+
+nyx_set() {  # nyx_set <pollux|nemesis>: POLLUX = Sidecar connected, NEMESIS = AIDOS in front
+  local out
+  case "$1" in
+    pollux)
+      # The first connect right after a disconnect can time out on the iPad
+      # side (SidecarErrorDeviceTimedOut, seen 2026-10-21); one retry lands it.
+      out=$("$SIDECAR_BIN" release 2>&1) &&
+        { out=$("$SIDECAR_BIN" connect 2>&1) || { sleep 3; out=$("$SIDECAR_BIN" connect 2>&1); }; } ;;
+    nemesis) out=$("$SIDECAR_BIN" hold 2>&1) && out=$("$SIDECAR_BIN" disconnect 2>&1) ;;
+    *) return 1 ;;
+  esac || {
+    # Helper output can carry quotes and Lua tracebacks; osascript must never see them.
+    out=$(printf '%s' "$out" | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
+    notify "NYX: ${out:-sidecar helper failed}"; return 1
+  }
+  return 0
+}
+
+nyx_machine() {  # nyx_machine -> pollux|nemesis
+  if "$SIDECAR_BIN" status 2>/dev/null | grep -q '^iPad connected'; then echo pollux; else echo nemesis; fi
+}
+
+fire() {  # fire <pollux|nemesis|work> [screens]: screens -> machine
+  # The set is snapshotted and cleared BEFORE the lock (see the dispatcher):
+  # a fire that waits behind another switch, or behind a VENGEANCE wake, must
+  # act on what was armed when the key was pressed, not on what is left.
+  local m="$1" set s rc=0 moved="" dells=0
+  shift
+  set="$*"
+  if [ -z "$set" ]; then
+    if [ "$m" = work ]; then notify "Work laptop: nothing armed"; return 0; fi
+    set="romulus remus"
+  fi
+  for s in $set; do
+    case "$s" in
+      romulus)
+        if [ "$m" = work ]; then notify "ROMULUS cannot show the work laptop"; continue; fi
+        dells=1; set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
+      remus)
+        dells=1
+        if set_display remus "$m"; then
+          moved="$moved REMUS"
+          if [ "$m" = work ]; then
+            set_display lupa work && moved="$moved LUPA" || rc=1
+          elif [ "$m" = pollux ] && [ "$(current_machine lupa)" = work ]; then
+            set_display lupa pollux && moved="$moved LUPA" || rc=1
+          fi
+        else rc=1; fi ;;
+      nyx)
+        case "$m" in
+          pollux|nemesis) nyx_set "$m" && moved="$moved NYX" || rc=1 ;;
+        esac ;;
+    esac
+  done
+  [ -n "$moved" ] && notify "$(echo $moved | sed 's/ / + /g') -> $(label "$m")"
+  # NYX alone never touches a Dell, so Windows has nothing to learn.
+  if [ "$dells" = 1 ]; then sync_windows; maybe_restore; fi
+  return $rc
+}
+
 toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
   if [ "$(current_machine "$1")" = nemesis ]; then
     set_display "$1" pollux && notify "$(label "$1") -> POLLUX"
@@ -587,8 +706,15 @@ displays_power() {  # displays_power <sleep|wake>
   if [ "$1" = sleep ]; then pmset displaysleepnow; else caffeinate -u -t 1; fi
 }
 
+# fire: snapshot the armed set now, before we might wait on the lock.
+FIRE_SET=""
+if [ "${1:-}" = fire ] && [ -n "${2:-}" ]; then
+  if [ -n "${3:-}" ]; then FIRE_SET="${*:3}"; else FIRE_SET=$(armed_list | tr '\n' ' '); fi
+  armed_clear; armed_render
+fi
+
 case "${1:-}" in
-  status|check|displays|json|"") ;;
+  status|check|displays|json|arm|armed|disarm|"") ;;
   *)
     acquire_lock || exit 1
     touch "$BUSY"
@@ -666,6 +792,30 @@ case "${1:-}" in
   json)
     status_json
     ;;
+  fire)
+    case "${2:-}" in
+      pollux|nemesis|work) fire "$2" $FIRE_SET || exit 1 ;;
+      *) echo "usage: $(basename "$0") fire <pollux|nemesis|work> [romulus remus nyx]" >&2; exit 1 ;;
+    esac
+    ;;
+  disarm)
+    armed_clear; armed_render
+    ;;
+  nyx)
+    case "${2:-}" in
+      pollux|nemesis) nyx_set "$2" || exit 1; notify "NYX -> $(label "$2")" ;;
+      *) echo "usage: $(basename "$0") nyx <pollux|nemesis>" >&2; exit 1 ;;
+    esac
+    ;;
+  arm)
+    case "${2:-}" in
+      romulus|remus|nyx) arm_toggle "$2" ;;
+      *) echo "usage: $(basename "$0") arm <romulus|remus|nyx>" >&2; exit 1 ;;
+    esac
+    ;;
+  armed)
+    armed_list
+    ;;
   status)
     for d in romulus remus; do
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
@@ -673,6 +823,10 @@ case "${1:-}" in
     done
     if ddc_visible lupa; then conn=connected; else conn=disconnected; fi
     printf '%-9s %s (%s)\n' "lupa:" "$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux)" "$conn"
+    case "$("$SIDECAR_BIN" status 2>/dev/null)" in
+      *"hold on"*) hold=on ;; *"hold off"*) hold=off ;; *) hold=unknown ;;
+    esac
+    printf '%-9s %s (hold %s)\n' "nyx:" "$(nyx_machine)" "${hold:-unknown}"
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
   hz)
@@ -684,7 +838,7 @@ case "${1:-}" in
       || { echo "hz probe failed; NEMESIS asleep or unreachable" >&2; exit 1; }
     ;;
   *)
-    sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
