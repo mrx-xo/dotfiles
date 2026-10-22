@@ -10,6 +10,10 @@ to match `keymap.c`.
 The hotdox76v2 (v1-v4 draft) and Creator Micro (v1-v5 draft) ledgers are in
 git history up to `c39eb8b`. Both boards died on 2026-08-03.
 
+KOMAX is not flashed: its keymap lives in the pad's own memory and changes
+through Keychron Launcher. A Launcher save promotes a draft the same way a
+flash does here.
+
 ## Ledger: Keebio Iris SE (keebio/iris/rev8)
 
 ### Factory: retired 2026-09-28
@@ -32,6 +36,7 @@ git history up to `c39eb8b`. Both boards died on 2026-08-03.
 - `VIA_ENABLE = no`: the compiled keymap is the only one.
 
 ### v2: on board, flashed 2026-09-29 (both halves, verified)
+- keymap: `qmk_firmware` commit `aa41906e08` (`keyboards/keebio/iris/keymaps/mrx/`)
 - v1 layout plus the raw HID layer broadcast
   (`[0x4C, layer]`, master half only) for the wallpaper widget.
   `RAW_ENABLE = yes`.
@@ -42,11 +47,28 @@ git history up to `c39eb8b`. Both boards died on 2026-08-03.
   the fallback is swapping the pair (Esc on 53, Tab on 43).
 
 ### v3: draft d1 (explorer only, not flashed) 2026-09-29
+- **Before flashing (found 2026-10-22):** `keymap.c` is still v2, so v3 has
+  to be written into it first. Both blockers cleared 2026-10-22:
+  agent-workspace moved from Hyper+B to Meh+B, freeing B for buffers; and
+  the six Emacs letters are bound in `emacs.org` as a hybrid (q quick-ask,
+  x M-x; c m v w open the SPC Agent Shell / bookmarks / vterm / window
+  menu). ✦w is now the window menu, not perspective. `rules.mk`
+  also needs `MOUSEKEY_ENABLE = yes` (knob scroll) and `COMBO_ENABLE = yes`
+  (the door). Unverified: that Cmd+Shift+4 starts CleanShot X area capture.
+- 2026-10-19: Nav #1-#5 swap with #13-#17. Agenda, Recent, Layout,
+  Bookmarks and Scratch (in that order) move to the top letter row; Home / End / PgUp / PgDn move to
+  the number row (explorer only).
+- 2026-10-08: System #34 (Base `S` position) -> `LSG(KC_4)`, `Shot · Area`.
+  Hold Space + Enter, tap S to send Cmd+Shift+4 for CleanShot X area
+  selection via its existing shortcut (explorer only).
+- 2026-10-07: Symbols #23 (Base `/` position) -> `KC_QUES`, direct `?`
+  without Shift (explorer only).
 - Nav #5 (last blank on the daily-driver row) -> `LCG(KC_B)`, the
   Hammerspoon bookmark popup (`bookmark-popup.lua`, Cmd+Ctrl+B).
 - Emacs layer (5) ported from the hotdox v4 d1 draft (`8457210`): each key
   sends `HYPR(letter)` on its own Dvorak position. Live in `emacs.org`:
-  i b g s r p o d. Proposed: c q x m w v (m = consult-bookmark).
+  i b g s r p o d. Bound 2026-10-22 (hybrid): q x direct; c m v w open
+  their SPC menus.
   F H J K L E A T blank (yabai Hyper binds).
 - Door: combo of both inner thumbs (#52 Bksp + #53 Tab) -> `OSL(5)`.
   Needs `COMBO_ENABLE = yes`. Watch Ctrl+Tab (hold Bksp, tap Tab) against
@@ -54,3 +76,36 @@ git history up to `c39eb8b`. Both boards died on 2026-08-03.
 - Knob on Base turns a mouse wheel (`MS_WHLU` / `MS_WHLD`, needs
   `MOUSEKEY_ENABLE = yes`); held Shift / Cmd / Alt give horizontal / zoom /
   fast scroll from macOS. Volume moves to the Symbols turn; Prev/Next drop.
+
+## Ledger: KOMAX (Keychron K0 Max, keychron/k0_max)
+
+### Stock: on the pad since 2026-10-19
+- Keychron `keymaps/default` (qmk_firmware branch `2025q3`), never touched in
+  Launcher.
+- Base: knob press Mute, turn volume; Esc Del Tab Bksp; M1 to M4 empty macro
+  slots (`MC_1` to `MC_4`, send nothing); numpad; **Fn** bottom-left
+  (`MO(1)`).
+- Fn: Bluetooth slots 1 to 3, 2.4 GHz pairing, RGB, Prev / Play / Next; knob
+  turns brightness.
+- Host-side, not on the pad: `pad-fluid.ahk` on NEMESIS (2026-10-20) maps the
+  numpad `*` to F20 for Fluid dictation while the pad sat there. The desk
+  grammar plan retires it.
+
+### v1: ready for Launcher, not on the pad yet (decided 2026-10-22)
+- The desk grammar from `docs/active/plans/2026-10-21-komax-desk-grammar.md`:
+  M1 F13 ROMULUS, M2 F14 REMUS, M3 F15 NYX (screens, arm); M4 F16 POLLUX,
+  M5 F17 NEMESIS, knob press F19 WORK (machines, fire).
+- Numpad, Esc/Del/Tab/Bksp and the knob turn stay stock.
+- Decided 2026-10-22: **NEMESIS takes the Fn key (#23)**. The cap is printed
+  Fn; the stock firmware has four macro slots plus Fn, and the plan's M5 is
+  that key. The Fn layer (Bluetooth slots, 2.4 GHz pairing, RGB, media) goes
+  with it.
+- Daily connection: the **2.4 GHz dongle on POLLUX** (decided 2026-10-22);
+  the USB-C cable is for Launcher only. Move the dongle off NEMESIS first.
+  Re-pairing it needs Fn: restore Fn in Launcher, re-pair, remap.
+- Launcher checklist: M1 `F13`, M2 `F14`, M3 `F15`, M4 `F16`, Fn key `F17`,
+  knob press `F19`. Unverified until you open Launcher: that it offers F13 to
+  F19 for this model.
+- To promote: set the six keys in Launcher over USB-C, then rename this
+  entry `v1: on the pad, <date>`, mark Stock retired, and copy the six keys
+  into `cur0` in the KOMAX block of `index.html`.

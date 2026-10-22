@@ -11,6 +11,10 @@
   widget now renders one board, the Keebio Iris SE (`index.html#widget`,
   HID `0xCB10:0x8256`). Everything below that names the hotdox or micro is
   the original design record; current behavior is in `README.md`.
+- **2026-10-21 second board**: KOMAX (Keychron K0 Max) takes the Creator
+  Micro's old slot below the main board (`index.html#komax&widget`). It has
+  no HID listener: Keychron's firmware sends no layer frame. The summoned
+  overlay stays Iris-only.
 - **Priority**: P1 (should ship)
 
 

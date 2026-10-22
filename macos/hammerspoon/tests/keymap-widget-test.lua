@@ -1,7 +1,7 @@
 -- Run through hs -c 'dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/tests/keymap-widget-test.lua")'
 -- Fake OS boundaries: no real windows, event taps, hotkeys or HID listeners.
 local function fixture()
-  local f = {screens = {}, selected = 3, alerts = {}}
+  local f = {screens = {}, selected = 3, alerts = {}, views = {}}
   for i = 1, 3 do
     local screen = {id = "screen-" .. i}
     function screen:getUUID() return self.id end
@@ -41,7 +41,9 @@ local function fixture()
     function view:hide() self.visible = false; return self end
     function view:evaluateJavaScript(js) table.insert(self.scripts, js); return self end
     function view:navigationCallback(cb) self.loaded = cb; return self end
-    f.view = view
+    -- The Iris view is created first; later views (KOMAX) are kept by hash.
+    table.insert(f.views, view)
+    f.view = f.view or view
     return view
   end}
   local env = setmetatable({hs = api}, {__index = _G})
@@ -104,6 +106,41 @@ test("page finishing navigation reapplies overlay styling", function()
   f.view.scripts = {}
   f.view.loaded("didFinishNavigation", f.view)
   assert(table.concat(f.view.scripts):find('"overlay",true', 1, true), "overlay style lost on load")
+end)
+
+local function komax(f)
+  for _, v in ipairs(f.views) do
+    if (v:url() or ""):match("#komax&widget$") then return v end
+  end
+end
+
+test("KOMAX gets its own wallpaper view below the Iris", function()
+  local f = fixture()
+  local km = assert(komax(f), "no KOMAX webview")
+  assert(km.visible, "KOMAX hidden on the wallpaper")
+  local ir, k = f.view:frame(), km:frame()
+  local portrait = f.screens[2]:frame()
+  assert(k.y >= ir.y + ir.h, "KOMAX overlaps the Iris")
+  assert(k.x >= portrait.x and k.x + k.w <= portrait.x + portrait.w, "KOMAX off the portrait display")
+end)
+
+test("summoned overlay stays Iris-only and KOMAX returns on dismiss", function()
+  local f = fixture()
+  local km = komax(f)
+  local before = km:frame()
+  f.widget.toggleOverlay()
+  assert(f.view.visible and not km.visible, "KOMAX shown in the overlay")
+  f.widget.toggleOverlay()
+  assert(km.visible and km:frame().y == before.y)
+end)
+
+test("wallpaper toggle hides and restores KOMAX with the Iris", function()
+  local f = fixture()
+  local km = komax(f)
+  f.widget.toggle()
+  assert(not km.visible and not f.view.visible)
+  f.widget.toggle()
+  assert(km.visible and f.view.visible)
 end)
 
 print(string.format("%d keymap widget tests passed", count))

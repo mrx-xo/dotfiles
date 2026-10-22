@@ -3,6 +3,9 @@
 Verified on MrX on 2026-09-28 during the v1 flash. The hotdox76v2 runbook
 this file replaced is in git history up to `c39eb8b`.
 
+KOMAX (Keychron K0 Max) is never flashed; see
+[KOMAX: Keychron Launcher](#komax-keychron-launcher) at the end.
+
 ## Facts
 
 - QMK target `keebio/iris/rev8`, keymap `mrx` at
@@ -69,3 +72,26 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
   the home row. `aoeuidhtns-` is mrx; `asdfghjkl;'` is factory. A raw HID
   interface proves nothing either, because factory VIA firmware has one too.
   (2026-09-29: the left half was still factory after "flashing both".)
+
+## KOMAX: Keychron Launcher
+
+KOMAX keeps Keychron's firmware. Keys are set in Keychron Launcher and saved
+in the pad's memory, so there is no build, no bootloader and no `.uf2`.
+
+1. Plug KOMAX in with the **USB-C cable**. Launcher cannot reach it over the
+   2.4 GHz dongle or Bluetooth.
+2. Open Launcher in a Chromium browser:
+
+   ```bash
+   agent-open "https://launcher.keychron.com"
+   ```
+
+3. Authorise the pad when the browser asks for HID access, open the keymap
+   page, select a key, and pick its new keycode. Changes save to the pad as
+   you make them.
+4. Record the change in the KOMAX ledger in `VERSIONS.md` and in `cur0` /
+   `cur1` in the KOMAX block of `index.html`.
+
+Not yet verified on this pad: whether Launcher offers F13 to F19 directly.
+If it does not, use any keycode macOS can see and change the matching skhd
+lines in the same commit.

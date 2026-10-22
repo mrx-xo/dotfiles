@@ -270,7 +270,7 @@
     active = practice;
     if (!practice) pause();
     document.documentElement.classList.toggle('practicing', practice);
-    $('app-ir').hidden = practice; section.hidden = !practice;
+    $('explore').hidden = practice; section.hidden = !practice;
     $('view-explore').setAttribute('aria-pressed', String(!practice));
     $('view-practice').setAttribute('aria-pressed', String(practice));
     if (updateHash) history.replaceState(null, '', practice ? '#practice' : '#explore');
