@@ -9,6 +9,12 @@ The hotdox76v2 and the Creator Micro used to live here too. Both boards are
 gone (2026-08-03); their explorers, ledgers and flashing runbook are in git
 history up to `c39eb8b`.
 
+The KOMAX macro pad (Keychron K0 Max, since 2026-10-21) has its own static
+page, `komax.html`: six legends for the screen-then-machine grammar, numpad
+greyed. No live tracking, because Keychron's firmware has no raw HID
+broadcast; its ledger is the KOMAX section of `VERSIONS.md`, and
+`tests/komax.cjs` checks the page renders the six keys.
+
 - **Next steps: [ROADMAP.md](ROADMAP.md)**
 - **Version ledger: [VERSIONS.md](VERSIONS.md)**
 - **Flashing runbook: [FLASHING.md](FLASHING.md)**
