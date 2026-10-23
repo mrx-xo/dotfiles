@@ -187,3 +187,10 @@ hs.task.new(sketchybarBin, nil, { "--bar", "hidden=off", "y_offset=0" }):start()
 
 -- Live keymap widget on the portrait display (keymap-explorer PRD)
 dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keymap-widget.lua")
+
+-- Per-machine opt-in: keypad + controls remote dictation, keypad Enter local.
+local voiceEnabled = io.open(os.getenv("HOME") .. "/.config/keyboard-voice/enabled", "r")
+if voiceEnabled then
+  voiceEnabled:close()
+  keyboardVoice = dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keyboard-voice.lua")
+end

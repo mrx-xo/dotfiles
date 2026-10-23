@@ -150,6 +150,58 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
   same look. Iris also restores its saved look after a power cycle while
   dark. Voice acceptance and the remaining physical layout checks are pending.
 
+### Keypad dictation (host bindings)
+
+With the pad connected to the Mac, unmodified **+** toggles FluidVoice on
+the Windows desktop; unmodified **Enter** toggles FluidVoice on the Mac.
+Tap once to start and again to stop. Each app uses that computer's configured
+microphone and types into its focused app. This does not forward audio.
+These Hammerspoon bindings cover **all connected keypads** on the opted-in
+Mac. They consume keypad plus/Enter, leaving the main keyboard's plus and
+Return alone. Knob+Enter still selects the firmware Fn combo. Firmware
+continues to emit `KC_PPLS` / `KC_PENT`; the explorer shows those raw keys.
+
+The Mac module is `macos/hammerspoon/keyboard-voice.lua`, enabled when
+`~/.config/keyboard-voice/enabled` exists. Put the Windows SSH alias alone in
+`~/.config/keyboard-voice/ssh-host` (private, outside this repository).
+FluidVoice must be running on both computers: Mac shortcut **Option+Space**,
+Windows shortcut **F20**. Windows must have a logged-in desktop session.
+
+Install `windows/autohotkey/keyboard-voice-toggle.ahk` and run
+`windows/scripts/setup-keyboard-voice.ps1` on Windows. The installer reuses
+the existing `mon-assert` task's user identity and registers a limited,
+interactive, on-demand task named `keyboard-voice-toggle`. It requires
+AutoHotkey v2; `-AutoHotkeyPath` accepts the interpreter's full path.
+If SSH rejects Scoop's `current` junction as an untrusted mount point, pass
+the concrete version's `v2\AutoHotkey64.exe` path. Rerun setup if that
+version is removed during an upgrade.
+
+To activate or refresh just these bindings without reloading Hammerspoon:
+
+```bash
+hs -c 'if keyboardVoice then keyboardVoice.stop() end; keyboardVoice = dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keyboard-voice.lua")'
+```
+
+Troubleshooting: check the app shortcuts above, SSH connectivity, and
+Windows `Get-ScheduledTaskInfo -TaskName keyboard-voice-toggle`. A successful
+SSH request means the task was dispatched, not proof the microphone opened.
+Task result `2` means FluidVoice was not running. The SSH helper times out
+after eight seconds and never retries a toggle automatically. To restore
+normal keypad behavior now, run `hs -c 'keyboardVoice.stop()'`; remove the
+private `enabled` marker to keep it disabled after a Hammerspoon reload.
+
+Automated checks: `macos/scripts/tests/keyboard-voice-remote.test.py` and
+`macos/hammerspoon/tests/keyboard-voice-test.lua`. Deployed 2026-10-22;
+physical start/stop acceptance remains pending.
+
+### Sidecar keys
+
+Press **M3**, then within three seconds **M4** to connect the iPad through
+Sidecar. **M3**, then **M5** holds automatic reconnect and disconnects it,
+freeing the iPad for its Windows remote-desktop app. This does not open that
+app. Routing is owned by `macos/scripts/monitor-mode.sh` and the existing
+skhd F15/F16/F17 bindings.
+
 ## Widget mode (the wallpaper overlay)
 
 `index.html#widget` strips all chrome except the board and a small
