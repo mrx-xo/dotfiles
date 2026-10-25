@@ -119,7 +119,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   receive commands and reply, repeated off is safe, typing stays dark,
   and on restores the same colour, brightness and effect. Longer idle/wake
   behavior is not yet physically verified.
-- The desk grammar from `docs/active/plans/2026-10-21-komax-desk-grammar.md`:
+- The desk grammar from [the runbook](README.md#desk-grammar):
   M1 F13 ROMULUS, M2 F14 REMUS, M3 F15 NYX (screens, arm); M4 F16 POLLUX,
   M5 F17 NEMESIS, knob press F19 WORK (machines, fire).
 - Numpad, Esc/Del/Tab/Bksp and the knob turn stay stock.
