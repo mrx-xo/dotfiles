@@ -115,7 +115,12 @@ ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
 # + local 7f25643 (preset/clone launches return exact recovery buffers; clone retries reopen instead of duplicating; Sonnet 5.5 label)
 # + local 6a895db (disabled New chat Start explains missing or unsupported selections)
 # + local d5303cc (portable process liveness probe + PATH separator; builds for Windows/NEMESIS)
-ACP_MOBILE_COMMIT="d5303ccb729f4e96f83b1946e91a8e2ccb462698"
+# + local d3b23c4 (fleet registry ~/fleet/syzygy.json and own machine id; registry present = hub, absent = node)
+# + local dbb096f (peer auth: tailnet callers sharing our Tailscale login via whois, behind the X-Acp-Peer header; 403 foreign logins)
+# + local 30ed8fa (hub merges every awake peer's session list with machine badges and machines[]; refreshes a stale peer IP from tailscale status)
+# + local 887035e (ws proxy: phone sockets relayed as whole frames to the machine that owns the session; bounded peer dial)
+# + local 4294c22 (phone UI: machine badge on cards, remote sessions connect through the hub)
+ACP_MOBILE_COMMIT="4294c22b343ba94c047104395501cfad56cd9987"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
