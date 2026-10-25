@@ -120,7 +120,10 @@ ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
 # + local 30ed8fa (hub merges every awake peer's session list with machine badges and machines[]; refreshes a stale peer IP from tailscale status)
 # + local 887035e (ws proxy: phone sockets relayed as whole frames to the machine that owns the session; bounded peer dial)
 # + local 4294c22 (phone UI: machine badge on cards, remote sessions connect through the hub)
-ACP_MOBILE_COMMIT="4294c22b343ba94c047104395501cfad56cd9987"
+# + local 59499a0 (peer auth admits only hubs listed in config.json hubs; lazy self login; short error cache)
+# + local 98add8e (refreshPeerIP matches the registry DNS name, prefers online peers)
+# + local 0629659 (remote sessions cannot drive the hub's Emacs: no delete/peek on remote cards, in-chat Lisp actions disabled, hub answers 501 for a foreign machine)
+ACP_MOBILE_COMMIT="0629659fd43a0269be168e401c86c0c588a9720d"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
