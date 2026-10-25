@@ -82,6 +82,12 @@ shells started after `init.el` loaded with the exe present. Rotate the key by
 deleting `authkey` and restarting the task. Updating the binaries is a new
 cross-compile plus `scp`, then rerun the task script with `-Start`.
 
+NEMESIS is a SYZYGY fleet node: POLLUX's phone app lists and relays its
+sessions, and nothing else needs configuring here beyond `tailscale` on the
+machine PATH (the installer does it) and `%USERPROFILE%\.acp-mobile\config.json`
+with `{"extraPath": ["C:\\Program Files\\Tailscale"]}`; see the Fleet section of
+[`macos/syzygy/README.md`](../macos/syzygy/README.md#fleet-one-phone-app-for-every-machine).
+
 ## Setup on a new machine
 
 1. Enable **Developer Mode** (Settings → Privacy & security → For developers),

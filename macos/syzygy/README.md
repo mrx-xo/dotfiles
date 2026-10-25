@@ -99,6 +99,119 @@ the at-logon task and health checks for the Windows box live in
 Scope there is view-and-reply on existing Claude chats; the SYZYGY Lisp
 that drives presets, history and resume is not loaded by the Windows Emacs.
 
+## Fleet (one phone app for every machine)
+
+One acp-mobile binary plays either role. At start it reads the registry
+(`~/fleet/syzygy.json`, overridable with `"registry"` in
+`~/.acp-mobile/config.json`): present means **hub**, absent means **node**.
+Its own id is the first line of `~/.config/machine-id` (else the first
+label of its tailnet hostname), and must match an `id` in the registry.
+POLLUX is the hub; CASTOR and NEMESIS are nodes and carry no registry.
+
+- **Hub**: `/api/sessions` fans out to every registry peer (2 s budget,
+  so the reply can take about 3 s), merges their sessions with a `machine`
+  badge on each, and adds `machines[]` (`id`, `name`, `state` awake or
+  asleep, `lastSeen`). A phone socket for a remote session
+  (`/ws?machine=<id>&sock=<pid>`) is relayed whole-frame to the owning node.
+- **Node**: serves only its own sessions; its own link URL keeps working on
+  its own, and its `/api/sessions` has no `machines` key.
+
+Registry shape: spec section 6.2 of
+`docs/active/specs/2026-10-18-syzygy-fleet-design.md` and the fixture
+`~/src/acp-mobile/testdata/syzygy.json` (keys `id, name, host, ip, os,
+role, wake, gaps`). The real file lives only in the private fleet repo.
+After editing it, reload without a restart:
+
+```bash
+launchctl kill HUP gui/$(id -u)/com.marcosandrade.acp-mobile
+```
+
+Check what the hub sees:
+
+```bash
+curl -s -X POST -b "authkey=$(cat ~/.acp-mobile/authkey)" http://127.0.0.1:8090/api/sessions \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["machine"]); [print(m) for m in d.get("machines", [])]'
+```
+
+### Peer auth
+
+A hub-to-node call carries no authkey. The node admits it only when all
+three hold: the caller is a tailnet address (100.64.0.0/10), it sends the
+`X-Acp-Peer: 1` header, and `tailscale whois` on the caller reports the same
+Tailscale login as the node. A peer-eligible call with the wrong login gets
+**403**; a call without the header falls through to the cookie check and
+gets **401**. Browsers cannot send the header on a WebSocket upgrade, so the
+phone still needs the authkey.
+
+### Node prerequisite: `tailscale` on the job's own PATH
+
+The node opens its tailnet-IP listener and learns its login only when the
+`tailscale` CLI resolves on the PATH the process was started with (the
+launchd plist's `PATH`, or the Windows task's environment). `extraPath` in
+`~/.acp-mobile/config.json` is prepended for child processes only, so it does
+not make `tailscale` itself resolve.
+
+- Mac: put the Tailscale wrapper in a directory on the plist's PATH. The
+  app's CLI must be invoked through a script, not a symlink:
+  `printf '%s\n' '#!/bin/sh' '/Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' > ~/.local/bin/tailscale && chmod 755 ~/.local/bin/tailscale`
+  (POLLUX has the same wrapper in `/usr/local/bin` from the app's CLI
+  install). Keep `config.json` with
+  `{"extraPath": ["<home>/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"]}`
+  for the tools acp-mobile spawns.
+- Windows: the Tailscale installer puts `C:\Program Files\Tailscale` on the
+  machine PATH, which is what makes it resolve. The matching
+  `%USERPROFILE%\.acp-mobile\config.json` is
+  `{"extraPath": ["C:\\Program Files\\Tailscale"]}`.
+
+Proof it worked: `~/.acp-mobile/link` names the tailnet host (not
+`127.0.0.1`) and the error log has an `also listening on <tailnet IP>:8090`
+line.
+
+### Bootstrap a Mac node (CASTOR)
+
+Run on CASTOR, after the pin bump is pushed from POLLUX:
+
+```bash
+git -C ~/.dotfiles pull --ff-only
+mkdir -p ~/.acp-mobile ~/Library/Logs/acp-mobile   # launchd cannot open logs in a missing dir
+# write ~/.acp-mobile/config.json and ~/.local/bin/tailscale as above
+zsh -lc '~/.dotfiles/macos/syzygy/build-acp-tools.sh'
+launchctl bootstrap gui/$(id -u) ~/.dotfiles/macos/syzygy/com.marcosandrade.acp-mobile.plist
+launchctl print gui/$(id -u)/com.marcosandrade.acp-mobile | grep -E '^\s*(state|pid) '
+sed 's/authkey=.*/authkey=REDACTED/' ~/.acp-mobile/link
+```
+
+Later updates are just `git pull` plus `build-acp-tools.sh`, which
+kickstarts the loaded job. After changing the wrapper or `config.json`,
+`launchctl kickstart -k gui/$(id -u)/com.marcosandrade.acp-mobile`.
+
+NEMESIS redeploys as in
+[`windows/README.md`](../../windows/README.md#syzygy-phone-access-acp-mobile-on-nemesis):
+cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
+
+### Troubleshooting: a peer shows `asleep`
+
+`asleep` means the hub's fetch to that node failed. Check, in order:
+
+1. The node process is up (`launchctl print ...` or the scheduled task state).
+2. The node's log has the `also listening on` line. If not, `tailscale` is
+   not on the node's PATH (see the prerequisite) and it only listens on
+   127.0.0.1.
+3. From the hub, `curl -s -o /dev/null -w '%{http_code}' -H 'X-Acp-Peer: 1' -X POST http://<node tailnet IP>:8090/api/sessions`:
+   200 is healthy; 403 means the node's `tailscale whois` saw a different
+   login (different Tailscale account, or whois failing on the node); 401
+   means the header did not arrive; connection refused or a timeout is the
+   listener or a firewall on the node (on Windows, check that inbound
+   port 8090 is allowed on the Tailscale interface).
+4. A changed tailnet IP needs no edit: on any fetch error the hub refreshes
+   the peer's IP from `tailscale status` and uses it on the next fetch. Edit
+   the registry (and SIGHUP) only for a new id, name or host.
+
+Verified 2026-10-25 headless from POLLUX: `machines[]` reported all three
+awake, CASTOR sessions merged with their badge, and `/ws` through the hub
+returned each node's own frame (and `unknown machine` for a bad id).
+CASTOR read `asleep` before its job was bootstrapped.
+
 ## Wake-on-LAN facts (this M4)
 
 - `pmset -g | grep womp` → already `1`
