@@ -121,7 +121,7 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
 - **Current v1** is on the pad, flashed 2026-10-22 from commit `3427816`
   in `~/qmk_keychron`. **Stock** is retained as a retired comparison.
 - **v1 changes** shows the desk grammar from
-  `docs/active/plans/2026-10-21-komax-desk-grammar.md`: blue screen keys
+  [Desk grammar](#desk-grammar): blue screen keys
   (ROMULUS, REMUS, NYX) arm, coloured machine keys (POLLUX green, NEMESIS
   red, the knob press WORK amber) fire. Unchanged keys are greyed in this
   view. The physical **M5** cap (#23, the former Fn position) sends F17.
@@ -144,11 +144,49 @@ under Keychron's own firmware). Layers 0 Base and 1 Fn.
   (`macos/scripts/keyboard-lights`): a raw-HID frame, tag `0x4E`, that
   darkens the lighting and later restores the saved look without touching
   EEPROM. "good night" / "good morning" reach it through Home Assistant and
-  `mon-voice-gate.sh`. Design: `docs/active/specs/2026-10-22-keyboard-flash-day-design.md`.
+  `mon-voice-gate.sh`. Design constraints: [Night-light protocol](#night-light-protocol).
   Bench-verified 2026-10-22: Iris both halves and KOMAX by cable and dongle
   stay dark while typing, survive repeated off commands, and restore the
   same look. Iris also restores its saved look after a power cycle while
   dark. Voice acceptance and the remaining physical layout checks are pending.
+
+### Desk grammar
+
+Screen presses toggle membership in an armed set, expiring three seconds after
+the last press. A target press snapshots and clears that set before slow wake
+or routing operations. With nothing armed, desktop targets move both external
+monitors; the work target does nothing. The tablet is never included implicitly.
+Unarmed screens stay put. The auxiliary display follows the portrait display
+only when entering or leaving work mode. ROMULUS contextual actions remain
+future work, not an implemented extra layer. Moves run under one monitor-mode
+lock with one final window synchronization. Unsupported work destinations stay
+unchanged while valid armed screens still move. Tablet-only handoffs do not
+wake the Windows desktop; external-monitor handoffs use the existing wake path.
+The armed names appear in sketchybar until cleared, with notification fallback
+when sketchybar is unavailable; pad lighting is not routing feedback.
+
+The monitor status JSON retains its existing consumer contract; armed state has
+its own endpoint. A tablet disconnect hold persists across reload/login so a
+wake callback cannot undo a deliberate handoff. Current machine routing,
+voice phrases and recovery are owned by the private rig runbook,
+`~/roaming/notes/mr-x-rig-mdox.org`, “Monitor Mode”. Firmware state and remaining
+physical acceptance are owned by [VERSIONS.md](VERSIONS.md).
+
+### Night-light protocol
+
+Off snapshots the configured lighting state in RAM, not a transient idle
+appearance, and never writes EEPROM. Repeated off commands must not overwrite
+the saved state. On restores that state; typing and firmware indicators must
+not relight a dark board. The Iris layer broadcast remains independent.
+Only explicit night/morning routines control this protocol; automatic idle or
+sleep behavior is not introduced by it. A failed or absent keyboard must not
+block the desk routine. A successful HID write proves delivery was attempted;
+only a reply proves the firmware handled it. Longer idle/wake and voice
+acceptance remain in [the roadmap](ROADMAP.md#remaining-work). The design
+accepted cable-only lights if closed dongle firmware blocked the protocol,
+and KOMAX relighting on wake if suppressing it required invasive changes.
+Cable and dongle delivery and dark typing have since passed; longer idle/wake
+is still unverified. Keep any remaining limitation explicit.
 
 ### Keypad dictation (host bindings)
 
@@ -166,6 +204,9 @@ The Mac module is `macos/hammerspoon/keyboard-voice.lua`, enabled when
 `~/.config/keyboard-voice/ssh-host` (private, outside this repository).
 FluidVoice must be running on both computers: Mac shortcut **Option+Space**,
 Windows shortcut **F20**. Windows must have a logged-in desktop session.
+Scheduled tasks put the action
+in that interactive session; a bare SSH process cannot reliably control its UI.
+Keep remote actions as fixed, allowlisted task names, not arbitrary commands.
 
 Install `windows/autohotkey/keyboard-voice-toggle.ahk` and run
 `windows/scripts/setup-keyboard-voice.ps1` on Windows. The installer reuses
@@ -197,9 +238,11 @@ physical start/stop acceptance remains pending.
 ### Sidecar keys
 
 Press **M3**, then within three seconds **M4** to connect the iPad through
-Sidecar. **M3**, then **M5** holds automatic reconnect and disconnects it,
-freeing the iPad for its Windows remote-desktop app. This does not open that
-app. Routing is owned by `macos/scripts/monitor-mode.sh` and the existing
+Sidecar. **M3**, then **M5** holds automatic reconnect, launches the configured
+native remote-desktop app, and disconnects Sidecar after its foreground
+transition. The private rig runbook, “Monitor Mode”, owns installation,
+timing, unlock requirements and recovery. Routing is owned by
+`macos/scripts/monitor-mode.sh` and the existing
 skhd F15/F16/F17 bindings.
 
 ## Widget mode (the wallpaper overlay)

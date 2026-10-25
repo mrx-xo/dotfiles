@@ -1,52 +1,42 @@
 # keymap explorer roadmap
 
-Status: active. Scope: the Keebio Iris SE layout, the KOMAX macro pad
-page, the explorer, and the wallpaper widget. Owner:
-`macos/keymap-explorer/`. KOMAX's behaviour (the desk grammar) is owned by
-`docs/active/plans/2026-10-21-komax-desk-grammar.md`.
-
-The hotdox76v2 / Creator Micro roadmap this replaced is in git history up to
-`c39eb8b`.
+Status: active, reconciled 2026-10-25. Scope: Iris SE, KOMAX, the explorer,
+practice and wallpaper widget. Owner: `macos/keymap-explorer/`.
+Operation and design constraints: [README.md](README.md).
+Firmware identity and physical acceptance details: [VERSIONS.md](VERSIONS.md).
 
 ## Done
 
-- **Practice view implemented 2026-10-01**: ten-command leader recall, exact
-  current Iris/Dvorak geometry, hints, accuracy/streaks, weighted review,
-  searchable/prefix decks, Gruvbox/light/Midnight themes, local progress.
-  Effective Emacs leader catalog exported by `practice.sh`; operating and
-  recovery instructions live in [README.md](README.md#practice).
+- Iris v3 on both halves and KOMAX v1 on the pad, flashed 2026-10-22.
+  The Emacs layer is in Iris v3; it is no longer an unimplemented port.
+- Night-light commands bench-verified on both boards, including KOMAX cable
+  and dongle, repeated off, typing while dark, and restoration. Iris power-cycle
+  restoration was recorded too. These are historical checks, not a fresh test.
+- Practice view implemented 2026-10-01: leader recall, hints, accuracy/streaks,
+  weighted review, searchable decks, themes and local progress.
+- Wallpaper widgets and host dictation bindings implemented. Physical dictation
+  start/stop acceptance is still open.
 
-## Practice follow-ups
+## Remaining work
 
-- Native Emacs capture for Hyper/control chords and mode-specific bindings.
-  The browser version intentionally trains printable SPC leader sequences.
-- Optional ordinary typing rounds from the original typing-practice project.
-  Current rounds focus on recalling the user's Emacs commands.
+1. Complete the remaining Iris v3 and KOMAX v1 physical acceptance lists in
+   [VERSIONS.md](VERSIONS.md). Record evidence there rather than resetting
+   flashed versions to drafts. Record hardware identity from device-reported
+   bytes when verifying the exact revision, rather than inferring it from labels.
+2. Exercise both “good night” and “good morning” with both keyboards present;
+   prior voice evidence without the Iris does not close this check. Verify
+   KOMAX restoration after a longer idle/wake cycle and actual dictation
+   start/stop on both hosts. [README.md](README.md) owns commands and recovery.
+3. Implement Iris v4 Shot · Copy after configuring the CleanShot host shortcut;
+   firmware, flashing and capture/paste acceptance remain pending. The exact
+   draft and prerequisites live in [VERSIONS.md](VERSIONS.md#v4-draft-not-flashed).
+4. Practice: native Emacs capture for Hyper/control and mode-specific bindings;
+   optional ordinary typing rounds. The browser trains printable SPC sequences.
+5. Desk grammar: contextual actions follow the machine currently showing
+   ROMULUS. A general remote scheduled-task lane remains future scope; the
+   deployed dictation task is one specific action. Preserve the documented
+   armed-set routing contract and use fixed, allowlisted task names.
 
-## Earlier keyboard milestones
-
-The older milestones below retain firmware/widget context. Consult
-[VERSIONS.md](VERSIONS.md) for the current flashed-versus-draft status.
-
-- **v1 flashed** 2026-09-28 (see VERSIONS.md); the explorer's `cur` maps
-  match `keymaps/mrx/keymap.c`.
-- **Explorer is Iris-only**: current v1 vs factory, side by side, knob
-  legends, key numbering.
-- **Wallpaper widget back on** 2026-09-28: one webview for the Iris on the
-  portrait Dell, held-mod highlight, per-keypress flash.
-
-## Next
-
-1. **Iris v3 and KOMAX v1 together** (planned 2026-10-22). Iris v3 needs:
-   v3 written into `keymap.c` with `MOUSEKEY_ENABLE` and
-   `COMBO_ENABLE`, a build, then both halves flashed. Done earlier: v2 is
-   flashed and verified on both halves, and committed as `aa41906e08`.
-2. **KOMAX v1 onto the pad** (flash-day plan
-   `docs/active/plans/2026-10-22-keyboard-flash-day.md`, Task 7): firmware
-   built from Keychron's fork, flash per FLASHING.md, then promote v1 in
-   `VERSIONS.md` and in the KOMAX `cur0` data. Fn-key question settled
-   2026-10-22: NEMESIS takes it; the Fn layer hides behind knob press + Enter.
-3. **Port the Emacs layer.** It was drafted for the hotdox (v4 d1, git
-   `8457210`): hold a key, the other hand taps a `HYPR(x)` chord for imenu,
-   buffers, magit, search, recent, project, window, dired. The Emacs side
-   (`H-` bindings in `emacs.org`) already exists.
+Earlier hotdox76v2 / Creator Micro plans remain in Git history through `c39eb8b`.
+The superseded October desk/flash recipes are preserved in private `~/docs`
+commit `de6641f`; current operation lives here and in the rig runbook.
