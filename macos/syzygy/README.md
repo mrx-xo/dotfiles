@@ -136,32 +136,58 @@ curl -s -X POST -b "authkey=$(cat ~/.acp-mobile/authkey)" http://127.0.0.1:8090/
 ### Peer auth
 
 A hub-to-node call carries no authkey. The node admits it only when all
-three hold: the caller is a tailnet address (100.64.0.0/10), it sends the
-`X-Acp-Peer: 1` header, and `tailscale whois` on the caller reports the same
-Tailscale login as the node. A peer-eligible call with the wrong login gets
+four hold: the caller is a tailnet address (100.64.0.0/10), it sends the
+`X-Acp-Peer: 1` header, `tailscale whois` on the caller reports the same
+Tailscale login as the node, and the caller's Tailscale node name is listed
+in the node's `hubs` (see the next section). The login check alone is not
+enough: the same login also owns devices on this tailnet that are not fleet
+machines. A peer-eligible call that fails the login or `hubs` check gets
 **403**; a call without the header falls through to the cookie check and
 gets **401**. Browsers cannot send the header on a WebSocket upgrade, so the
 phone still needs the authkey.
+
+### Node prerequisite: `hubs` in `config.json`
+
+Every node lists the hubs it trusts in `~/.acp-mobile/config.json`
+(`%USERPROFILE%\.acp-mobile\config.json` on Windows):
+
+```json
+{"hubs": ["<hub MagicDNS name>"]}
+```
+
+The entry is the hub's full MagicDNS name (as `tailscale status --self
+--json` prints it as `DNSName` on the hub), case-insensitive, trailing dot
+optional. Missing or empty `hubs` makes the node refuse every hub call, so
+the hub shows it `asleep`, and the node logs
+`peer auth: no hubs configured, hub calls will be refused` at startup. A
+correct config logs `peer auth: admitting hubs [<hub MagicDNS name>]`. The
+hub itself needs no `hubs` entry; it is never called as a node today, and
+logs the "no hubs configured" line harmlessly. Restart the node after
+editing the file.
 
 ### Node prerequisite: `tailscale` on the job's own PATH
 
 The node opens its tailnet-IP listener and learns its login only when the
 `tailscale` CLI resolves on the PATH the process was started with (the
-launchd plist's `PATH`, or the Windows task's environment). `extraPath` in
-`~/.acp-mobile/config.json` is prepended for child processes only, so it does
-not make `tailscale` itself resolve.
+launchd plist's `PATH`, or the Windows task's environment). acp-mobile
+resolves every command it runs, `tailscale` included, against that PATH;
+`extraPath` in `~/.acp-mobile/config.json` is only added to the environment
+those commands run in, so it reaches what they spawn in turn (grandchildren),
+never the lookup of `tailscale` itself. That is why a Mac node needs the
+wrapper below in a directory on the plist's PATH.
 
 - Mac: put the Tailscale wrapper in a directory on the plist's PATH. The
   app's CLI must be invoked through a script, not a symlink:
   `printf '%s\n' '#!/bin/sh' '/Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' > ~/.local/bin/tailscale && chmod 755 ~/.local/bin/tailscale`
   (POLLUX has the same wrapper in `/usr/local/bin` from the app's CLI
   install). Keep `config.json` with
-  `{"extraPath": ["<home>/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"]}`
-  for the tools acp-mobile spawns.
+  `{"extraPath": ["<home>/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["<hub MagicDNS name>"]}`
+  for the tools acp-mobile spawns and the hub it trusts.
 - Windows: the Tailscale installer puts `C:\Program Files\Tailscale` on the
-  machine PATH, which is what makes it resolve. The matching
-  `%USERPROFILE%\.acp-mobile\config.json` is
-  `{"extraPath": ["C:\\Program Files\\Tailscale"]}`.
+  machine PATH, which is what makes it resolve. The `extraPath` entry in
+  `%USERPROFILE%\.acp-mobile\config.json` is optional; the file must carry
+  `hubs`:
+  `{"extraPath": ["C:\\Program Files\\Tailscale"], "hubs": ["<hub MagicDNS name>"]}`.
 
 Proof it worked: `~/.acp-mobile/link` names the tailnet host (not
 `127.0.0.1`) and the error log has an `also listening on <tailnet IP>:8090`
@@ -173,8 +199,12 @@ Run on CASTOR, after the pin bump is pushed from POLLUX:
 
 ```bash
 git -C ~/.dotfiles pull --ff-only
-mkdir -p ~/.acp-mobile ~/Library/Logs/acp-mobile   # launchd cannot open logs in a missing dir
-# write ~/.acp-mobile/config.json and ~/.local/bin/tailscale as above
+mkdir -p ~/.acp-mobile ~/.local/bin ~/Library/Logs/acp-mobile   # launchd cannot open logs in a missing dir
+printf '%s\n' '#!/bin/sh' '/Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' > ~/.local/bin/tailscale
+chmod 755 ~/.local/bin/tailscale
+HUB='<hub MagicDNS name>'
+printf '{"extraPath": ["%s/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["%s"]}\n' "$HOME" "$HUB" > ~/.acp-mobile/config.json
+python3 -m json.tool ~/.acp-mobile/config.json
 zsh -lc '~/.dotfiles/macos/syzygy/build-acp-tools.sh'
 launchctl bootstrap gui/$(id -u) ~/.dotfiles/macos/syzygy/com.marcosandrade.acp-mobile.plist
 launchctl print gui/$(id -u)/com.marcosandrade.acp-mobile | grep -E '^\s*(state|pid) '
@@ -189,6 +219,16 @@ NEMESIS redeploys as in
 [`windows/README.md`](../../windows/README.md#syzygy-phone-access-acp-mobile-on-nemesis):
 cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
 
+### What remote sessions can do in step 1
+
+From the hub's phone app a remote session (a card with another machine's
+badge) can be viewed and replied to, and carries its machine badge. Nothing
+else yet: no kill, fork, clone, label, pin, push or model change, no delete
+or peek on remote cards, and the in-chat actions that run Lisp are
+disabled. Those actions would otherwise run on the hub's own Emacs, so the
+hub answers their routes with **501** (`remote machine actions arrive in a
+later step`) whenever the request names a machine other than itself.
+
 ### Troubleshooting: a peer shows `asleep`
 
 `asleep` means the hub's fetch to that node failed. Check, in order:
@@ -198,8 +238,11 @@ cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
    not on the node's PATH (see the prerequisite) and it only listens on
    127.0.0.1.
 3. From the hub, `curl -s -o /dev/null -w '%{http_code}' -H 'X-Acp-Peer: 1' -X POST http://<node tailnet IP>:8090/api/sessions`:
-   200 is healthy; 403 means the node's `tailscale whois` saw a different
-   login (different Tailscale account, or whois failing on the node); 401
+   200 is healthy; 403 means the login matches but the hub is not listed
+   in the node's `hubs` (check the node log for `admitting hubs`; a
+   `no hubs configured` line means `hubs` is missing or empty), or the
+   node's `tailscale whois` saw a different login (different Tailscale
+   account, or whois failing on the node); 401
    means the header did not arrive; connection refused or a timeout is the
    listener or a firewall on the node (on Windows, check that inbound
    port 8090 is allowed on the Tailscale interface).
@@ -210,7 +253,10 @@ cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
 Verified 2026-10-25 headless from POLLUX: `machines[]` reported all three
 awake, CASTOR sessions merged with their badge, and `/ws` through the hub
 returned each node's own frame (and `unknown machine` for a bad id).
-CASTOR read `asleep` before its job was bootstrapped.
+CASTOR read `asleep` before its job was bootstrapped. With `hubs` set, the
+peer-header call returned 200 from the hub and 403 between the two nodes
+(same login, not a listed hub), and `/api/kill?machine=<node id>` on the hub
+returned 501.
 
 ## Wake-on-LAN facts (this M4)
 
