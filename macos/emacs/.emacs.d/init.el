@@ -4309,21 +4309,9 @@ Falls back to a one-liner if fastfetch isn't installed."
         "s" '(:ignore t :wk "streaming")
         "s y" '(ytr :wk "YouTube radio"))
 
-      ;; Smart new shell: replace window when already in agent-shell
-      (defun mr-x/agent-shell--display-new (shell-buffer)
-        "Show SHELL-BUFFER: replace current window when already in an
-agent-shell, otherwise pop to it. Honours viewport interaction."
-        (if (derived-mode-p 'agent-shell-mode 'agent-shell-viewport-view-mode
-                            'agent-shell-viewport-edit-mode)
-            ;; Already in agent-shell: replace current window
-            (if agent-shell-prefer-viewport-interaction
-                (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-              (switch-to-buffer shell-buffer))
-          ;; Not in agent-shell: use normal display
-          (if agent-shell-prefer-viewport-interaction
-              (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-            (pop-to-buffer shell-buffer))))
+      ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
+      ;; Smart new shell: replace window when already in agent-shell
       (defun mr-x/agent-shell-new-smart ()
         "Create new agent shell, replacing current window if already in agent-shell."
         (interactive)
@@ -4377,7 +4365,7 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;;           "gpt-5.5" "gpt-5.4" "gpt-5.4-mini" "gpt-5.3-codex-spark"
       ;;   modes:  "read-only" "agent" "agent-full-access"
       ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
-      ;; Add a preset = add one line here.
+      ;; Add a preset = add one line to `mr-x/agent-shell-presets' (syzygy-rig.el).
       ;;
       ;; DeepSeek preset: DeepSeek's API speaks the Anthropic wire format
       ;; (https://api.deepseek.com/anthropic), so the stock claude-agent-acp
@@ -4500,205 +4488,7 @@ Matches an Agent header of the form \"Codex NAME\" against
       (advice-add 'agent-recall--agent-config-for-transcript :before-until
                   #'mr-x/agent-shell--codex-account-config-for-transcript)
 
-      (defvar mr-x/agent-shell-presets
-        '((?f "Fable 5.1 · Full" "claude-fable-5-1"    "bypassPermissions")
-          (?o "Opus 5.5 · Full"  "opus"                "bypassPermissions")
-          (?s "Sonnet 5.5 · Accept edits" "sonnet"     "acceptEdits")
-          (?p "Opus 5.5 · Plan"  "default"             "plan")
-          (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
-              agent-shell-openai-make-codex-config "high")
-          (?c "Sol 6.1 · Full"   "gpt-6.1-sol"         "agent-full-access"
-              agent-shell-openai-make-codex-config "high")
-          (?x "Sol 6.1 Max · Full" "gpt-6.1-sol"       "agent-full-access"
-              agent-shell-openai-make-codex-config "max")
-          (?O "Luna 6 · Build"   "openai/gpt-6-luna"   "build"
-              agent-shell-opencode-make-agent-config)
-          (?g "GLM 5.3 Flash · Full" "openrouter/z-ai/glm-5.3-flash" "bypass"
-              agent-shell-opencode-make-agent-config)
-          (?d "DeepSeek Chat · Accept edits" "default" "acceptEdits"
-              mr-x/agent-shell-make-deepseek-config))
-        "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
-Each launches a fresh shell with that model and permission mode.
-CONFIG-FN, when present, names the agent-config constructor to base the
-shell on (e.g. Codex) instead of the preferred (Claude) config.
-EFFORT, when present, is sent as the `reasoning_effort' config option
-once the session is up (Codex-only concept).")
-
-      (defun mr-x/agent-shell--set-effort (effort &optional on-success)
-        "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
-Found by ACP category `thought_level', not id: Claude and OpenCode name
-the option \"effort\", Codex \"reasoning_effort\".  Errors when the
-agent has no such option or does not offer EFFORT."
-        (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
-                                                           "thought_level")))
-          (unless opt (user-error "This agent has no effort setting"))
-          (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
-                            (map-elt opt :options))
-            (user-error "Effort %s not offered here" effort))
-          (if (equal effort (map-elt opt :current-value))
-              (when on-success (funcall on-success))
-            (agent-shell--set-session-config-option
-             :config-id (map-elt opt :id) :value effort
-             :on-success on-success))))
-
-      (defun mr-x/agent-shell--set-effort-when-ready (buf effort tries)
-        "Set BUF's `reasoning_effort' config option to EFFORT once its
-session exists, retrying TRIES times (the session id lands seconds
-after spawn, same dance as `mr-x/agent-spawn--send-when-ready')."
-        (when (buffer-live-p buf)
-          (with-current-buffer buf
-            (if (map-nested-elt agent-shell--state '(:session :id))
-                (mr-x/agent-shell--set-effort effort)
-              (if (> tries 0)
-                  (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                               buf effort (1- tries))
-                (message "agent preset: %s never became ready for effort set"
-                         (buffer-name buf)))))))
-
-      (defun mr-x/agent-shell--config-with (model-id mode-id &optional config-fn)
-        "Copy the preferred agent config, overriding model + session mode.
-When CONFIG-FN is non-nil, build the base config by calling it instead
-of resolving the preferred config — that's how a preset targets a
-different agent (Codex) entirely.  Returns a fresh config alist so the
-original is left untouched."
-        (let ((config (copy-alist
-                       (or (and config-fn (funcall config-fn))
-                           (and (fboundp 'agent-shell--resolve-preferred-config)
-                                (agent-shell--resolve-preferred-config))
-                           (agent-shell-select-config :prompt "Start new agent: ")
-                           (error "No agent config found")))))
-          (setf (alist-get :default-model-id config) (lambda () model-id))
-          (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
-          config))
-
-      ;; ── Preset picker rendering ──────────────────────────
-      ;; One row per vendor, keys bold, vendor in its palette hue, mode word
-      ;; colored by how much rope it gives the agent.  Rows come from each
-      ;; preset's config constructor, so a new preset lands in its row on
-      ;; its own.  The question sits on the last line where the cursor is.
-      (defvar mr-x/agent-shell--preset-vendors
-        '((claude   "Claude"   orange)
-          (codex    "Codex"    green)
-          (opencode "OpenCode" lime)
-          (deepseek "DeepSeek" gold)
-          (other    "Other"    cream))
-        "Preset rows: (VENDOR LABEL PALETTE-COLOR), in display order.")
-
-      (defun mr-x/agent-shell--preset-vendor (preset)
-        "Vendor symbol for PRESET, from its config constructor (nil = Claude)."
-        (pcase (nth 4 preset)
-          ('nil 'claude)
-          ('agent-shell-openai-make-codex-config 'codex)
-          ('agent-shell-opencode-make-agent-config 'opencode)
-          ('mr-x/agent-shell-make-deepseek-config 'deepseek)
-          (_ 'other)))
-
-      (defun mr-x/agent-shell--buffer-vendor ()
-        "Vendor symbol for the current chat, matching `mr-x/agent-shell--preset-vendor'.
-DeepSeek runs on the Claude adapter, so only its mode-line name tells."
-        (let ((config (map-elt (agent-shell--state) :agent-config)))
-          (pcase (map-elt config :identifier)
-            ('claude-code (if (equal (map-elt config :mode-line-name) "DeepSeek")
-                              'deepseek 'claude))
-            ('codex 'codex)
-            ('opencode 'opencode)
-            (_ 'other))))
-
-      (defun mr-x/agent-shell--preset-mode-word (mode-id)
-        "Short lowercase word for session MODE-ID.
-The table lives in `major-pane-mode-words' so the banner, this picker
-and the SPC c m keys cannot drift apart."
-        (require 'major-pane)
-        (major-pane-mode-word mode-id))
-
-      (defun mr-x/agent-shell--preset-mode-color (word)
-        "Palette color name for a mode WORD: red for no guardrails, down to mint."
-        (pcase word
-          ("full" 'red)
-          ((or "accept edits" "auto") 'gold)
-          ("build" 'lime)
-          (_ 'mint)))
-
-      (defun mr-x/agent-shell--preset-entry (preset vendor-label)
-        "Render one PRESET as \"k Model mode\", dropping VENDOR-LABEL from the model."
-        (let* ((label (nth 1 preset))
-               (model (string-trim (replace-regexp-in-string " · .*\\'" "" label)))
-               (model (if (and (string-prefix-p vendor-label model)
-                               (> (length model) (length vendor-label)))
-                          (string-trim (substring model (length vendor-label)))
-                        model))
-               (word (mr-x/agent-shell--preset-mode-word (nth 3 preset))))
-          (concat (propertize (string (nth 0 preset)) 'face 'bold)
-                  " " model " "
-                  (propertize word 'face
-                              `(:foreground ,(mr-x/color
-                                              (mr-x/agent-shell--preset-mode-color word)))))))
-
-      (defun mr-x/agent-shell--preset-prompt (question)
-        "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
-        (let* ((width (apply #'max (mapcar (lambda (v) (length (nth 1 v)))
-                                           mr-x/agent-shell--preset-vendors)))
-               (rows
-                (delq nil
-                      (mapcar
-                       (lambda (vendor)
-                         (let ((presets (seq-filter
-                                         (lambda (p) (eq (mr-x/agent-shell--preset-vendor p)
-                                                         (car vendor)))
-                                         mr-x/agent-shell-presets)))
-                           (when presets
-                             (concat
-                              (propertize (format (format "%%-%ds" width) (nth 1 vendor))
-                                          'face `(:foreground ,(mr-x/color (nth 2 vendor))
-                                                  :weight bold))
-                              "  "
-                              (mapconcat (lambda (p) (mr-x/agent-shell--preset-entry p (nth 1 vendor)))
-                                         presets "   ")
-                              (when (and (eq (car vendor) 'codex)
-                                         (> (length mr-x/agent-shell-codex-accounts) 1))
-                                (propertize "   asks account" 'face 'shadow))))))
-                       mr-x/agent-shell--preset-vendors))))
-          (concat (string-join rows "\n") "\n" question)))
-
-      (defun mr-x/agent-shell--read-preset (&optional char)
-        "Return a preset tuple from `mr-x/agent-shell-presets'.
-Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
-if it matches no preset."
-        (let ((char (or char
-                        (read-char-choice
-                         (mr-x/agent-shell--preset-prompt "Preset: ")
-                         (mapcar #'car mr-x/agent-shell-presets)))))
-          (or (assq char mr-x/agent-shell-presets)
-              (user-error "No preset for %c" char))))
-
-      (defun mr-x/agent-shell--spawn-preset (preset)
-        "Spawn a fresh agent shell locked to PRESET (a `mr-x/agent-shell-presets'
-tuple).  Honours the current `default-directory' as the shell's cwd, so
-callers can `let'-bind it to launch the preset in another project."
-        (require 'agent-shell)
-        (let* ((account (when (mr-x/agent-shell--codex-preset-p preset)
-                          (mr-x/agent-shell--read-codex-account)))
-               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
-                                                      (nth 4 preset)))
-               (config (if account
-                           (mr-x/agent-shell--config-for-codex-account config account)
-                         config))
-               (shell-buffer (agent-shell--start :config config
-                                                 :no-focus t
-                                                 :new-session t)))
-          (mr-x/agent-shell--display-new shell-buffer)
-          (when (nth 5 preset)
-            (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                         shell-buffer (nth 5 preset) 60))
-          (message "Agent preset: %s%s" (nth 1 preset)
-                   (if (cdr account) (format " (%s)" (car account)) ""))))
-
-      (defun mr-x/agent-shell-start-preset (&optional char)
-        "Start a fresh agent shell from a launch preset.
-Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
-supplied, then spawns a new shell locked to that model + permission mode."
-        (interactive)
-        (mr-x/agent-shell--spawn-preset (mr-x/agent-shell--read-preset char)))
+      ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
       (defun mr-x/agent-shell-apply-preset (&optional char)
         "Apply a preset's model + permission mode to the CURRENT agent shell.
