@@ -94,9 +94,13 @@ yabai -m signal --add label=emacs-force-tile event=window_created app="^Emacs$" 
 # Signal to update sketchybar when space changes
 yabai -m signal --add event=space_changed action="sketchybar --trigger space_change"
 
-# Recreate layout indicators only when the connected displays change.
-yabai -m signal --add event=display_added action="bash $HOME/.dotfiles/macos/sketchybar/plugins/yabai-layout-setup.sh"
-yabai -m signal --add event=display_removed action="bash $HOME/.dotfiles/macos/sketchybar/plugins/yabai-layout-setup.sh"
+# Restart sketchybar when the connected displays change. Rerunning only the
+# layout setup left ghost bar windows behind, and --reload does not rebuild
+# sketchybar's display table (portrait bar drawn mid-screen, 2026-10-23).
+SKETCHYBAR_DISPLAY_RELOAD="bash $HOME/.dotfiles/macos/yabai/scripts/sketchybar-display-reload.sh"
+yabai -m signal --add event=display_added   action="$SKETCHYBAR_DISPLAY_RELOAD" label=sketchybar-display-added
+yabai -m signal --add event=display_removed action="$SKETCHYBAR_DISPLAY_RELOAD" label=sketchybar-display-removed
+yabai -m signal --add event=display_moved   action="$SKETCHYBAR_DISPLAY_RELOAD" label=sketchybar-display-moved
 # display_changed means focus moved to another monitor. Update in place:
 # running setup here removes the pills and forces a full bar refresh.
 yabai -m signal --add event=display_changed action="sketchybar --trigger layout_change" label=sketchybar-layout-focus
