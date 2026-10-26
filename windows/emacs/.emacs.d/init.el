@@ -539,6 +539,11 @@
                "dotfiles/shared/emacs/lisp/syzygy"))
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
 (require 'agent-shell-extras)
+;; SYZYGY Lisp from the shared tree: pulls in syzygy-rig, which starts the
+;; status and labels sidecar writers under %USERPROFILE%\.acp-mobile once
+;; agent-shell is loaded. Required here, not in agent-shell's :config: acp
+;; and shell-maker load eagerly, so that :config runs before this load-path.
+(require 'syzygy)
 
 ;; The repo's .dir-locals.el sets mr-x/project-cmd-alist (per-project commands,
 ;; consumed by mr-x/project-command on the Mac side). This Windows config

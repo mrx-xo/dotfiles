@@ -47,9 +47,9 @@ Claude through `acp-multiplex.exe`, which exposes each session as a Unix
 socket under `%TEMP%\acp-multiplex\<pid>.sock`; `acp-mobile.exe` serves
 those to the phone on port 8090 behind `tailscale serve`, so the URL is
 `https://vengeance.<tailnet>.ts.net` and only the tailnet can reach it.
-Scope today is view and reply on existing Claude chats. New-chat presets,
-history/resume and the other phone controls call SYZYGY Lisp that the
-Windows Emacs does not load yet; they fail with an error instead of working.
+Scope today is view and reply on existing Claude chats; see the SYZYGY
+Lisp paragraph below for what the Windows Emacs loads and what is still
+missing.
 
 Pieces:
 
@@ -88,6 +88,16 @@ state directory rather than `%USERPROFILE%\.acp-mobile`:
 ```
 powershell -NoProfile -File %USERPROFILE%\dotfiles\shared\emacs\tests\run-syzygy-tests.ps1
 ```
+
+To run it against another checkout, set `SYZYGY_DOTFILES_ROOT` to that
+checkout's root first; the default is `%USERPROFILE%\dotfiles`.
+
+The Windows init loads SYZYGY from `shared/emacs/lisp/syzygy/` with
+`(require 'syzygy)` after the shared `load-path` block, which pulls in
+`syzygy-rig`. NEMESIS therefore writes the `status.json` and labels
+sidecars under `%USERPROFILE%\.acp-mobile\`, so the phone shows idle/busy
+and titles for its sessions. New-chat presets still carry the Mac defaults
+and the remaining Windows overrides (spec section 6.7) are step 3 and later.
 
 NEMESIS is a SYZYGY fleet node: POLLUX's phone app lists and relays its
 sessions. The real prerequisite is `%USERPROFILE%\.acp-mobile\config.json`

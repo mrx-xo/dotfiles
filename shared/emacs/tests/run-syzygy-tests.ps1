@@ -1,10 +1,12 @@
 # Run the SYZYGY ERT suite headless on Windows, without agent-shell.
 #   pwsh shared\emacs\tests\run-syzygy-tests.ps1
+# Repo root defaults to %USERPROFILE%\dotfiles; set $env:SYZYGY_DOTFILES_ROOT
+# to run against another checkout.
 # Exits with ERT's status.
 $ErrorActionPreference = 'Stop'
 
 $emacs = (Get-Command emacs).Source
-$root = Join-Path $env:USERPROFILE 'dotfiles'
+$root = if ($env:SYZYGY_DOTFILES_ROOT) { $env:SYZYGY_DOTFILES_ROOT } else { Join-Path $env:USERPROFILE 'dotfiles' }
 $syzygy = Join-Path $root 'shared\emacs\lisp\syzygy'
 $macLisp = Join-Path $root 'macos\emacs\.emacs.d\lisp'
 $macTests = Join-Path $root 'macos\emacs\.emacs.d\tests'
