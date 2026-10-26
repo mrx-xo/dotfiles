@@ -241,15 +241,34 @@ be loaded."
 ;; Valid IDs (from the live ACP session): models "default" (Opus 5.5 1M)
 ;; "opus[1m]" "fable[1m]" "sonnet" "haiku"; modes "auto"
 ;; "default" "acceptEdits" "plan" "dontAsk" "bypassPermissions".
+;; Codex IDs (from a live codex-acp 2.2.2 session here, 2026-10-10).  The
+;; session's model list shows suffixed ids ("gpt-5.6-sol[high]") but those
+;; are display-only: the `model' option takes BARE families and rejects
+;; suffixed ids with -32602.  Effort is its own `reasoning_effort' option,
+;; set post-init.
+;;   models: "gpt-6.1-sol" (default) "gpt-6-astra" "gpt-6-sol" "gpt-6-luna"
+;;           "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
+;;   modes:  "read-only" "workspace-write" "agent" "agent-full-access"
+;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
 ;; ---------------------------------------------------------------------------
 
 (defvar mr-x/agent-shell-presets
   '((?f "Fable 5.1 · Bypass" "fable[1m]" "bypassPermissions")
     (?o "Opus 5.5 · Bypass"  "opus[1m]"  "bypassPermissions")
     (?s "Sonnet 5 · Accept"  "sonnet"    "acceptEdits")
-    (?p "Opus 5.5 · Plan"    "default"   "plan"))
-  "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID).
-Each launches a fresh shell with that model and permission mode.")
+    (?p "Opus 5.5 · Plan"    "default"   "plan")
+    (?a "Astra 6 · Full"     "gpt-6-astra" "agent-full-access"
+        agent-shell-openai-make-codex-config "high")
+    (?c "Sol 5.6 · Full"     "gpt-5.6-sol" "agent-full-access"
+        agent-shell-openai-make-codex-config "high")
+    (?x "Sol 5.6 Max · Full" "gpt-5.6-sol" "agent-full-access"
+        agent-shell-openai-make-codex-config "max"))
+  "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
+Each launches a fresh shell with that model and permission mode.
+CONFIG-FN, when present, names the agent-config constructor to base the
+shell on (e.g. Codex) instead of the preferred (Claude) config.
+EFFORT, when present, is sent as the effort config option once the
+session is up.")
 
 (defun mr-x/agent-shell--display-new (shell-buffer)
   "Show SHELL-BUFFER: replace current window when already in an
@@ -263,11 +282,15 @@ agent-shell, otherwise pop to it.  Honours viewport interaction."
         (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
       (pop-to-buffer shell-buffer))))
 
-(defun mr-x/agent-shell--config-with (model-id mode-id)
+(defun mr-x/agent-shell--config-with (model-id mode-id &optional config-fn)
   "Copy the preferred agent config, overriding model + session mode.
-Returns a fresh config alist so the original is left untouched."
+When CONFIG-FN is non-nil, build the base config by calling it instead
+of resolving the preferred config: that's how a preset targets a
+different agent (Codex) entirely.  Returns a fresh config alist so the
+original is left untouched."
   (let ((config (copy-alist
-                 (or (and (fboundp 'agent-shell--resolve-preferred-config)
+                 (or (and config-fn (funcall config-fn))
+                     (and (fboundp 'agent-shell--resolve-preferred-config)
                           (agent-shell--resolve-preferred-config))
                      (agent-shell-select-config :prompt "Start new agent: ")
                      (error "No agent config found")))))
@@ -275,34 +298,116 @@ Returns a fresh config alist so the original is left untouched."
     (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
     config))
 
+(defun mr-x/agent-shell--preset-prompt (question)
+  "One-line listing of `mr-x/agent-shell-presets' ending in QUESTION."
+  (concat "Preset  "
+          (mapconcat (lambda (p)
+                       (format "[%c] %s" (nth 0 p) (nth 1 p)))
+                     mr-x/agent-shell-presets "   ")
+          question))
+
 (defun mr-x/agent-shell--read-preset (&optional char)
   "Return a preset tuple from `mr-x/agent-shell-presets'.
 Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
 if it matches no preset."
   (let ((char (or char
                   (read-char-choice
-                   (concat "Preset  "
-                           (mapconcat (lambda (p)
-                                        (format "[%c] %s" (nth 0 p) (nth 1 p)))
-                                      mr-x/agent-shell-presets "   ")
-                           ": ")
+                   (mr-x/agent-shell--preset-prompt ": ")
                    (mapcar #'car mr-x/agent-shell-presets)))))
     (or (assq char mr-x/agent-shell-presets)
         (user-error "No preset for %c" char))))
+
+(defun mr-x/agent-shell--read-preset-or-default ()
+  "Read a preset char, or RET/SPC for the default (preferred/Claude) config.
+Returns a preset tuple from `mr-x/agent-shell-presets', or nil for the
+default config."
+  (let* ((chars (mapcar #'car mr-x/agent-shell-presets))
+         (char (read-char-choice
+                (mr-x/agent-shell--preset-prompt "   (RET = Claude default): ")
+                (append chars (list ?\r ?\n ?\s)))))
+    (unless (memq char '(?\r ?\n ?\s))
+      (or (assq char mr-x/agent-shell-presets)
+          (user-error "No preset for %c" char)))))
+
+(defun mr-x/agent-shell--pick-project-dir ()
+  "Prompt for a launch directory.  Dashboard projects are offered first
+\(by name, path annotated), remaining projectile projects below, and any
+path typed by hand is accepted.  Returns an expanded directory."
+  (let* ((dashboard (bound-and-true-p project-dashboard-projects))
+         ;; dashboard paths (expanded) so we can de-dup projectile
+         (dash-paths (mapcar (lambda (p) (expand-file-name (cdr p))) dashboard))
+         ;; projectile projects not already in dashboard (skip remote/TRAMP)
+         (extra (cl-remove-if (lambda (p) (or (file-remote-p p)
+                                              (member (expand-file-name p) dash-paths)))
+                              (bound-and-true-p projectile-known-projects)))
+         ;; build candidates: ((display . path) ...)
+         (candidates (append
+                      (mapcar (lambda (p) (cons (car p) (expand-file-name (cdr p))))
+                              dashboard)
+                      (mapcar (lambda (p) (cons (abbreviate-file-name p) (expand-file-name p)))
+                              extra)))
+         ;; annotation function shows path for dashboard entries
+         (annotate (lambda (cand)
+                     (when-let ((path (cdr (assoc cand candidates))))
+                       (concat "  " (propertize (abbreviate-file-name path)
+                                                'face 'completions-annotations)))))
+         (choice (completing-read "Agent shell in: "
+                                  (lambda (str pred action)
+                                    (if (eq action 'metadata)
+                                        `(metadata (annotation-function . ,annotate))
+                                      (complete-with-action action candidates str pred))))))
+    (or (cdr (assoc choice candidates))
+        (expand-file-name choice))))
+
+(defun mr-x/agent-shell--spawn-preset (preset)
+  "Spawn a fresh agent shell locked to PRESET (a `mr-x/agent-shell-presets'
+tuple).  Honours the current `default-directory' as the shell's cwd."
+  (require 'agent-shell)
+  (let* ((config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
+                                                (nth 4 preset)))
+         (shell-buffer (agent-shell--start :config config
+                                           :no-focus t
+                                           :new-session t)))
+    (mr-x/agent-shell--display-new shell-buffer)
+    (when (nth 5 preset)
+      (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
+                   shell-buffer (nth 5 preset) 60))
+    (message "Agent preset: %s" (nth 1 preset))))
 
 (defun mr-x/agent-shell-start-preset (&optional char)
   "Start a fresh agent shell from a launch preset.
 Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
 supplied, then spawns a new shell locked to that model + permission mode."
   (interactive)
+  (mr-x/agent-shell--spawn-preset (mr-x/agent-shell--read-preset char)))
+
+(defun mr-x/agent-shell-preset-in-project ()
+  "Spawn a fresh agent shell: pick a preset (RET = Claude default), then
+pick a project/path, then start the shell there.  One-shot answer to
+\"new <preset> chat in <project>\"."
+  (interactive)
   (require 'agent-shell)
-  (let* ((preset (mr-x/agent-shell--read-preset char))
-         (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)))
-         (shell-buffer (agent-shell--start :config config
-                                           :no-focus t
-                                           :new-session t)))
-    (mr-x/agent-shell--display-new shell-buffer)
-    (message "Agent preset: %s" (nth 1 preset))))
+  (let* ((preset (mr-x/agent-shell--read-preset-or-default))
+         (default-directory (file-name-as-directory
+                             (mr-x/agent-shell--pick-project-dir))))
+    (if preset
+        (mr-x/agent-shell--spawn-preset preset)
+      (mr-x/agent-shell-new-smart))))
+
+(defun mr-x/agent-shell-sol ()
+  "Spawn a fresh Sol (Codex, high effort) agent shell in one keystroke:
+the `?c' preset from `mr-x/agent-shell-presets'."
+  (interactive)
+  (mr-x/agent-shell--spawn-preset
+   (or (assq ?c mr-x/agent-shell-presets)
+       (user-error "No Sol preset (?c) defined"))))
+
+(defun mr-x/agent-shell--preset-agent (preset)
+  "Identifier of the agent PRESET spawns, e.g. `claude-code' or `codex'."
+  (map-elt (if (nth 4 preset)
+               (funcall (nth 4 preset))
+             (agent-shell--resolve-preferred-config))
+           :identifier))
 
 (defun mr-x/agent-shell-apply-preset (&optional char)
   "Apply a preset's model + permission mode to the CURRENT agent shell.
@@ -318,7 +423,15 @@ model first, then the mode, then report the applied preset."
          (label (nth 1 preset))
          (model-id (nth 2 preset))
          (mode-id (nth 3 preset))
+         (effort (nth 5 preset))
+         (agent (mr-x/agent-shell--preset-agent preset))
+         (here (map-nested-elt (agent-shell--state) '(:agent-config :identifier)))
          (buffer (current-buffer)))
+    ;; A preset names one agent's ids; another agent's chat would reject
+    ;; them.  Switching agents needs a new shell.
+    (unless (eq agent here)
+      (user-error "%s is a %s preset; this chat is %s.  Use SPC c P for a new shell"
+                  label agent here))
     (agent-shell--config-option-set-model-id
      :model-id model-id
      :on-success
@@ -327,7 +440,10 @@ model first, then the mode, then report the applied preset."
          (agent-shell--config-option-set-mode-id
           :mode-id mode-id
           :on-success
-          (lambda () (message "Agent preset applied: %s" label))))))))
+          (lambda ()
+            (with-current-buffer buffer
+              (when effort (mr-x/agent-shell--set-effort effort))
+              (message "Agent preset applied: %s" label)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Clone: a fresh shell wearing the current shell's agent, model,
@@ -572,10 +688,10 @@ silent context-only capture with no marker."
 ;; Leader bindings.  SPC c mirrors MrX's map key for key (emacs.org,
 ;; "Agent Shell"), minus the commands that have not been ported yet.
 ;; Those keys stay free so both machines keep one layout:
-;;   e fork          u park           C preset + where   x Sol one-shot
+;;   e fork          u park           k K catalogue
 ;;   B z manager     S test env       j attention        , r test prompt
 ;;   ! block->vterm  I inbox          H y Y syzygy       N phone push
-;;   l W watcher     v V L terminal   1 2 3 0 perms      k K catalogue
+;;   l W watcher     v V L terminal   1 2 3 0 perms
 ;;   g G goose       / s d  / s s  / b d  / w  recall
 ;; ---------------------------------------------------------------------------
 
@@ -584,7 +700,9 @@ silent context-only capture with no marker."
   "c c"   '(mr-x/agent-shell-new-smart :wk "new chat (Claude, here)")
   "c n"   '(mr-x/agent-shell-clone :wk "clone shell (model + here)")
   "c P"   '(mr-x/agent-shell-start-preset :wk "preset → new shell")
-  "c t"   '(mr-x/agent-shell-toggle :wk "toggle agent shell")
+  "c C"   '(mr-x/agent-shell-preset-in-project :wk "new chat (preset + where)")
+  "c x"  '(mr-x/agent-shell-sol :wk "Sol (Codex) shell")
+  "c t"  '(mr-x/agent-shell-toggle :wk "toggle agent shell")
   "c w"   '(mr-x/focus-ai-window :wk "focus AI window")
   "c b"   '(major-pane-swap-buffer :wk "swap panel buffer")
   "c ,"   '(:ignore t :wk "prompts")

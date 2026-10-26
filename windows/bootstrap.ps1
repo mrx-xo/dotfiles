@@ -202,6 +202,28 @@ if ((Test-Path $ahkExe) -and (Test-Path $fluidScript)) {
     Write-Host "AutoHotkey or fluidvoice.ahk not found - skipping FluidVoice shortcut." -ForegroundColor Yellow
 }
 
+# skate. via Steam with AutoHotkey out of the way (EA Anticheat) - Desktop shortcut.
+# scripts\skate-steam.ps1 does ahk off -> Steam -> wait for the game to exit -> ahk on.
+# Runs through run-hidden.vbs so no console flashes; ReSkate is unaffected.
+# ---------------------------------------------------------------------------
+$skateScript = "$repo\scripts\skate-steam.ps1"
+$skateIcon   = "${env:ProgramFiles(x86)}\Steam\steamapps\common\Skate\Skate.exe"
+
+if (Test-Path $skateIcon) {
+    $ws = New-Object -ComObject WScript.Shell
+    $skateLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "skate. (Steam).lnk"
+    $sc = $ws.CreateShortcut($skateLnk)
+    $sc.TargetPath       = "$env:SystemRoot\System32\wscript.exe"
+    $sc.Arguments        = "`"$repo\scripts\run-hidden.vbs`" powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$skateScript`""
+    $sc.WorkingDirectory = "$repo\scripts"
+    $sc.IconLocation     = "$skateIcon,0"
+    $sc.Description      = "skate. through Steam; AutoHotkey off for the launch, back once the game is up"
+    $sc.Save()
+    Write-Host "Created skate. shortcut -> $skateLnk" -ForegroundColor Green
+} else {
+    Write-Host "Steam skate. not installed - skipping skate. shortcut." -ForegroundColor Yellow
+}
+
 # ---------------------------------------------------------------------------
 # OBS Skate clip hotkey (AutoHotkey) — autostart on login.
 # Win+Shift+O launches OBS armed for Skate (Skate profile/scene + replay buffer,
