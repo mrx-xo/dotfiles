@@ -47,9 +47,11 @@
 (defvar mr-x/pending-permissions-queue)
 
 ;; Also called by the moved code, all at run time, never at load time.
-;; The agent-shell ones resolve once agent-shell loads; the mr-x/ ones
-;; are the Mac rig's (emacs.org: `mr-x/color', the Codex-account
-;; helpers) and are defined before any of this runs on the Mac.
+;; The agent-shell ones resolve once agent-shell loads.  The mr-x/ ones
+;; and `major-pane-mode-word' are the Mac rig's (emacs.org: `mr-x/color',
+;; the Codex-account helpers; major-pane.el) and Windows has none of
+;; them, so every call is guarded by `fboundp' and degrades to plain
+;; text, no Codex account and the raw mode id.
 (declare-function agent-shell-select-config "agent-shell")
 (declare-function agent-shell--set-session-config-option "agent-shell")
 (declare-function agent-shell--current-shell "agent-shell")
@@ -181,9 +183,18 @@ DeepSeek runs on the Claude adapter, so only its mode-line name tells."
 (defun mr-x/agent-shell--preset-mode-word (mode-id)
   "Short lowercase word for session MODE-ID.
 The table lives in `major-pane-mode-words' so the banner, this picker
-and the SPC c m keys cannot drift apart."
-  (require 'major-pane)
-  (major-pane-mode-word mode-id))
+and the SPC c m keys cannot drift apart.  Without major-pane (Windows)
+the word is MODE-ID itself."
+  (if (fboundp 'major-pane-mode-word)
+      (major-pane-mode-word mode-id)
+    mode-id))
+
+(defun mr-x/agent-shell--preset-color-face (color &rest props)
+  "Face spec with palette COLOR as foreground plus PROPS.
+Without the Mac palette (`mr-x/color') the foreground is left out."
+  (if (fboundp 'mr-x/color)
+      `(:foreground ,(mr-x/color color) ,@props)
+    props))
 
 (defun mr-x/agent-shell--preset-mode-color (word)
   "Palette color name for a mode WORD: red for no guardrails, down to mint."
@@ -205,8 +216,8 @@ and the SPC c m keys cannot drift apart."
     (concat (propertize (string (nth 0 preset)) 'face 'bold)
             " " model " "
             (propertize word 'face
-                        `(:foreground ,(mr-x/color
-                                        (mr-x/agent-shell--preset-mode-color word)))))))
+                        (mr-x/agent-shell--preset-color-face
+                         (mr-x/agent-shell--preset-mode-color word))))))
 
 (defun mr-x/agent-shell--preset-prompt (question)
   "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
@@ -223,13 +234,15 @@ and the SPC c m keys cannot drift apart."
                      (when presets
                        (concat
                         (propertize (format (format "%%-%ds" width) (nth 1 vendor))
-                                    'face `(:foreground ,(mr-x/color (nth 2 vendor))
-                                            :weight bold))
+                                    'face (mr-x/agent-shell--preset-color-face
+                                           (nth 2 vendor) :weight 'bold))
                         "  "
                         (mapconcat (lambda (p) (mr-x/agent-shell--preset-entry p (nth 1 vendor)))
                                    presets "   ")
                         (when (and (eq (car vendor) 'codex)
-                                   (> (length mr-x/agent-shell-codex-accounts) 1))
+                                   (> (length (bound-and-true-p
+                                               mr-x/agent-shell-codex-accounts))
+                                      1))
                           (propertize "   asks account" 'face 'shadow))))))
                  mr-x/agent-shell--preset-vendors))))
     (concat (string-join rows "\n") "\n" question)))
@@ -250,7 +263,9 @@ if it matches no preset."
 tuple).  Honours the current `default-directory' as the shell's cwd, so
 callers can `let'-bind it to launch the preset in another project."
   (require 'agent-shell)
-  (let* ((account (when (mr-x/agent-shell--codex-preset-p preset)
+  (let* ((account (when (and (fboundp 'mr-x/agent-shell--codex-preset-p)
+                             (fboundp 'mr-x/agent-shell--read-codex-account)
+                             (mr-x/agent-shell--codex-preset-p preset))
                     (mr-x/agent-shell--read-codex-account)))
          (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
                                                 (nth 4 preset)))
