@@ -364,6 +364,13 @@ it, get returns nil for an unknown session."
 
 (defvar major-pane--labels)
 
+;; Without major-pane on the load-path (batch runs, other hosts) stand in
+;; a minimal label setter so the fork tests can observe the carried label.
+(unless (fboundp (quote major-pane-set-buffer-label))
+  (defun major-pane-set-buffer-label (buffer label)
+    "Test stand-in: record LABEL for BUFFER in `major-pane--labels'."
+    (puthash buffer label major-pane--labels)))
+
 (ert-deftest syzygy-fork-json-rejects-non-chat-buffers ()
   "Unknown names and live non-agent buffers must return nil."
   (let ((missing (generate-new-buffer-name "syzygy-fork-test-missing"))
@@ -873,3 +880,50 @@ chat's load fails with \"already has an active writer\"."
             (should (equal (gethash new major-pane--labels) (cdr case)))))
       (kill-buffer new)
       (kill-buffer source))))
+
+(ert-deftest syzygy-fork-json-without-major-pane ()
+  "Fork natively with no major-pane: a live buffer, no label, no error."
+  (let ((source (generate-new-buffer "syzygy-fork-nopane-source"))
+        (had-labels (boundp 'major-pane--labels))
+        (labels (and (boundp 'major-pane--labels) major-pane--labels))
+        (had-fn (fboundp 'major-pane-set-buffer-label))
+        (fn (and (fboundp 'major-pane-set-buffer-label)
+                 (symbol-function 'major-pane-set-buffer-label)))
+        new)
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (setq-local major-mode 'agent-shell-mode)
+            (setq-local default-directory "/tmp/")
+            (setq-local agent-shell--state
+                        '((:supports-session-fork . t)
+                          (:agent-config . ((:name . "Fake")))
+                          (:session . ((:id . "sess-1"))))))
+          (makunbound 'major-pane--labels)
+          (fmakunbound 'major-pane-set-buffer-label)
+          (cl-letf (((symbol-function 'syzygy-fork--turns) (lambda (_) 3))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest _)
+                       (setq new (generate-new-buffer "syzygy-fork-nopane-new"))
+                       new))
+                    ((symbol-function 'run-at-time) #'ignore))
+            (let ((row (syzygy-recall-test--decode
+                        (syzygy-fork-json
+                         (syzygy-recall-test--b64 (buffer-name source))))))
+              (should (eq (alist-get 'ok row) t))
+              (should (buffer-live-p new))
+              (should (equal (alist-get 'bufferName row) (buffer-name new))))))
+      (when had-labels (set 'major-pane--labels labels))
+      (when had-fn (fset 'major-pane-set-buffer-label fn))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-recall-loads-without-major-pane ()
+  "A batch Emacs with only the syzygy dir on load-path loads recall."
+  (let* ((dir (file-name-directory (locate-library "syzygy-recall")))
+         (out (with-temp-buffer
+                (call-process (expand-file-name invocation-name invocation-directory)
+                              nil t nil "--batch" "-L" dir "--eval"
+                              "(progn (require 'syzygy-recall) (require 'syzygy-launch) (princ (if (featurep 'major-pane) \"pane\" \"no-pane\")))")
+                (buffer-string))))
+    (should (equal out "no-pane"))))

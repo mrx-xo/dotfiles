@@ -20,7 +20,6 @@
 (require 'seq)
 (require 'subr-x)
 (require 'syzygy-bridge)
-(require 'major-pane)
 
 (defvar agent-recall--index nil)
 (defvar agent-recall-resume-restore-preferences)
@@ -77,6 +76,7 @@ the agent is gone.  `syzygy-recall-resume-hard-timeout' still caps the total.")
 
 (defvar major-pane-launch-ejected)
 (defvar major-pane-prompt-label-on-start)
+(declare-function major-pane-set-buffer-label "major-pane" (buffer label))
 (defvar syzygy-recall--starting-entry nil)
 (defvar syzygy-recall--independent-operation nil)
 (defvar-local syzygy-recall--entry-ready nil)
@@ -1010,7 +1010,8 @@ stealing, and the phone opens it by name."
 (defun syzygy-fork--label (source new)
   "Carry SOURCE's pane label to NEW with a fork suffix, then sync it.
 Forking a fork numbers the suffix rather than stacking \"fork fork\"."
-  (when (boundp 'major-pane--labels)
+  (when (and (boundp 'major-pane--labels) (hash-table-p major-pane--labels)
+             (fboundp 'major-pane-set-buffer-label))
     (when-let ((label (gethash source major-pane--labels)))
       (major-pane-set-buffer-label new (syzygy-fork--label-next label))))
   (when (fboundp 'mr-x/agent-spawn--send-when-ready)
