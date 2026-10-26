@@ -96,8 +96,12 @@ The Windows init loads SYZYGY from `shared/emacs/lisp/syzygy/` with
 `(require 'syzygy)` after the shared `load-path` block, which pulls in
 `syzygy-rig`. NEMESIS therefore writes the `status.json` and labels
 sidecars under `%USERPROFILE%\.acp-mobile\`, so the phone shows idle/busy
-and titles for its sessions. New-chat presets still carry the Mac defaults
-and the remaining Windows overrides (spec section 6.7) are step 3 and later.
+and titles for its sessions. New-chat presets, on the desk's `SPC c P` and
+the phone's spawn sheet alike, are the Windows list in
+[`agent-shell-extras.el`](emacs/.emacs.d/lisp/agent-shell-extras.el): it loads
+before SYZYGY, so its `mr-x/agent-shell-presets` wins and the shared picker
+and spawn helpers in `syzygy-rig.el` run on it. The remaining Windows
+overrides (spec section 6.7) are step 3 and later.
 
 NEMESIS is a SYZYGY fleet node: POLLUX's phone app lists and relays its
 sessions. The real prerequisite is `%USERPROFILE%\.acp-mobile\config.json`
