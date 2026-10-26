@@ -30,6 +30,9 @@
 ;; - syzygy-park.el    — park a side question on a chat (SPC c u p),
 ;;                       list them in a popup (SPC c u l), ask every
 ;;                       parked one later in a single fork (SPC c u a)
+;; - syzygy-rig.el     — the rig helpers acp-mobile calls through
+;;                       emacsclient: launch presets, phone spawn,
+;;                       labels.json + status.json sidecars, kill
 ;;
 ;; The non-elisp half lives in ~/.dotfiles/macos/syzygy/: the
 ;; acp-multiplex/acp-mobile build pin, the acp-mobile launchd agent,
@@ -54,6 +57,7 @@
 (require 'syzygy-projects)
 (require 'syzygy-mermaid)
 (require 'syzygy-park)
+(require 'syzygy-rig)
 
 (provide 'syzygy)
 ;;; syzygy.el ends here
