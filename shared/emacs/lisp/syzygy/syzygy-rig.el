@@ -507,11 +507,6 @@ even if confirmation fails."
         (with-temp-file (syzygy-state-file "status.json")
           (insert json))))))
 
-;; Remote turn boundaries are explicit, so mirror those immediately;
-;; the 3s timer below remains the safety net for every other path.
-(add-hook 'syzygy-live-turn-state-change-hook
-          #'mr-x/agent-status-sync)
-
 (defun mr-x/agent-status--sync-after-event (&rest args)
   "Mirror status after an agent-shell lifecycle event in ARGS."
   (when (memq (plist-get args :event)
@@ -520,11 +515,6 @@ even if confirmation fails."
     ;; Defer one event-loop turn so permission queue cleanup and
     ;; shell-maker's busy transition have both settled.
     (run-at-time 0 nil #'mr-x/agent-status-sync)))
-
-(advice-remove 'agent-shell--emit-event
-               #'mr-x/agent-status--sync-after-event)
-(advice-add 'agent-shell--emit-event :after
-            #'mr-x/agent-status--sync-after-event)
 
 ;; Label self-heal on the same cadence: one-shot label syncs
 ;; (phone /api/label evals, the spawn timer chain) can be aborted
@@ -552,13 +542,27 @@ even if confirmation fails."
       (mr-x/agent-label-sync)
       (setq mr-x/agent-label--live-last pairs))))
 
-;; Idempotent creation: a re-load must not stack duplicate timers,
-;; and a wedged timer object (observed: next-fire 53h in the past,
-;; never firing) gets replaced by a fresh one.
-(cancel-function-timers #'mr-x/agent-status-sync)
-(cancel-function-timers #'mr-x/agent-label-heal)
-(run-with-timer 5 3 #'mr-x/agent-status-sync)
-(run-with-timer 6 3 #'mr-x/agent-label-heal)
+;; Start the sidecar writers only once agent-shell is loaded: a bare
+;; `require' (a batch test run, a process without the rig) must not
+;; start timers or hooks that write {} over the live status.json.
+(with-eval-after-load 'agent-shell
+  ;; Remote turn boundaries are explicit, so mirror those immediately;
+  ;; the 3s timer below remains the safety net for every other path.
+  (add-hook 'syzygy-live-turn-state-change-hook
+            #'mr-x/agent-status-sync)
+
+  (advice-remove 'agent-shell--emit-event
+                 #'mr-x/agent-status--sync-after-event)
+  (advice-add 'agent-shell--emit-event :after
+              #'mr-x/agent-status--sync-after-event)
+
+  ;; Idempotent creation: a re-load must not stack duplicate timers,
+  ;; and a wedged timer object (observed: next-fire 53h in the past,
+  ;; never firing) gets replaced by a fresh one.
+  (cancel-function-timers #'mr-x/agent-status-sync)
+  (cancel-function-timers #'mr-x/agent-label-heal)
+  (run-with-timer 5 3 #'mr-x/agent-status-sync)
+  (run-with-timer 6 3 #'mr-x/agent-label-heal))
 
 (provide 'syzygy-rig)
 ;;; syzygy-rig.el ends here
