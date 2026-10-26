@@ -16,15 +16,10 @@
 (require 'seq)
 (require 'syzygy-rig)
 
-;; Loading syzygy-rig wires itself into the session: 3s status and
-;; label-heal timers, a `syzygy-live-turn-state-change-hook' entry and
-;; advice.  In a batch run (the combined SYZYGY suite runs syzygy-live's
-;; turn tests) those would write {} into the real ~/.acp-mobile, so undo
-;; them; the tests call the sync functions directly.
-(cancel-function-timers #'mr-x/agent-status-sync)
-(cancel-function-timers #'mr-x/agent-label-heal)
-(remove-hook 'syzygy-live-turn-state-change-hook #'mr-x/agent-status-sync)
-(advice-remove 'agent-shell--emit-event #'mr-x/agent-status--sync-after-event)
+;; The timers, hook and emit-event advice wait for agent-shell, which
+;; batch never loads.  The major-pane advice does install here, because
+;; syzygy-recall loads major-pane; a recall test that sets a label would
+;; then write the real ~/.acp-mobile/labels.json, so remove it.
 (advice-remove 'major-pane-set-label #'mr-x/agent-label-sync)
 (advice-remove 'agent-shell-restart #'mr-x/agent-label--keep-across-restart)
 
@@ -147,6 +142,35 @@ major-pane, so the binding is removed for BODY and restored after."
         (setq-local agent-shell-on-exit (lambda () (error "must be cleared")))
         (should (meta-agent-shell-close-session name))
         (should-not (get-buffer name))))))
+
+(ert-deftest syzygy-rig-load-starts-nothing-without-agent-shell ()
+  "A bare require starts no sidecar timer and adds no live-turn hook."
+  (let* ((dir (file-name-directory (locate-library "syzygy-rig.el")))
+         (form (prin1-to-string
+                '(progn
+                   (require 'syzygy-rig)
+                   (princ (format "RESULT %S %S"
+                                  (length (seq-filter
+                                           (lambda (tm)
+                                             (memq (timer--function tm)
+                                                   '(mr-x/agent-status-sync
+                                                     mr-x/agent-label-heal)))
+                                           timer-list))
+                                  (and (memq 'mr-x/agent-status-sync
+                                             syzygy-live-turn-state-change-hook)
+                                       t))))))
+         (output
+          (with-temp-buffer
+            (call-process (expand-file-name invocation-name invocation-directory)
+                          nil t nil "--batch"
+                          "-L" dir
+                          "-L" (expand-file-name "~/.dotfiles/macos/emacs/.emacs.d/lisp")
+                          "-L" (expand-file-name "~/roaming/projects/agent-recall")
+                          "--eval" form)
+            (buffer-string))))
+    (should (string-match "RESULT \\([0-9]+\\) \\([a-z]+\\)" output))
+    (should (equal (match-string 1 output) "0"))
+    (should (equal (match-string 2 output) "nil"))))
 
 (provide 'syzygy-rig-test)
 ;;; syzygy-rig-test.el ends here
