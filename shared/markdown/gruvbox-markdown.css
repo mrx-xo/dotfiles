@@ -1,0 +1,344 @@
+/* Gruvbox Dark markdown preview -- portable edition
+ *
+ * Self-contained port of macos/emacs/.emacs.d/etc/markdown-gruvbox-claude.css
+ * (the Emacs xwidget preview), for any HTML markdown preview:
+ * VS Code / Cursor (`markdown.styles`), Typora, pandoc --css, plain HTML.
+ *
+ * Differences from the Emacs file:
+ *   - font size is one variable (--md-font-size) instead of a forced
+ *     24px on every element, so headings and code scale from it
+ *   - selectors are unprefixed, so they work with or without .markdown-body
+ *   - bundles gruvbox-dark-medium highlight.js token colours, since the
+ *     Emacs preview gets those from a separate highlight.js theme
+ *
+ * https://github.com/morhetz/gruvbox
+ */
+
+:root {
+  /* Tweak these two to taste. The Emacs preview uses 24px. */
+  --md-font-size: 16px;
+  --md-font-family: 'Iosevka', 'Monaco', 'Menlo', 'Consolas', monospace;
+
+  /* Gruvbox dark palette */
+  --gruvbox-bg-hard: #1d2021;
+  --gruvbox-bg: #282828;
+  --gruvbox-bg-soft: #32302f;
+  --gruvbox-bg1: #3c3836;
+  --gruvbox-bg2: #504945;
+  --gruvbox-bg3: #665c54;
+  --gruvbox-bg4: #7c6f64;
+
+  --gruvbox-fg-hard: #f9f5d7;
+  --gruvbox-fg: #ebdbb2;
+  --gruvbox-fg2: #d5c4a1;
+  --gruvbox-fg3: #bdae93;
+  --gruvbox-fg4: #a89984;
+  --gruvbox-gray: #928374;
+
+  /* Accent colors */
+  --gruvbox-red: #fb4934;
+  --gruvbox-green: #b8bb26;
+  --gruvbox-yellow: #fabd2f;
+  --gruvbox-blue: #83a598;
+  --gruvbox-purple: #d3869b;
+  --gruvbox-aqua: #8ec07c;
+  --gruvbox-orange: #fe8019;
+
+  /* Darker accent variants */
+  --gruvbox-red-dark: #cc241d;
+  --gruvbox-green-dark: #98971a;
+  --gruvbox-yellow-dark: #d79921;
+  --gruvbox-blue-dark: #458588;
+  --gruvbox-purple-dark: #b16286;
+  --gruvbox-aqua-dark: #689d6a;
+  --gruvbox-orange-dark: #d65d0e;
+}
+
+/* Base body styling (body.vscode-body is VS Code / Cursor's preview body) */
+html,
+body,
+body.vscode-body,
+.markdown-body {
+  font-size: var(--md-font-size) !important;
+  line-height: 1.7 !important;
+  font-family: var(--md-font-family) !important;
+  color: var(--gruvbox-fg) !important;
+  background-color: var(--gruvbox-bg) !important;
+  letter-spacing: 0.2px;
+}
+
+p, li, td, th, blockquote, dd, dt {
+  font-size: 1em !important;
+}
+
+/* Headings - orange accent */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--gruvbox-orange) !important;
+  font-weight: 600 !important;
+  margin-top: 1em !important;
+  margin-bottom: 0.66em !important;
+  border-bottom: none !important;
+}
+
+h1 {
+  font-size: 2em !important;
+  padding-bottom: 0.3em !important;
+  border-bottom: 2px solid var(--gruvbox-bg2) !important;
+}
+
+h2 {
+  font-size: 1.6em !important;
+  padding-bottom: 0.2em !important;
+  border-bottom: 1px solid var(--gruvbox-bg2) !important;
+}
+
+h3 { font-size: 1.35em !important; }
+h4 { font-size: 1.2em !important; }
+h5 { font-size: 1.1em !important; color: var(--gruvbox-yellow) !important; }
+h6 { font-size: 1em !important; color: var(--gruvbox-gray) !important; }
+
+/* Links - blue with aqua hover */
+a {
+  color: var(--gruvbox-blue) !important;
+  text-decoration: none !important;
+}
+
+a:hover {
+  color: var(--gruvbox-aqua) !important;
+  text-decoration: underline !important;
+}
+
+/* Code blocks - hard background */
+pre {
+  background-color: var(--gruvbox-bg-hard) !important;
+  border: 1px solid var(--gruvbox-bg2) !important;
+  border-radius: 6px !important;
+  padding: 16px !important;
+  overflow-x: auto !important;
+  margin: 16px 0 !important;
+}
+
+pre code {
+  font-size: 0.95em !important;
+  font-family: var(--md-font-family) !important;
+  background-color: transparent !important;
+  color: var(--gruvbox-fg) !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Inline code - soft background */
+code {
+  font-size: 0.9em !important;
+  font-family: var(--md-font-family) !important;
+  background-color: var(--gruvbox-bg-soft) !important;
+  color: var(--gruvbox-green) !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  border: none !important;
+}
+
+/* Blockquotes - yellow left border */
+blockquote {
+  color: var(--gruvbox-gray) !important;
+  border-left: 4px solid var(--gruvbox-yellow) !important;
+  background-color: var(--gruvbox-bg-soft) !important;
+  padding: 12px 16px !important;
+  margin: 16px 0 !important;
+  font-style: italic !important;
+}
+
+blockquote p {
+  margin: 0 !important;
+}
+
+/* Tables */
+table {
+  border-collapse: collapse !important;
+  width: 100% !important;
+  margin: 16px 0 !important;
+}
+
+table tr {
+  background-color: var(--gruvbox-bg) !important;
+  border-top: 1px solid var(--gruvbox-bg2) !important;
+}
+
+table tr:nth-child(2n) {
+  background-color: var(--gruvbox-bg-soft) !important;
+}
+
+table tr:hover {
+  background-color: var(--gruvbox-bg1) !important;
+}
+
+table th {
+  background-color: var(--gruvbox-bg1) !important;
+  color: var(--gruvbox-fg-hard) !important;
+  font-weight: 600 !important;
+  padding: 10px 14px !important;
+  text-align: left !important;
+  border: 1px solid var(--gruvbox-bg2) !important;
+}
+
+table td {
+  padding: 10px 14px !important;
+  border: 1px solid var(--gruvbox-bg2) !important;
+}
+
+/* Lists */
+ul, ol {
+  margin: 12px 0 !important;
+  padding-left: 2em !important;
+}
+
+li {
+  margin: 8px 0 !important;
+}
+
+li + li {
+  margin-top: 4px !important;
+}
+
+ul ul, ul ol, ol ul, ol ol {
+  margin: 4px 0 !important;
+}
+
+/* Task lists */
+.task-list-item {
+  list-style-type: none !important;
+}
+
+.task-list-item input[type="checkbox"] {
+  margin-right: 8px !important;
+}
+
+/* Emphasis */
+strong {
+  color: var(--gruvbox-fg-hard) !important;
+  font-weight: 700 !important;
+}
+
+em {
+  color: var(--gruvbox-aqua) !important;
+  font-style: italic !important;
+}
+
+del {
+  color: var(--gruvbox-gray) !important;
+}
+
+/* Horizontal rule */
+hr {
+  border: none !important;
+  border-top: 2px solid var(--gruvbox-bg2) !important;
+  margin: 24px 0 !important;
+}
+
+/* Images */
+img {
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 6px !important;
+  margin: 16px 0 !important;
+  border: 1px solid var(--gruvbox-bg2) !important;
+}
+
+/* Definition lists */
+dl {
+  padding: 0 !important;
+}
+
+dl dt {
+  font-weight: 600 !important;
+  color: var(--gruvbox-orange) !important;
+  margin-top: 16px !important;
+}
+
+dl dd {
+  margin-left: 2em !important;
+  padding: 0 16px !important;
+}
+
+/* Keyboard */
+kbd {
+  background-color: var(--gruvbox-bg1) !important;
+  border: 1px solid var(--gruvbox-bg3) !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 -1px 0 var(--gruvbox-bg3) !important;
+  color: var(--gruvbox-fg) !important;
+  font-family: var(--md-font-family) !important;
+  font-size: 0.85em !important;
+  padding: 2px 6px !important;
+}
+
+/* Footnotes */
+.footnotes {
+  border-top: 1px solid var(--gruvbox-bg2) !important;
+  margin-top: 32px !important;
+  padding-top: 16px !important;
+  font-size: 0.9em !important;
+  color: var(--gruvbox-fg3) !important;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--gruvbox-bg2) !important;
+  color: var(--gruvbox-fg-hard) !important;
+}
+
+/* Scrollbar (webkit / Electron) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gruvbox-bg-hard);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gruvbox-bg3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gruvbox-bg4);
+}
+
+/* Syntax highlighting: gruvbox-dark-medium highlight.js tokens.
+ * VS Code / Cursor and most previewers emit hljs-* classes. */
+.hljs { color: var(--gruvbox-fg) !important; background: transparent !important; }
+.hljs-comment,
+.hljs-quote { color: var(--gruvbox-gray) !important; font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal { color: var(--gruvbox-red) !important; }
+.hljs-string,
+.hljs-regexp,
+.hljs-addition { color: var(--gruvbox-green) !important; }
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet { color: var(--gruvbox-purple) !important; }
+.hljs-title,
+.hljs-section,
+.hljs-name { color: var(--gruvbox-green) !important; font-weight: 600; }
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title { color: var(--gruvbox-yellow) !important; }
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable { color: var(--gruvbox-blue) !important; }
+.hljs-meta,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-tag { color: var(--gruvbox-aqua) !important; }
+.hljs-params,
+.hljs-subst { color: var(--gruvbox-fg) !important; }
+.hljs-link,
+.hljs-doctag { color: var(--gruvbox-orange) !important; }
+.hljs-deletion { color: var(--gruvbox-red) !important; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
