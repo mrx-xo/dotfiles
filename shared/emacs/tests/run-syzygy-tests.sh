@@ -17,10 +17,8 @@ paths=("$root/shared/emacs/lisp/syzygy" "$root/macos/emacs/.emacs.d/lisp" "$root
 
 args=()
 for d in "${paths[@]}"; do args+=(-L "$d"); done
-# The state directory is bound to a fresh temp dir before any test file loads,
-# so a batch run can never touch the real ~/.acp-mobile sidecars.
-args+=(--eval '(require (quote syzygy-state))'
-       --eval '(setq syzygy-state-directory (file-name-as-directory (make-temp-file "syzygy-tests-" t)))')
+# Bootstrap (state dir bound to a temp dir) lives in a file: see its Commentary.
+args+=(-l "$root/shared/emacs/tests/run-syzygy-tests.el")
 while IFS= read -r f; do args+=(-l "$f"); done < <(printf '%s\n' "$root"/shared/emacs/lisp/syzygy/*-test.el | sort)
 args+=(-l "$root/macos/emacs/.emacs.d/tests/syzygy-recall-tests.el")
 
