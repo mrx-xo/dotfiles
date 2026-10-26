@@ -156,7 +156,7 @@
     (let ((got (syzygy-launch-test--decode
                 (syzygy-launch-json
                  (syzygy-bridge-encode-json
-                  '((cwd . "/tmp") (settings . ((agent . "codex") (model . "unknown") (mode . "agent")))))))))
+                  `((cwd . ,(directory-file-name temporary-file-directory)) (settings . ((agent . "codex") (model . "unknown") (mode . "agent")))))))))
       (should (eq (alist-get 'ok got) :false))
       (should (string-match-p "model" (alist-get 'error got))))))
 

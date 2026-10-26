@@ -76,6 +76,13 @@ ls "$TMPDIR"acp-multiplex/*.sock          # sessions exposed?
 tail ~/Library/Logs/acp-mobile/acp-mobile.err.log
 ```
 
+The SYZYGY Lisp tests run headless, without agent-shell, against a temporary
+state directory (never the real `~/.acp-mobile`):
+
+```bash
+~/.dotfiles/shared/emacs/tests/run-syzygy-tests.sh
+```
+
 ## Known limitations
 
 - **R3.7 blind spot**: the agent-shell buffer does NOT render turns initiated

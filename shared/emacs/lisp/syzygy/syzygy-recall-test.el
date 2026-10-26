@@ -465,7 +465,7 @@ it, get returns nil for an unknown session."
         (progn
           (with-current-buffer source
             (setq-local major-mode 'agent-shell-mode)
-            (setq-local default-directory "/tmp/")
+            (setq-local default-directory (file-name-as-directory temporary-file-directory))
             (setq-local agent-shell--state
                         '((:supports-session-fork . t)
                           (:agent-config . ((:name . "Fake")))
@@ -479,7 +479,7 @@ it, get returns nil for an unknown session."
                     ((symbol-function 'agent-shell--start)
                      (lambda (&rest args)
                        (setq start-args args)
-                       (should (equal default-directory "/tmp/"))
+                       (should (equal default-directory (file-name-as-directory temporary-file-directory)))
                        (setq new (generate-new-buffer "syzygy-fork-test-new"))
                        new))
                     ((symbol-function 'run-at-time)
@@ -544,7 +544,7 @@ its message, no new chat."
                     ((symbol-function 'acp-make-session-fork-request)
                      (lambda (&rest args) (cons 'fork-request args)))
                     ((symbol-function 'agent-shell--resolve-path) #'identity)
-                    ((symbol-function 'agent-shell-cwd) (lambda () "/tmp/"))
+                    ((symbol-function 'agent-shell-cwd) (lambda () (file-name-as-directory temporary-file-directory)))
                     ((symbol-function 'agent-shell--mcp-servers) (lambda () nil))
                     ((symbol-function 'agent-shell--send-request)
                      (cl-function
@@ -566,7 +566,7 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
   (let ((buffer (generate-new-buffer name)))
     (with-current-buffer buffer
       (setq-local major-mode 'agent-shell-mode)
-      (setq-local default-directory "/tmp/")
+      (setq-local default-directory (file-name-as-directory temporary-file-directory))
       (setq-local agent-shell--state
                   `((:supports-session-fork . ,(not unsupported))
                     (:agent-config . ((:name . "Fake")
@@ -802,7 +802,7 @@ fork for the id through the source client, then start a resume of it."
                     ((symbol-function 'acp-make-session-fork-request)
                      (lambda (&rest args) (cons 'fork-request args)))
                     ((symbol-function 'agent-shell--resolve-path) #'identity)
-                    ((symbol-function 'agent-shell-cwd) (lambda () "/tmp/"))
+                    ((symbol-function 'agent-shell-cwd) (lambda () (file-name-as-directory temporary-file-directory)))
                     ((symbol-function 'agent-shell--mcp-servers) (lambda () nil))
                     ((symbol-function 'agent-shell--send-request)
                      (cl-function
@@ -898,7 +898,7 @@ chat's load fails with \"already has an active writer\"."
         (progn
           (with-current-buffer source
             (setq-local major-mode 'agent-shell-mode)
-            (setq-local default-directory "/tmp/")
+            (setq-local default-directory (file-name-as-directory temporary-file-directory))
             (setq-local agent-shell--state
                         '((:supports-session-fork . t)
                           (:agent-config . ((:name . "Fake")))

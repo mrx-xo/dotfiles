@@ -82,6 +82,13 @@ shells started after `init.el` loaded with the exe present. Rotate the key by
 deleting `authkey` and restarting the task. Updating the binaries is a new
 cross-compile plus `scp`, then rerun the task script with `-Start`.
 
+The SYZYGY Lisp tests run headless from PowerShell, against a temporary
+state directory rather than `%USERPROFILE%\.acp-mobile`:
+
+```
+powershell -NoProfile -File %USERPROFILE%\dotfiles\shared\emacs\tests\run-syzygy-tests.ps1
+```
+
 NEMESIS is a SYZYGY fleet node: POLLUX's phone app lists and relays its
 sessions. The real prerequisite is `%USERPROFILE%\.acp-mobile\config.json`
 listing the hub, `{"hubs": ["<hub MagicDNS name>"]}`; without it NEMESIS
