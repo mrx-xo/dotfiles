@@ -535,7 +535,8 @@
 ;; USERPROFILE (Emacs `~' on Windows is %APPDATA%\Roaming, not the home
 ;; the dotfiles repo lives under).
 (dolist (dir '("dotfiles/macos/emacs/.emacs.d/lisp"
-               "dotfiles/windows/emacs/.emacs.d/lisp"))
+               "dotfiles/windows/emacs/.emacs.d/lisp"
+               "dotfiles/shared/emacs/lisp/syzygy"))
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
 (require 'agent-shell-extras)
 

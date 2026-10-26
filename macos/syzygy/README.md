@@ -5,7 +5,7 @@ Claude Code sessions on the M4 from the Air/phone over Tailscale
 (acp-multiplex + acp-mobile), plus cross-machine session handoff
 (`agent-session-handoff.sh`, resumed in Emacs with `SPC c H`) and the
 phone-link helper (`acp-link-to-phone.sh`). The elisp half lives in
-`macos/emacs/.emacs.d/lisp/syzygy/`.
+`shared/emacs/lisp/syzygy/`.
 Full design: `~/docs/prd-remote-agent-access.md` (private repo).
 
 ## Architecture
@@ -337,6 +337,6 @@ OpenCode chat opens, the pickers also expose its advertised models, Build/Plan
 modes, and effort choices. OpenCode uses its existing CLI authentication.
 
 Validation: `go test ./...` and `node --test index_test.mjs` in
-`~/src/acp-mobile`; focused ERT in `lisp/syzygy/syzygy-launch-test.el`.
+`~/src/acp-mobile`; focused ERT in `shared/emacs/lisp/syzygy/syzygy-launch-test.el`.
 Set `SYZYGY_UI_SHOTS` to an existing directory when running
 `go test -run TestNewChatVisualReview` to capture phone-sized review images.

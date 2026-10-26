@@ -155,7 +155,7 @@
 (run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
-(add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
+(add-to-list 'load-path (expand-file-name "~/.dotfiles/shared/emacs/lisp/syzygy"))
 
 (dolist (command '(mr-x/strudel-play mr-x/strudel-update mr-x/strudel-stop
                    mr-x/strudel-show-audio mr-x/strudel-shutdown))

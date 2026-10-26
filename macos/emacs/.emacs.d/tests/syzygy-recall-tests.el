@@ -6,10 +6,8 @@
 
 (defvar agent-recall-resume-restore-preferences)
 
-(let* ((tests-directory
-        (file-name-directory (or load-file-name buffer-file-name)))
-       (source (expand-file-name "../lisp/syzygy/syzygy-recall.el"
-                                 tests-directory)))
+(let ((source (expand-file-name
+               "~/.dotfiles/shared/emacs/lisp/syzygy/syzygy-recall.el")))
   ;; Force the source under test to load even when init.el already provided an
   ;; installed `syzygy-recall' earlier in the same full-suite process.
   (load source nil nil t))
