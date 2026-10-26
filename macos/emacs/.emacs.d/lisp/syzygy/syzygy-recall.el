@@ -883,24 +883,27 @@ when the named buffer is not live."
 ;;    "no rollout found".
 ;;
 ;; 2. The agent's strategy in `syzygy-fork-strategies':
-;;    `resume' asks the source chat's own client for the forked id,
-;;    then starts the new chat as a resume of that id.  Both agents
-;;    need it, for different reasons, and unlisted agents take it too
-;;    since it only depends on session/load:
-;;    - claude-agent-acp 0.75: the fork reply is the bare id (transcript
-;;      forked on disk, no live session), so a chat built from it has
-;;      no models and no config options, and its first request
-;;      (agent-shell setting the model) fails with "Method not found:
-;;      session/set_model" (upstream issue claude-agent-acp#1110).
-;;    - codex-acp 1.11: the fork reply is a full live session, but the
-;;      agent unsubscribes from the new thread right after forking it,
-;;      so a chat built from the reply never hears back: the first
-;;      prompt hangs with no updates and no response (verified by raw
-;;      JSON-RPC, 2026-09-16).  session/load subscribes properly and
-;;      replays the parent history.
-;;    `native' hands agent-shell the id and lets it build the chat from
-;;    the fork reply.  For a future agent whose reply is a live session
-;;    that stays subscribed; verify with a prompt, not just the reply.
+;;    `native' (the default) hands agent-shell the source id and lets
+;;    the new chat's own client send session/fork.  agent-shell 0.84.3+
+;;    then resumes the forked id in that same process (xenodium/agent-shell
+;;    d6ff761, 6c1462d, for #871 and claude-agent-acp#1110), which is
+;;    what both shipped agents need:
+;;    - claude-agent-acp 0.71+: the fork reply is the bare id (transcript
+;;      forked on disk, no live session).  The follow-up resume makes
+;;      it live and brings models and config options.
+;;    - codex-acp 1.11 on Codex 0.158+: Codex holds an exclusive
+;;      writer lock per open thread (~/.codex/thread-writer-locks), and
+;;      codex-acp's post-fork thread/unsubscribe does not release it.
+;;      The process that forked owns the fork, so the load has to
+;;      happen in that same process.  A load from any other process
+;;      fails with "thread <id> already has an active writer" until the
+;;      forking process exits (verified by raw JSON-RPC, 2026-10-09).
+;;      Same-process fork + load replays the parent history and stays
+;;      subscribed, so the first prompt answers.
+;;    `resume' is the pre-0.84.3 escape hatch: ask the source chat's
+;;    client for the forked id, then start the new chat as a resume of
+;;    it in a fresh process.  It still works for an agent whose fork
+;;    is a disk-only copy, and it is exactly what breaks on Codex.
 ;;
 ;; 3. History but no session/fork advertised: refuse before sending.
 
@@ -1014,20 +1017,44 @@ Forking a fork numbers the suffix rather than stacking \"fork fork\"."
     (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready new "" 60)))
 
 (defvar syzygy-fork-strategies
-  '((codex . resume)
-    (claude-code . resume))
+  '((codex . native)
+    (claude-code . native))
   "How each agent forks a chat that has history.
-Keys are agent config `:identifier' symbols.  `native' lets agent-shell
-build the chat from the session/fork reply; `resume' forks for the id
-and starts the chat as a resume of it.  Unlisted agents use `resume'.
-See the section comment for why neither shipped agent is `native'.")
+Keys are agent config `:identifier' symbols.  `native' lets the new
+chat's own client fork and then resume the fork in-process; `resume'
+forks for the id through the source chat's client and starts the chat
+as a resume of it.  Unlisted agents use `native'.  Needs agent-shell
+0.84.3+, which resumes after a native fork; on an older agent-shell
+`syzygy-fork--strategy' downgrades `native' to `resume'.  See the
+section comment.")
+
+(defvar syzygy-fork-native-min-agent-shell "0.84.3"
+  "First agent-shell that resumes the forked session after a native fork.
+Before it, `agent-shell--start' with `:fork-session-id' builds the chat
+from the bare session/fork reply and stops: with claude-agent-acp that
+chat has no live session, so every request after the fork fails with
+\"Internal error\" (seen 2026-10-18 on agent-shell 0.78.2).")
+
+(defvar agent-shell--version)
+
+(defun syzygy-fork--native-resumes-p ()
+  "Non-nil when the running agent-shell resumes after a native fork.
+Trusts the strategy table when agent-shell is not loaded (unit tests)."
+  (or (not (boundp 'agent-shell--version))
+      (version<= syzygy-fork-native-min-agent-shell agent-shell--version)))
 
 (defun syzygy-fork--strategy (source)
-  "Return the fork strategy symbol for SOURCE's agent."
-  (or (alist-get (map-nested-elt (buffer-local-value 'agent-shell--state source)
-                                 '(:agent-config :identifier))
-                 syzygy-fork-strategies)
-      'resume))
+  "Return the fork strategy symbol for SOURCE's agent.
+`native' from `syzygy-fork-strategies' becomes `resume' on an agent-shell
+older than `syzygy-fork-native-min-agent-shell'."
+  (let ((strategy (or (alist-get (map-nested-elt
+                                  (buffer-local-value 'agent-shell--state source)
+                                  '(:agent-config :identifier))
+                                 syzygy-fork-strategies)
+                      'native)))
+    (if (and (eq strategy 'native) (not (syzygy-fork--native-resumes-p)))
+        'resume
+      strategy)))
 
 (defun syzygy-fork--turns (source)
   "Return how many prompts SOURCE has sent, 0 when that cannot be read."
