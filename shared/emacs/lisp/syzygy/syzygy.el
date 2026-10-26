@@ -42,6 +42,7 @@
 
 ;;; Code:
 
+(require 'syzygy-state)
 (require 'syzygy-resync)
 (require 'syzygy-live)
 (require 'syzygy-handoff)
