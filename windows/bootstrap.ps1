@@ -57,7 +57,7 @@ foreach ($target in $links.Keys) {
 }
 
 # Renaming a startup shortcut to "<name>.lnk.disabled" parks that autostart on
-# purpose (kanata and GlazeWM live like this today). Every Startup shortcut
+# purpose (GlazeWM lives like this today; kanata moved to a scheduled task). Every Startup shortcut
 # below goes through this guard so a bootstrap re-run doesn't resurrect it.
 # Re-enable by renaming the file back to .lnk and re-running bootstrap.
 function Test-StartupDisabled([string]$lnkPath) {
@@ -366,29 +366,46 @@ try {
 
 # ---------------------------------------------------------------------------
 # kanata — home row mods (Ctrl/Alt/Super/Shift on a s d f / j k l ;).
-# Mirrors the CASG layout from the programmable keyboard. Launched with
-# --cfg pointing straight at the repo (no symlink, no admin), same as GlazeWM.
-# Note: kanata only remaps non-elevated windows unless it runs elevated; the
-# login shortcut runs unelevated, which is fine for normal use.
+# Mirrors the CASG layout from the programmable keyboard. Runs as the
+# elevated "kanata" scheduled task (scripts\kanata-ctl.ps1 install), not a
+# login shortcut: unelevated, kanata cannot deliver a key-up to an elevated
+# window, so a held home-row Super sticks and every key becomes Win+key.
+# Registering needs an elevated bootstrap; otherwise this step only warns.
+# Escape hatch: Win+Shift+K / tray menu in autohotkey\kanata-hatch.ahk.
 # ---------------------------------------------------------------------------
-$kanata     = "$env:USERPROFILE\scoop\shims\kanata.exe"
-$kanataConf = "$repo\kanata\kanata.kbd"
+$kanata    = "$env:USERPROFILE\scoop\shims\kanata.exe"
+$kanataCtl = "$repo\scripts\kanata-ctl.ps1"
 
 if (Test-Path $kanata) {
-    $ws = New-Object -ComObject WScript.Shell
-    $kanataLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "kanata.lnk"
-    if (-not (Test-StartupDisabled $kanataLnk)) {
-        $sc = $ws.CreateShortcut($kanataLnk)
-        $sc.TargetPath       = $wscript
-        $sc.Arguments        = "`"$runHidden`" `"$kanata`" --cfg `"$kanataConf`""
-        $sc.WorkingDirectory = $env:USERPROFILE
-        $sc.IconLocation     = "$kanata,0"
-        $sc.Description       = "Start kanata home row mods on login, hidden (config from dotfiles repo)"
-        $sc.Save()
-        Write-Host "Created startup shortcut -> $kanataLnk" -ForegroundColor Green
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        & $kanataCtl install | ForEach-Object { Write-Host $_ -ForegroundColor Green }
+    } else {
+        Write-Host "Not elevated - skipping the kanata task. Run elevated: scripts\kanata-ctl.ps1 install" -ForegroundColor Yellow
     }
 } else {
     Write-Host "kanata not found (scoop install kanata vcredist2022) - skipping autostart." -ForegroundColor Yellow
+}
+
+# kanata escape hatch (AutoHotkey) — autostart on login. Win+Shift+K and a
+# tray menu item toggle the kanata task; see autohotkey\kanata-hatch.ahk.
+$hatchScript = "$repo\autohotkey\kanata-hatch.ahk"
+
+if ((Test-Path $ahkExe) -and (Test-Path $hatchScript)) {
+    $ws = New-Object -ComObject WScript.Shell
+    $hatchLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "kanata Hatch.lnk"
+    if (-not (Test-StartupDisabled $hatchLnk)) {
+        $sc = $ws.CreateShortcut($hatchLnk)
+        $sc.TargetPath       = $ahkExe
+        $sc.Arguments        = "`"$hatchScript`""
+        $sc.WorkingDirectory = Split-Path $hatchScript -Parent
+        $sc.Description       = "kanata escape hatch: Win+Shift+K / tray toggles the kanata task"
+        $sc.Save()
+        Write-Host "Created kanata-hatch shortcut -> $hatchLnk" -ForegroundColor Green
+    }
+} else {
+    Write-Host "AutoHotkey or kanata-hatch.ahk not found - skipping hatch shortcut." -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------

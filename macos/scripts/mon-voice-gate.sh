@@ -6,7 +6,7 @@
 # Only whitelisted monitor-mode.sh invocations pass; anything else is refused,
 # so the key is useless as a general shell.
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"  # m1ddc, betterdisplaycli
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"  # betterdisplaycli, displayplacer
 
 cmd="${SSH_ORIGINAL_COMMAND:-}"
 echo "$(date '+%F %T') gate: '$cmd'" >> "$HOME/.local/state/monitor-mode/voice.log"
@@ -19,7 +19,18 @@ case "$cmd" in
   pollux\ nemesis|nemesis\ pollux|pollux\ work) set -- $cmd ;;
   romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
+  lupa\ pollux|lupa\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;
+  # POLLUX on one Dell only; off reconnects what that dropped
+  solo\ romulus|solo\ remus|solo\ off) set -- $cmd ;;
+  # one display off POLLUX; again brings it back
+  kill\ romulus|kill\ remus|kill\ lupa) set -- $cmd ;;
+  # which way the Dells face on NEMESIS (they swap places)
+  flip|flip\ normal|flip\ flipped) set -- $cmd ;;
+  # keyboard lighting for good night / good morning (keyboard-lights, not monitor-mode)
+  keyboards\ off|keyboards\ on)
+    exec "$HOME/.dotfiles/macos/scripts/keyboard-lights" "${cmd#keyboards }"
+    ;;
   *)
     echo "mon-voice-gate: refused: '$cmd'" >&2
     exit 1

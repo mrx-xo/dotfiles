@@ -73,6 +73,103 @@ cd ~/dotfiles/windows/emacs/.emacs.d && env -u HOME emacs --batch \
 put `~` there, while the daemon (no `HOME`) uses `%APPDATA%`. Without it a batch
 run reinstalls every package into a second `C:\Users\<you>\.emacs.d`.
 
+## Shared Emacs picker behavior
+
+Both Emacs configs load
+[`mr-x-minibuffer.el`](../macos/emacs/.emacs.d/lisp/mr-x-minibuffer.el).
+Its location under `macos/` is historical; edit this one module for both
+platforms instead of adding separate Consult/Vertico interaction settings.
+Package installation remains in each platform's init file.
+
+`C-s` starts with empty input; the symbol at point remains available in
+search history. In the bottom picker, Enter accepts the highlighted command,
+search result, or file. A selected directory is entered without closing the
+picker. Directory-aware deletion and picker sizing also match the Mac.
+This does not change Corfu completion popups inside editing buffers.
+
+After editing, load the module with `M-x load-file` in the running Emacs;
+no daemon restart is needed. If search still prefills or Enter returns partial
+input, check for later platform overrides of `consult-line`'s `:initial` or
+`vertico-map`'s `RET`, then reload the module. To roll back, restore the prior
+module and matching init changes together, and load the restored settings.
+
+Behavior tests live in
+[`minibuffer-tests.el`](../macos/emacs/.emacs.d/tests/minibuffer-tests.el).
+Run them with the installed Consult/Vertico packages on each platform.
+Window placement and Super-key delivery are separate work.
+
+## SYZYGY phone access (acp-mobile on NEMESIS)
+
+The same Go pair the Macs run, cross-compiled for Windows. Emacs starts
+Claude through `acp-multiplex.exe`, which exposes each session as a Unix
+socket under `%TEMP%\acp-multiplex\<pid>.sock`; `acp-mobile.exe` serves
+those to the phone on port 8090 behind `tailscale serve`, so the URL is
+`https://vengeance.<tailnet>.ts.net` and only the tailnet can reach it.
+Scope today is view and reply on existing Claude chats; see the SYZYGY
+Lisp paragraph below for what the Windows Emacs loads and what is still
+missing.
+
+Pieces:
+
+- Binaries: `%USERPROFILE%\bin\acp-{multiplex,mobile}.exe`, built on the Mac
+  with `GOOS=windows GOARCH=amd64 go build` from `~/src/acp-multiplex` and
+  `~/src/acp-mobile` on the `syzygy` branches, then copied with
+  `scp ... vengeance:bin/`. `%USERPROFILE%\bin` is not on Emacs's PATH, so
+  `init.el` points `agent-shell-anthropic-claude-acp-command` at the absolute
+  exe when it exists and otherwise keeps the direct `claude-agent-acp`.
+- State: `%USERPROFILE%\.acp-mobile\` holds `authkey`, `link` (the URL to
+  open on the phone), `vapid.json`, and `out.log` / `err.log`. Go resolves
+  home to `%USERPROFILE%`; Emacs resolves `~` to `%APPDATA%`. Keep that in
+  mind before sharing a path between the two.
+- Startup: [`scripts/acp-mobile-task.ps1`](scripts/acp-mobile-task.ps1)
+  registers a hidden at-logon scheduled task (`acp-mobile`, S4U, no stored
+  password). `-Start` also (re)starts it now. HTTPS was enabled once with
+  `tailscale serve --bg 8090`; it persists.
+
+Health check, from NEMESIS:
+
+```
+powershell -NoProfile -Command "Get-ScheduledTask acp-mobile | Select -Expand State"
+dir %TEMP%\acp-multiplex
+type %USERPROFILE%\.acp-mobile\err.log
+```
+
+No `.sock` files means no Claude session has been started through the
+multiplex since the last reboot; the command variable only takes effect for
+shells started after `init.el` loaded with the exe present. Rotate the key by
+deleting `authkey` and restarting the task. Updating the binaries is a new
+cross-compile plus `scp`, then rerun the task script with `-Start`.
+
+The SYZYGY Lisp tests run headless from PowerShell, against a temporary
+state directory rather than `%USERPROFILE%\.acp-mobile`:
+
+```
+powershell -NoProfile -File %USERPROFILE%\dotfiles\shared\emacs\tests\run-syzygy-tests.ps1
+```
+
+To run it against another checkout, set `SYZYGY_DOTFILES_ROOT` to that
+checkout's root first; the default is `%USERPROFILE%\dotfiles`.
+
+The Windows init loads SYZYGY from `shared/emacs/lisp/syzygy/` with
+`(require 'syzygy)` after the shared `load-path` block, which pulls in
+`syzygy-rig`. NEMESIS therefore writes the `status.json` and labels
+sidecars under `%USERPROFILE%\.acp-mobile\`, so the phone shows idle/busy
+and titles for its sessions. New-chat presets, on the desk's `SPC c P` and
+the phone's spawn sheet alike, are the Windows list in
+[`agent-shell-extras.el`](emacs/.emacs.d/lisp/agent-shell-extras.el): it loads
+before SYZYGY, so its `mr-x/agent-shell-presets` wins and the shared picker
+and spawn helpers in `syzygy-rig.el` run on it. The remaining Windows
+overrides (spec section 6.7) are step 3 and later.
+
+NEMESIS is a SYZYGY fleet node: POLLUX's phone app lists and relays its
+sessions. The real prerequisite is `%USERPROFILE%\.acp-mobile\config.json`
+listing the hub, `{"hubs": ["<hub MagicDNS name>"]}`; without it NEMESIS
+refuses every hub call and shows `asleep`. `tailscale` must also be on the
+machine PATH (the installer does it); an `extraPath` entry for
+`C:\Program Files\Tailscale` in the same file is optional. Restart with the
+task script's `-Start` after editing it. See the Fleet section of
+[`macos/syzygy/README.md`](../macos/syzygy/README.md#fleet-one-phone-app-for-every-machine).
+
 ## Setup on a new machine
 
 1. Enable **Developer Mode** (Settings → Privacy & security → For developers),
@@ -142,10 +239,59 @@ GlazeWM's modifier, so you drive the WM from the home row.
 scoop install kanata vcredist2022
 ```
 
-Wired like GlazeWM: not symlinked — `bootstrap.ps1` makes a login shortcut running
-`kanata --cfg <repo file>`. Validate edits with `kanata --cfg kanata\kanata.kbd --check`.
-Tune `tap-time` / `hold-time` in the config if you get misfires. (kanata only remaps
-non-elevated windows unless it runs elevated.)
+### How it runs
+
+kanata runs as the **`kanata` scheduled task**: elevated (RunLevel Highest), at
+logon, launching the GUI build `kanata_windows_gui_winIOv2_x64.exe --cfg <repo file>`
+directly. `bootstrap.ps1` registers it when run elevated; by hand:
+
+```powershell
+scripts\kanata-ctl.ps1 install     # elevated shell
+```
+
+Why elevated: kanata can only inject into windows at or below its own integrity
+level. Unelevated, when an elevated window (UAC prompt, Task Manager, admin
+terminal, anti-cheat) took focus while a home-row mod was held, the key-up never
+landed and the modifier stuck — usually Super, so every key became Win+key
+(Win+C Copilot, Win+I Settings) and the keyboard looked dead until a bare modifier
+was tapped. That was the "keys randomly stop working" bug (diagnosed 2026-07-20,
+fix re-landed 2026-10-20). The old unelevated `kanata.lnk` Startup shortcut is
+gone; a leftover `kanata.lnk.disabled` is harmless.
+
+Why the task launches the exe directly: Task Scheduler then owns the process, so
+ending the task kills kanata with the task owner's ordinary rights. Through
+`run-hidden.vbs` the process is orphaned and an unelevated caller cannot kill it.
+
+### Escape hatch
+
+`autohotkey\kanata-hatch.ahk` (autostarted by `bootstrap.ps1`, unelevated):
+
+- **Win+Shift+K** toggles kanata off / on and releases every modifier. The hotkey
+  is wildcarded, so it still fires with a stuck modifier attached.
+- **Tray icon → `kanata: toggle`** does the same by mouse, for when the keyboard is
+  the problem.
+
+From a terminal, no elevation needed:
+
+```powershell
+scripts\kanata-ctl.ps1 status | start | stop | restart
+```
+
+`restart` is the reload after editing `kanata.kbd`. Validate edits first with
+`kanata --cfg kanata\kanata.kbd --check`. Tune `tap-time` / `hold-time` if you get
+misfires.
+
+### Troubleshooting
+
+- **Keys dead or everything is Win+key**: Win+Shift+K (or tap each of Ctrl, Alt,
+  Shift and Win once). If kanata was off, Win+Shift+K again turns it back on.
+- **Task fails at logon** (`status` shows a non-zero result, no process): scoop's
+  `apps\kanata\current` junction is probably dangling after an update — `scoop reset
+  kanata`, then `kanata-ctl.ps1 start`.
+- **`stop` says a copy outside the task is running**: something started kanata by
+  hand; kill it from an elevated shell, then use the task only.
+- **Park it**: `schtasks /change /tn kanata /disable` keeps the task but stops it
+  starting at logon; `kanata-ctl.ps1 uninstall` removes it.
 
 ## AutoHotkey on/off (EA Anticheat)
 

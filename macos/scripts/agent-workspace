@@ -1,0 +1,4 @@
+#!/bin/bash
+# Explicitly visit the agent workspace, or return to the saved window.
+set -euo pipefail
+exec python3 "$(dirname "$(readlink -f "$0")")/agent-workspace.py" "$@"

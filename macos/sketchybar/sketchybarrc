@@ -301,6 +301,15 @@ sketchybar --add item battery right                                 \
                               update_freq=20
 
 
+# KOMAX armed screens (monitor-mode.sh arm/fire set the label; hidden when empty)
+sketchybar --add item komax_armed right                             \
+           --set      komax_armed icon=󰌌                            \
+                                  icon.color=$BLUE                   \
+                                  background.border_color=$BLUE      \
+                                  label=""                           \
+                                  drawing=off
+
+
 # imessage unread count
 sketchybar --add item imessage right                                 \
            --set      imessage icon=󰍡                                \

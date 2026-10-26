@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# monitor-mode.sh — point any monitor at any machine via DDC (m1ddc).
+# monitor-mode.sh — point any monitor at any machine via DDC (BetterDisplay).
 #
 # Names, not positions or roles: monitors go by panel and machines by fleet
 # name. ROMULUS and REMUS are the Dell S2719DGF twins (ROMULUS sits left in
@@ -20,10 +20,32 @@
 #   monitor-mode.sh remus   pollux|nemesis|work
 #   monitor-mode.sh toggle romulus|remus    # flip POLLUX <-> NEMESIS
 #
+# POLLUX on one Dell and nothing else, with everything still plugged in:
+#   monitor-mode.sh solo romulus|remus      # drops the other Dell + LUPA from macOS
+#   monitor-mode.sh solo off                # reconnects what solo dropped
+# A dropped display keeps its input and its state file says off; any preset
+# for a Dell brings it back, reset brings everything back. A Dell showing
+# another machine is left alone. TIBER and Sidecar are never touched.
+#
+# One display off POLLUX on its own (same drop as solo, one at a time):
+#   monitor-mode.sh kill romulus|remus|lupa  # again to bring it back
+# Refuses POLLUX's last display, and a Dell that is showing another machine.
+#
 # Which way the Dells face (they turn around; LUPA stays put). NEMESIS only:
 # with both Dells on it, left/right is re-arranged to match.
 #   monitor-mode.sh flip            # normal (west) <-> flipped (east)
 #   monitor-mode.sh flip normal|flipped
+#
+# KOMAX grammar (screen, then machine; docs/active/specs/2026-10-21-komax-desk-grammar-design.md):
+#   monitor-mode.sh arm romulus|remus|nyx    # toggle a screen in the armed set (expires in 3s)
+#   monitor-mode.sh fire pollux|nemesis|work [screens] # armed (or named) screens -> machine; none = both Dells
+#   monitor-mode.sh disarm                   # clear the armed set
+#   monitor-mode.sh armed                    # the armed set, fleet order
+#   monitor-mode.sh nyx pollux|nemesis       # NYX: Sidecar display, or AIDOS remote (held)
+#
+# Diagnostics:
+#   monitor-mode.sh status          # which machine each Dell shows, NYX, facing
+#   monitor-mode.sh hz              # real GDI refresh of NEMESIS displays (~25s)
 #
 # Escape hatch (ignores the state files; use when state got funky):
 #   monitor-mode.sh reset           # reconnect + DDC both -> POLLUX
@@ -33,6 +55,13 @@
 #
 # Drift check (Hammerspoon runs it after every display change):
 #   monitor-mode.sh check           # notify if an away display re-enumerated
+#
+# Kiosk claims (ONAR YouTube kiosks; holder = the machine asking):
+#   monitor-mode.sh claim romulus|remus <holder> pollux|nemesis   # ok <prev> | busy <holder>
+#   monitor-mode.sh release romulus|remus <holder>                # restored <m> | left <m>
+#   monitor-mode.sh json            # {"romulus":{"machine":..,"claimedBy":..},..}
+# Every switching action takes a lock ($STATE_DIR/lock.d), so ONAR, AIDOS
+# and the macro pad take turns instead of half-switching a Dell.
 #
 # Old words still work (renamed 2026-09-29): game, mac, split, rsplit and
 # work as desk states; mac/pc for machines; center|3 and right|4 for displays.
@@ -56,8 +85,13 @@
 # (betterdisplaycli, needs BetterDisplay.app running + Pro) so the Mac
 # has no phantom desktop for windows/mouse to land on. Verified
 # 2026-07-22: connected=off truly drops it (yabai sees 3 displays);
-# reconnect re-enumerates in ~4-10s; m1ddc can NOT address a display
+# reconnect re-enumerates in ~4-10s; DDC can NOT address a display
 # while it's disconnected — hence the connect-first ordering below.
+#
+# DDC goes through betterdisplaycli, not m1ddc, since 2026-09-29: m1ddc
+# 1.2.0 segfaults on every call while a Sidecar display is attached, which
+# left one Dell switched and the other not. BetterDisplay reads return the
+# raw 16-bit VCP value (Dell: 0x11xx), so only the low byte is the input.
 #
 # S2719DGF VCP 60 input values: DP=15, HDMI1(1.4)=17, HDMI2(2.0)=18
 # LUPA (S2725HS) is POLLUX-only for now — no NEMESIS cable run to it.
@@ -66,6 +100,7 @@ set -euo pipefail
 
 ROMULUS="8C207E30-FF6D-4624-A998-F6D7962597F6"  # yabai display 3, left in the normal layout
 REMUS="0CDDE5CC-F566-4B56-85FD-48B8EA229946"    # yabai display 4, right in the normal layout
+LUPA="56FEF42D-88B7-46E3-9C9B-7746A0929EB7"     # portrait, POLLUX-only: on or off, never switched
 
 DP=15       # NEMESIS
 HDMI_14=17  # work laptop hub
@@ -85,6 +120,13 @@ done
 LAYOUT="$STATE_DIR/layout.json"
 FACING="$STATE_DIR/facing"   # normal | flipped (see flip)
 BUSY="$STATE_DIR/busy"      # exists while a flip is in flight (check_drift skips)
+LOCK="$STATE_DIR/lock.d"     # mkdir lock: ONAR, AIDOS and the macro pad take turns
+CLAIMS="$STATE_DIR/claims"   # claims/<display>: holder=, set=, restore=
+ARMED="$STATE_DIR/armed"     # KOMAX grammar: screens named and waiting for a machine
+ARMED_AT="$STATE_DIR/armed-at"  # stamp of the last press; the expiry compares it
+ARM_SECONDS="${MONITOR_MODE_ARM_SECONDS:-3}"
+SIDECAR_BIN="${SIDECAR_BIN:-$HOME/.local/bin/sidecar}"  # NYX: Sidecar (POLLUX) or AIDOS (NEMESIS)
+LOCK_HELD=0
 LAYOUT_SAVED=0     # snapshot at most once per invocation
 RESTORE_PENDING="" # UUIDs flipped back to POLLUX this invocation
 
@@ -104,6 +146,7 @@ uuid_for() {
   case "$1" in
     romulus) echo "$ROMULUS" ;;
     remus)   echo "$REMUS" ;;
+    lupa)    echo "$LUPA" ;;
     *) echo "unknown display: $1 (want romulus|remus)" >&2; exit 1 ;;
   esac
 }
@@ -133,12 +176,23 @@ label() {  # notification text for a display or machine name
   esac
 }
 
+ddc_set_input() {  # ddc_set_input <romulus|remus> <vcp-value>
+  betterdisplaycli set --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect --value="$2" > /dev/null 2>&1
+}
+
+ddc_get_input() {  # ddc_get_input <romulus|remus> -> input value (low byte)
+  local raw
+  raw=$(betterdisplaycli get --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect 2>/dev/null) || return 1
+  [[ "$raw" =~ ^[0-9]+$ ]] || return 1
+  echo $((raw & 0xFF))
+}
+
 bd_connect() {  # bd_connect <romulus|remus> <on|off>
   betterdisplaycli set --uuid="$(uuid_for "$1")" --connected="$2" > /dev/null 2>&1
 }
 
-ddc_visible() {  # is the display enumerated Mac-side (addressable by m1ddc)?
-  [[ "$(m1ddc display list 2>/dev/null)" == *"$(uuid_for "$1")"* ]]
+ddc_visible() {  # is the display enumerated Mac-side (online, DDC-addressable)?
+  [[ "$(displayplacer list 2>/dev/null)" == *"$(uuid_for "$1")"* ]]
 }
 
 wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
@@ -150,7 +204,7 @@ wait_ddc() {  # poll until a reconnected display re-enumerates (~4-10s typical)
   return 1
 }
 
-wait_yabai() {  # yabai re-enumerates a few seconds after m1ddc does
+wait_yabai() {  # yabai re-enumerates a few seconds after the display is online
   local i
   for i in $(seq 1 15); do
     yabai -m query --displays 2>/dev/null | grep -q "$1" && return 0
@@ -228,8 +282,8 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
     bd_connect "$1" on
     wait_ddc "$1" || { notify "FAILED: $1 never re-enumerated"; return 1; }
   fi
-  for try in 1 2 3; do
-    if m1ddc display "$(uuid_for "$1")" set input "$(input_for "$2")" > /dev/null 2>&1; then
+  for try in 1 2 3 4 5 6; do
+    if ddc_set_input "$1" "$(input_for "$2")"; then
       echo "$2" > "$STATE_DIR/$1"
       # No phantom desktop: drop the display from macOS while it shows
       # another machine. (Its DDC becomes unreachable until reconnect.)
@@ -240,9 +294,9 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
       fi
       return 0
     fi
-    sleep 0.4
+    sleep 0.5
   done
-  notify "FAILED: $1 -> $2 (DDC error x3)"
+  notify "FAILED: $1 -> $2 (DDC error x6)"
   return 1
 }
 
@@ -258,11 +312,91 @@ force_pollux() {  # force_pollux <romulus|remus>: ignore state, put it on POLLUX
   fi
   RESTORE_PENDING="$RESTORE_PENDING $(uuid_for "$1")"
   for try in 1 2 3; do
-    m1ddc display "$(uuid_for "$1")" set input "$HDMI_20" > /dev/null 2>&1 && return 0
+    ddc_set_input "$1" "$HDMI_20" && return 0
     sleep 0.4
   done
   notify "reset: $(label "$1") -> POLLUX failed (DDC error x3)"
   return 1
+}
+
+drop_display() {  # drop_display <romulus|remus|lupa>: off POLLUX, input untouched
+  # solo's half of set_display: the display goes dark instead of showing
+  # another machine. State is only written for a drop that happened, so an
+  # unplugged display is never "restored" later.
+  ddc_visible "$1" || return 0
+  if [ "$LAYOUT_SAVED" = 0 ]; then save_layout; LAYOUT_SAVED=1; fi
+  bd_connect "$1" off || { notify "FAILED: $(label "$1") would not disconnect"; return 1; }
+  echo off > "$STATE_DIR/$1"
+}
+
+lupa_on() {  # reconnect LUPA if solo dropped it
+  [ "$(cat "$STATE_DIR/lupa" 2>/dev/null)" = off ] || return 0
+  if ! ddc_visible lupa; then
+    bd_connect lupa on
+    wait_ddc lupa || { notify "FAILED: LUPA never re-enumerated"; return 1; }
+    RESTORE_PENDING="$RESTORE_PENDING $LUPA"
+  fi
+  echo pollux > "$STATE_DIR/lupa"
+}
+
+solo() {  # solo <romulus|remus>: POLLUX on that Dell and nothing else
+  local keep="$1" other
+  if [ "$keep" = romulus ]; then other=remus; else other=romulus; fi
+  # The kept Dell must be live first, so a failure never leaves POLLUX blind.
+  set_display "$keep" pollux || return 1
+  # The other Dell is dropped only while POLLUX is what it shows; one
+  # pointed at another machine is already off the Mac and keeps its picture.
+  if [ "$(current_machine "$other")" = pollux ]; then drop_display "$other" || true; fi
+  drop_display lupa || true
+  notify "Solo: POLLUX on $(label "$keep") only"
+  sync_windows
+  maybe_restore
+}
+
+solo_off() {  # reconnect whatever solo dropped
+  local d
+  for d in romulus remus; do
+    if [ "$(current_machine "$d")" = off ]; then set_display "$d" pollux || true; fi
+  done
+  lupa_on || true
+  notify "Solo off: displays back on POLLUX"
+  sync_windows
+  maybe_restore
+}
+
+kill_display() {  # kill_display <romulus|remus|lupa>: off POLLUX, or back if already off
+  local d="$1" cur
+  if [ "$d" = lupa ]; then
+    # LUPA has no input to read: enumerated means on, whatever the file says.
+    if ddc_visible lupa; then cur=pollux; else cur=$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux); fi
+  else
+    cur=$(current_machine "$d")
+  fi
+  case "$cur" in
+    off)
+      if [ "$d" = lupa ]; then lupa_on || return 1; else set_display "$d" pollux || return 1; fi
+      notify "$(label "$d") back on POLLUX"
+      ;;
+    pollux)
+      if ! ddc_visible "$d"; then
+        echo "$d is not connected to POLLUX" >&2
+        notify "$(label "$d") is not connected to POLLUX"
+        return 1
+      fi
+      if [ "$(displayplacer list 2>/dev/null | grep -c '^Persistent screen id:')" -le 1 ]; then
+        echo "refused: $d is POLLUX's last display" >&2
+        notify "Refused: $(label "$d") is POLLUX's last display"
+        return 1
+      fi
+      drop_display "$d" || return 1
+      notify "$(label "$d") off"
+      ;;
+    *)
+      echo "$d is showing $cur; nothing to kill" >&2
+      notify "$(label "$d") is showing $(label "$cur"); nothing to kill"
+      return 1
+      ;;
+  esac
 }
 
 check_drift() {  # notify when an away display is enumerated Mac-side again
@@ -275,6 +409,10 @@ check_drift() {  # notify when an away display is enumerated Mac-side again
   for d in romulus remus; do
     cur=$(current_machine "$d")
     [ "$cur" != pollux ] && ddc_visible "$d" || continue
+    if [ "$cur" = off ]; then
+      notify "$(label "$d") is back on POLLUX but solo dropped it. Run solo again, or ctrl+alt+0 to reset."
+      continue
+    fi
     case "$cur" in nemesis) key="ctrl+alt+$([ "$d" = romulus ] && echo 3 || echo 4)" ;;
                    *)  key="ctrl+alt+w" ;; esac
     notify "$(label "$d") is back on POLLUX but state says $cur. Press $key, or ctrl+alt+0 to reset."
@@ -288,7 +426,7 @@ current_machine() {  # current_machine <romulus|remus> -> pollux|nemesis|work
   #         fail — they sometimes return garbage WITH exit 0, which
   #         must never be trusted.
   local val
-  if [ "$1" = romulus ] && val=$(m1ddc display "$(uuid_for "$1")" get input 2>/dev/null); then
+  if [ "$1" = romulus ] && val=$(ddc_get_input "$1"); then
     case "$val" in
       $DP) echo nemesis ;; $HDMI_14) echo work ;; $HDMI_20) echo pollux ;;
       *) cat "$STATE_DIR/$1" 2>/dev/null || echo pollux ;;
@@ -296,6 +434,176 @@ current_machine() {  # current_machine <romulus|remus> -> pollux|nemesis|work
   else
     cat "$STATE_DIR/$1" 2>/dev/null || echo pollux
   fi
+}
+
+acquire_lock() {  # wait for our turn; take over a lock whose owner died
+  local i p tries="${MONITOR_MODE_LOCK_TRIES:-300}"
+  for ((i = 0; i < tries; i++)); do
+    if mkdir "$LOCK" 2>/dev/null; then
+      echo $$ > "$LOCK/pid"; LOCK_HELD=1; return 0
+    fi
+    p=$(cat "$LOCK/pid" 2>/dev/null)
+    if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then
+      rm -rf "$LOCK"; continue
+    fi
+    sleep 0.5
+  done
+  echo "monitor-mode: busy (another switch is running)" >&2
+  return 1
+}
+
+claim_get() {  # claim_get <display> <key> -> value or empty (never fails: set -e)
+  [ -f "$CLAIMS/$1" ] || return 0
+  sed -n "s/^$2=//p" "$CLAIMS/$1"
+}
+
+claim_display() {  # claim_display <display> <holder> <machine>
+  local held prev
+  held=$(claim_get "$1" holder)
+  if [ -n "$held" ] && [ "$held" != "$2" ]; then echo "busy $held"; return 3; fi
+  prev=$(current_machine "$1")
+  mkdir -p "$CLAIMS"
+  printf 'holder=%s\nset=%s\nrestore=%s\n' "$2" "$3" "$prev" > "$CLAIMS/$1"
+  if ! set_display "$1" "$3"; then rm -f "$CLAIMS/$1"; return 1; fi
+  sync_windows
+  maybe_restore
+  echo "ok $prev"
+}
+
+release_display() {  # release_display <display> <holder>
+  local held want restore now
+  held=$(claim_get "$1" holder)
+  if [ "$held" != "$2" ]; then echo "not-held ${held:-none}"; return 3; fi
+  want=$(claim_get "$1" set); restore=$(claim_get "$1" restore)
+  now=$(current_machine "$1")
+  rm -f "$CLAIMS/$1"
+  if [ "$now" = "$want" ] && [ -n "$restore" ] && [ "$restore" != "$want" ]; then
+    set_display "$1" "$restore" || return 1
+    sync_windows
+    maybe_restore
+    echo "restored $restore"
+  else
+    echo "left $now"
+  fi
+}
+
+status_json() {
+  local d sep=""
+  printf '{'
+  for d in romulus remus; do
+    printf '%s"%s":{"machine":"%s","claimedBy":"%s"}' "$sep" "$d" \
+      "$(current_machine "$d")" "$(claim_get "$d" holder)"
+    sep=","
+  done
+  printf '}\n'
+}
+
+# KOMAX grammar: screen, then machine. A screen press arms; a machine press
+# fires at every armed screen. See docs/active/specs/2026-10-21-komax-desk-grammar-design.md.
+armed_list() {  # armed screens in fleet order, one per line
+  local s
+  [ -s "$ARMED" ] || return 0
+  for s in romulus remus nyx; do
+    grep -qx "$s" "$ARMED" && echo "$s"
+  done
+  return 0
+}
+
+armed_clear() { rm -f "$ARMED" "$ARMED_AT"; }
+
+armed_render() {  # sketchybar item komax_armed: names while armed, hidden otherwise
+  command -v sketchybar >/dev/null 2>&1 || return 0
+  local names
+  names=$(armed_list | tr '[:lower:]' '[:upper:]' | paste -sd ' ' -)
+  if [ -n "$names" ]; then
+    sketchybar --set komax_armed label="$names" drawing=on >/dev/null 2>&1 || true
+  else
+    sketchybar --set komax_armed label="" drawing=off >/dev/null 2>&1 || true
+  fi
+}
+
+arm_schedule_expiry() {  # clear the set ARM_SECONDS after the last press
+  local stamp="$(date +%s).$RANDOM.$$"
+  echo "$stamp" > "$ARMED_AT"
+  (
+    sleep "$ARM_SECONDS"
+    if [ "$(cat "$ARMED_AT" 2>/dev/null)" = "$stamp" ]; then
+      armed_clear; armed_render
+    fi
+  ) >/dev/null 2>&1 </dev/null &
+  disown 2>/dev/null || true
+}
+
+arm_toggle() {  # arm_toggle <romulus|remus|nyx>: add, or remove if already armed
+  if [ -s "$ARMED" ] && grep -qx "$1" "$ARMED"; then
+    grep -vx "$1" "$ARMED" > "$ARMED.new" || true
+    mv "$ARMED.new" "$ARMED"
+    [ -s "$ARMED" ] || rm -f "$ARMED"
+  else
+    echo "$1" >> "$ARMED"
+  fi
+  armed_render
+  if [ -s "$ARMED" ]; then arm_schedule_expiry; else rm -f "$ARMED_AT"; fi
+}
+
+nyx_set() {  # nyx_set <pollux|nemesis>: POLLUX = Sidecar connected, NEMESIS = AIDOS in front
+  local out
+  case "$1" in
+    pollux)
+      # The first connect right after a disconnect can time out on the iPad
+      # side (SidecarErrorDeviceTimedOut, seen 2026-10-21); one retry lands it.
+      out=$("$SIDECAR_BIN" release 2>&1) &&
+        { out=$("$SIDECAR_BIN" connect 2>&1) || { sleep 3; out=$("$SIDECAR_BIN" connect 2>&1); }; } ;;
+    nemesis) out=$("$SIDECAR_BIN" hold 2>&1) && out=$("$SIDECAR_BIN" disconnect 2>&1) ;;
+    *) return 1 ;;
+  esac || {
+    # Helper output can carry quotes and Lua tracebacks; osascript must never see them.
+    out=$(printf '%s' "$out" | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
+    notify "NYX: ${out:-sidecar helper failed}"; return 1
+  }
+  return 0
+}
+
+nyx_machine() {  # nyx_machine -> pollux|nemesis
+  if "$SIDECAR_BIN" status 2>/dev/null | grep -q '^iPad connected'; then echo pollux; else echo nemesis; fi
+}
+
+fire() {  # fire <pollux|nemesis|work> [screens]: screens -> machine
+  # The set is snapshotted and cleared BEFORE the lock (see the dispatcher):
+  # a fire that waits behind another switch, or behind a VENGEANCE wake, must
+  # act on what was armed when the key was pressed, not on what is left.
+  local m="$1" set s rc=0 moved="" dells=0
+  shift
+  set="$*"
+  if [ -z "$set" ]; then
+    if [ "$m" = work ]; then notify "Work laptop: nothing armed"; return 0; fi
+    set="romulus remus"
+  fi
+  for s in $set; do
+    case "$s" in
+      romulus)
+        if [ "$m" = work ]; then notify "ROMULUS cannot show the work laptop"; continue; fi
+        dells=1; set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
+      remus)
+        dells=1
+        if set_display remus "$m"; then
+          moved="$moved REMUS"
+          if [ "$m" = work ]; then
+            set_display lupa work && moved="$moved LUPA" || rc=1
+          elif [ "$m" = pollux ] && [ "$(current_machine lupa)" = work ]; then
+            set_display lupa pollux && moved="$moved LUPA" || rc=1
+          fi
+        else rc=1; fi ;;
+      nyx)
+        case "$m" in
+          pollux|nemesis) nyx_set "$m" && moved="$moved NYX" || rc=1 ;;
+        esac ;;
+    esac
+  done
+  [ -n "$moved" ] && notify "$(echo $moved | sed 's/ / + /g') -> $(label "$m")"
+  # NYX alone never touches a Dell, so Windows has nothing to learn.
+  if [ "$dells" = 1 ]; then sync_windows; maybe_restore; fi
+  return $rc
 }
 
 toggle_display() {  # toggle_display <romulus|remus>  (POLLUX <-> NEMESIS)
@@ -398,9 +706,20 @@ displays_power() {  # displays_power <sleep|wake>
   if [ "$1" = sleep ]; then pmset displaysleepnow; else caffeinate -u -t 1; fi
 }
 
+# fire: snapshot the armed set now, before we might wait on the lock.
+FIRE_SET=""
+if [ "${1:-}" = fire ] && [ -n "${2:-}" ]; then
+  if [ -n "${3:-}" ]; then FIRE_SET="${*:3}"; else FIRE_SET=$(armed_list | tr '\n' ' '); fi
+  armed_clear; armed_render
+fi
+
 case "${1:-}" in
-  status|check|displays|"") ;;
-  *) touch "$BUSY"; trap 'rm -f "$BUSY"' EXIT ;;
+  status|check|displays|json|arm|armed|disarm|"") ;;
+  *)
+    acquire_lock || exit 1
+    touch "$BUSY"
+    trap 'rm -f "$BUSY"; [ "$LOCK_HELD" = 1 ] && rm -rf "$LOCK"' EXIT
+    ;;
 esac
 
 case "${1:-}" in
@@ -427,11 +746,28 @@ case "${1:-}" in
     sync_windows
     maybe_restore
     ;;
+  solo)
+    case "${2:-}" in
+      off) solo_off ;;
+      romulus|remus|center|right|3|4) solo "$(display_name "$2")" ;;
+      *) echo "usage: $(basename "$0") solo <romulus|remus|off>" >&2; exit 1 ;;
+    esac
+    ;;
+  kill)
+    case "${2:-}" in
+      lupa) d=lupa ;;
+      romulus|remus|center|right|3|4) d=$(display_name "$2") ;;
+      *) echo "usage: $(basename "$0") kill <romulus|remus|lupa>" >&2; exit 1 ;;
+    esac
+    kill_display "$d" || exit 1
+    maybe_restore
+    ;;
   flip)
     flip "${2:-}"
     ;;
   reset)
     force_pollux romulus || true; force_pollux remus || true
+    lupa_on || true
     notify "Reset: ROMULUS + REMUS -> POLLUX (state cleared)"
     sync_windows
     maybe_restore
@@ -445,15 +781,64 @@ case "${1:-}" in
   check)
     check_drift
     ;;
+  claim)
+    [ -n "${4:-}" ] || { echo "usage: $(basename "$0") claim <romulus|remus> <holder> <machine>" >&2; exit 1; }
+    claim_display "$(display_name "$2")" "$3" "$(machine_name "$4")"
+    ;;
+  release)
+    [ -n "${3:-}" ] || { echo "usage: $(basename "$0") release <romulus|remus> <holder>" >&2; exit 1; }
+    release_display "$(display_name "$2")" "$3"
+    ;;
+  json)
+    status_json
+    ;;
+  fire)
+    case "${2:-}" in
+      pollux|nemesis|work) fire "$2" $FIRE_SET || exit 1 ;;
+      *) echo "usage: $(basename "$0") fire <pollux|nemesis|work> [romulus remus nyx]" >&2; exit 1 ;;
+    esac
+    ;;
+  disarm)
+    armed_clear; armed_render
+    ;;
+  nyx)
+    case "${2:-}" in
+      pollux|nemesis) nyx_set "$2" || exit 1; notify "NYX -> $(label "$2")" ;;
+      *) echo "usage: $(basename "$0") nyx <pollux|nemesis>" >&2; exit 1 ;;
+    esac
+    ;;
+  arm)
+    case "${2:-}" in
+      romulus|remus|nyx) arm_toggle "$2" ;;
+      *) echo "usage: $(basename "$0") arm <romulus|remus|nyx>" >&2; exit 1 ;;
+    esac
+    ;;
+  armed)
+    armed_list
+    ;;
   status)
     for d in romulus remus; do
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
       printf '%-9s %s (%s)\n' "$d:" "$(current_machine "$d")" "$conn"
     done
+    if ddc_visible lupa; then conn=connected; else conn=disconnected; fi
+    printf '%-9s %s (%s)\n' "lupa:" "$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux)" "$conn"
+    case "$("$SIDECAR_BIN" status 2>/dev/null)" in
+      *"hold on"*) hold=on ;; *"hold off"*) hold=off ;; *) hold=unknown ;;
+    esac
+    printf '%-9s %s (hold %s)\n' "nyx:" "$(nyx_machine)" "${hold:-unknown}"
     printf '%-9s %s\n' "facing:" "$(facing)"
     ;;
+  hz)
+    # Real per-display refresh on NEMESIS, read by GDI inside the desktop
+    # session (hz-probe.ps1). Pass 1 is the true reading; later passes
+    # re-assert 155 if it was low. ~25s.
+    ssh -n -o ConnectTimeout=6 -o BatchMode=yes vengeance \
+      'powershell -NoProfile -ExecutionPolicy Bypass -File C:/Tools/MultiMonitorTool/hz-probe.ps1' 2>/dev/null \
+      || { echo "hz probe failed; NEMESIS asleep or unreachable" >&2; exit 1; }
+    ;;
   *)
-    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

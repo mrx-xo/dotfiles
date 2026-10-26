@@ -261,6 +261,12 @@ The file name wins: whole folders are dropped from the left behind
      (review-panel--bar (car progress) (cdr progress) width)
      (review-panel--spacer 10))))
 
+(defun review-panel--drafts (session &optional path)
+  "\"N draft(s)\" in yellow for SESSION, or for its file PATH; \"\" when none."
+  (let ((n (review-session-comment-count session path)))
+    (if (zerop n) ""
+      (review-panel--txt (format "%d draft%s" n (if (= n 1) "" "s")) 'yellow :height 0.92 :weight 'medium))))
+
 (defun review-panel--file-row (session i width)
   (let* ((file (review-session-file session i))
          (current (= i (review-session-current session)))
@@ -280,7 +286,9 @@ The file name wins: whole folders are dropped from the left behind
                                                  'mute :faded viewed :height 0.92))
                        (t "")))
          (counts (if tally (review-panel--counts tally viewed 0.92) ""))
-         (right (concat status (if (and (> (length status) 0) (> (length counts) 0)) (review-panel--gap 10) "")
+         (drafts (review-panel--drafts session (plist-get file :path)))
+         (right (concat drafts (if (> (length drafts) 0) (review-panel--gap 10) "")
+                        status (if (and (> (length status) 0) (> (length counts) 0)) (review-panel--gap 10) "")
                         counts))
          (lead (concat (review-panel--gap 12)
                        (if current
@@ -471,6 +479,8 @@ renders the strip."
                (file (get-text-property (point) 'review-file))
                (hunk (get-text-property (point) 'review-hunk))
                (window (get-buffer-window (current-buffer) t))
+               ;; Erasing the buffer sends the window back to its top.
+               (start-line (and window (count-lines (point-min) (window-start window))))
                (render (lambda ()
                          ;; Measure in the panel's own frame and font.
                          (cons (review-panel-render s review-panel--toggled review-panel--collapsed
@@ -492,7 +502,30 @@ renders the strip."
                   (while (and (< (point) (point-max))
                               (eq (get-text-property (point) 'review-file) file)
                               (not (eq (get-text-property (point) 'review-hunk) hunk)))
-                    (forward-line)))))))))))
+                    (forward-line))))))
+          (when window (review-panel--keep-scroll s window start-line)))))))
+
+(defvar-local review-panel--followed nil
+  "The session's current file when the panel last followed it.")
+
+(defun review-panel--keep-scroll (session window start-line)
+  "Put WINDOW back at START-LINE after a re-render, with its file in view.
+When SESSION moves to another file from the panes, the panel's point
+follows it, and the list scrolls only when that row has left the window.
+With the panel selected, or the file unchanged, point stays on the row
+it was on."
+  (let ((current (review-session-current session)))
+    (unless (or (eq window (selected-window)) (eql current review-panel--followed))
+      (when-let ((pos (text-property-any (point-min) (point-max) 'review-file current)))
+        (goto-char pos)))
+    (setq review-panel--followed current))
+  (let* ((line (count-lines (point-min) (line-beginning-position)))
+         (height (window-body-height window))
+         (start (cond ((< line start-line) (max 0 (- line 2)))
+                      ((>= line (+ start-line height -2)) (max 0 (- line (/ height 2))))
+                      (t start-line))))
+    (set-window-start window (save-excursion (goto-char (point-min)) (forward-line start) (point)) t)
+    (set-window-point window (point))))
 
 (defun review-panel--resized (frame)
   "Reflow the panel when its window in FRAME changes width."
@@ -696,7 +729,9 @@ runs ride along as the `review-track' property."
                            (concat (review-panel--gap 16)
                                    (review-panel--txt (concat notice "  gr refresh") 'yellow :height 0.92))
                          "")))
-         (right (concat (mapconcat (lambda (s) (concat s (review-panel--gap 12)))
+         (drafts (review-panel--drafts session))
+         (right (concat drafts (if (> (length drafts) 0) (review-panel--gap 12) "")
+                        (mapconcat (lambda (s) (concat s (review-panel--gap 12)))
                                    (delq nil (mapcar (lambda (f) (funcall f session))
                                                      review-panel-bar-functions))
                                    "")
@@ -960,7 +995,7 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
 
 ;;;; Quick Ask card
 ;; Figma "Compare / quick ask", card 13:386: a dark context row with a
-;; yellow ASK tag, the question, the answer in dim paragraphs, and a dark
+;; yellow ASK tag, the question, the answer in readable paragraphs, and a dark
 ;; row of exits.  Quick Ask draws every answer with it, in reviews or not.
 
 (defun review-panel--ask-exits (&optional exits)
@@ -1022,10 +1057,11 @@ The status line's first character carries `review-ask-anim', for a spinner."
     (insert (review-panel-ask-footer '(("q" "abort" dim) ("C-c C-q" "hide" dim)
                                        ("C-c C-t" "dock" dim))))))
 
-(defun review-panel-ask-permission (title detail &optional queued)
+(defun review-panel-ask-permission (title detail &optional queued keys)
   "Insert the Quick Ask box's permission question for a tool call.
 TITLE names the call and DETAIL is its command or file, or nil.  QUEUED,
-when positive, is how many more requests wait behind this one."
+when positive, is how many more requests wait behind this one.  KEYS are
+the keycaps, (KEY LABEL TOKEN) each; the default names 1, 2 and 3."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (insert (review-panel--spacer 10))
     (insert (review-panel--row
@@ -1042,26 +1078,29 @@ when positive, is how many more requests wait behind this one."
         (put-text-property start (point) 'wrap-prefix (review-panel--gap 32))))
     (insert (review-panel--spacer 6))
     (insert (review-panel--row
-             (concat (review-panel--ask-exits '(("1" "allow" fg) ("2" "deny" dim) ("3" "always" dim)))
+             (concat (review-panel--ask-exits (or keys '(("1" "allow" fg) ("2" "deny" dim) ("3" "always" dim))))
                      (if (and queued (> queued 0))
                          (concat (review-panel--gap 14)
                                  (review-panel--txt (format "%d more waiting" queued) 'dim :height 0.83))
                        ""))))))
 
 (defun review-panel-ask-style (start end)
-  "Give START..END the card's padded answer look: dim text, 12 px indent."
+  "Give START..END the card's padded answer look: normal text, 12 px indent."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
-    (add-face-text-property start end `(:foreground ,(review-panel--hex 'dim)) t)
+    (add-face-text-property start end `(:foreground ,(review-panel--hex 'fg)) t)
     (put-text-property start end 'line-prefix (review-panel--gap 12))
     (put-text-property start end 'wrap-prefix (review-panel--gap 12))))
 
 (defun review-panel-ask-card (origin question answer &optional style-answer)
   "Insert the Quick Ask card at point: ORIGIN, QUESTION, ANSWER and the exits.
 STYLE-ANSWER, when non-nil, is called with the buffer narrowed to the
-answer, so markdown styling never touches the question."
+answer, so markdown styling never touches the question.
+Everything but the answer carries `display-line-numbers-disable', so a
+buffer showing line numbers counts only the answer's lines."
   (let ((review-panel--scale (/ (frame-char-width) 6.0))
-        (indent (lambda () (review-panel--gap 12))))
+        (indent (lambda () (review-panel--gap 12)))
+        (card-start (point)))
     (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
     (insert (review-panel--row
              (concat (funcall indent) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
@@ -1072,22 +1111,25 @@ answer, so markdown styling never touches the question."
       (put-text-property start (point) 'line-prefix (funcall indent))
       (put-text-property start (point) 'wrap-prefix (funcall indent)))
     (insert (review-panel--divider) (review-panel--spacer 10))
-    (let ((start (point)))
+    (let ((start (point)) footer)
       (insert answer "\n")
       (save-restriction
         (narrow-to-region start (point))
         (when style-answer (save-excursion (funcall style-answer)))
         (add-face-text-property (point-min) (point-max)
-                                `(:foreground ,(review-panel--hex 'dim)) t)
+                                `(:foreground ,(review-panel--hex 'fg)) t)
         (put-text-property (point-min) (point-max) 'line-prefix (funcall indent))
         (put-text-property (point-min) (point-max) 'wrap-prefix (funcall indent))
-        (goto-char (point-max))))
-    (insert (review-panel--spacer 12) (review-panel--divider))
-    ;; Padding comes from spacer lines: extra line height on the row itself
-    ;; would stretch every keycap's background to the full row.
-    (insert (review-panel--spacer 8 'bg-hard)
-            (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
-            (review-panel--spacer 8 'bg-hard))))
+        (goto-char (point-max)))
+      (put-text-property card-start start 'display-line-numbers-disable t)
+      (setq footer (point))
+      (insert (review-panel--spacer 12) (review-panel--divider))
+      ;; Padding comes from spacer lines: extra line height on the row itself
+      ;; would stretch every keycap's background to the full row.
+      (insert (review-panel--spacer 8 'bg-hard)
+              (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
+              (review-panel--spacer 8 'bg-hard))
+      (put-text-property footer (point) 'display-line-numbers-disable t))))
 
 (provide 'review-panel)
 ;;; review-panel.el ends here

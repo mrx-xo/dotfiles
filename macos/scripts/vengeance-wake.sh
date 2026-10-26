@@ -14,6 +14,24 @@
 set -euo pipefail
 
 MAC="34:5A:60:C0:95:87"
+MM="${MONITOR_MODE_SH:-$HOME/.dotfiles/macos/scripts/monitor-mode.sh}"
+
+# KOMAX grammar: snapshot the armed set once, here, so it cannot expire or be
+# pressed over during the wake, and pass it to fire explicitly. With no Dell
+# armed (NYX only) do not wake VENGEANCE: AIDOS on a sleeping PC is not a
+# thing worth a summon. Captured first, then tested: a grep -q on the live
+# pipe would SIGPIPE the second line and read as "no Dell" (pipefail).
+if [ "${1:-}" = fire ] && [ -n "${2:-}" ]; then
+  armed=$("$MM" armed | tr '\n' ' ')
+  "$MM" disarm
+  if [ -n "${armed// /}" ]; then
+    set -- "$1" "$2" $armed
+    case " $armed " in
+      *" romulus "*|*" remus "*) ;;
+      *) exec "$MM" "$@" ;;
+    esac
+  fi
+fi
 
 notify() {
   osascript -e "display notification \"$1\" with title \"VENGEANCE\"" || true
@@ -38,7 +56,7 @@ PY
 # up, skip the wake dance and go straight to the handover.
 if ssh -o ConnectTimeout=2 -o BatchMode=yes vengeance "exit" 2>/dev/null; then
   if [ -n "${1:-}" ]; then
-    ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
+    "$MM" "$@"
   else
     notify "VENGEANCE is already awake"
   fi
@@ -54,7 +72,7 @@ for i in $(seq 1 45); do
     notify "VENGEANCE is awake (${i}x2s)"
     if [ -n "${1:-}" ]; then
       sleep 2
-      ~/.dotfiles/macos/scripts/monitor-mode.sh "$@"
+      "$MM" "$@"
     fi
     exit 0
   fi

@@ -53,6 +53,9 @@ for Elpaca to bootstrap packages, cron install).
   overrides System Settings modifier keys once installed), plus DualShock 4
   buttons wired to Music Assistant and push-to-talk.
 - **Terminals** — Ghostty config, plus a Dracula Terminal.app profile.
+  `macos/.zshrc.lite` is the look of the shell alone (prompt, Dracula
+  highlighting, ls colours, git aliases) for Macs that never get this repo;
+  it is copied to those boxes as `~/.zshrc`, not symlinked.
 - **Neovim** (`macos/nvim/`) — secondary editor config.
 - **Scripts** (`macos/scripts/`) — Emacs daemon/sandbox/restart helpers,
   monitor-mode switching, VENGEANCE wake-on-LAN, finance sync, and the
@@ -93,10 +96,38 @@ see the comments in `bootstrap.sh`.
 ### Emacs sandbox
 
 A full isolated copy of the config at `~/.emacs-sandbox` for testing changes
-without touching the running daemon. Launch with `Cmd+Shift+S`, resync with
-`macos/scripts/emacs-sandbox.sh --fresh`. Its frames carry a red `SANDBOX`
+without touching the running daemon. `Cmd+Shift+S` shows the sandbox without
+restarting it. Resync with `macos/scripts/emacs-sandbox.sh --fresh`. Its frames carry a red `SANDBOX`
 badge on every mode line and `SANDBOX` in the title
 (`lisp/mr-x-sandbox-badge.el`, loaded only when `(daemonp)` is `"sandbox"`).
+
+The launcher defaults to daemon-only operation (`--no-frame` remains accepted).
+Agents should evaluate tests through `emacsclient --socket-name=sandbox --eval`.
+For visual tests, `macos/scripts/emacs-sandbox.sh --background` creates or reuses
+a frame on the `agent` desktop without requesting focus. `--show` deliberately
+visits it. `--test` sets up the visual test environment in the background;
+`Cmd+Shift+Ctrl+S` uses `--test --show` to visit it. `--restart` and `--fresh`
+do not open a window unless combined with `--background` or `--show`.
+
+### Agent workspace
+
+`Hyper+B` (Cmd+Ctrl+Option+Shift+B) visits the `agent` desktop; press it again to
+return to your previous window. The same toggle is available as `agent-workspace`.
+The return snapshot records visible desktops on every monitor and uses stable
+space IDs, so renumbering spaces does not change the destination.
+
+Personal Brave windows have no desktop assignment. `agent-open <url>` uses a
+separate browser profile and background DevTools commands. Only known agent
+browser processes are routed to `agent`; it never sends a URL to personal Brave
+as a fallback. An ordinary macOS activation of an already-running app may still
+visit its existing window; removing the routing rule does not change that
+native behavior.
+
+If routing stops working after a display change, run `agent-space-ensure`.
+If `agent-open` reports a DevTools failure, resolve that error and retry; do not
+fall back to a foreground browser launch. The routing/focus regression suite is
+`python3 macos/scripts/tests/agent-workspace.test.py`. The implementation is in
+`macos/scripts/agent-workspace.py`, with rules installed by `agent-space-ensure`.
 
 ### Read-only review sessions
 
@@ -121,6 +152,11 @@ origin. The answer uses a graphical child frame when available, with a
 bottom-window fallback. Response exits: `q` dismiss, `c` continue in chat,
 `u` park the question, `y` copy the answer. Comment/approve/merge actions
 remain in the original PR buffers; a review session never writes source.
+The card shows formatted answer text in the normal reading color. Thoughts,
+tool output, and notices remain in the full conversation opened with `c`;
+`y` copies only the answer, preserving its Markdown.
+Quick Ask captures the original streamed text before rendering and requests
+short paragraphs with Markdown headings for answers covering multiple topics.
 
 Commit ranges and staged blobs are pinned when the session opens;
 working-tree text is cached when each file loads. Quit and reopen to refresh.

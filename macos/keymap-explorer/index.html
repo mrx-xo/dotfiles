@@ -1,6 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mrx keymap explorer</title>
+<link rel="stylesheet" href="practice.css">
 <style>
   :root {
     --bg: #edeae4;
@@ -23,6 +25,11 @@
     --green: #0f6e56;
     --green-soft: rgba(15,110,86,.12);
     --chg: var(--red);
+    /* Reserved for proposal indicators, independent of layer colours. */
+    --pro-change: #0084a3;
+    --pro-change-soft: rgba(0,132,163,.16);
+    --pro-change-text: #00515f;
+    --pro-change-ink: #000709;
     --line: #ddd9cf;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -35,15 +42,17 @@
       --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
       --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
       --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: var(--red); --line: #262a33;
+      --pro-change: #00e5ff; --pro-change-soft: rgba(0,229,255,.16); --pro-change-text: var(--pro-change);
     }
   }
-  :root[data-theme="dark"] {
+  :root[data-theme="dark"], html.widget.overlay {
     --bg: #131519; --panel: #1a1d23; --cap: #232730; --cap-hi: #2a2f3a;
     --cap-edge: #343947; --cap-shadow: #0d0f13; --ink: #e6e8ee; --muted: #8b8f99;
     --faint: #565b66; --amber: #e8a33d; --amber-soft: rgba(232,163,61,.13);
     --blue: #6fa8e8; --blue-soft: rgba(111,168,232,.13); --red: #e06555;
     --red-soft: rgba(224,101,85,.12); --violet: #a48bf0; --violet-soft: rgba(164,139,240,.14);
     --green: #45b596; --green-soft: rgba(69,181,150,.14); --chg: var(--red); --line: #262a33;
+    --pro-change: #00e5ff; --pro-change-soft: rgba(0,229,255,.16); --pro-change-text: var(--pro-change);
   }
   :root[data-theme="light"] {
     --bg: #edeae4; --panel: #f6f5f1; --cap: #fbfaf7; --cap-hi: #ffffff;
@@ -52,6 +61,13 @@
     --blue: #2f6cb3; --blue-soft: rgba(47,108,179,.12); --red: #b3402f;
     --red-soft: rgba(179,64,47,.10); --violet: #6b4fbb; --violet-soft: rgba(107,79,187,.12);
     --green: #0f6e56; --green-soft: rgba(15,110,86,.12); --chg: var(--red); --line: #ddd9cf;
+    --pro-change: #0084a3; --pro-change-soft: rgba(0,132,163,.16); --pro-change-text: #00515f;
+  }
+  :root[data-theme="gruvbox"], :root[data-theme="midnight"] {
+    --pro-change: #00e5ff; --pro-change-soft: rgba(0,229,255,.16); --pro-change-text: var(--pro-change);
+  }
+  :root[data-theme="paper"] {
+    --pro-change: #0084a3; --pro-change-soft: rgba(0,132,163,.16); --pro-change-text: #00515f;
   }
 
   * { box-sizing: border-box; }
@@ -73,7 +89,7 @@
   }
   .eyebrow {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 14px;
     letter-spacing: .14em;
     text-transform: uppercase;
     color: var(--muted);
@@ -81,14 +97,14 @@
   }
   h1 {
     font-family: var(--mono);
-    font-size: clamp(20px, 3.4vw, 28px);
+    font-size: clamp(26px, 3.4vw, 36px);
     font-weight: 700;
     letter-spacing: -.01em;
     margin: 0;
     text-wrap: balance;
   }
   h1 .accent { color: var(--amber); }
-  .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 62ch; line-height: 1.5; }
+  .sub { color: var(--muted); font-size: 18px; margin: 0 0 22px; max-width: 62ch; line-height: 1.5; }
 
   .controls {
     display: flex;
@@ -108,7 +124,7 @@
   }
   .seg button {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     padding: 7px 16px;
     border: none;
@@ -127,7 +143,7 @@
   .viewpick { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .viewpick select {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     padding: 8px 10px;
     border: 1px solid var(--line);
@@ -137,12 +153,12 @@
     cursor: pointer;
   }
   .viewpick select:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
-  .viewpick .vs { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .viewpick .vs { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 
   .tabs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .tabs button {
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-size: 16px;
     font-weight: 600;
     padding: 7px 13px;
     border-radius: 8px;
@@ -161,16 +177,41 @@
   .tabs button[data-l="4"] .dot { background: var(--violet); }
   .tabs button[data-l="5"] .dot { background: var(--green); }
   .tabs button.on { color: var(--ink); border-color: var(--muted); background: var(--cap); }
+  .tabs .change-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pro-change-text);
+    background: var(--pro-change-soft);
+    border: 1px solid var(--pro-change);
+    border-radius: 5px;
+    padding: 2px 5px;
+    white-space: nowrap;
+  }
+  .tabs .change-count.zero { color: var(--muted); background: transparent; border-color: var(--line); }
 
   .reach {
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-size: 16px;
     color: var(--muted);
     margin: 0 0 10px;
-    min-height: 18px;
+    min-height: 24px;
+    line-height: 1.5;
   }
   .reach b { color: var(--ink); font-weight: 600; }
   .reach .warn { color: var(--red); font-weight: 600; }
+
+  .pro-change-summary {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--pro-change-text);
+    background: var(--pro-change-soft);
+    border-left: 3px solid var(--pro-change);
+    border-radius: 5px;
+    padding: 9px 12px;
+    margin: 0 0 12px;
+  }
+  .pro-change-summary.empty { color: var(--muted); background: var(--panel); border-color: var(--line); }
 
   .boardbox {
     background: var(--panel);
@@ -180,6 +221,10 @@
     overflow-x: auto;
   }
   .board { position: relative; margin: 0 auto; }
+  .boardbox { position: relative; }
+  .boardbox .seg { position: absolute; top: 10px; right: 10px; z-index: 3; }
+  .boardbox .seg button { font-size: 14px; padding: 5px 12px; }
+  html.widget .boardbox .seg { display: none; }
 
   /* side-by-side (both) mode */
   .boards { display: grid; grid-template-columns: 1fr; gap: 14px; }
@@ -187,7 +232,7 @@
   .boards.split { grid-template-columns: 1fr 1fr; }
   @media (max-width: 980px) { .boards.split { grid-template-columns: 1fr; } }
   .colcap {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    font-family: var(--mono); font-size: 14px; letter-spacing: .12em;
     text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
   }
   .colcap.pro { color: var(--amber); }
@@ -215,9 +260,9 @@
     pointer-events: none;
     background: var(--panel); padding: 1px 3px 2px; border-radius: 4px;
   }
-  /* ================= iris se ================= */
-  #app-ir .key { border-radius: calc(var(--u) * 0.13); gap: calc(var(--u) * 0.02); }
-  #app-ir .key .tap {
+  /* ================= keycaps: iris se + komax ================= */
+  :is(#app-ir, #app-km) .key { border-radius: calc(var(--u) * 0.13); gap: calc(var(--u) * 0.02); }
+  :is(#app-ir, #app-km) .key .tap {
     font-size: calc(var(--u) * 0.26);
     font-weight: 600;
     line-height: 1.05;
@@ -225,8 +270,8 @@
     color: var(--ink);
     white-space: nowrap;
   }
-  #app-ir .key .tap.small { font-size: calc(var(--u) * 0.185); }
-  #app-ir .key .hold {
+  :is(#app-ir, #app-km) .key .tap.small { font-size: calc(var(--u) * 0.185); }
+  :is(#app-ir, #app-km) .key .hold {
     font-size: calc(var(--u) * 0.15);
     font-weight: 700;
     letter-spacing: .06em;
@@ -235,32 +280,32 @@
     white-space: nowrap;
   }
 
-  #app-ir .key.trns { background: transparent; border-style: dashed; border-color: var(--line); box-shadow: none; }
-  #app-ir .key.trns .tap { color: var(--faint); font-weight: 400; }
+  :is(#app-ir, #app-km) .key.trns { background: transparent; border-style: dashed; border-color: var(--line); box-shadow: none; }
+  :is(#app-ir, #app-km) .key.trns .tap { color: var(--faint); font-weight: 400; }
 
-  #app-ir .key.mod { background: linear-gradient(180deg, var(--cap), var(--cap)); }
-  #app-ir .key.mod .tap { color: var(--muted); font-size: calc(var(--u)*0.185); }
+  :is(#app-ir, #app-km) .key.mod { background: linear-gradient(180deg, var(--cap), var(--cap)); }
+  :is(#app-ir, #app-km) .key.mod .tap { color: var(--muted); font-size: calc(var(--u)*0.185); }
 
-  #app-ir .key.lt1 { border-color: var(--amber); background: linear-gradient(180deg, var(--cap-hi), var(--amber-soft)); }
-  #app-ir .key.lt1 .hold { color: var(--amber); }
-  #app-ir .key.lt2 { border-color: var(--blue); background: linear-gradient(180deg, var(--cap-hi), var(--blue-soft)); }
-  #app-ir .key.lt2 .hold { color: var(--blue); }
-  #app-ir .key.sym .tap { color: var(--amber); }
-  #app-ir .key.nav .tap { color: var(--blue); }
+  :is(#app-ir, #app-km) .key.lt1 { border-color: var(--amber); background: linear-gradient(180deg, var(--cap-hi), var(--amber-soft)); }
+  :is(#app-ir, #app-km) .key.lt1 .hold { color: var(--amber); }
+  :is(#app-ir, #app-km) .key.lt2 { border-color: var(--blue); background: linear-gradient(180deg, var(--cap-hi), var(--blue-soft)); }
+  :is(#app-ir, #app-km) .key.lt2 .hold { color: var(--blue); }
+  :is(#app-ir, #app-km) .key.sym .tap { color: var(--amber); }
+  :is(#app-ir, #app-km) .key.nav .tap { color: var(--blue); }
 
 
-  #app-ir .key.boot { border-color: var(--red); background: var(--red-soft); }
-  #app-ir .key.boot .tap { color: var(--red); }
-  #app-ir .key.boot .hold { color: var(--red); }
+  :is(#app-ir, #app-km) .key.boot { border-color: var(--red); background: var(--red-soft); }
+  :is(#app-ir, #app-km) .key.boot .tap { color: var(--red); }
+  :is(#app-ir, #app-km) .key.boot .hold { color: var(--red); }
 
-  #app-ir .key.knob { border-radius: 50%; border-color: var(--green); background: radial-gradient(circle at 38% 32%, var(--cap-hi), var(--green-soft) 80%); }
-  #app-ir .key.knob .tap { font-size: calc(var(--u)*0.17); }
-  #app-ir .key.knob .turn { font-size: calc(var(--u)*0.11); color: var(--green); white-space: nowrap; line-height: 1.1; }
-  #app-ir .key.hyp { border-color: var(--violet); background: linear-gradient(180deg, var(--cap-hi), var(--violet-soft)); }
-  #app-ir .key.hyp .tap, #app-ir .key.hyp .hold { color: var(--violet); }
+  :is(#app-ir, #app-km) .key.knob { border-radius: 50%; border-color: var(--green); background: radial-gradient(circle at 38% 32%, var(--cap-hi), var(--green-soft) 80%); }
+  :is(#app-ir, #app-km) .key.knob .tap { font-size: calc(var(--u)*0.17); }
+  :is(#app-ir, #app-km) .key.knob .turn { font-size: calc(var(--u)*0.11); color: var(--green); white-space: nowrap; line-height: 1.1; }
+  :is(#app-ir, #app-km) .key.hyp { border-color: var(--violet); background: linear-gradient(180deg, var(--cap-hi), var(--violet-soft)); }
+  :is(#app-ir, #app-km) .key.hyp .tap, :is(#app-ir, #app-km) .key.hyp .hold { color: var(--violet); }
 
-  #app-ir .key.chg { outline: 2px solid var(--chg); outline-offset: 1px; }
-  #app-ir .key.chg::after {
+  :is(#app-ir, #app-km) .key.chg { outline: 2px solid var(--chg); outline-offset: 1px; }
+  :is(#app-ir, #app-km) .key.chg::after {
     content: "";
     position: absolute;
     top: calc(var(--u)*0.07);
@@ -270,6 +315,53 @@
     border-radius: 50%;
     background: var(--chg);
   }
+  :is(#app-ir, #app-km) .key.chg.pro-change {
+    outline: 3px solid var(--pro-change);
+    outline-offset: 2px;
+    background: linear-gradient(180deg, var(--cap-hi), var(--pro-change-soft));
+    box-shadow: 0 calc(var(--u)*0.05) 0 var(--cap-shadow), 0 0 0 6px var(--pro-change-soft);
+  }
+  :is(#app-ir, #app-km) .key.chg.pro-change::after {
+    content: "Δ";
+    top: 2px;
+    right: 3px;
+    width: auto;
+    height: auto;
+    padding: 1px 3px;
+    border-radius: 3px;
+    background: var(--pro-change);
+    color: var(--pro-change-ink);
+    font-size: max(9px, calc(var(--u)*0.14));
+    font-weight: 800;
+    line-height: 1;
+  }
+  /* ================= komax (keychron k0 max) ================= */
+  /* colour = machine: green POLLUX, red NEMESIS, amber work; blue = a screen */
+  #app-km .key.scr { border-color: var(--blue); background: linear-gradient(180deg, var(--cap-hi), var(--blue-soft)); }
+  #app-km .key.scr .tap, #app-km .key.scr .hold { color: var(--blue); }
+  #app-km .key.mpol { border-color: var(--green); background: linear-gradient(180deg, var(--cap-hi), var(--green-soft)); }
+  #app-km .key.mpol .tap, #app-km .key.mpol .hold { color: var(--green); }
+  #app-km .key.mnem { border-color: var(--red); background: linear-gradient(180deg, var(--cap-hi), var(--red-soft)); }
+  #app-km .key.mnem .tap, #app-km .key.mnem .hold { color: var(--red); }
+  #app-km .key.mwork { border-color: var(--amber); background: radial-gradient(circle at 38% 32%, var(--cap-hi), var(--amber-soft) 80%); }
+  #app-km .key.mwork .tap, #app-km .key.mwork .hold, #app-km .key.mwork .turn { color: var(--amber); }
+  #app-km .key.blank { background: transparent; border-style: dashed; box-shadow: none; }
+  #app-km .key.blank .tap { color: var(--faint); }
+  #app-km .key.blank .hold { color: var(--faint); }
+  #app-km .key.stock { opacity: .38; }
+  #app-km .key .tap.small { font-size: calc(var(--u) * 0.16); }
+  .legend .l-scr i  { background: var(--blue-soft);  border: 1px solid var(--blue); }
+  .legend .l-pol i  { background: var(--green-soft); border: 1px solid var(--green); }
+  .legend .l-nem i  { background: var(--red-soft);   border: 1px solid var(--red); }
+  .legend .l-work i { background: var(--amber-soft); border: 1px solid var(--amber); border-radius: 50%; }
+  .legend .l-stock i { background: var(--cap); border: 1px solid var(--line); opacity: .38; }
+  .legend .l-blank i { background: transparent; border: 1px dashed var(--line); }
+
+  /* ---- board picker (explore view) ---- */
+  .boardpick { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+  .boardpick .lab { font-family: var(--mono); font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  html.widget .boardpick { display: none; }
+
   /* ---- legend ---- */
   .legend {
     display: flex;
@@ -277,16 +369,18 @@
     gap: 14px;
     padding: 12px 4px 6px;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 15px;
     color: var(--muted);
   }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .legend span[hidden] { display: none; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
   .legend .l-sym i { background: var(--amber-soft); border: 1px solid var(--amber); }
   .legend .l-nav i { background: var(--blue-soft); border: 1px solid var(--blue); }
   .legend .l-hyp i { background: var(--violet-soft); border: 1px solid var(--violet); }
   .legend .l-trns i { background: transparent; border: 1px dashed var(--line); }
   .legend .l-chg i { background: transparent; border: 2px solid var(--chg); }
+  .legend .l-pro-change i { background: var(--pro-change-soft); border: 3px solid var(--pro-change); }
   .legend .l-green i  { background: var(--green-soft);  border: 1px solid var(--green); }
 
   /* ---- cards ---- */
@@ -305,19 +399,19 @@
   }
   .card h3 {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     letter-spacing: .12em;
     text-transform: uppercase;
     color: var(--muted);
     margin: 0 0 10px;
   }
-  .card ul { margin: 0; padding-left: 18px; line-height: 1.65; font-size: 13.5px; }
+  .card ul { margin: 0; padding-left: 22px; line-height: 1.65; font-size: 17.5px; }
   .card li { margin-bottom: 4px; }
   .card li::marker { color: var(--faint); }
   .card b { font-weight: 600; }
   .card .k {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     background: var(--cap);
     border: 1px solid var(--line);
     border-radius: 5px;
@@ -331,7 +425,7 @@
   .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 4px; }
   .chip {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     padding: 4px 10px;
     border-radius: 999px;
     border: 1px solid var(--line);
@@ -344,7 +438,7 @@
   footer {
     margin-top: 26px;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 14px;
     color: var(--faint);
     line-height: 1.6;
   }
@@ -370,11 +464,25 @@
   html.widget body { padding: 6px 8px 10px; }
   html.widget .masthead, html.widget .sub, html.widget .reach,
   html.widget .legend, html.widget .notes, html.widget .card,
-  html.widget footer, html.widget .controls .viewpick { display: none; }
+  html.widget footer, html.widget .controls .viewpick,
+  html.widget .pro-change-summary, html.widget .change-count { display: none; }
   html.widget .wrap { max-width: none; }
   html.widget .controls { margin-bottom: 8px; }
   html.widget .tabs button { font-size: 11px; padding: 4px 10px; }
   html.widget .boardbox { overflow: hidden; }
+  /* Hammerspoon enables window transparency only for the summoned overlay.
+     Keep keycaps opaque so text stays legible over a busy application. */
+  html.widget.overlay { background: transparent; }
+  html.widget.overlay body { background: transparent; padding: 12px; }
+  html.widget.overlay .wrap {
+    background: rgba(19, 21, 25, .88);
+    border: 1px solid rgba(230, 232, 238, .22);
+    border-radius: 20px;
+    padding: 14px;
+  }
+  html.widget.overlay .boardbox { background: transparent; border-color: rgba(230, 232, 238, .12); }
+  html.widget.overlay .tabs button { background: #232730; color: #e6e8ee; }
+  html.widget.overlay .tabs button.on { border-color: #8b8f99; background: #343947; }
 </style>
 
 <div class="wrap">
@@ -383,14 +491,20 @@
       <p class="eyebrow" id="eyebrow"></p>
       <h1>mrx keymap <span class="accent">explorer</span></h1>
     </div>
-    <div class="seg">
-      <button id="btn-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
+  </div>
+
+  <div id="explore">
+  <div class="boardpick">
+    <span class="lab">board</span>
+    <div class="seg" role="tablist" aria-label="board">
+      <button id="bd-ir" class="on">iris se</button>
+      <button id="bd-km">komax</button>
     </div>
   </div>
 
   <!-- ================= keebio iris se (rev. 8) ================= -->
   <div id="app-ir">
-    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v2 on board</b> since the 2026-09-29 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Walk the layers, hover any key for its QMK keycode; side by side against <b>Factory</b> rings what changed.</p>
+    <p class="sub">The <b>Keebio Iris SE</b> (USB reports <b>Iris Rev. 8</b>, RP2040): 56 keys, a knob on the left inner slot. <b>v3 on board</b> since the 2026-10-22 flash: <b>Dvorak and home-row mods</b>, symbols and nav on thumb holds. Hover any key for its QMK keycode. <b>v3 changes</b> highlights what changed from retired v2; use side by side to compare layouts.</p>
 
     <div class="controls">
       <div class="viewpick">
@@ -408,15 +522,22 @@
         <button data-l="2"><span class="dot"></span>2 &middot; Nav</button>
         <button data-l="3"><span class="dot"></span>3 &middot; System</button>
         <button data-l="4"><span class="dot"></span>4 &middot; Game</button>
+        <button data-l="5"><span class="dot"></span>5 &middot; Emacs</button>
       </div>
     </div>
 
     <p class="reach" id="ir-reach"></p>
+    <p class="pro-change-summary" id="ir-pro-change-summary" aria-live="polite" hidden></p>
 
     <div class="boards" id="ir-boards">
       <div>
         <p class="colcap" id="ir-cap-a" hidden></p>
-        <div class="boardbox"><div class="board" id="ir-board"></div></div>
+        <div class="boardbox">
+          <div class="seg">
+            <button id="btn-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
+          </div>
+          <div class="board" id="ir-board"></div>
+        </div>
       </div>
       <div id="ir-col-b" hidden>
         <p class="colcap pro" id="ir-cap-b"></p>
@@ -430,7 +551,8 @@
       <span class="l-hyp"><i></i>Hyper / Meh</span>
       <span class="l-green"><i style="border-radius:50%"></i>knob (press / turn)</span>
       <span class="l-trns"><i></i>transparent (falls through)</span>
-      <span class="l-chg"><i></i>changed vs factory / left board</span>
+      <span class="l-chg" id="ir-change-legend"><i></i>changed vs left board</span>
+      <span class="l-pro-change" id="ir-pro-change-legend" hidden><i></i>Δ v3 change vs previous v2</span>
     </div>
 
     <div class="notes">
@@ -444,7 +566,74 @@
       </div>
     </div>
 
-    <footer>layout ledger: factory = Keebio default (VIA, retired 2026-09-28) &rarr; v1 = keymaps/mrx (retired 2026-09-29) &rarr; v2 = + layer broadcast, Tab/Esc swap (on board, flashed 2026-09-29, both halves) &middot; full history in VERSIONS.md &middot; source of truth: ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c &middot; geometry: LAYOUT from keyboards/keebio/iris/rev8/keyboard.json (drawn unrotated, as QMK lists it) &middot; factory layers from keebio/iris/keymaps/default/keymap.json</footer>
+    <footer>layout ledger: factory = Keebio default (VIA, retired 2026-09-28) &rarr; v1 = keymaps/mrx (retired 2026-09-29) &rarr; v2 = + layer broadcast, Tab/Esc swap (retired 2026-10-22) &rarr; v3 = Nav reorder, knob scroll, Emacs layer, night lights (on board, flashed 2026-10-22, both halves) &middot; full history in VERSIONS.md &middot; source of truth: ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c &middot; geometry: LAYOUT from keyboards/keebio/iris/rev8/keyboard.json (drawn unrotated, as QMK lists it) &middot; factory layers from keebio/iris/keymaps/default/keymap.json</footer>
+  </div>
+
+  <!-- ================= komax (keychron k0 max) ================= -->
+  <div id="app-km" hidden>
+    <p class="sub">The <b>Keychron K0 Max</b>, called <b>KOMAX</b>: a 27-key numpad with a macro column and a knob, QMK, built from Keychron's fork like the Iris is built from mainline. <b>v1 flashed 2026-10-22.</b> The compiled desk grammar is on the pad: tap the screens, then the machine. Hover any key for its keycode.</p>
+
+    <div class="controls">
+      <div class="viewpick">
+        <div class="seg" role="tablist" aria-label="view">
+          <button id="btn-km-single" class="on">Single</button>
+          <button id="btn-km-both">Side by side</button>
+        </div>
+        <select id="sel-km-a" aria-label="layout version"></select>
+        <span class="vs" id="vs-km-sep" hidden>vs</span>
+        <select id="sel-km-b" aria-label="right layout version" hidden></select>
+      </div>
+      <div class="tabs" id="km-tabs">
+        <button data-l="0" class="on"><span class="dot"></span>0 &middot; Base</button>
+        <button data-l="1"><span class="dot"></span>1 &middot; Fn</button>
+      </div>
+    </div>
+
+    <p class="reach" id="km-reach"></p>
+    <p class="pro-change-summary" id="km-pro-change-summary" aria-live="polite" hidden></p>
+
+    <div class="boards" id="km-boards">
+      <div>
+        <p class="colcap" id="km-cap-a" hidden></p>
+        <div class="boardbox">
+          <div class="seg">
+            <button id="btn-km-idx" title="number every key — stable ids for talking about specific keys">key&nbsp;#s</button>
+          </div>
+          <div class="board" id="km-board"></div>
+        </div>
+      </div>
+      <div id="km-col-b" hidden>
+        <p class="colcap pro" id="km-cap-b"></p>
+        <div class="boardbox"><div class="board" id="km-board2"></div></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="l-scr"><i></i>screen (arms)</span>
+      <span class="l-pol"><i></i>POLLUX</span>
+      <span class="l-nem"><i></i>NEMESIS</span>
+      <span class="l-work"><i></i>work laptop</span>
+      <span class="l-green"><i style="border-radius:50%"></i>knob (press / turn)</span>
+      <span class="l-blank"><i></i>empty macro slot</span>
+      <span class="l-trns"><i></i>transparent (falls through)</span>
+      <span class="l-stock" id="km-stock-legend" hidden><i></i>stock, unchanged</span>
+      <span class="l-chg" id="km-change-legend"><i></i>changed vs left board</span>
+      <span class="l-pro-change" id="km-pro-change-legend" hidden><i></i>&Delta; v1 change vs stock</span>
+    </div>
+
+    <div class="notes">
+      <div class="card">
+        <h3 id="km-note-title"></h3>
+        <ul id="km-note-list"></ul>
+      </div>
+      <div class="card">
+        <h3 id="km-side-title"></h3>
+        <div id="km-side-body"></div>
+      </div>
+    </div>
+
+    <footer>layout ledger: stock = Keychron default (retired 2026-10-22) &rarr; v1 = desk grammar + night lights (flashed 2026-10-22) &middot; KOMAX ledger in VERSIONS.md &middot; source of truth: ~/qmk_keychron keyboards/keychron/k0_max/keymaps/mrx (Keychron fork, branch 2025q3, local branch mrx) &middot; geometry: LAYOUT_tenkey_27 from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware, branch 2025q3) &middot; stock layers and encoder map from keymaps/default/keymap.c &middot; plan: docs/active/plans/2026-10-21-komax-desk-grammar.md</footer>
+  </div>
   </div>
 </div>
 
@@ -453,6 +642,11 @@
 // (see live-keymap-widget-prd.md — activated by "&widget" in the hash)
 const WIDGET = location.hash.includes('widget');
 if (WIDGET) document.documentElement.classList.add('widget');
+
+// which board the explore view (and a widget webview) shows: "#komax" picks
+// the KOMAX pad, anything else the Iris. Only the active board renders, so
+// the shared __press index always belongs to the board on screen.
+window.__board = location.hash.includes('komax') ? 'km' : 'ir';
 
 // key-index overlay: numbers every keycap with its position in the keymap
 // arrays (0-55, LAYOUT order) so keys can be referenced unambiguously.
@@ -539,9 +733,9 @@ const fac2 = sparse(T, {
 });
 const facNone = sparse(T, {});
 
-// ---------- CURRENT v1 (keymaps/mrx, flashed 2026-09-28) ----------
-// Mirrors ~/qmk_firmware/keyboards/keebio/iris/keymaps/mrx/keymap.c key for
-// key; encoder_map turns ride on the #42 knob entries.
+// ---------- PREVIOUS v2 (retired 2026-10-22) ----------
+// Retired v2 baseline; current v3 is assembled below.
+// Encoder turns ride on the #42 knob entries.
 const cur0 = [
   K('Esc',null,'','KC_ESC'), ...row('1','2','3','4','5','6','7','8','9','0'), K('Bksp',null,'','KC_BSPC'),
   K('Tab',null,'','KC_TAB'), ...row("'",',','.','P','Y','F','G','C','R','L','/'),
@@ -621,13 +815,76 @@ const cur4 = sparse(T, {
   55: K('EXIT','TG 4','boot','TG(4)')
 });
 
+// ---------- CURRENT v3 (flashed 2026-10-22, both halves) ----------
+// d1 — the hotdox Emacs layer (git 8457210) ported to the Iris, plus the
+// bookmark popup on the free Nav slot. Only the layers that differ are new;
+// the rest point at the previous-version arrays.
+
+// Nav: #5 was the one blank on the daily-driver row. ⌃⌘B is the Hammerspoon
+// bookmark popup (macos/hammerspoon/bookmark-popup.lua), so no Mac-side change.
+const pro2 = cur2.slice();
+pro2[5] = K('Bookmk',null,'','LCG(KC_B)');
+// 2026-10-19: the daily drivers (#1-#5) swap with the unused Home/End/PgUp/
+// PgDn (#13-#17) so they sit on the top letter row, one reach closer.
+for (let i = 0; i < 5; i++) {
+  [pro2[1 + i], pro2[13 + i]] = [pro2[13 + i], pro2[1 + i]];
+}
+// Then reorder the row: Agenda, Recent, Layout, Bookmk, Scratch.
+[pro2[15], pro2[16], pro2[17]] = [pro2[16], pro2[17], pro2[15]];
+
+// System: Base S is free here. Cmd+Shift+4 starts CleanShot X area selection.
+const pro3 = cur3.slice();
+pro3[34] = K('Shot','Area','','LSG(KC_4)');
+
+// Knob: Base turns a real mouse wheel (MOUSEKEY_ENABLE), so held ⇧ / ⌘ / ⌥
+// give horizontal scroll / zoom / fast scroll from macOS with no firmware
+// code. Volume moves to Symbols; Prev/Next drop (rarely used).
+const pro0 = cur0.slice();
+pro0[42] = KNOB('Play', 'Scr▲', 'Scr▼', 'KC_MPLY', 'MS_WHLU', 'MS_WHLD');
+const pro1 = cur1.slice();
+pro1[23] = K('?', null, 'sym', 'KC_QUES'); // Base / position: direct ? on Symbols.
+pro1[42] = KNOB('Play', 'Vol−', 'Vol+', 'KC_MPLY', 'KC_VOLD', 'KC_VOLU');
+
+// Emacs layer (5): every letter fires the Emacs command starting with it, as
+// HYPR(letter) on its own Dvorak key. F H J K L E A T stay blank: those Hyper
+// combos are yabai / skhd. Door: both inner thumbs (#52 Bksp + #53 Tab)
+// pressed together = OSL(5), one command then back to base.
+const em = (t, l) => K(t, '✦' + l, 'hyp', 'HYPR(KC_' + l.toUpperCase() + ')');
+// ▸ = opens the matching SPC menu (H-<letter> replays C-SPC <letter>), 2026-10-22
+const emMenu = (t, l) => K(t + '▸', '✦' + l, 'hyp', 'HYPR(KC_' + l.toUpperCase() + ') → SPC ' + l + ' menu');
+const pro5 = sparse(T, {
+  16: em('project','p'),   // projectile-find-file   live
+  19: em('magit','g'),     // magit-status           live
+  20: emMenu('agent','c'), // SPC c Agent Shell menu live
+  21: em('recent','r'),    // consult-recent-file    live
+  26: em('window','o'),    // ace-window             live
+  29: em('imenu','i'),     // consult-imenu          live
+  30: em('dired','d'),     // dired-jump             live
+  34: em('search','s'),    // consult-line           live
+  38: em('ask AI','q'),    // mr-x/quick-ask (= SPC q) live
+  41: em('M-x','x'),       // execute-extended-cmd   live
+  44: em('buffer','b'),    // consult-buffer         live
+  45: emMenu('bookmk','m'), // SPC m bookmarks menu live
+  46: emMenu('window','w'), // SPC w window menu     live
+  47: emMenu('vterm','v'), // SPC v vterm menu      live
+  52: K('Emacs','DOOR','boot','combo #52+#53 → OSL(5)'),
+  53: K('Emacs','DOOR','boot','combo #52+#53 → OSL(5)')
+});
+const none5 = sparse(T, {});
+
 const MAPS = {
-  fac: [fac0, fac1, fac2, facNone, facNone],
-  cur: [cur0, cur1, cur2, cur3, cur4]
+  fac: [fac0, fac1, fac2, facNone, facNone, none5],
+  prev: [cur0, cur1, cur2, cur3, cur4, none5],
+  cur: [pro0, pro1, pro2, pro3, cur4, pro5],
+  pro: [pro0, pro1, pro2, pro3, cur4, pro5]
 };
+// Practice shares the current board's physical geometry and legends.
+window.IrisLayout = { geometry: GEO, base: MAPS.cur[0], symbols: MAPS.cur[1] };
 const LAYOUTS = {
   fac: { v: 0, status: 'retired 2026-09-28', name: 'factory' },
-  cur: { v: 1, status: 'on board — flashed 2026-09-29', name: 'current v2' }
+  prev: { v: 2, status: 'retired 2026-10-22', name: 'previous v2' },
+  cur: { v: 3, status: 'on board — flashed 2026-10-22, both halves', name: 'current v3' },
+  pro: { v: 3, status: 'on board — changes since v2', name: 'v3 changes' }
 };
 
 // ---------- copy ----------
@@ -647,6 +904,14 @@ const REACH = {
     'Toggle with <b>Game</b> on System. Full QWERTY, no mod-taps, <b>EXIT</b> on the right outer thumb.'
   ]
 };
+REACH.fac[5] = REACH.cur[5] =
+  '<span class="warn">Not in this version.</span> This retired layout has no Emacs layer; browse it on <b>current v3</b>. Holding <b>✦</b> (left outer thumb) + the letter already reaches the same Emacs commands today.';
+REACH.pro = REACH.cur.slice();
+REACH.pro[0] = REACH.cur[0].replace('turn for volume, press for Play', '<b>turn to scroll</b>, press for Play; hold ⇧ / ⌘ / ⌥ while turning for horizontal / zoom / fast');
+REACH.pro[1] = REACH.cur[1].replace('Knob skips tracks.', '<b>Knob turns volume</b> (moved here from Base).') + ' <b>#23</b> (Base <span class="k">/</span>) types <span class="k">?</span> directly, no Shift.';
+REACH.pro[2] = REACH.cur[2] + ' <b>Top letter row (#13–#17):</b> Agenda, Recent, Layout, Bookmarks (⌃⌘B), Scratch. Home, End, PgUp and PgDn are on the number row.';
+REACH.pro[3] = REACH.cur[3] + ' Tap <b>S (#34)</b> for <b>Shot · Area</b>: ⌘⇧4 starts CleanShot X area selection.';
+REACH.pro[5] = 'Press <b>both inner thumbs</b> together (Bksp + Tab), then tap one letter: <b>every letter is its Emacs command</b>. ✦i imenu, ✦s search, ✦m bookmarks… One command, then back to base. <b>F H J K L E A T stay blank</b>: those Hyper combos are yabai.';
 
 const NOTES = {
   fac: ['Factory keymap', [
@@ -654,24 +919,40 @@ const NOTES = {
     'Retired by the v1 flash. <span class="k">VIA_ENABLE = no</span> in mrx, so the compiled keymap is the only one.',
     'Get it back: <b>Lower + R</b> (left) or <b>Raise + Del</b> (right) on factory firmware, or flash Keebio\'s default <span class="k">.uf2</span>.'
   ]],
-  cur: ['How v2 is laid out', [
+  cur: ['Previous v2 (retired)', [
     '<b>Home-row mods, mirrored:</b> ⌃ ⌥ ⌘ ⇧ ◆ on A O E U I, ✦ ⇧ ⌘ ⌥ ⌃ on D H T N S.',
     '<b>Thumbs:</b> left Space/Sym outer, Bksp/⌃ inner; right Tab inner, Enter/Nav outer. The outermost thumbs hold <span class="k">✦</span> / <span class="k">◆</span>, so ✦ H/J/K/L focus stays cross-hand (✦ on <b>D</b> is the same finger as <b>H</b>).',
     '<b>The knob (#42) takes media:</b> base turns volume and presses Play; Symbols turns Prev/Next; Nav turns Tab◀/Tab▶ and presses Mute; System turns brightness and presses RGB toggle. Game falls through to volume.',
     '<b>Nav</b> carries what 56 keys cannot hold on base: Agenda/Recent/Scratch/Layout on the left number row, Caps Word on Tab, Nav LOCK on Shift. ⌘Tab keeps the hotdox grip: hold <b>E</b> (left ⌘) and tap the right thumb Tab.',
     '<b>Live widget:</b> the firmware broadcasts <span class="k">[0x4C, layer]</span> over raw HID so the wallpaper widget follows layers .',
-    '<span class="warn">Open:</span> an Emacs layer (drafted for the hotdox, git <span class="k">8457210</span>) is not ported yet.'
+    'This retired v2 layout has no Emacs layer. Select <b>current v3</b> for the flashed Emacs layer and thumb combo.'
+  ]],
+  pro: ['v3 changes since v2', [
+    '<b>Symbols #23 = ?</b> (<span class="k">KC_QUES</span>): the Base <span class="k">/</span> position types a question mark directly while Symbols is held, no Shift.',
+    '<b>Nav daily drivers move up a row:</b> Agenda / Recent / Layout / Bookmarks (new, <span class="k">LCG(KC_B)</span>, the Hammerspoon ⌃⌘B popup) / Scratch now sit on the top letter row (#13-#17). Home / End / PgUp / PgDn swap onto the number row.',
+    '<b>System #34 = Shot · Area</b> (<span class="k">LSG(KC_4)</span>): hold Space + Enter, tap the Base S position. Sends ⌘⇧4 to start CleanShot X area selection; flashed on both halves.',
+    '<b>Emacs layer (5), ported from the hotdox:</b> each key sends <span class="k">HYPR(letter)</span> on its own Dvorak position. All 14 are bound in <span class="k">emacs.org</span> (2026-10-22). Hybrid: most letters are one command; <b>▸ c m v w</b> open their <span class="k">SPC</span> menu (Agent Shell, bookmarks, vterm, window), replayed as <span class="k">C-SPC</span> so which-key labels match.',
+    '<b>Door = both inner thumbs</b> (#52 Bksp + #53 Tab) as a QMK combo → <span class="k">OSL(5)</span>. The hotdox door was Bksp + Esc; on the Iris those sit on opposite hands, the two inner thumbs are side by side.',
+    '<span class="warn">Risk:</span> ⌃Tab (hold Bksp, tap Tab) must not fire the combo. A combo only triggers when both keys land inside <span class="k">COMBO_TERM</span> (~50 ms), so a held ⌃ then Tab is safe; a fast mash is not.',
+    '<b>Blank = reserved:</b> F H J K L E A T are yabai Hyper binds. Free for more: N U ; Z Y \' , .',
+    '<b>Knob turns a mouse wheel on Base</b> (<span class="k">MS_WHLU / MS_WHLD</span>, needs <span class="k">MOUSEKEY_ENABLE = yes</span>). Held ⇧ / ⌘ / ⌥ give horizontal / zoom / fast scroll from macOS, no handler. Volume moves to the Symbols turn; Prev/Next drop.',
+    '<b>Unchanged:</b> Game.'
   ]]
 };
+REACH.prev = REACH.cur;
+REACH.cur = REACH.pro;
+NOTES.prev = NOTES.cur;
+NOTES.cur = ['Current v3', NOTES.pro[1]];
+
 const NOTES_L = {   // per-layer extra card on current
   1: '<span class="k">{ }</span> top, <span class="k">( )</span> home, <span class="k">[ ]</span> bottom on the left middle+index; <span class="k">&amp; = * + |</span> on right home.',
   2: 'One activator, right thumb <b>Enter</b>. The left hand gets arrows, tabs and daily drivers; the right hand gets the numpad. Tap <b>Nav LOCK</b> for long numpad runs.',
   3: 'Tri-layer: <span class="k">update_tri_layer_state(1, 2, 3)</span>.',
-  4: 'Solid red RGB while active, via <span class="k">rgb_matrix_indicators_user</span>. The knob and <b>#43</b> stay transparent, so volume and Sym still work mid-game.'
+  4: 'Solid red RGB while active, via <span class="k">rgb_matrix_indicators_user</span>. The knob and <b>#43</b> stay transparent, so scrolling and Sym still work mid-game.'
 };
 
 // ---------- render ----------
-let mode = 'single', sel1 = 'cur', sel2 = 'fac', layer = 0;
+let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
 const app = document.getElementById('app-ir');
 const boards = document.getElementById('ir-boards');
 const colB = document.getElementById('ir-col-b');
@@ -694,6 +975,10 @@ const KEYTOK = {
 };
 const LI = x => '<li>' + x + '</li>';
 
+const keyDiffers = (key, other) => JSON.stringify(key) !== JSON.stringify(other);
+const proposedChangeCounts = MAPS.pro.map((keys, l) =>
+  keys.filter((key, i) => keyDiffers(key, MAPS.prev[l][i])).length);
+
 function drawBoard(board, vw, ringVs) {
   const w = board.parentElement.clientWidth - 28;
   // widget: fill the window, bounded by whichever of width/height runs out first
@@ -706,13 +991,13 @@ function drawBoard(board, vw, ringVs) {
   board.style.height = (UH * u) + 'px';
   board.innerHTML = '';
   const keys = MAPS[vw][layer];
-  const base = ringVs ? MAPS[ringVs][layer] : null;
+  const base = vw === 'pro' ? MAPS.prev[layer] : ringVs ? MAPS[ringVs][layer] : null;
   const mods = window.__mods || {};
   keys.forEach((k, i) => {
     const [x, y] = GEO[i];
     const d = document.createElement('div');
     let cls = 'key ' + (k.k || '');
-    if (base && JSON.stringify(k) !== JSON.stringify(base[i])) cls += ' chg';
+    if (base && keyDiffers(k, base[i])) cls += vw === 'pro' ? ' chg pro-change' : ' chg';
     const held = k.k === 'mod' ? mods[MODCAP[k.t]]
                : (k.h && MODGLYPH[k.h]) ? mods[MODGLYPH[k.h]] : false;
     if (held) cls += ' held';
@@ -751,8 +1036,33 @@ function drawBoard(board, vw, ringVs) {
 const vtag = vw => LAYOUTS[vw].name;
 
 function render() {
+  if (app.hidden) return;                // KOMAX is showing; keep its __press
   window.__press = {};                   // drawBoard re-registers keycaps
   const both = mode === 'both';
+  const proposedVisible = !WIDGET && (sel1 === 'pro' || (both && sel2 === 'pro'));
+  document.getElementById('ir-pro-change-legend').hidden = !proposedVisible;
+  document.getElementById('ir-change-legend').hidden = !both || sel1 === sel2 || sel2 === 'pro';
+  document.querySelectorAll('#ir-tabs button').forEach(button => {
+    let badge = button.querySelector('.change-count');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'change-count';
+      button.appendChild(badge);
+    }
+    const count = proposedChangeCounts[+button.dataset.l];
+    badge.hidden = !proposedVisible;
+    badge.textContent = 'Δ ' + count;
+    badge.classList.toggle('zero', count === 0);
+    badge.setAttribute('aria-label', count + ' release ' + (count === 1 ? 'change' : 'changes'));
+  });
+  const summary = document.getElementById('ir-pro-change-summary');
+  const count = proposedChangeCounts[layer];
+  const layerName = ['Base', 'Symbols', 'Nav', 'System', 'Game', 'Emacs'][layer];
+  summary.hidden = !proposedVisible;
+  summary.classList.toggle('empty', count === 0);
+  summary.textContent = count
+    ? 'Δ ' + count + ' release ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from previous v2'
+    : 'No release changes in ' + layerName + ' · matches previous v2';
   app.classList.toggle('both', both);
   boards.classList.toggle('split', both);
   colB.hidden = !both;
@@ -762,7 +1072,7 @@ function render() {
     drawBoard(board2, sel2, sel1 !== sel2 ? sel1 : null);
     capA.textContent = vtag(sel1) + ' — ' + LAYOUTS[sel1].status;
     capB.textContent = vtag(sel2) + ' — ' + LAYOUTS[sel2].status +
-      (sel1 !== sel2 ? ' — changes vs left ringed' : '');
+      (sel1 !== sel2 && sel2 !== 'pro' ? ' — changes vs left ringed' : '');
   } else {
     drawBoard(board1, sel1);
   }
@@ -778,10 +1088,10 @@ function render() {
   const sb = document.getElementById('ir-side-body');
   if (sel1 === 'cur' && NOTES_L[layer]) {
     st.textContent = 'This layer';
-    sb.innerHTML = '<p style="margin:0;font-size:13.5px;line-height:1.65">' + NOTES_L[layer] + '</p>';
+    sb.innerHTML = '<p style="margin:0;font-size:17.5px;line-height:1.65">' + NOTES_L[layer] + '</p>';
   } else {
     st.textContent = 'Flashing (runbook: FLASHING.md)';
-    sb.innerHTML = '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:13.5px">' +
+    sb.innerHTML = '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:17.5px">' +
       '<li><span class="k">qmk flash -kb keebio/iris/rev8 -km mrx</span> waits for the <span class="k">RPI-RP2</span> drive.</li>' +
       '<li>Bootloader: <b>BOOT</b> on System (Space + Enter held), or double-tap the reset button under the plate.</li>' +
       '<li><span class="warn">Flash both halves</span> with the same <span class="k">.uf2</span>. One mrx half + one factory half = dead keyboard.</li></ul>';
@@ -791,7 +1101,9 @@ function render() {
 const selA = document.getElementById('sel-ir-a');
 const selB = document.getElementById('sel-ir-b');
 for (const s of [selA, selB]) {
-  s.add(new Option('Current v2 · on board', 'cur'));
+  s.add(new Option('Current v3 · on board', 'cur'));
+  s.add(new Option('Previous v2 · retired', 'prev'));
+  s.add(new Option('v3 changes · vs previous v2', 'pro'));
   s.add(new Option('Factory · retired', 'fac'));
 }
 selA.value = sel1;
@@ -820,6 +1132,269 @@ return render;
 })();
 
 // ===========================================================================
+// komax (keychron k0 max) explorer
+// ===========================================================================
+const renderKm = (() => {
+
+// ---- physical geometry: [x, y, w, h] in key units, LAYOUT_tenkey_27 order
+// from keyboards/keychron/k0_max/keyboard.json (Keychron qmk_firmware 2025q3).
+// #0 is the knob; #14 (+) and #26 (Enter) are 2u tall, #24 (0) is 2u wide ----
+const GEO = [
+  [0,0,1,1],    [1.25,0,1,1],    [2.25,0,1,1],    [3.25,0,1,1],    [4.25,0,1,1],
+  [0,1.25,1,1], [1.25,1.25,1,1], [2.25,1.25,1,1], [3.25,1.25,1,1], [4.25,1.25,1,1],
+  [0,2.25,1,1], [1.25,2.25,1,1], [2.25,2.25,1,1], [3.25,2.25,1,1], [4.25,2.25,1,2],
+  [0,3.25,1,1], [1.25,3.25,1,1], [2.25,3.25,1,1], [3.25,3.25,1,1],
+  [0,4.25,1,1], [1.25,4.25,1,1], [2.25,4.25,1,1], [3.25,4.25,1,1],
+  [0,5.25,1,1], [1.25,5.25,2,1], [3.25,5.25,1,1], [4.25,4.25,1,2]
+];
+const UW = 5.25, UH = 6.25;
+
+// t tap legend, h hold/sub legend, k classes, c keycode (tooltip), tok the
+// __flashKey token Hammerspoon sends for this key (null = no keyDown event)
+const K = (t, h, k, c, tok) => ({ t, h: h || null, k: k || '', c: c || '', tok: tok || null });
+const T = K('▽', null, 'trns', 'KC_TRNS');
+const KNOB = (t, ccw, cw, c, k, tok) => Object.assign(K(t, null, 'knob ' + (k || ''), c, tok), { e: [ccw, cw] });
+
+// ---------- STOCK (keymaps/default — retired 2026-10-22) ----------
+const cur0 = [
+  KNOB('mute', 'vol−', 'vol+', 'KC_MUTE (knob)'),
+  K('esc', null, '', 'KC_ESC', 'esc'), K('del', null, '', 'KC_DEL', 'del'),
+  K('tab', null, '', 'KC_TAB', 'tab'), K('bksp', null, '', 'KC_BSPC', 'bksp'),
+  K('M1', 'empty', 'blank', 'MC_1 (empty macro slot)'),
+  K('num', null, 'mod', 'KC_NUM', 'padclear'), K('/', null, '', 'KC_PSLS', 'pad/'),
+  K('*', null, '', 'KC_PAST', 'pad*'), K('-', null, '', 'KC_PMNS', 'pad-'),
+  K('M2', 'empty', 'blank', 'MC_2 (empty macro slot)'),
+  K('7', null, '', 'KC_P7', 'pad7'), K('8', null, '', 'KC_P8', 'pad8'),
+  K('9', null, '', 'KC_P9', 'pad9'), K('+', null, '', 'KC_PPLS', 'pad+'),
+  K('M3', 'empty', 'blank', 'MC_3 (empty macro slot)'),
+  K('4', null, '', 'KC_P4', 'pad4'), K('5', null, '', 'KC_P5', 'pad5'), K('6', null, '', 'KC_P6', 'pad6'),
+  K('M4', 'empty', 'blank', 'MC_4 (empty macro slot)'),
+  K('1', null, '', 'KC_P1', 'pad1'), K('2', null, '', 'KC_P2', 'pad2'), K('3', null, '', 'KC_P3', 'pad3'),
+  K('Fn', 'hold', 'lt2', 'MO(1) (hold for Fn)'),
+  K('0', null, '', 'KC_P0', 'pad0'), K('.', null, '', 'KC_PDOT', 'pad.'),
+  K('enter', null, '', 'KC_PENT', 'enter')
+];
+const cur1 = [
+  KNOB('rgb', 'bri−', 'bri+', 'UG_TOGG (knob)'),
+  K('BT1', null, 'nav', 'BT_HST1'), K('BT2', null, 'nav', 'BT_HST2'),
+  K('BT3', null, 'nav', 'BT_HST3'), K('2.4G', null, 'nav', 'P2P4G'),
+  T, K('mode+', null, 'nav', 'UG_NEXT'), K('bri+', null, 'nav', 'UG_VALU'), K('hue+', null, 'nav', 'UG_HUEU'), T,
+  T, K('mode−', null, 'nav', 'UG_PREV'), K('bri−', null, 'nav', 'UG_VALD'), K('hue−', null, 'nav', 'UG_HUED'), T,
+  T, K('sat+', null, 'nav', 'UG_SATU'), K('spd+', null, 'nav', 'UG_SPDU'), K('prev', null, 'nav', 'KC_MPRV'),
+  T, K('sat−', null, 'nav', 'UG_SATD'), K('spd−', null, 'nav', 'UG_SPDD'), K('play', null, 'nav', 'KC_MPLY'),
+  K('Fn', 'held', 'lt2', 'MO(1) (held)'), K('rgb', null, 'nav', 'UG_TOGG'), K('next', null, 'nav', 'KC_MNXT'), T
+];
+
+// ---------- CURRENT v1 (the desk grammar, docs/active/plans/2026-10-21-komax-desk-grammar.md) ----------
+// Screens arm, machines fire. Colour = machine. Everything else stays stock.
+const pro0 = cur0.slice();
+pro0[0]  = KNOB('WORK', 'vol−', 'vol+', 'KC_F19 (knob press) · fire: work laptop', 'mwork', 'f19');
+pro0[5]  = K('ROMULUS', 'screen', 'scr',  'KC_F13 · arm ROMULUS', 'f13');
+pro0[10] = K('REMUS',   'screen', 'scr',  'KC_F14 · arm REMUS', 'f14');
+pro0[15] = K('NYX',     'screen', 'scr',  'KC_F15 · arm NYX', 'f15');
+pro0[19] = K('POLLUX',  'machine', 'mpol', 'KC_F16 · fire: POLLUX', 'f16');
+pro0[23] = K('NEMESIS', 'machine', 'mnem', 'KC_F17 · fire: NEMESIS (replaces Fn)', 'f17');
+const pro1 = cur1.slice();
+pro1[23] = T; // Compiled Fn layer falls through to F17; knob+Enter holds Fn.
+
+const MAPS = { prev: [cur0, cur1], cur: [pro0, pro1], pro: [pro0, pro1] };
+const LAYOUTS = {
+  prev: { status: 'retired 2026-10-22 — Keychron default', name: 'stock' },
+  cur: { status: 'on the pad — flashed 2026-10-22', name: 'current v1' },
+  pro: { status: 'on the pad — changes since stock', name: 'v1 changes' }
+};
+
+// ---------- copy ----------
+const REACH = {
+  cur: [
+    'Keychron stock: a numpad, <b>four empty macro slots</b> (M1&ndash;M4 send nothing until programmed) and <b>Fn</b> bottom-left. Knob turns volume, press mutes.',
+    'Hold <b>Fn</b> (#23). Bluetooth slots 1&ndash;3 and 2.4 GHz on the top row, RGB, and Prev / Play / Next. Knob turns brightness, press toggles RGB.'
+  ],
+  pro: [
+    '<b>Screen, then machine.</b> Tap screens (<b>ROMULUS</b>, <b>REMUS</b>, <b>NYX</b>) to arm them, then a machine (<b>POLLUX</b>, <b>NEMESIS</b>, or the knob press for <b>WORK</b>) to send them there. Nothing armed: POLLUX or NEMESIS moves both Dells. Arming expires 3 s after the last screen tap. Greyed keys stay stock.',
+    'Hold the <b>knob press + Enter</b> together to reach Fn. The top row has Bluetooth slots and <b>P2P4G</b> on the physical <b>X</b> key for dongle re-pairing. Numpad lighting and media controls remain available; <b>0</b> toggles RGB and the knob turns brightness.'
+  ]
+};
+const NOTES = {
+  cur: ['Stock keymap', [
+    'Keychron\'s <span class="k">keymaps/default</span> (qmk_firmware branch <span class="k">2025q3</span>, <span class="k">LAYOUT_tenkey_27</span>), as shipped.',
+    '<b>M1&ndash;M4 are empty macro slots</b> (<span class="k">MC_1</span>&ndash;<span class="k">MC_4</span>): they send nothing.',
+    '<b>The bottom-left key is Fn</b> (<span class="k">MO(1)</span>), not a fifth macro key.',
+    '<b>Host-side stopgap, not on the pad:</b> while KOMAX sat on NEMESIS, <span class="k">pad-fluid.ahk</span> turned <span class="k">*</span> into F20 for Fluid dictation. The desk-grammar plan retires it.',
+    '<b>No live layer tracking:</b> Keychron\'s firmware sends no raw-HID layer frame, so the widget stays on Base. Key flash still works.'
+  ]],
+  pro: ['v1 changes since stock', [
+    'From the KOMAX desk-grammar plan: <b>M1</b> F13 ROMULUS, <b>M2</b> F14 REMUS, <b>M3</b> F15 NYX, <b>M4</b> F16 POLLUX, <b>M5</b> F17 NEMESIS, <b>knob press</b> F19 WORK. skhd turns each into <span class="k">monitor-mode.sh arm</span> or <span class="k">fire</span>.',
+    '<b>Colour = machine:</b> green POLLUX, red NEMESIS, amber the work laptop. Blue keys are screens.',
+    '<b>M5 (#23) sends F17 for NEMESIS.</b> This physical cap reads M5; it occupied the stock Fn position. Hold <b>knob press + Enter</b> to reach the retained Fn layer.',
+    '<b>Daily connection: the 2.4 GHz dongle on POLLUX</b> (decided 2026-10-22). The USB-C cable is for flashing. If the dongle ever drops: knob press + Enter opens the hidden Fn layer, then <span class="k">P2P4G</span> (#4) re-pairs.',
+    '<b>Unchanged:</b> the numpad, the Esc / Del / Tab / Bksp row, and the knob turn (volume). Greyed in this view.',
+    '<b>Compiled firmware, flashed like the Iris</b>: <span class="k">keymaps/mrx</span> in a checkout of Keychron\'s QMK fork, <span class="k">VIA_ENABLE = no</span> so Launcher cannot override it. F13 to F19 because macOS ignores F20 and up from hardware keyboards.',
+    '<b>Night lights:</b> "good night" / "good morning" send a raw-HID frame (tag <span class="k">0x4E</span>) that darkens the pad and restores its saved look, by cable or through the dongle. Same message as the Iris; <span class="k">keyboard-lights off|on</span> on POLLUX.'
+  ]]
+};
+
+REACH.prev = REACH.cur;
+REACH.cur = REACH.pro;
+NOTES.prev = NOTES.cur;
+NOTES.cur = ['Current v1', NOTES.pro[1]];
+
+// ---------- render ----------
+let mode = 'single', sel1 = 'cur', sel2 = 'pro', layer = 0;
+const app = document.getElementById('app-km');
+const boards = document.getElementById('km-boards');
+const colB = document.getElementById('km-col-b');
+const capA = document.getElementById('km-cap-a');
+const capB = document.getElementById('km-cap-b');
+const board1 = document.getElementById('km-board');
+const board2 = document.getElementById('km-board2');
+const LI = x => '<li>' + x + '</li>';
+const keyDiffers = (key, other) => JSON.stringify(key) !== JSON.stringify(other);
+const proposedChangeCounts = MAPS.pro.map((keys, l) =>
+  keys.filter((key, i) => keyDiffers(key, MAPS.prev[l][i])).length);
+
+function drawBoard(board, vw, ringVs) {
+  const w = board.parentElement.clientWidth - 28;
+  const u = WIDGET
+    ? Math.max(24, Math.floor(Math.min(w / UW,
+        (window.innerHeight - board.parentElement.getBoundingClientRect().top - 40) / UH)))
+    : Math.max(24, Math.min(100, Math.floor(w / UW)));
+  board.style.setProperty('--u', u + 'px');
+  board.style.width = (UW * u) + 'px';
+  board.style.height = (UH * u) + 'px';
+  board.innerHTML = '';
+  const keys = MAPS[vw][layer];
+  const base = vw === 'pro' ? MAPS.prev[layer] : ringVs ? MAPS[ringVs][layer] : null;
+  keys.forEach((k, i) => {
+    const [x, y, kw, kh] = GEO[i];
+    const d = document.createElement('div');
+    let cls = 'key ' + k.k;
+    if (base && keyDiffers(k, base[i])) cls += vw === 'pro' ? ' chg pro-change' : ' chg';
+    else if (vw === 'pro' && layer === 0) cls += ' stock';   // the plan's "stock, greyed"
+    d.className = cls;
+    d.style.left = (x * u + 2) + 'px';
+    d.style.top = (y * u + 2) + 'px';
+    d.style.width = (kw * u - 4) + 'px';
+    d.style.height = (kh * u - 4) + 'px';
+    d.innerHTML = '<span class="tap' + (k.t.length > 4 ? ' small' : '') + '"></span>' +
+                  (k.h ? '<span class="hold"></span>' : '');
+    d.querySelector('.tap').textContent = k.t;
+    if (k.h) d.querySelector('.hold').textContent = k.h;
+    if (k.e) {
+      const e = document.createElement('span');
+      e.className = 'turn';
+      e.textContent = k.e[0] + ' ' + k.e[1];
+      d.appendChild(e);
+    }
+    d.title = '#' + i + ' · ' + (k.c || 'KC_TRNS');
+    if (window.__showIdx) {
+      const s = document.createElement('span');
+      s.className = 'idx';
+      s.textContent = i;
+      d.appendChild(s);
+    }
+    if (k.tok) {
+      (window.__press[k.tok] = window.__press[k.tok] || []).push(d);
+      if (window.__pressed.has(k.tok)) d.classList.add('press');
+    }
+    board.appendChild(d);
+  });
+}
+
+const vtag = vw => LAYOUTS[vw].name;
+
+function render() {
+  if (app.hidden) return;
+  window.__press = {};
+  const both = mode === 'both';
+  const proposedVisible = !WIDGET && (sel1 === 'pro' || (both && sel2 === 'pro'));
+  document.getElementById('km-pro-change-legend').hidden = !proposedVisible;
+  document.getElementById('km-stock-legend').hidden = !proposedVisible;
+  document.getElementById('km-change-legend').hidden = !both || sel1 === sel2 || sel2 === 'pro';
+  document.querySelectorAll('#km-tabs button').forEach(button => {
+    let badge = button.querySelector('.change-count');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'change-count';
+      button.appendChild(badge);
+    }
+    const count = proposedChangeCounts[+button.dataset.l];
+    badge.hidden = !proposedVisible;
+    badge.textContent = 'Δ ' + count;
+    badge.classList.toggle('zero', count === 0);
+    badge.setAttribute('aria-label', count + ' release ' + (count === 1 ? 'change' : 'changes'));
+  });
+  const summary = document.getElementById('km-pro-change-summary');
+  const count = proposedChangeCounts[layer];
+  const layerName = ['Base', 'Fn'][layer];
+  summary.hidden = !proposedVisible;
+  summary.classList.toggle('empty', count === 0);
+  summary.textContent = count
+    ? 'Δ ' + count + ' release ' + (count === 1 ? 'change' : 'changes') + ' in ' + layerName + ' · highlighted keys differ from stock'
+    : 'No release changes in ' + layerName + ' · matches stock';
+  boards.classList.toggle('split', both);
+  colB.hidden = !both;
+  capA.hidden = !both;
+  if (both) {
+    drawBoard(board1, sel1);
+    drawBoard(board2, sel2, sel1 !== sel2 ? sel1 : null);
+    capA.textContent = vtag(sel1) + ' — ' + LAYOUTS[sel1].status;
+    capB.textContent = vtag(sel2) + ' — ' + LAYOUTS[sel2].status +
+      (sel1 !== sel2 && sel2 !== 'pro' ? ' — changes vs left ringed' : '');
+  } else {
+    drawBoard(board1, sel1);
+  }
+  document.getElementById('km-reach').innerHTML = both
+    ? '<b>' + vtag(sel1) + '</b> &middot; ' + REACH[sel1][layer] +
+      '<br><span class="prolab">' + vtag(sel2) + '</span> &middot; ' + REACH[sel2][layer]
+    : REACH[sel1][layer];
+  const [title, items] = NOTES[sel1];
+  document.getElementById('km-note-title').textContent = title;
+  document.getElementById('km-note-list').innerHTML = items.map(LI).join('');
+  document.getElementById('km-side-title').textContent = 'Programming (runbook: FLASHING.md)';
+  document.getElementById('km-side-body').innerHTML =
+    '<ul style="margin:0;padding-left:18px;line-height:1.65;font-size:17.5px">' +
+    '<li>Compiled firmware: <span class="k">qmk compile -kb keychron/k0_max -km mrx</span> in <span class="k">~/qmk_keychron</span> (Keychron fork, branch 2025q3).</li>' +
+    '<li>Flash over the <b>USB-C cable</b>: hold the <b>circle (○) key immediately right of the knob</b> while plugging in (Esc position, bootmagic), then <span class="k">qmk flash</span>. The dongle cannot flash it.</li>' +
+    '<li>After a change, record it in the KOMAX ledger in <span class="k">VERSIONS.md</span> and update the data here.</li></ul>';
+}
+
+const selA = document.getElementById('sel-km-a');
+const selB = document.getElementById('sel-km-b');
+for (const s of [selA, selB]) {
+  s.add(new Option('Current v1 · on the pad', 'cur'));
+  s.add(new Option('Stock · retired', 'prev'));
+  s.add(new Option('v1 changes · vs stock', 'pro'));
+}
+selA.value = sel1;
+selB.value = sel2;
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-km-single').classList.toggle('on', m === 'single');
+  document.getElementById('btn-km-both').classList.toggle('on', m === 'both');
+  selB.hidden = document.getElementById('vs-km-sep').hidden = m !== 'both';
+  render();
+}
+selA.addEventListener('change', () => { sel1 = selA.value; render(); });
+selB.addEventListener('change', () => { sel2 = selB.value; render(); });
+document.getElementById('btn-km-single').addEventListener('click', () => setMode('single'));
+document.getElementById('btn-km-both').addEventListener('click', () => setMode('both'));
+document.querySelectorAll('#km-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    layer = +b.dataset.l;
+    document.querySelectorAll('#km-tabs button').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  });
+});
+window.addEventListener('resize', render);
+
+return render;
+})();
+
+// the board on screen: switching shows one app and renders only it
+const renderActive = () => (window.__board === 'km' ? renderKm : renderIr)();
+
+// ===========================================================================
 // widget JS api — called by hammerspoon via evaluateJavaScript
 // ===========================================================================
 window.__mods = { cmd: false, alt: false, shift: false, ctrl: false, fn: false };
@@ -834,14 +1409,14 @@ window.__setMods = function (flags) {
         changed = true;
       }
     if (!changed) return;     // don't re-render (and churn keycaps) for nothing
-    renderIr();
+    renderActive();
   } catch (e) { /* never throw into hammerspoon */ }
 };
 
 window.__setLayer = function (n) {
   try {
     n = Math.trunc(+n);
-    const btn = document.querySelector('#ir-tabs button[data-l="' + n + '"]');
+    const btn = document.querySelector('#' + window.__board + '-tabs button[data-l="' + n + '"]');
     if (btn) btn.click();     // identical code path to clicking the layer tab
   } catch (e) { /* out-of-range → no-op */ }
 };
@@ -881,17 +1456,36 @@ window.__flashKey = function (tok, down) {
 // page chrome
 // ===========================================================================
 (() => {
-const btnIdx = document.getElementById('btn-idx');
-btnIdx.classList.toggle('on', window.__showIdx);
-document.getElementById('eyebrow').textContent =
-  'keebio iris se · rev. 8 · rp2040 · 56 keys + knob · layout v2 on board';
-btnIdx.addEventListener('click', () => {
-  window.__showIdx = !window.__showIdx;
-  btnIdx.classList.toggle('on', window.__showIdx);
-  renderIr();
-});
-renderIr();
+const EYEBROW = {
+  ir: 'keebio iris se · rev. 8 · rp2040 · 56 keys + knob · layout v3 on board',
+  km: 'keychron k0 max · komax · 27 keys + knob · layout v1 on the pad'
+};
+const idxButtons = [document.getElementById('btn-idx'), document.getElementById('btn-km-idx')];
+for (const b of idxButtons) {
+  b.classList.toggle('on', window.__showIdx);
+  b.addEventListener('click', () => {
+    window.__showIdx = !window.__showIdx;
+    for (const x of idxButtons) x.classList.toggle('on', window.__showIdx);
+    renderActive();
+  });
+}
+function showBoard(id, updateHash) {
+  window.__board = id;
+  document.getElementById('app-ir').hidden = id !== 'ir';
+  document.getElementById('app-km').hidden = id !== 'km';
+  document.getElementById('bd-ir').classList.toggle('on', id === 'ir');
+  document.getElementById('bd-km').classList.toggle('on', id === 'km');
+  document.getElementById('eyebrow').textContent = EYEBROW[id];
+  if (updateHash) history.replaceState(null, '', id === 'km' ? '#komax' : '#explore');
+  renderActive();
+}
+document.getElementById('bd-ir').addEventListener('click', () => showBoard('ir', true));
+document.getElementById('bd-km').addEventListener('click', () => showBoard('km', true));
+showBoard(window.__board, false);
 })();
 </script>
+<script src="practice-bindings.js"></script>
+<script src="practice-engine.js"></script>
+<script src="practice.js"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@
 (require 'review-store)
 (require 'review-walkthrough)
 (require 'review-walkthrough-agent)
+(require 'review-comment)
 
 (with-eval-after-load 'review-store
   (add-to-list 'review-store-refresh-functions
@@ -38,29 +39,59 @@
 (defvar-local mr-x/pr--diff-context nil
   "PR identity and range for a diff opened through the shared workflow.")
 
+(defvar review-pane--session)
+(defvar review-panel--session)
+(declare-function review-session-source "review-session")
+(declare-function review-source-recipe "review-source")
+(declare-function review-session--other-frame "review-session")
+
+(defun mr-x/pr--session-context ()
+  "The PR context of the review session this pane or panel shows.
+Nil outside a review, and for a review of a git range, which has no PR."
+  (when-let* ((session (or (bound-and-true-p review-pane--session)
+                           (bound-and-true-p review-panel--session)))
+              (recipe (review-source-recipe (review-session-source session))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo
+       (list :backend 'forgejo :host (plist-get recipe :host)
+             :owner (plist-get recipe :owner) :name (plist-get recipe :repo)
+             :number (plist-get recipe :number)))
+      ('github
+       (let* ((default-directory (plist-get recipe :directory))
+              (repo (forge-get-repository :tracked?))
+              (pr (and repo (forge-get-pullreq repo (plist-get recipe :number)))))
+         (when (and repo pr)
+           (list :backend 'github :repository repo :pullreq pr
+                 :host (concat "https://" (oref repo githost))
+                 :owner (oref repo owner) :name (oref repo name)
+                 :number (plist-get recipe :number))))))))
+
 (defun mr-x/pr-context (&optional require-pr)
   "Resolve the current repository and, when available, pull request.
-REQUIRE-PR means to reject contexts without a specific PR."
-  (let* ((fj (and (bound-and-true-p forgejo-repo--host)
+REQUIRE-PR means to reject contexts without a specific PR.
+A review pane or panel answers with the PR its session reviews."
+  (let* ((session (mr-x/pr--session-context))
+         (fj (and (not session) (bound-and-true-p forgejo-repo--host)
                   (or (derived-mode-p 'forgejo-pull-list-mode 'forgejo-pull-view-mode)
                       (and (derived-mode-p 'diff-mode)
                            (bound-and-true-p forgejo-diff--pr-number)))))
-         (remembered (and (derived-mode-p 'magit-diff-mode)
+         (remembered (and (not session) (derived-mode-p 'magit-diff-mode)
                           mr-x/pr--diff-context
                           (equal magit-buffer-diff-range
                                  (plist-get mr-x/pr--diff-context :range))
                           mr-x/pr--diff-context))
          ;; A number mentioned in discussion/diff text is not an action target.
-         (pr (unless (or fj remembered)
+         (pr (unless (or session fj remembered)
                (cond ((derived-mode-p 'forge-pullreq-mode) forge-buffer-topic)
                      ((derived-mode-p 'forge-topics-mode 'magit-status-mode)
                       (magit-section-value-if 'pullreq)))))
-         (repo (unless (or fj remembered)
+         (repo (unless (or session fj remembered)
                  (if (forge-pullreq-p pr)
                      (forge-get-repository pr)
                    (forge-get-repository :stub? nil 'notatpt))))
          (context
           (cond
+           (session session)
            (remembered remembered)
            (fj
             (list :backend 'forgejo :host forgejo-repo--host
@@ -309,8 +340,8 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
           ((mr-x/pr--github-review-context)
            (mr-x/pr--github-review-source (mr-x/pr--github-review-context)))
           (t (user-error "Open a Forgejo PR diff (SPC , d) or a GitHub PR first")))))
-    (when-let ((session (review-session-start source)))
-      (review-panel-open session))))
+    ;; A review quit with a walkthrough comes back as it was left.
+    (review-store-open source)))
 
 (defun mr-x/pr--review-forgejo (host owner repo number)
   "Fetch Forgejo PR NUMBER of OWNER/REPO on HOST, then review it.
@@ -352,6 +383,360 @@ URL is the PR's web address: https://HOST/OWNER/REPO/pulls/NUMBER."
   (mr-x/pr--review-forgejo (match-string 1 url) (match-string 2 url) (match-string 3 url)
                            (string-to-number (match-string 4 url))))
 
+;;;; PR actions from the review viewer
+
+(defvar mr-x/review-pr-action-retries 8
+  "How many times a viewer action waits for a loading PR view, 0.7 s apart.")
+
+(defun mr-x/review-pr-action (command &optional here)
+  "Run COMMAND, a PR action, for the PR this review pane or panel shows.
+The action's PR view or compose buffer opens in the main frame, the first
+visible frame that is not a review frame, so the review stays up;
+\\[review-session-resume] returns to it.  With HERE, the command runs in
+the review frame inside a window excursion: for an action that only asks
+questions, so its prompts appear where the user is looking and the PR
+view never replaces a pane.  A Forgejo PR view loads asynchronously;
+while it does, the action tries again on its own."
+  (let ((pane (current-buffer))
+        (session (or (bound-and-true-p review-pane--session)
+                     (bound-and-true-p review-panel--session))))
+    (unless session (user-error "Not in a review"))
+    (unless (mr-x/pr--session-context)
+      (user-error "This review is a git range, not a PR"))
+    (unless here
+      (select-frame-set-input-focus (or (review-session--other-frame session) (make-frame))))
+    (mr-x/review-pr--attempt command pane session mr-x/review-pr-action-retries here)))
+
+(defun mr-x/review-pr--attempt (command pane session retries &optional here)
+  "Run COMMAND in PANE for SESSION; on a loading PR view, retry RETRIES times.
+HERE keeps the windows as they were once COMMAND returns."
+  (when (buffer-live-p pane)
+    (condition-case err
+        (progn
+          (if here
+              (save-window-excursion (with-current-buffer pane (funcall command)))
+            (with-current-buffer pane (funcall command)))
+          ;; The action posts later from its compose buffer; `gr' refetches too.
+          (mr-x/pr-readiness-fetch session))
+      (user-error
+       (let ((loading (string-match-p "\\`PR details are loading" (error-message-string err))))
+         (cond ((and loading (> retries 0))
+                (run-at-time 0.7 nil #'mr-x/review-pr--attempt command pane session (1- retries) here))
+               (loading (message "PR details did not load; try %s again" command))
+               (t (signal (car err) (cdr err)))))))))
+
+(defun mr-x/review-pr--draft-session ()
+  "The review session of this pane or panel when it holds draft comments."
+  (when-let ((session (or (bound-and-true-p review-pane--session)
+                          (bound-and-true-p review-panel--session))))
+    (and (review-session-comments session) session)))
+
+;;;###autoload
+(defun mr-x/review-pr-comment ()
+  "Comment on the PR this review shows.
+With draft line comments, post them as one review; else compose a
+general comment in the main frame."
+  (interactive)
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'comment)
+    (mr-x/review-pr-action #'mr-x/pr-comment)))
+
+;;;###autoload
+(defun mr-x/review-pr-approve ()
+  "Approve the PR this review shows, with its draft line comments if any."
+  (interactive)
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'approve)
+    (mr-x/review-pr-action #'mr-x/pr-approve)))
+
+;;;###autoload
+(defun mr-x/review-pr-request-changes ()
+  "Request changes on the PR this review shows, with its draft line comments if any."
+  (interactive)
+  (if-let ((session (mr-x/review-pr--draft-session)))
+      (review-comment-submit session 'request-changes)
+    (mr-x/review-pr-action #'mr-x/pr-request-changes)))
+
+;;;###autoload
+(defun mr-x/review-pr-merge ()
+  "Merge the PR this review shows; its method and confirm prompts ask here."
+  (interactive)
+  (mr-x/review-pr-action #'mr-x/pr-merge t))
+
+;;;; Posting a review with line comments
+
+(defun mr-x/pr--forgejo-review-payload (recipe verdict summary drafts)
+  "The Forgejo review request for VERDICT, SUMMARY and DRAFTS on RECIPE's PR."
+  (let ((head (cadr (plist-get recipe :revs))))
+    `((event . ,(pcase verdict ('approve "APPROVED") ('request-changes "REQUEST_CHANGES") (_ "COMMENT")))
+      ,@(and (not (string-empty-p summary)) `((body . ,summary)))
+      ,@(and (stringp head) `((commit_id . ,head)))
+      (comments
+       . ,(vconcat
+           (mapcar (lambda (d)
+                     ;; Forgejo comments one line: a range goes on its last
+                     ;; line and names itself in the text.
+                     `((path . ,(plist-get d :path))
+                       (body . ,(if (plist-get d :start-line)
+                                    (format "Lines %d-%d:\n%s" (plist-get d :start-line)
+                                            (plist-get d :line) (plist-get d :body))
+                                  (plist-get d :body)))
+                       (,(if (eq (plist-get d :side) 'old) 'old_position 'new_position)
+                        . ,(plist-get d :line))))
+                   drafts))))))
+
+(defun mr-x/pr--github-review-payload (recipe verdict summary drafts)
+  "The GitHub review request for VERDICT, SUMMARY and DRAFTS on RECIPE's PR."
+  (let ((head (plist-get recipe :head-rev)))
+    `((event . ,(pcase verdict ('approve "APPROVE") ('request-changes "REQUEST_CHANGES") (_ "COMMENT")))
+      ,@(and (not (string-empty-p summary)) `((body . ,summary)))
+      ,@(and (stringp head) `((commit_id . ,head)))
+      (comments
+       . ,(vconcat
+           (mapcar (lambda (d)
+                     (let ((side (if (eq (plist-get d :side) 'old) "LEFT" "RIGHT")))
+                       `((path . ,(plist-get d :path))
+                         (body . ,(plist-get d :body))
+                         (line . ,(plist-get d :line))
+                         (side . ,side)
+                         ,@(and (plist-get d :start-line)
+                                `((start_line . ,(plist-get d :start-line))
+                                  (start_side . ,side))))))
+                   drafts))))))
+
+(defun mr-x/pr-submit-review (session verdict summary drafts success failure)
+  "Post a review of SESSION's PR.  For `review-comment-submit-function'."
+  (let* ((recipe (review-source-recipe (review-session-source session)))
+         (number (plist-get recipe :number))
+         (posted (lambda (&rest _)
+                   (funcall success)
+                   (mr-x/pr-readiness-fetch session))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo
+       (forgejo-api-post
+        (plist-get recipe :host)
+        (format "repos/%s/%s/pulls/%d/reviews" (plist-get recipe :owner) (plist-get recipe :repo) number)
+        nil
+        (mr-x/pr--forgejo-review-payload recipe verdict summary drafts)
+        posted
+        :error-callback
+        (lambda (err) (funcall failure (or (plist-get err :message) (format "%S" err))))))
+      ('github
+       (let ((repo (plist-get (with-temp-buffer
+                                (setq-local review-pane--session session)
+                                (mr-x/pr--session-context))
+                              :repository)))
+         (if (not repo)
+             (funcall failure "no Forge repository for this clone")
+           (forge--rest repo "POST" (format "/repos/:owner/:repo/pulls/%d/reviews" number)
+             (mr-x/pr--github-review-payload recipe verdict summary drafts)
+             :callback posted
+             :errorback (lambda (err &rest _)
+                          (funcall failure (if (stringp err) err (format "%S" err))))))))
+      (_ (funcall failure "This review is not a PR")))))
+
+(setq review-comment-submit-function #'mr-x/pr-submit-review)
+
+;;;; Merge readiness in the viewer's top bar
+
+(defvar mr-x/pr-readiness--table (make-hash-table :test #'eq :weakness 'key)
+  "Readiness by review session: a plist, or (:error MESSAGE), or `loading'.")
+
+(defun mr-x/pr-readiness--true-p (value)
+  "Non-nil when JSON VALUE is true."
+  (eq value t))
+
+(defun mr-x/pr-readiness--list (value)
+  "JSON VALUE as a list: nil for JSON null, which decodes as `:null'."
+  (and (listp value) value))
+
+(defun mr-x/pr-readiness--reviews (reviews approved-states changes-states)
+  "Count REVIEWS: the latest review of each user decides, dismissed ones aside.
+Return (APPROVALS . CHANGES-REQUESTED)."
+  (let ((latest nil))
+    (dolist (review (mr-x/pr-readiness--list reviews))
+      (let ((user (or (alist-get 'login (alist-get 'user review))
+                      (alist-get 'id (alist-get 'user review))))
+            (state (alist-get 'state review)))
+        (cond ((or (mr-x/pr-readiness--true-p (alist-get 'dismissed review))
+                   (equal state "DISMISSED"))
+               (setf (alist-get user latest nil nil #'equal) nil))
+              ((member state approved-states)
+               (setf (alist-get user latest nil nil #'equal) 'approved))
+              ((member state changes-states)
+               (setf (alist-get user latest nil nil #'equal) 'changes)))))
+    (cons (cl-count 'approved latest :key #'cdr)
+          (and (cl-find 'changes latest :key #'cdr) t))))
+
+(defun mr-x/pr-readiness--status (status &optional check-runs)
+  "The checks verdict from a combined STATUS and GitHub CHECK-RUNS:
+`success', `pending', `failure', or nil when there are no checks."
+  (let ((verdicts nil))
+    (dolist (s (mr-x/pr-readiness--list (alist-get 'statuses status)))
+      (push (pcase (alist-get 'state s)
+              ("success" 'success) ("pending" 'pending) (_ 'failure))
+            verdicts))
+    (dolist (run (mr-x/pr-readiness--list (alist-get 'check_runs check-runs)))
+      (push (if (equal (alist-get 'status run) "completed")
+                (if (member (alist-get 'conclusion run) '("success" "neutral" "skipped"))
+                    'success 'failure)
+              'pending)
+            verdicts))
+    (cond ((null verdicts) nil)
+          ((memq 'failure verdicts) 'failure)
+          ((memq 'pending verdicts) 'pending)
+          (t 'success))))
+
+(defun mr-x/pr-readiness--state (pr)
+  "The PR's state from its API alist PR: `open', `draft', `merged' or `closed'."
+  (cond ((mr-x/pr-readiness--true-p (alist-get 'merged pr)) 'merged)
+        ((mr-x/pr-readiness--true-p (alist-get 'draft pr)) 'draft)
+        ((equal (alist-get 'state pr) "open") 'open)
+        (t 'closed)))
+
+(defun mr-x/pr-readiness--parse-forgejo (pr reviews status)
+  "Readiness from Forgejo's PR, REVIEWS and commit STATUS alists."
+  (pcase-let ((`(,approvals . ,changes)
+               (mr-x/pr-readiness--reviews reviews '("APPROVED") '("REQUEST_CHANGES"))))
+    (list :state (mr-x/pr-readiness--state pr)
+          :mergeable (and (mr-x/pr-readiness--true-p (alist-get 'mergeable pr)) t)
+          :checks (mr-x/pr-readiness--status status)
+          :approvals approvals :changes-requested changes)))
+
+(defun mr-x/pr-readiness--parse-github (pr reviews status check-runs)
+  "Readiness from GitHub's PR, REVIEWS, combined STATUS and CHECK-RUNS alists."
+  (pcase-let ((`(,approvals . ,changes)
+               (mr-x/pr-readiness--reviews reviews '("APPROVED") '("CHANGES_REQUESTED"))))
+    (list :state (mr-x/pr-readiness--state pr)
+          :mergeable (pcase (alist-get 'mergeable pr)
+                       ('t t) ((or :json-false :false) nil) (_ 'unknown))
+          :checks (mr-x/pr-readiness--status status check-runs)
+          :approvals approvals :changes-requested changes)))
+
+(defun mr-x/pr-readiness--text (ready)
+  "The top bar's readiness segment for READY, a readiness plist."
+  (let ((txt (lambda (s token &optional bold)
+               (review-panel--txt s token :height 0.92 :weight (and bold 'medium)))))
+    (if (plist-get ready :error)
+        (funcall txt "readiness ?" 'dim)
+      (mapconcat
+       #'identity
+       (delq nil
+             (list (pcase (plist-get ready :state)
+                     ('open (pcase (plist-get ready :mergeable)
+                              ('t (funcall txt "✓ mergeable" 'green t))
+                              ('unknown (funcall txt "mergeable ?" 'dim))
+                              (_ (funcall txt "✗ conflicts" 'red t))))
+                     ('merged (funcall txt "merged" 'dim))
+                     ('draft (funcall txt "draft" 'dim))
+                     (_ (funcall txt "closed" 'dim)))
+                   (pcase (plist-get ready :checks)
+                     ('success (funcall txt "checks ✓" 'green))
+                     ('pending (funcall txt "checks ● pending" 'yellow))
+                     ('failure (funcall txt "checks ✗" 'red t))
+                     (_ nil))
+                   (cond ((plist-get ready :changes-requested)
+                          (funcall txt "changes requested" 'red t))
+                         ((> (or (plist-get ready :approvals) 0) 0)
+                          (funcall txt (format "%d approved" (plist-get ready :approvals)) 'green))
+                         (t nil))))
+       "   "))))
+
+(defun mr-x/pr-readiness-segment (session)
+  "The readiness segment for SESSION's top bar, or nil.
+For `review-panel-bar-functions'."
+  (let ((ready (gethash session mr-x/pr-readiness--table)))
+    (and (listp ready) ready (mr-x/pr-readiness--text ready))))
+
+(defun mr-x/pr-readiness--store (session ready)
+  "Keep READY for SESSION and redraw its bar."
+  (puthash session ready mr-x/pr-readiness--table)
+  (when (eq session review-session--current)
+    (review-panel--show-bar session)))
+
+(defun mr-x/pr-readiness-fetch (&optional session)
+  "Fetch merge readiness for SESSION's PR and show it in the top bar.
+Nothing happens for a review of a git range."
+  (let* ((session (or session review-session--current))
+         (recipe (and session (review-source-recipe (review-session-source session)))))
+    (pcase (plist-get recipe :kind)
+      ('forgejo (mr-x/pr-readiness--fetch-forgejo session recipe))
+      ('github (mr-x/pr-readiness--fetch-github session recipe)))))
+
+(defun mr-x/pr-readiness--fail (session err)
+  "Record ERR as SESSION's readiness failure."
+  (let ((message (if (stringp err) err (format "%S" err))))
+    (message "PR readiness: %s" message)
+    (mr-x/pr-readiness--store session (list :error message))))
+
+(defun mr-x/pr-readiness--fetch-forgejo (session recipe)
+  "Fetch Forgejo readiness for SESSION from RECIPE."
+  (let* ((host (plist-get recipe :host))
+         (owner (plist-get recipe :owner)) (repo (plist-get recipe :repo))
+         (base (format "repos/%s/%s/pulls/%d" owner repo (plist-get recipe :number)))
+         (fail (lambda (err) (mr-x/pr-readiness--fail session (plist-get err :message)))))
+    (puthash session 'loading mr-x/pr-readiness--table)
+    (forgejo-api-get
+     host base nil
+     (lambda (pr _headers)
+       (forgejo-api-get
+        host (concat base "/reviews") nil
+        (lambda (reviews _headers)
+          (forgejo-api-get
+           host (format "repos/%s/%s/commits/%s/status" owner repo
+                        (alist-get 'sha (alist-get 'head pr)))
+           nil
+           (lambda (status _headers)
+             (mr-x/pr-readiness--store session (mr-x/pr-readiness--parse-forgejo pr reviews status)))
+           :error-callback fail))
+        :error-callback fail))
+     :error-callback fail)))
+
+(defun mr-x/pr-readiness--fetch-github (session recipe)
+  "Fetch GitHub readiness for SESSION from RECIPE, through Forge."
+  (let* ((context (with-temp-buffer
+                    (setq-local review-pane--session session)
+                    (mr-x/pr--session-context)))
+         (repo (plist-get context :repository))
+         (number (plist-get recipe :number))
+         (fail (lambda (err &rest _) (mr-x/pr-readiness--fail session err))))
+    (if (not repo)
+        (mr-x/pr-readiness--fail session "no Forge repository for this clone")
+      (puthash session 'loading mr-x/pr-readiness--table)
+      (forge--rest repo "GET" (format "/repos/:owner/:repo/pulls/%d" number) nil
+        :errorback fail
+        :callback
+        (lambda (pr &rest _)
+          (forge--rest repo "GET" (format "/repos/:owner/:repo/pulls/%d/reviews" number) nil
+            :errorback fail
+            :callback
+            (lambda (reviews &rest _)
+              (let ((sha (alist-get 'sha (alist-get 'head pr))))
+                (forge--rest repo "GET" (format "/repos/:owner/:repo/commits/%s/status" sha) nil
+                  :errorback fail
+                  :callback
+                  (lambda (status &rest _)
+                    (forge--rest repo "GET" (format "/repos/:owner/:repo/commits/%s/check-runs" sha) nil
+                      :errorback fail
+                      :callback
+                      (lambda (check-runs &rest _)
+                        (mr-x/pr-readiness--store
+                         session
+                         (mr-x/pr-readiness--parse-github pr reviews status check-runs))))))))))))))
+
+(defun mr-x/pr-readiness--on-display (session)
+  "Fetch readiness the first time SESSION's panes show."
+  (unless (gethash session mr-x/pr-readiness--table)
+    (mr-x/pr-readiness-fetch session)))
+
+(defun mr-x/pr-readiness--on-refresh (&rest _)
+  "Refetch readiness after `gr' reloads the review."
+  (mr-x/pr-readiness-fetch))
+
+(add-hook 'review-panel-bar-functions #'mr-x/pr-readiness-segment)
+(add-hook 'review-session-display-hook #'mr-x/pr-readiness--on-display)
+(advice-add 'review-session-refresh :after #'mr-x/pr-readiness--on-refresh)
+
 (defvar mr-x/review-git-range-history nil
   "History of review presets and manually entered Git ranges.")
 
@@ -390,8 +775,7 @@ Empty input means the working tree against HEAD; \"--staged\" the index."
   (let* ((root (or (magit-toplevel) (user-error "Not inside a git repository")))
          (range (or range (mr-x/review--read-git-range)))
          (source (review-source-git-range root (unless (string-empty-p range) range))))
-    (when-let ((session (review-session-start source)))
-      (review-panel-open session))))
+    (review-store-open source)))
 
 (defun mr-x/review ()
   "Review the PR in this buffer, or else pick a git range to review.

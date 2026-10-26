@@ -3,7 +3,7 @@
 ;;; Commentary:
 ;;
 ;; The phone's spawn sheet shows the same launch presets as the rig's
-;; `mr-x/agent-shell-start-preset' (emacs.org).  Rather than a hand-copied
+;; `mr-x/agent-shell-start-preset' (syzygy-rig.el).  Rather than a hand-copied
 ;; list in index.html that lags every rig edit, acp-mobile's /api/presets
 ;; evals `syzygy-presets-json' and renders whatever comes back.  Only the
 ;; one-char key travels back on spawn; Emacs resolves it.

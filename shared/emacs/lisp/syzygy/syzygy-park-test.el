@@ -47,7 +47,9 @@ The chat's project root is a fresh temp directory bound as `root'."
 No chat exists, so parking lands on the project scope.
 `root' is the truename: with `find-file-visit-truename' on, the file
 buffer lives under /private/var, not the /var symlink `make-temp-file'
-returns, and the park code keys the project by the buffer's directory."
+returns, and the park code keys the project by the buffer's directory.
+The assertion is truename-based, so `/private/var' (the macOS case) needs no
+`system-type' guard; on a platform where it does, guard the failing test."
   (declare (indent 0))
   `(let* ((syzygy-park-file (make-temp-file "syzygy-park-" nil ".org"))
           (syzygy-park--project-items (make-hash-table :test #'equal))
@@ -310,15 +312,16 @@ returns, and the park code keys the project by the buffer's directory."
 
 (ert-deftest syzygy-park-hydrate-parses-links-without-org-store ()
   "A plain origin line (no link) round-trips as a label."
-  (let ((syzygy-park-file (make-temp-file "syzygy-park-" nil ".org")))
+  (let ((syzygy-park-file (make-temp-file "syzygy-park-" nil ".org"))
+        (proj (expand-file-name "proj/" temporary-file-directory)))
     (unwind-protect
         (progn
           (with-temp-file syzygy-park-file
-            (insert "* proj\n:PROPERTIES:\n:PROJECT: /tmp/proj/\n:END:\n"
+            (insert "* proj\n:PROPERTIES:\n:PROJECT: " proj "\n:END:\n"
                     "- [ ] one\n  from: *scratch*\n"
                     "- [X] done\n"
                     "- [ ] two\n"))
-          (let ((items (syzygy-park--hydrate syzygy-park-file "PROJECT" "/tmp/proj/")))
+          (let ((items (syzygy-park--hydrate syzygy-park-file "PROJECT" proj)))
             (should (equal (mapcar (lambda (i) (plist-get i :question)) items) '("one" "two")))
             (should (equal (plist-get (car items) :origin)
                            '(:label "*scratch*" :link nil :url nil)))))

@@ -24,6 +24,7 @@ set -uo pipefail
 
 DOWNLOADS="$HOME/Downloads"
 INBOX="$HOME/agent-inbox"
+MAX_SIDE=2000  # px; same cap as agent-inbox-daemon.py, see MAX_SIDE there
 LOG="$HOME/Library/Logs/agent-inbox/airdrop-mover.log"
 RECENT_SECS=300
 
@@ -52,7 +53,7 @@ for f in "$DOWNLOADS"/*.png "$DOWNLOADS"/*.jpg "$DOWNLOADS"/*.jpeg \
     ext=$(echo ".${f##*.}" | tr '[:upper:]' '[:lower:]')
     if [ "$ext" = ".heic" ]; then
         tmp="$INBOX/.tmp-$rand.jpg"
-        if sips -s format jpeg "$f" --out "$tmp" >/dev/null 2>&1; then
+        if sips -s format jpeg -Z "$MAX_SIDE" "$f" --out "$tmp" >/dev/null 2>&1; then
             mv "$tmp" "$INBOX/$stamp-$rand.jpg" && rm -f "$f"
             log "converted+moved ${f##*/} -> $stamp-$rand.jpg"
         else
@@ -60,7 +61,11 @@ for f in "$DOWNLOADS"/*.png "$DOWNLOADS"/*.jpg "$DOWNLOADS"/*.jpeg \
             log "sips failed on ${f##*/}, leaving in Downloads"
         fi
     else
-        mv "$f" "$INBOX/$stamp-$rand$ext" \
+        tmp="$INBOX/.tmp-$rand$ext"
+        mv "$f" "$tmp" || continue
+        sips -Z "$MAX_SIDE" "$tmp" >/dev/null 2>&1 \
+            || log "sips downscale failed on ${f##*/}, moving as-is"
+        mv "$tmp" "$INBOX/$stamp-$rand$ext" \
             && log "moved ${f##*/} -> $stamp-$rand$ext"
     fi
 done

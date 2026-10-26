@@ -21,11 +21,12 @@
 ;;; Code:
 
 (require 'json)
+(require 'syzygy-state)
 
 (defvar mr-x/markdown-mermaid-config)
 
 (defcustom syzygy-mermaid-config-file
-  (expand-file-name "~/.acp-mobile/mermaid.json")
+  (syzygy-state-file "mermaid.json")
   "Where the exported Mermaid configuration is written for acp-mobile."
   :type 'file
   :group 'syzygy)

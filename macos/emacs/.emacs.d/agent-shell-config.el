@@ -1,11 +1,47 @@
 ;;; -*- lexical-binding: t -*-
 
+      ;; Large transcripts trigger Emacs's labeled restriction around
+      ;; command hooks.  Corfu and Evil visual refresh can force redisplay
+      ;; from those hooks; lift only that internal restriction, not a
+      ;; user's own narrowing, and retain the long-line optimizations.
+      (defun mr-x/agent-shell--redisplay-without-command-narrowing (original &rest args)
+        "Run ORIGINAL without Emacs's internal command-hook restriction in chats."
+        (if (derived-mode-p 'agent-shell-mode)
+            (without-restriction :label 'long-line-optimizations-in-command-hooks
+              (apply original args))
+          (apply original args)))
+
+      (with-eval-after-load 'corfu
+        (advice-add 'corfu--post-command :around
+                    #'mr-x/agent-shell--redisplay-without-command-narrowing))
+
+      (with-eval-after-load 'evil
+        (advice-add 'evil-visual-post-command :around
+                    #'mr-x/agent-shell--redisplay-without-command-narrowing))
+
+      (defun mr-x/agent-shell-stable-line-numbers ()
+        "Keep chat line numbers and their gutter stable during temporary narrowing."
+        (require 'display-line-numbers)
+        (setq-local display-line-numbers-widen t
+                    display-line-numbers-width-start t
+                    display-line-numbers-grow-only t)
+        (without-restriction :label 'long-line-optimizations-in-command-hooks
+          (save-restriction
+            (widen)
+            (let ((width (if (numberp display-line-numbers-width)
+                             display-line-numbers-width 1))
+                  (display-line-numbers-type
+                   (or display-line-numbers display-line-numbers-type)))
+              (display-line-numbers-mode 1)
+              (setq-local display-line-numbers-width
+                          (max width display-line-numbers-width))))))
+
       (use-package agent-shell
         :ensure (:host github :repo "xenodium/agent-shell")
         :demand t
         :after (acp shell-maker)
         :hook ((agent-shell-mode . orgtbl-mode)  ;; Auto-align org tables
-               (agent-shell-mode . display-line-numbers-mode)  ;; Show line numbers
+               (agent-shell-mode . mr-x/agent-shell-stable-line-numbers)
                (agent-shell-mode . (lambda ()
                                      ;; Make sent input text green like strings
                                      (face-remap-add-relative 'comint-highlight-input
@@ -592,20 +628,6 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                   (switch-to-prev-buffer))
               (agent-shell--display-buffer shell-buffer))))
 
-        (defun mr-x/focus-ai-window ()
-          "Focus the agent-shell window if visible, otherwise show a message."
-          (interactive)
-          (let ((ai-window nil))
-            (walk-windows
-             (lambda (w)
-               (when (and (not ai-window)
-                          (eq (buffer-local-value 'major-mode (window-buffer w))
-                              'agent-shell-mode))
-                 (setq ai-window w))))
-            (if ai-window
-                (select-window ai-window)
-              (mr-x/agent-shell-toggle))))
-
         (defun mr-x/agent-shell-test-prompt ()
           "Send a random test prompt to exercise agent-shell functionality."
           (interactive)
@@ -910,7 +932,7 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
 
         ;; ── Cross-machine session handoff (MrX <-> MrX2) ────────────
-        ;; Moved to lisp/syzygy/syzygy-handoff.el (SPC c H =
+        ;; Moved to shared/emacs/lisp/syzygy/syzygy-handoff.el (SPC c H =
         ;; syzygy-resume-handoff), required via the syzygy umbrella below.
 
         ;; Auto-close diff buffer when permission is accepted/rejected
@@ -1411,7 +1433,7 @@ coming from the provider untouched."
       (require 'major-pane-workspace)
       (major-pane-workspace-mode 1)
 
-      ;; SYZYGY — cross-device conversation continuity (lisp/syzygy/):
+      ;; SYZYGY — cross-device conversation continuity (shared/emacs/lisp/syzygy/):
       ;; resync lockdown (SPC c y), live 2-way sync (SPC c Y), and
       ;; cross-machine handoff resume (SPC c H).
       (require 'syzygy)
@@ -1442,272 +1464,7 @@ coming from the provider untouched."
       (advice-add 'agent-shell--append-transcript :around
                   #'mr-x/agent-shell--transcript-utf8)
 
-      ;; Mirror major-pane labels into acp-mobile's sidecar
-      ;; (~/.acp-mobile/labels.json, sessionId → label) so phone cards
-      ;; show the same names as the rig.  Syncs ALL live agent-shell
-      ;; buffers on every label change, which handles set + clear alike.
-      (with-eval-after-load 'major-pane
-        (defun mr-x/agent-label-sync (&rest _)
-          "Write agent-shell buffers' major-pane labels to the acp-mobile sidecar."
-          (let* ((inhibit-quit t)          ; see mr-x/agent-label-set
-                 (file (expand-file-name "~/.acp-mobile/labels.json"))
-                 (labels (or (ignore-errors
-                               (json-parse-string
-                                (with-temp-buffer
-                                  (insert-file-contents file)
-                                  (buffer-string))))
-                             (make-hash-table :test #'equal))))
-            (dolist (buf (buffer-list))
-              (when-let* (((buffer-live-p buf))
-                          (sid (with-current-buffer buf
-                                 (and (derived-mode-p 'agent-shell-mode)
-                                      (map-nested-elt agent-shell--state
-                                                      '(:session :id))))))
-                (syzygy-recall-sidecar-label-put
-                 labels sid (gethash buf major-pane--labels))))
-            (make-directory (file-name-directory file) t)
-            (with-temp-file file (insert (json-serialize labels)))))
-        (advice-add 'major-pane-set-label :after #'mr-x/agent-label-sync)
-
-        ;; Labels (and live mode) must survive SPC c y: agent-shell-restart
-        ;; kills the buffer and creates a replacement under the same name,
-        ;; but major-pane--labels is keyed by buffer OBJECT — the entry
-        ;; died with the buffer (observed: label vanishing after one
-        ;; resync).  Carry both to the successor; the label-heal timer
-        ;; then mirrors the new session id to labels.json within 3s.
-        (defun mr-x/agent-label--keep-across-restart (orig &rest args)
-          "Carry pane label and live mode across ORIG (`agent-shell-restart')."
-          (let* ((old-buf (ignore-errors (agent-shell--current-shell)))
-                 (name (and old-buf (buffer-name old-buf)))
-                 (label (and old-buf (gethash old-buf major-pane--labels)))
-                 (live (and old-buf (buffer-local-value 'syzygy-live-mode old-buf))))
-            (prog1 (apply orig args)
-              (when name
-                (when-let ((new-buf (get-buffer name)))
-                  (unless (eq new-buf old-buf)
-                    (when label (major-pane-set-buffer-label new-buf label))
-                    (when live (with-current-buffer new-buf
-                                 (syzygy-live-mode 1)))))))))
-        (advice-add 'agent-shell-restart :around
-                    #'mr-x/agent-label--keep-across-restart)
-
-        ;; Phone-side labeling: acp-mobile's /api/label calls this via
-        ;; emacsclient (same bridge as /api/kill).  Updates the same
-        ;; major-pane hash the rig uses, then syncs the sidecar — one
-        ;; source of truth, label shows in SPC b b and on phone cards.
-        (defun mr-x/agent-label-set (buffer-name label)
-          "Set LABEL on BUFFER-NAME's convo (empty LABEL clears).  For acp-mobile."
-          ;; inhibit-quit: a stray C-g mid-eval once split the state —
-          ;; hash updated, labels.json never written ("*ERROR*: Quit" back
-          ;; to /api/label) — so the rig and the phone disagreed until the
-          ;; next sync.  Hash write + mirror must be atomic wrt quits.
-          (let ((inhibit-quit t))
-            (when-let ((buf (get-buffer buffer-name)))
-              (if (string-empty-p label)
-                  (major-pane-set-buffer-label buf nil)
-                (major-pane-set-buffer-label buf label))
-              (mr-x/agent-label-sync)
-              t)))
-
-        ;; Phone-side spawn/kill: the receiving ends of acp-mobile's
-        ;; /api/spawn (via the agent-shell-spawn script) and /api/kill.
-        ;; The phone-typed name becomes the pane label; a task, if given,
-        ;; is submitted once the session handshake completes.
-        (defun mr-x/agent-spawn--send-when-ready (buf task tries)
-          "Once BUF's ACP session exists: sync labels, then submit TASK (if any).
-The session id arrives seconds after spawn, so both the label→sidecar
-sync and the first prompt must wait for it; retry TRIES times.
-Quit-proof: a desk-side C-g/ESC aborts whatever elisp is mid-flight,
-timer invocations included — one stray quit used to kill the whole
-one-shot chain (no label, no first prompt, no error anywhere).  The
-ready branch runs under `inhibit-quit' and swallows the deferred quit;
-an aborted invocation reschedules itself like a not-ready one."
-          (when (buffer-live-p buf)
-            (condition-case nil
-                (with-current-buffer buf
-                  (if (map-nested-elt agent-shell--state '(:session :id))
-                      (let ((inhibit-quit t))
-                        (mr-x/agent-label-sync)
-                        (unless (string-empty-p task)
-                          (goto-char (point-max))
-                          (insert task)
-                          (shell-maker-submit))
-                        (setq quit-flag nil))
-                    (if (> tries 0)
-                        (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
-                                     buf task (1- tries))
-                      (message "agent spawn: %s never became ready" (buffer-name buf)))))
-              ((quit error)
-               (when (> tries 0)
-                 (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready
-                              buf task (1- tries)))))))
-
-        (defun mr-x/agent-shell--clone-config (source)
-          "Copy SOURCE's agent config pinned to its live model + permission mode.
-SOURCE is an agent-shell buffer.  This is what `mr-x/agent-shell-clone'
-does for the rig; the phone's Clone menu item reaches it through
-`mr-x/agent-shell-spawn-for-mobile'."
-          (with-current-buffer source
-            (unless (derived-mode-p 'agent-shell-mode)
-              (error "Not an agent-shell buffer: %s" (buffer-name source)))
-            (let* ((state (agent-shell--state))
-                   (config (copy-alist (map-elt state :agent-config)))
-                   (model-id (agent-shell--current-model-id state))
-                   (mode-id (agent-shell--current-mode-id state)))
-              (when model-id
-                (setf (alist-get :default-model-id config)
-                      (lambda () model-id)))
-              (when mode-id
-                (setf (alist-get :default-session-mode-id config)
-                      (lambda () mode-id)))
-              config)))
-
-        (defun mr-x/agent-shell-spawn-for-mobile (cwd name task &optional preset clone-of)
-          "Spawn an agent-shell convo in CWD, label it NAME, queue TASK.
-PRESET, when non-empty, is a char key into `mr-x/agent-shell-presets'
-\(e.g. \"f\") — the shell launches with that preset's model +
-permission mode, same as C-u SPC c P on the rig.
-CLONE-OF, when non-empty, names an existing agent-shell buffer: the new
-convo copies its agent, model, permission mode and directory (what
-SPC c n does on the rig), CWD may then be empty, and an empty NAME
-inherits the source's pane label with a \" 2\" suffix.  A PRESET
-still wins over the copied model + mode."
-          (let* ((source (and clone-of (not (string-empty-p clone-of))
-                              (or (get-buffer clone-of)
-                                  (error "No such buffer: %s" clone-of))))
-                 (dir (file-name-as-directory
-                       (expand-file-name
-                        (if (and source (or (null cwd) (string-empty-p cwd)))
-                            (buffer-local-value 'default-directory source)
-                          cwd)))))
-            (unless (file-directory-p dir)
-              (error "No such directory: %s" dir))
-            (let* ((default-directory dir)
-                   (tuple (and preset (not (string-empty-p preset))
-                               (or (assq (string-to-char preset)
-                                         mr-x/agent-shell-presets)
-                                   (error "No preset for %s" preset))))
-                   (config (cond
-                            (tuple (mr-x/agent-shell--config-with
-                                    (nth 2 tuple) (nth 3 tuple) (nth 4 tuple)))
-                            (source (mr-x/agent-shell--clone-config source))
-                            (t agent-shell-preferred-agent-config)))
-                   (label (cond
-                           ((and name (not (string-empty-p name))) name)
-                           (source
-                            (when-let ((src-label (gethash source major-pane--labels)))
-                              (concat src-label " 2")))))
-                   (buf (agent-shell--start
-                         :config config
-                         :new-session t :no-focus t)))
-              (when label
-                (major-pane-set-buffer-label buf label))
-              (when-let ((effort (or (nth 5 tuple)
-                                     (and source (not tuple)
-                                          (agent-shell--current-thought-level-id
-                                           (buffer-local-value 'agent-shell--state source))))))
-                (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                             buf effort 60))
-              (run-at-time 1 nil #'mr-x/agent-spawn--send-when-ready buf (or task "") 60)
-              (buffer-name buf))))
-
-        (defun meta-agent-shell-close-session (buffer-name)
-          "Kill BUFFER-NAME's agent-shell session.  Called by acp-mobile /api/kill."
-          (when-let ((buf (get-buffer buffer-name)))
-            (with-current-buffer buf
-              (setq agent-shell-on-exit nil))
-            (let ((kill-buffer-query-functions nil))
-              (kill-buffer buf))
-            t))
-
-        ;; Convo status → phone cards (like major-pane's busy markers):
-        ;; poll every 3s, write ~/.acp-mobile/status.json (sessionId →
-        ;; busy/permission/idle) only when something changed.  acp-mobile
-        ;; reads it in /api/sessions.
-        (defvar mr-x/agent-status--last nil
-          "Last serialized status JSON, to skip redundant writes.")
-
-        (defun mr-x/agent-status-sync ()
-          "Write every agent-shell convo's busy state to the acp-mobile sidecar."
-          (let ((statuses (make-hash-table :test #'equal)))
-            (dolist (buf (buffer-list))
-              (when-let* (((buffer-live-p buf))
-                          (sid (with-current-buffer buf
-                                 (and (derived-mode-p 'agent-shell-mode)
-                                      (map-nested-elt agent-shell--state
-                                                      '(:session :id))))))
-                (puthash sid
-                         (cond ((seq-find (lambda (p) (eq (plist-get p :buffer) buf))
-                                          (bound-and-true-p mr-x/pending-permissions-queue))
-                                "permission")
-                               ;; Local requests have shell-maker's exact busy
-                               ;; bit.  Phone requests bypass shell-maker, so
-                               ;; syzygy-live tracks their synthesized user and
-                               ;; turn_complete lifecycle separately.
-                               ((with-current-buffer buf
-                                  (or (shell-maker-busy)
-                                      (bound-and-true-p
-                                       syzygy-live--remote-turn-active)))
-                                "busy")
-                               (t "idle"))
-                         statuses)))
-            (let ((json (json-serialize statuses)))
-              (unless (equal json mr-x/agent-status--last)
-                (setq mr-x/agent-status--last json)
-                (make-directory (expand-file-name "~/.acp-mobile") t)
-                (with-temp-file (expand-file-name "~/.acp-mobile/status.json")
-                  (insert json))))))
-
-        ;; Remote turn boundaries are explicit, so mirror those immediately;
-        ;; the 3s timer below remains the safety net for every other path.
-        (add-hook 'syzygy-live-turn-state-change-hook
-                  #'mr-x/agent-status-sync)
-
-        (defun mr-x/agent-status--sync-after-event (&rest args)
-          "Mirror status after an agent-shell lifecycle event in ARGS."
-          (when (memq (plist-get args :event)
-                      '(input-submitted permission-request permission-response
-                        turn-complete error clean-up))
-            ;; Defer one event-loop turn so permission queue cleanup and
-            ;; shell-maker's busy transition have both settled.
-            (run-at-time 0 nil #'mr-x/agent-status-sync)))
-
-        (advice-remove 'agent-shell--emit-event
-                       #'mr-x/agent-status--sync-after-event)
-        (advice-add 'agent-shell--emit-event :after
-                    #'mr-x/agent-status--sync-after-event)
-
-        ;; Label self-heal on the same cadence: one-shot label syncs
-        ;; (phone /api/label evals, the spawn timer chain) can be aborted
-        ;; by a desk-side C-g mid-flight, leaving the rig's label hash
-        ;; and labels.json disagreeing with no error anywhere.  This
-        ;; repeating timer survives aborted ticks by design, so drift
-        ;; lasts 3s at most.
-        (defvar mr-x/agent-label--live-last 'unset
-          "Live (sid . label) pairs at the last sidecar sync.")
-
-        (defun mr-x/agent-label-heal ()
-          "Re-run the label sidecar sync whenever live labels drift."
-          (let (pairs)
-            (dolist (buf (buffer-list))
-              (when-let* (((buffer-live-p buf))
-                          (sid (with-current-buffer buf
-                                 (and (derived-mode-p 'agent-shell-mode)
-                                      (map-nested-elt agent-shell--state
-                                                      '(:session :id))))))
-                (push (cons sid (gethash buf major-pane--labels)) pairs)))
-            (setq pairs (sort pairs (lambda (a b) (string< (car a) (car b)))))
-            (unless (equal pairs mr-x/agent-label--live-last)
-              (mr-x/agent-label-sync)
-              (setq mr-x/agent-label--live-last pairs))))
-
-        ;; Idempotent creation: a re-load must not stack duplicate timers,
-        ;; and a wedged timer object (observed: next-fire 53h in the past,
-        ;; never firing) gets replaced by a fresh one.
-        (cancel-function-timers #'mr-x/agent-status-sync)
-        (cancel-function-timers #'mr-x/agent-label-heal)
-        (run-with-timer 5 3 #'mr-x/agent-status-sync)
-        (run-with-timer 6 3 #'mr-x/agent-label-heal))
+      ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
       ;; Tell acp-multiplex which Emacs buffer owns the session: it
       ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
@@ -2310,7 +2067,34 @@ silent context-only capture with no marker."
                 (if (mr-x/quick-ask--session-healthy-p buf)
                     buf
                   (when buf (mr-x/quick-ask--kill-zombie buf))
-                  (mr-x/quick-ask--start-session root)))))
+                  (mr-x/quick-ask--start-session root)))
+          (mr-x/quick-ask--track-response mr-x/quick-ask--shell-buffer)
+          mr-x/quick-ask--shell-buffer))
+
+      (defvar-local mr-x/quick-ask--response-chunks nil
+        "Newest-first (MESSAGE-ID . RAW-TEXT) chunks from this shell's turn.")
+      (defvar-local mr-x/quick-ask--response-subscription nil
+        "Subscription capturing original Markdown before chat renders it.")
+
+      (defun mr-x/quick-ask--capture-response (event)
+        "Capture raw agent messages from EVENT in the current shell buffer."
+        (pcase (map-elt event :event)
+          ('input-submitted (setq mr-x/quick-ask--response-chunks nil))
+          ('agent-message-chunk
+           (when-let ((text (map-nested-elt event '(:data :text-chunk))))
+             (unless (string-empty-p text)
+               (push (cons (map-elt (agent-shell--state) :chunked-group-count)
+                           (substring-no-properties text))
+                     mr-x/quick-ask--response-chunks))))))
+
+      (defun mr-x/quick-ask--track-response (shell)
+        "Capture SHELL's raw messages once, for the lifetime of the session."
+        (when (buffer-live-p shell)
+          (with-current-buffer shell
+            (unless mr-x/quick-ask--response-subscription
+              (setq mr-x/quick-ask--response-subscription
+                    (agent-shell-subscribe-to
+                     :shell-buffer shell :on-event #'mr-x/quick-ask--capture-response))))))
 
       (defun mr-x/quick-ask--start-session (&optional dir)
         "Create a hidden agent-shell session in DIR's project. Returns the buffer."
@@ -2533,6 +2317,18 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                    "\n")
                   "</context>\n\n")))
 
+      (defconst mr-x/quick-ask--response-style
+        (concat "<quick-ask-response-style>\n"
+                "Answer in concise Markdown for a narrow reading pane. "
+                "Lead with the direct answer. For multiple topics, use short ## headings "
+                "with blank lines between sections; do not use bold paragraphs as headings. "
+                "Keep paragraphs short. Use numbered lists for steps and bullets for parallel items. "
+                "Use balanced backticks for code and fenced blocks for multiline examples. "
+                "Keep literal quotes inside code; do not wrap prose in quotation marks or a code fence. "
+                "Avoid tables and decorative symbols. A short, single-topic answer needs no heading.\n"
+                "</quick-ask-response-style>\n\n")
+        "Presentation instructions sent with each Quick Ask question.")
+
       ;; Input phase keymap
       (defvar mr-x/quick-ask-input-map
         (let ((map (make-sparse-keymap)))
@@ -2569,8 +2365,31 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         "Keymap active while waiting for Claude response. All keys abort.")
 
       ;; Permission requests from the hidden agent: reads go through, the
-      ;; rest ask in the box with 1 / 2 / 3 (lisp/quick-ask-permission.el).
+      ;; rest ask in the box (lisp/quick-ask-permission.el).  The package's
+      ;; keys, C-c 1 / 2 / 3 by default, answer from the box; the prompt
+      ;; also joins the SPC c 1 / 2 / 3 queue, so it can be answered from
+      ;; anywhere, and answering there clears it from the box.
       (require 'quick-ask-permission)
+      (set-keymap-parent mr-x/quick-ask-waiting-map quick-ask-permission-map)
+
+      (defun mr-x/quick-ask--queue-permission (permission)
+        "Offer PERMISSION to SPC c 1 / 2 / 3 as well as the box."
+        (when (and (boundp 'mr-x/pending-permissions-queue)
+                   (fboundp 'mr-x/pending-permissions-update-legacy))
+         (let ((tool-call (map-elt permission :tool-call))
+              (respond (map-elt permission :respond)))
+          (push (list :respond (lambda (option-id)
+                                 (quick-ask-permission-drop permission)
+                                 (funcall respond option-id))
+                      :options (map-elt permission :options)
+                      :tool-call tool-call :tool-call-id nil
+                      :perm-id (map-elt tool-call :permission-request-id)
+                      :buffer mr-x/quick-ask--shell-buffer)
+                mr-x/pending-permissions-queue)
+          (mr-x/pending-permissions-update-legacy)
+          (message "Quick Ask permission: %s [SPC c 1=allow 2=deny 3=always]"
+                   (map-elt tool-call :title)))))
+      (add-hook 'quick-ask-permission-queued-functions #'mr-x/quick-ask--queue-permission)
 
       ;; Response phase keymap
       (defvar mr-x/quick-ask-response-map
@@ -2612,6 +2431,9 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         ;; A question is prose: the global completion sources (Elisp
         ;; symbols, keywords, abbrevs) only pop up noise while typing it.
         (setq-local corfu-auto nil)
+        ;; File links in the answer open where the question came from, not
+        ;; in the card's own window (see `mr-x/quick-ask--open-file').
+        (setq-local agent-shell-markdown-open-file-function #'mr-x/quick-ask--open-file)
         ;; The box has no mode line, so it shows the evil state itself.
         (add-hook 'post-command-hook #'mr-x/quick-ask--show-state nil t))
 
@@ -2659,38 +2481,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           (kbd "G") #'end-of-buffer
           (kbd "gg") #'beginning-of-buffer))
 
-      ;; Markdown rendering (borrowed from ask-user-popup pattern)
+      ;; Share the chat renderer so prose, links and code keep their formatting.
       (defun mr-x/quick-ask--render-markdown ()
-        "Apply basic markdown styling to the current buffer."
-        (save-excursion
-          ;; Bold: **text**
-          (goto-char (point-min))
-          (while (re-search-forward "\\*\\*\\(.+?\\)\\*\\*" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:weight bold))))
-          ;; Inline code: `text`
-          (goto-char (point-min))
-          (while (re-search-forward "`\\([^`\n]+?\\)`" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:family "monospace" :background "#2a2a2a"))))
-          ;; Headers: # text → bold
-          (goto-char (point-min))
-          (while (re-search-forward "^#{1,3} \\(.+\\)$" nil t)
-            (let ((content (match-string 1))
-                  (start (match-beginning 0)))
-              (replace-match content t t)
-              (put-text-property start (+ start (length content))
-                                 'face '(:weight bold :height 1.1))))
-          ;; Bullet points: - text → •
-          (goto-char (point-min))
-          (while (re-search-forward "^\\([ \t]*\\)- " nil t)
-            (replace-match (concat (match-string 1) "• ")))))
+        "Render Markdown in the current buffer's accessible answer region."
+        (require 'agent-shell-markdown)
+        (agent-shell-markdown-replace-markup :complete t :render-images nil))
 
       ;; Thinking animation
       (defvar-local mr-x/quick-ask--anim-tick 0
@@ -2810,8 +2605,10 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (mr-x/quick-ask--dismiss)
         (message "Response copied"))
 
-      (defvar-local mr-x/quick-ask--fits nil
-        "Non-nil when the whole card fits its popup, which then cannot scroll.")
+      (defvar-local mr-x/quick-ask--scroll-limit nil
+        "How far the popup may scroll, as (START . VSCROLL); nil is no limit.
+      At the limit the card's last row sits on the popup's bottom edge.  A
+      card that fits whole has its start and 0, and cannot scroll.")
 
       (defun mr-x/quick-ask--content-pixels (buf)
         "Pixel height of BUF's card in its posframe, or nil if not measurable.
@@ -2833,11 +2630,33 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (ceiling (/ (float px) (frame-char-height frame)))
             (* 2 (with-current-buffer buf (count-lines (point-min) (point-max)))))))
 
-      (defun mr-x/quick-ask--pin-start (window start)
-        "Keep WINDOW at the card's start while the whole card fits."
+      (defun mr-x/quick-ask--measure-scroll-limit (window fits)
+        "The scroll limit of the card in WINDOW; FITS means it shows whole."
         (with-current-buffer (window-buffer window)
-          (when (and mr-x/quick-ask--fits (> start (point-min)))
-            (set-window-start window (point-min) t))))
+          (if fits (cons (point-min) 0)
+            ;; The row one window height above the card's end, and how far
+            ;; that row must be cut off for the end to meet the bottom edge.
+            (let ((body (window-body-height window t)))
+              (pcase (window-text-pixel-size window (cons (point-max) (- body)) (point-max))
+                (`(,_ ,height ,start) (cons start (max 0 (- height body)))))))))
+
+      (defun mr-x/quick-ask--clamp-scroll (window &optional start)
+        "Keep WINDOW from scrolling past the end of its card.
+      On `window-scroll-functions', with the new START, for the scrolls
+      redisplay makes itself; and on `pre-redisplay-functions', because a
+      wheel scroll sets the window's start and vscroll directly, which
+      runs no scroll hook."
+        (with-current-buffer (window-buffer window)
+          (when mr-x/quick-ask--scroll-limit
+            (pcase-let ((`(,limit . ,vscroll) mr-x/quick-ask--scroll-limit)
+                        (to (or start (window-start window))))
+              (cond ((or (> to limit)
+                         (and (= to limit) (> (window-vscroll window t) vscroll)))
+                     (set-window-vscroll window vscroll t t)
+                     (set-window-start window limit t))
+                    ;; Redisplay scrolling back up from the limit starts on a whole row.
+                    ((and start (< start limit) (> (window-vscroll window t) 0))
+                     (set-window-vscroll window 0 t)))))))
 
       (defcustom mr-x/quick-ask-placement 'float
         "Where Quick Ask opens: `float', a card popup at point, or `bottom', a window.
@@ -2867,7 +2686,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (and (boundp 'posframe--frame) (buffer-local-value 'posframe--frame buf)))
 
       (defun mr-x/quick-ask--fit-float (buf cap)
-        "Size BUF's popup to its card, at most CAP lines, pinned when it fits.
+        "Size BUF's popup to its card, at most CAP lines, and limit its scrolling.
       posframe sizes by line count, but the card pads rows in pixels."
         (let ((lines (min cap (mr-x/quick-ask--content-lines buf)))
               (frame (mr-x/quick-ask--posframe-frame buf))
@@ -2875,22 +2694,87 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           (when (and (frame-live-p frame) px)
             ;; Lines round up and leave a gap: settle on the exact height.
             (let ((fits (<= px (* cap (frame-char-height frame)))))
+              (when fits (set-frame-height frame px nil t))
               (with-current-buffer buf
-                (setq mr-x/quick-ask--fits fits)
-                (add-hook 'window-scroll-functions #'mr-x/quick-ask--pin-start nil t))
-              (when fits (set-frame-height frame px nil t))))
+                (setq mr-x/quick-ask--scroll-limit
+                      (mr-x/quick-ask--measure-scroll-limit (frame-root-window frame) fits))
+                (add-hook 'window-scroll-functions #'mr-x/quick-ask--clamp-scroll nil t)
+                (add-hook 'pre-redisplay-functions #'mr-x/quick-ask--clamp-scroll nil t)))
+            (mr-x/quick-ask--settle-float buf))
           lines))
 
+      (defvar-local mr-x/quick-ask--source-rows nil
+        "Frame pixel rows of the lines this Quick Ask is about, as (TOP . BOTTOM).
+      The popup stays clear of them; nil when they could not be measured.")
+
+      (defun mr-x/quick-ask--measure-source-rows (window start end)
+        "The frame pixel rows START..END's lines take in WINDOW, as (TOP . BOTTOM).
+      Lines scrolled out of WINDOW count from its edge.  Nil when nothing
+      is drawn to measure, as in batch."
+        (let* ((edges (window-pixel-edges window))
+               ;; The same origin posframe measures point from.
+               (origin (+ (nth 1 edges) (window-header-line-height window)
+                          (if (fboundp 'window-tab-line-height) (window-tab-line-height window) 0)))
+               (first (posn-at-point (max start (window-start window)) window))
+               (last (posn-at-point end window)))
+          (when (or first last)
+            (cons (+ origin (if first (cdr (posn-x-y first)) 0))
+                  (cond (last (+ origin (cdr (posn-x-y last))
+                                 (with-selected-window window
+                                   (save-excursion (goto-char end) (line-pixel-height)))))
+                        ;; Scrolled off above: nothing to keep clear of.
+                        ((< end (window-start window)) origin)
+                        (t (nth 3 edges)))))))
+
+      (defun mr-x/quick-ask--float-cap (rows frame-height line want)
+        "Most lines the popup may take beside ROWS in a FRAME-HEIGHT px frame.
+      LINE is a line's pixel height.  A card of WANT lines goes below the
+      rows when it fits there, else in the larger gap; never under 6 lines."
+        (let ((above (floor (- (car rows) 4) line))
+              (below (floor (- frame-height (cdr rows) 4) line)))
+          (max 6 (if (or (<= want below) (>= below above)) below above))))
+
+      (defun mr-x/quick-ask--float-y (rows height frame-height)
+        "Where a HEIGHT px card goes beside ROWS in a FRAME-HEIGHT px frame.
+      Below the rows, above them when the card only fits there, else the
+      larger gap."
+        (cond ((<= (+ (cdr rows) height) frame-height) (cdr rows))
+              ;; 4 px: the card's border is outside its height.
+              ((or (<= (+ height 4) (car rows))
+                   (> (car rows) (- frame-height (cdr rows))))
+               (max 0 (- (car rows) height 4)))
+              (t (cdr rows))))
+
       (defun mr-x/quick-ask--poshandler (info)
-        "Below the anchor, or above it when the card would run off the bottom;
-      shifted left so it never runs past the frame's right edge."
+        "Beside the rows asked about (`mr-x/quick-ask--float-y'); without
+      them, below point or above it when the card would run off the bottom.
+      Shifted left so it never runs past the frame's right edge."
         (let* ((below (posframe-poshandler-point-bottom-left-corner info))
-               (pos (if (> (+ (cdr below) (plist-get info :posframe-height))
-                           (plist-get info :parent-frame-height))
-                        (posframe-poshandler-point-bottom-left-corner-upward info)
-                      below))
+               (height (plist-get info :posframe-height))
+               (frame-height (plist-get info :parent-frame-height))
+               (buf (plist-get info :posframe-buffer))
+               (rows (and (bufferp buf) (buffer-live-p buf)
+                          (buffer-local-value 'mr-x/quick-ask--source-rows buf)))
+               (y (if rows (mr-x/quick-ask--float-y rows height frame-height)
+                    (cdr (if (> (+ (cdr below) height) frame-height)
+                             (posframe-poshandler-point-bottom-left-corner-upward info)
+                           below))))
                (right (- (plist-get info :parent-frame-width) (plist-get info :posframe-width) 4)))
-          (cons (max 0 (min (car pos) right)) (cdr pos))))
+          (cons (max 0 (min (car below) right)) y)))
+
+      (defun mr-x/quick-ask--settle-float (buf)
+        "Move BUF's popup beside its rows once its height is final.
+      posframe positions the frame before it has shrunk, and macOS pushes
+      a child frame that would overflow its parent back inside, so a card
+      that was tall a moment ago ends up over the rows it should avoid."
+        (let* ((frame (mr-x/quick-ask--posframe-frame buf))
+               (parent (and (frame-live-p frame) (frame-parent frame)))
+               (rows (buffer-local-value 'mr-x/quick-ask--source-rows buf)))
+          (when (and rows (frame-live-p parent))
+            (redisplay t)
+            (set-frame-position frame (car (frame-position frame))
+                                (mr-x/quick-ask--float-y rows (frame-pixel-height frame)
+                                                         (frame-pixel-height parent))))))
 
       (defun mr-x/quick-ask--show-float (buf source-window)
         "Show BUF as a card popup anchored at its source in SOURCE-WINDOW."
@@ -2911,6 +2795,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
               (let* ((anchor (with-current-buffer source
                                (min (point-max) (max (point-min)
                                                     (if region (cdr region) (point))))))
+                     (rows (with-current-buffer source
+                             (mr-x/quick-ask--measure-source-rows
+                              source-window (if region (car region) anchor) anchor)))
+                     ;; Room for the card: all of the frame until its own
+                     ;; height is known, then the gap it will sit in.
                      (cap (max 10 (- (frame-height) 4)))
                      (show (lambda (&rest size)
                              (apply #'posframe-show
@@ -2923,19 +2812,29 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                                     :background-color "#282828" :accept-focus t
                                     :cursor cursor
                                     (append size (list :max-height cap)))
-                             ;; posframe-show resets `cursor-type'; evil sets it back.
+                             ;; posframe-show resets `cursor-type' and switches
+                             ;; line numbers off; put both back.
                              (with-current-buffer buf
-                               (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))))))
+                               (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor))
+                               (when display-line-numbers-mode
+                                 (setq display-line-numbers display-line-numbers-type))))))
+                (with-current-buffer buf (setq mr-x/quick-ask--source-rows rows))
                 (funcall show)
-                (let ((lines (min cap (mr-x/quick-ask--content-lines buf))))
-                  (funcall show :height lines :min-height lines))
+                (let ((want (mr-x/quick-ask--content-lines buf)))
+                  (when rows
+                    (setq cap (mr-x/quick-ask--float-cap
+                               rows (frame-pixel-height) (frame-char-height) want)))
+                  (let ((lines (min cap want)))
+                    (funcall show :height lines :min-height lines)))
                 (mr-x/quick-ask--fit-float buf cap))))
           (let ((frame (mr-x/quick-ask--posframe-frame buf)))
             (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
 
       (defun mr-x/quick-ask--show-bottom (buf)
         "Show BUF in a window at the bottom of the frame."
-        (with-current-buffer buf (setq mr-x/quick-ask--posframe nil))
+        ;; The limit was measured for the popup; a window scrolls freely.
+        (with-current-buffer buf (setq mr-x/quick-ask--posframe nil
+                                       mr-x/quick-ask--scroll-limit nil))
         (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buf)))
         (let ((window (or (get-buffer-window buf)
                           (display-buffer buf '((display-buffer-at-bottom)
@@ -2998,13 +2897,53 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                 (when (display-graphic-p (window-frame source-window))
                   (select-frame-set-input-focus (window-frame source-window))))))))
 
+      (defun mr-x/quick-ask--focused-p (buf)
+        "Non-nil when keys go to BUF: the selected window shows it."
+        (eq (window-buffer (selected-window)) buf))
+
+      (defun mr-x/quick-ask--focus (buf)
+        "Move focus into the visible Quick Ask BUF, popup or bottom window.
+      Returns non-nil when there was something to focus."
+        (let ((frame (and mr-x/quick-ask--posframe (mr-x/quick-ask--posframe-frame buf))))
+          (cond ((frame-live-p frame)
+                 (select-frame-set-input-focus frame)
+                 (select-window (frame-selected-window frame))
+                 t)
+                ((get-buffer-window buf t)
+                 (let ((window (get-buffer-window buf t)))
+                   (select-frame-set-input-focus (window-frame window))
+                   (select-window window)
+                   t)))))
+
       (defun mr-x/quick-ask-toggle ()
-        "Hide the open Quick Ask, or bring a hidden one back."
+        "Bring a hidden Quick Ask back, focus a visible one, or hide the focused one."
         (interactive)
         (let ((buf (get-buffer "*quick-ask*")))
           (cond ((not (buffer-live-p buf)) (user-error "No Quick Ask open; SPC q asks one"))
                 ((buffer-local-value 'mr-x/quick-ask--hidden buf) (mr-x/quick-ask--show buf))
+                ;; Visible but not where keys go: jump into it.  A card with
+                ;; nothing left to focus just hides.
+                ((and (not (mr-x/quick-ask--focused-p buf))
+                      (with-current-buffer buf (mr-x/quick-ask--focus buf))))
                 (t (mr-x/quick-ask-hide)))))
+
+      (defun mr-x/quick-ask--open-file (path)
+        "Open PATH, a file link in the answer, where the question came from.
+      The card hides first; SPC Q brings it back.  From a review pane the file
+      opens as `review-session-visit-style' says.  Returns the window showing
+      PATH, as `agent-shell-markdown-open-file-function' requires."
+        (let* ((source mr-x/quick-ask--source-buffer)
+               (session (and (buffer-live-p source)
+                             (buffer-local-value 'review-pane--session source))))
+          (mr-x/quick-ask-hide)
+          (if (and session (fboundp 'review-session-open-path))
+              (review-session-open-path session path)
+            (let ((window (if (and (buffer-live-p source) (get-buffer-window source t))
+                              (get-buffer-window source t)
+                            (selected-window))))
+              (select-window window)
+              (switch-to-buffer (find-file-noselect path))
+              window))))
 
       (defun mr-x/quick-ask-toggle-placement ()
         "Move the open Quick Ask between a popup at point and the bottom window."
@@ -3068,7 +3007,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
             (user-error "No question provided"))
           ;; Build full prompt with context
           (let* ((preamble (mr-x/quick-ask--format-context-preamble))
-                 (full-prompt (concat preamble question))
+                 (full-prompt (concat preamble mr-x/quick-ask--response-style question))
                  (popup-buf (current-buffer))
                  (shell-buf (mr-x/quick-ask--ensure-session default-directory)))
             ;; Check if shell is busy
@@ -3102,7 +3041,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                        ;; Extract response and render in popup
                        (when (buffer-live-p popup-buf)
                          (let ((response (with-current-buffer shell-buf
-                                           (shell-maker-last-output))))
+                                           (mr-x/quick-ask--last-response))))
                            (with-current-buffer popup-buf
                              (mr-x/quick-ask--show-response question response)))))))
               (setq mr-x/quick-ask--turn-subscription sub-token))
@@ -3113,21 +3052,21 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
              :submit t
              :no-focus t))))
 
-      (defun mr-x/quick-ask--strip-thinking (text)
-        "Strip Claude's thinking/reasoning block from response TEXT.
-  The agent-shell output includes collapsible thinking fragments that render
-  as: ▶ Thinking\\n\\n[reasoning content]\\n\\n[actual response]
-  Strip everything up to and including the thinking block."
-        (let ((text (or text "")))
-          ;; Leading fragments, in any order: thinking, and the session notice
-          ;; a fresh (per-project) session prints on its first turn.
-          (while (string-match "\\`[ \t\n]*▶[^\n]*\\(?:[Tt]hinking\\|[Nn]otices\\)[^\n]*\n\n" text)
-            (let ((after-header (match-end 0)))
-              ;; A fragment is one contiguous block: it ends at the next blank line.
-              (setq text (if (string-match "\n\n" text after-header)
-                             (substring text (match-end 0))
-                           ""))))
-          (string-trim text)))
+      (defun mr-x/quick-ask--last-response ()
+        "Return the last turn's agent messages as Markdown, or nil.
+      Use captured raw chunks: reconstructing streamed, already-rendered
+      list items can lose closing emphasis and code delimiters.  Thoughts,
+      notices and tool calls stay in the full conversation."
+        (when mr-x/quick-ask--response-chunks
+          (let ((first t) previous)
+            (string-trim
+             (mapconcat
+              (lambda (chunk)
+                (prog1 (concat (when (and (not first) (not (equal previous (car chunk))))
+                                 "\n\n")
+                               (cdr chunk))
+                  (setq first nil previous (car chunk))))
+              (reverse mr-x/quick-ask--response-chunks) "")))))
 
       (defun mr-x/quick-ask--show-response (question response)
         "Render QUESTION and RESPONSE in the popup buffer."
@@ -3143,8 +3082,8 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
                 (setq-local header-line-format
                             (propertize " Request failed" 'face '(:weight bold :foreground "#bf616a")))
                 (insert "Error: no response received"))
-            ;; Strip thinking block and save Q&A for surfacing
-            (let ((clean-response (mr-x/quick-ask--strip-thinking response)))
+            ;; RESPONSE contains only agent messages, with original Markdown.
+            (let ((clean-response (string-trim response)))
               (setq mr-x/quick-ask--question question)
               (setq mr-x/quick-ask--response clean-response)
               ;; The design's card (Figma "Compare / quick ask"): origin,
@@ -3158,6 +3097,11 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
           ;; Switch to response phase
           (setq mr-x/quick-ask--phase 'response)
           (use-local-map mr-x/quick-ask-response-map)
+          ;; Read in normal state: relative numbers so `5j' has something to
+          ;; count.  The card marks its chrome rows, so only the answer counts.
+          (setq-local display-line-numbers-type 'visual
+                      display-line-numbers-width 2)
+          (display-line-numbers-mode 1)
           (setq buffer-read-only t)
           (when (fboundp 'evil-normal-state)
             (evil-normal-state))
@@ -3321,7 +3265,7 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
   "The prompt string of the current shell."
   (or (and (bound-and-true-p shell-maker--config)
            (fboundp 'shell-maker-prompt)
-           (shell-maker-prompt shell-maker--config))
+           (ignore-errors (shell-maker-prompt shell-maker--config)))
       (bound-and-true-p mr-x/agent-shell-prompt)))
 
 (defun mr-x/agent-shell-busy-tint--ranges ()
@@ -3385,6 +3329,22 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
      (mr-x/agent-shell-busy-tint--cookie
       (mr-x/agent-shell-busy-tint--clear)))))
 
+;; Some paths clear the busy flag after their last buffer change and never
+;; run the finish hook (interrupt prints its prompt first, then clears), so
+;; the tint stayed on.  Watch the flag itself: every set, on every path,
+;; queues a sync in that buffer once the setter has returned.
+(defun mr-x/agent-shell-busy-tint--watch (_symbol _value operation where)
+  "Queue a busy tint sync in WHERE after `shell-maker--busy' changes."
+  (when (and (eq operation 'set) (buffer-live-p where))
+    (run-at-time 0 nil
+                 (lambda ()
+                   (when (buffer-live-p where)
+                     (with-current-buffer where
+                       (when (bound-and-true-p mr-x/agent-shell-prompt-divider-mode)
+                         (mr-x/agent-shell-busy-tint--sync))))))))
+
+(add-variable-watcher 'shell-maker--busy #'mr-x/agent-shell-busy-tint--watch)
+
 (define-minor-mode mr-x/agent-shell-prompt-divider-mode
   "Draw a divider above the live agent-shell prompt."
   :lighter nil
@@ -3411,6 +3371,15 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
 (add-hook 'agent-shell-mode-hook #'mr-x/agent-shell-prompt-divider-mode)
 
 
+
+(defun mr-x/agent-shell--defer-narrowed-auto-scroll (original &rest args)
+  "Skip ORIGINAL's visibility probe while an agent chat is narrowed."
+  (unless (and (derived-mode-p 'agent-shell-mode) (buffer-narrowed-p))
+    (apply original args)))
+
+(with-eval-after-load 'shell-maker
+  (advice-add 'shell-maker--should-auto-scroll-p :around
+              #'mr-x/agent-shell--defer-narrowed-auto-scroll))
 
 ;; Prompt follow: pull the view down so the live prompt is the bottom line.
 ;; Runs just before redisplay (never a frame with the prompt floating) and
@@ -3442,40 +3411,44 @@ growing reply (Emacs alone scrolls a frame late) or floated up by a fold."
                 ((>= (window-point window) start)))
       (let* ((ws (window-start window))
              (body (window-body-height window t))
-             (h (cdr (window-text-pixel-size window ws (point-max)))))
-        (cond
-         ;; Reply grew: advance the top line just enough to keep eob in view.
-         ((> h body)
-          (let ((new (save-excursion
-                       (goto-char ws)
-                       (while (and (> h body) (< (point) (point-max)))
-                         (vertical-motion 1 window)
-                         (setq h (cdr (window-text-pixel-size
-                                       window (point) (point-max)))))
-                       (point))))
-            (unless (= new ws)
-              (set-window-start window new t))))
-         ;; Text above shrank: pull down to fill the blank space.
-         ((and (> ws (point-min))
-               (> (- body h) (frame-char-height (window-frame window))))
+             (h (mr-x/agent-shell-prompt-follow--height window ws body)))
+        ;; Reply grew (eob fell below the window), or text above shrank
+        ;; (blank space under eob): both want the bottom-pinned start.
+        (when (or (> h body)
+                  (and (> ws (point-min))
+                       (> (- body h) (frame-char-height (window-frame window)))))
           (when-let* ((new (mr-x/agent-shell-prompt-follow--bottom-start window))
-                      ((< new ws)))
-            (set-window-start window new t))))))))
+                      ((/= new ws)))
+            (set-window-start window new t)))))))
+
+(defun mr-x/agent-shell-prompt-follow--height (window from body)
+  "Pixel height of FROM..`point-max' in WINDOW, measured no further than
+twice BODY.  Unbounded, one measure walks a whole multi-megabyte reply,
+and this runs on every redisplay."
+  (cdr (window-text-pixel-size window from (point-max) nil (* 2 body))))
 
 (defun mr-x/agent-shell-prompt-follow--bottom-start (window)
-  "Highest window start that still shows `point-max' fully in WINDOW."
+  "Highest window start that still shows `point-max' fully in WINDOW.
+Walks up from eob one screen line at a time.  Stops when a step makes
+no progress (`vertical-motion' can stall on invisible text, which hung
+the daemon on 2026-09-30) and after twice the window's line count."
   (let ((body (window-body-height window t))
+        (steps (+ 10 (* 2 (window-body-height window))))
         (best nil))
     (save-excursion
       (goto-char (point-max))
       (beginning-of-visual-line)
       (catch 'done
-        (while t
-          (if (> (cdr (window-text-pixel-size window (point) (point-max))) body)
+        (while (> steps 0)
+          (setq steps (1- steps))
+          (if (> (mr-x/agent-shell-prompt-follow--height window (point) body)
+                 body)
               (throw 'done nil)
             (setq best (point))
             (when (bobp) (throw 'done nil))
-            (vertical-motion -1 window)))))
+            (let ((prev (point)))
+              (vertical-motion -1 window)
+              (unless (< (point) prev) (throw 'done nil)))))))
     best))
 
 (defun mr-x/agent-shell-prompt-follow--pre-redisplay (_windows)

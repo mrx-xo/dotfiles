@@ -133,6 +133,9 @@ displayLayoutWatcher = hs.screen.watcher.new(function()
 end)
 displayLayoutWatcher:start()
 
+-- Manual iPad connection and bounded wake/login retries (per-machine opt-in).
+dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/sidecar-init.lua")
+
 -- Hide sketchybar while the auto-hidden macOS menu bar is revealed.
 -- The OS slides its menu bar in when the pointer dwells at the very top
 -- edge of a screen; mirror that trigger so the two bars never stack.
@@ -184,3 +187,10 @@ hs.task.new(sketchybarBin, nil, { "--bar", "hidden=off", "y_offset=0" }):start()
 
 -- Live keymap widget on the portrait display (keymap-explorer PRD)
 dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keymap-widget.lua")
+
+-- Per-machine opt-in: keypad + controls remote dictation, keypad Enter local.
+local voiceEnabled = io.open(os.getenv("HOME") .. "/.config/keyboard-voice/enabled", "r")
+if voiceEnabled then
+  voiceEnabled:close()
+  keyboardVoice = dofile(os.getenv("HOME") .. "/.dotfiles/macos/hammerspoon/keyboard-voice.lua")
+end

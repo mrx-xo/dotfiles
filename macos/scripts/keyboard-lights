@@ -1,0 +1,112 @@
+#!/opt/homebrew/bin/python3
+"""keyboard-lights off|on: the good night / good morning message to every keyboard.
+
+Sends the night-lights frame over QMK raw HID to each connected board and
+waits for its confirmation. "off" makes a board remember its configured
+lighting and go dark; "on" restores it. Both are RAM-only on the board, so
+nothing is written to its EEPROM and a power cycle brings the saved look back.
+
+    keyboard-lights off
+    keyboard-lights on
+
+One line per board with the lighting as the board reports it after the
+message:  iris: off | komax: on | komax: not connected | iris: no reply.
+A board whose lighting was already off answers "on" with "off": that is the
+spec (it stays off), so it counts as confirmed. Exit 0 when every connected
+board answered, 1 when a connected board stayed silent for REPLY_TIMEOUT_MS,
+2 on bad usage. A missing board is never an error: "good night" must not care.
+
+Boards: the Iris (keebio/iris/rev8, keymaps/mrx) over USB, KOMAX
+(keychron/k0_max, keymaps/mrx) over its USB-C cable or its 2.4 GHz dongle.
+Firmware side: night_lights.c in each keymap; frame tag 0x4E, never 0x4C (the
+Iris layer broadcast the wallpaper widget listens for).
+
+Called by mon-voice-gate.sh as `keyboards off|on` from Home Assistant's
+sleep_desk / wake_desk scripts.
+"""
+
+import ctypes
+import sys
+import time
+
+import hid
+
+TAG = 0x4E
+REPORT_SIZE = 32          # RAW_EPSIZE
+USAGE_PAGE, USAGE = 0xFF60, 0x61
+REPLY_TIMEOUT_MS = 1000
+CMDS = {"off": 0x00, "on": 0x01}
+
+# name -> interfaces that reach it. KOMAX may show up on both at once
+# (KEEP_USB_CONNECTION_IN_WIRELESS_MODE); it is one board, one line.
+BOARDS = [
+    ("iris", [(0xCB10, 0x8256)]),
+    ("komax", [(0x3434, 0x0A06), (0x3434, 0xD030)]),   # cable, Keychron Link dongle
+]
+
+
+def open_non_exclusive():
+    """Ask hidapi not to seize devices: the wallpaper widget keeps the Iris open.
+
+    cython-hidapi does not expose hid_darwin_set_open_exclusive, but the symbol
+    is in the hidapi it bundles. Returns False when the call is unavailable
+    (not macOS, other hidapi build); the open is then exclusive as before."""
+    try:
+        ctypes.CDLL(hid.__file__).hid_darwin_set_open_exclusive(0)
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
+def raw_paths(vid, pid):
+    return [d["path"] for d in hid.enumerate(vid, pid)
+            if d["usage_page"] == USAGE_PAGE and d["usage"] == USAGE]
+
+
+def send(path, cmd):
+    """Send one frame; return the board's reported state (0 off, 1 on) or None on silence."""
+    frame = bytes([0x00, TAG, cmd]) + bytes(REPORT_SIZE - 2)   # 0x00 = no report id
+    dev = hid.device()
+    try:
+        dev.open_path(path)
+        dev.set_nonblocking(1)
+        dev.write(frame)
+        deadline = time.monotonic() + REPLY_TIMEOUT_MS / 1000
+        while time.monotonic() < deadline:
+            reply = dev.read(REPORT_SIZE)
+            if reply:
+                if reply[0] == TAG:
+                    return reply[1]
+                continue                 # a layer broadcast or another tag: keep waiting
+            time.sleep(0.01)
+        return None
+    except (OSError, IOError, ValueError) as e:
+        print(f"{path!r}: HID error: {e}", file=sys.stderr)
+        return None
+    finally:
+        dev.close()
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] not in CMDS:
+        print("usage: keyboard-lights off|on", file=sys.stderr)
+        return 2
+    cmd = CMDS[argv[0]]
+    open_non_exclusive()
+    failed = False
+    for name, ids in BOARDS:
+        paths = [p for vid, pid in ids for p in raw_paths(vid, pid)]
+        if not paths:
+            print(f"{name}: not connected")
+            continue
+        states = [s for s in (send(p, cmd) for p in paths) if s is not None]
+        if states:
+            print(f"{name}: {'on' if states[0] else 'off'}")
+        else:
+            print(f"{name}: no reply")
+            failed = True
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

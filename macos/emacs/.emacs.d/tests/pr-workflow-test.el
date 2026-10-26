@@ -275,8 +275,7 @@
       (cl-letf (((symbol-function 'forge-get-worktree) (lambda (_repo) "/tmp/project/"))
                 ((symbol-function 'review-source-github-pr)
                  (lambda (&rest a) (setq args a) 'github-source))
-                ((symbol-function 'review-session-start) (lambda (src) (setq started src) nil))
-                ((symbol-function 'review-panel-open) #'ignore))
+                ((symbol-function 'review-store-open) (lambda (src) (setq started src) nil)))
         (should (mr-x/pr-review-available-p))
         (mr-x/pr-review-session)
         (should (eq started 'github-source))
@@ -416,5 +415,302 @@
                 ((symbol-function 'mr-x/pr-review-available-p) #'ignore))
         (mr-x/review))
       (should (equal (nreverse called) '(range range (fetch "h" "o" "n" 7) patch patch))))))
+
+;;;; PR actions from the review viewer
+
+(require 'review-session)
+
+(defun pr-test--session-buffer (recipe)
+  "A pane buffer showing a review session whose source has RECIPE."
+  (let ((buffer (generate-new-buffer " *pr-test-pane*")))
+    (with-current-buffer buffer
+      (setq default-directory temporary-file-directory)
+      (setq-local review-pane--session
+                  (make-review-session :source (make-review-source :recipe recipe)
+                                       :files (vector) :current 0 :hunk 0
+                                       :directory temporary-file-directory)))
+    buffer))
+
+(ert-deftest pr-context-comes-from-the-review-session-forgejo ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((c (mr-x/pr-context t)))
+            (should (eq (plist-get c :backend) 'forgejo))
+            (should (equal (plist-get c :host) "https://forge.example"))
+            (should (equal (plist-get c :owner) "team"))
+            (should (equal (plist-get c :name) "project"))
+            (should (= (plist-get c :number) 7))
+            (should (equal (plist-get c :directory) temporary-file-directory))))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-context-comes-from-the-review-session-github ()
+  (pr-test--github
+    (let ((buffer (pr-test--session-buffer
+                   (list :kind 'github :directory temporary-file-directory
+                         :owner "team" :name "project" :number 11))))
+      (unwind-protect
+          (cl-letf* ((get-repo (symbol-function 'forge-get-repository))
+                     ((symbol-function 'forge-get-repository)
+                      (lambda (object &rest args) (if (eq object :tracked?) repo (apply get-repo object args))))
+                     ((symbol-function 'forge-get-pullreq) (lambda (&rest _) pr)))
+            (with-current-buffer buffer
+              (let ((c (mr-x/pr-context t)))
+                (should (eq (plist-get c :backend) 'github))
+                (should (eq (plist-get c :repository) repo))
+                (should (eq (plist-get c :pullreq) pr))
+                (should (= (plist-get c :number) 11)))))
+        (kill-buffer buffer)))))
+
+(ert-deftest pr-context-review-of-a-git-range-is-not-a-pr ()
+  (let ((buffer (pr-test--session-buffer
+                 (list :kind 'git-range :directory temporary-file-directory :range "main...HEAD"))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (should-not (mr-x/pr--session-context))
+          (should-error (mr-x/review-pr-comment) :type 'user-error))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-review-action-runs-in-the-main-frame-with-the-pane-current ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (main (selected-frame)) ran)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) main))
+                  ((symbol-function 'select-frame-set-input-focus) (lambda (f) (push (list 'focus f) ran)))
+                  ((symbol-function 'mr-x/pr-comment) (lambda () (push (list 'ran (current-buffer)) ran)))
+                  ((symbol-function 'mr-x/pr-readiness-fetch) (lambda (&rest _) (push 'refetch ran))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (should (equal (nreverse ran) (list (list 'focus main) (list 'ran buffer) 'refetch))))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-review-merge-stays-in-the-review-frame ()
+  ;; Merge only asks questions; they must appear where the user looks, in
+  ;; the review frame, and the PR view must not take over a pane.
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (frame (selected-frame)) focused ran)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) 'other-frame))
+                  ((symbol-function 'select-frame-set-input-focus) (lambda (f) (push f focused)))
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'mr-x/pr-merge)
+                   (lambda () (switch-to-buffer (get-buffer-create " *pr-view*"))
+                     (push (list 'ran (selected-frame)) ran))))
+          (let ((before (window-buffer (selected-window))))
+            (with-current-buffer buffer (mr-x/review-pr-merge))
+            (should-not focused)
+            (should (equal ran (list (list 'ran frame))))
+            ;; The window excursion put the earlier buffer back.
+            (should (eq (window-buffer (selected-window)) before))))
+      (kill-buffer buffer) (ignore-errors (kill-buffer " *pr-view*")))))
+
+(ert-deftest pr-review-action-retries-while-the-pr-view-loads ()
+  ;; The Forgejo PR view arrives asynchronously; the action tries again on
+  ;; its own instead of asking for a second keypress.
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (attempts 0) timers)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) (selected-frame)))
+                  ((symbol-function 'select-frame-set-input-focus) #'ignore)
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'run-at-time) (lambda (_time _repeat fn &rest args) (push (cons fn args) timers)))
+                  ((symbol-function 'mr-x/pr-comment)
+                   (lambda () (cl-incf attempts)
+                     (when (< attempts 3)
+                       (user-error "PR details are loading; run the action again when they appear")))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (should (= attempts 1))
+          (while timers
+            (let ((timer (pop timers))) (apply (car timer) (cdr timer))))
+          (should (= attempts 3)))
+      (kill-buffer buffer))))
+
+(ert-deftest pr-review-action-gives-up-after-a-while ()
+  (let ((buffer (pr-test--session-buffer
+                 '(:kind forgejo :host "https://forge.example" :owner "team" :repo "project" :number 7)))
+        (attempts 0) timers messages)
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-session--other-frame) (lambda (_) (selected-frame)))
+                  ((symbol-function 'select-frame-set-input-focus) #'ignore)
+                  ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore)
+                  ((symbol-function 'run-at-time) (lambda (_time _repeat fn &rest args) (push (cons fn args) timers)))
+                  ((symbol-function 'message) (lambda (fmt &rest args) (push (apply #'format fmt args) messages)))
+                  ((symbol-function 'mr-x/pr-comment)
+                   (lambda () (cl-incf attempts)
+                     (user-error "PR details are loading; run the action again when they appear"))))
+          (with-current-buffer buffer (mr-x/review-pr-comment))
+          (while timers
+            (let ((timer (pop timers))) (apply (car timer) (cdr timer))))
+          (should (= attempts (1+ mr-x/review-pr-action-retries)))
+          (should (seq-find (lambda (m) (string-match-p "did not load" m)) messages)))
+      (kill-buffer buffer))))
+
+;;;; Merge readiness
+
+(ert-deftest pr-readiness-parses-forgejo ()
+  (let ((ready (mr-x/pr-readiness--parse-forgejo
+                '((state . "open") (merged . :json-false) (mergeable . t) (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "REQUEST_CHANGES"))
+                  ((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "bob"))) (state . "COMMENT"))
+                  ((user . ((login . "cy"))) (state . "APPROVED") (dismissed . t)))
+                '((state . "success") (statuses . (((state . "success"))))))))
+    (should (equal ready '(:state open :mergeable t :checks success :approvals 1 :changes-requested nil))))
+  ;; Conflicts, a standing request for changes, and pending checks.
+  (let ((ready (mr-x/pr-readiness--parse-forgejo
+                '((state . "open") (merged . :json-false) (mergeable . :json-false) (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "ann"))) (state . "REQUEST_CHANGES")))
+                '((state . "pending") (statuses . (((state . "pending"))))))))
+    (should (equal ready '(:state open :mergeable nil :checks pending :approvals 0 :changes-requested t))))
+  ;; Merged, and no checks at all: Forgejo sends null lists and :false.
+  (should (equal (mr-x/pr-readiness--parse-forgejo
+                  '((state . "closed") (merged . t) (mergeable . t) (draft . :false) (head . ((sha . "abc"))))
+                  :null '((state . "") (statuses . :null)))
+                 '(:state merged :mergeable t :checks nil :approvals 0 :changes-requested nil))))
+
+(ert-deftest pr-readiness-parses-github ()
+  (let ((ready (mr-x/pr-readiness--parse-github
+                '((state . "open") (merged . :json-false) (draft . :json-false) (mergeable . t)
+                  (mergeable_state . "clean") (head . ((sha . "abc"))))
+                '(((user . ((login . "ann"))) (state . "APPROVED"))
+                  ((user . ((login . "bob"))) (state . "CHANGES_REQUESTED"))
+                  ((user . ((login . "bob"))) (state . "DISMISSED")))
+                '((state . "success") (statuses . (((state . "success")))))
+                '((check_runs . (((status . "completed") (conclusion . "success"))
+                                 ((status . "in_progress") (conclusion . nil))))))))
+    (should (equal ready '(:state open :mergeable t :checks pending :approvals 1 :changes-requested nil))))
+  ;; A failed check run wins; a draft; mergeable still computing.
+  (let ((ready (mr-x/pr-readiness--parse-github
+                '((state . "open") (merged . :false) (draft . t) (mergeable . nil)
+                  (mergeable_state . "unknown") (head . ((sha . "abc"))))
+                nil
+                '((state . "pending") (statuses . nil))
+                '((check_runs . (((status . "completed") (conclusion . "failure"))))))))
+    (should (equal ready '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil))))
+  ;; GitHub's false spelling, and null check runs.
+  (should (equal (plist-get (mr-x/pr-readiness--parse-github
+                             '((state . "open") (merged . :false) (draft . :false) (mergeable . :false)
+                               (head . ((sha . "abc"))))
+                             nil '((statuses . :null)) '((check_runs . :null)))
+                            :mergeable)
+                 nil)))
+
+(ert-deftest pr-readiness-text-reads-like-the-design ()
+  (cl-flet ((plain (ready) (substring-no-properties (mr-x/pr-readiness--text ready))))
+    (should (equal (plain '(:state open :mergeable t :checks success :approvals 2 :changes-requested nil))
+                   "✓ mergeable   checks ✓   2 approved"))
+    (should (equal (plain '(:state open :mergeable nil :checks pending :approvals 0 :changes-requested t))
+                   "✗ conflicts   checks ● pending   changes requested"))
+    (should (equal (plain '(:state merged :mergeable t :checks nil :approvals 1 :changes-requested nil))
+                   "merged   1 approved"))
+    (should (equal (plain '(:state draft :mergeable unknown :checks failure :approvals 0 :changes-requested nil))
+                   "draft   checks ✗"))
+    (should (equal (plain '(:error "boom")) "readiness ?"))))
+
+(ert-deftest pr-readiness-segment-shows-only-for-pr-sessions ()
+  (let* ((pr (make-review-session :source (make-review-source
+                                            :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 1))
+                                   :files (vector) :current 0 :hunk 0))
+         (range (make-review-session :source (make-review-source
+                                               :recipe '(:kind git-range :directory "/tmp/" :range "a..b"))
+                                      :files (vector) :current 0 :hunk 0)))
+    (clrhash mr-x/pr-readiness--table)
+    (should-not (mr-x/pr-readiness-segment pr))
+    (should-not (mr-x/pr-readiness-segment range))
+    (puthash pr '(:state open :mergeable t :checks nil :approvals 0 :changes-requested nil)
+             mr-x/pr-readiness--table)
+    (should (equal (substring-no-properties (mr-x/pr-readiness-segment pr)) "✓ mergeable"))
+    (should-not (mr-x/pr-readiness-segment range))))
+
+(defconst pr-test--drafts
+  '((:id 1 :path "src/a.el" :side new :line 12 :start-line nil :text "x" :body "One line.")
+    (:id 2 :path "src/a.el" :side old :line 9 :start-line 7 :text "y" :body "A range.")))
+
+(ert-deftest pr-forgejo-review-payload ()
+  (let ((payload (mr-x/pr--forgejo-review-payload
+                  '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4 :revs ("base" "headsha"))
+                  'request-changes "Please fix." pr-test--drafts)))
+    (should (equal (alist-get 'event payload) "REQUEST_CHANGES"))
+    (should (equal (alist-get 'body payload) "Please fix."))
+    (should (equal (alist-get 'commit_id payload) "headsha"))
+    (let ((comments (alist-get 'comments payload)))
+      (should (vectorp comments))
+      (should (equal (aref comments 0)
+                     '((path . "src/a.el") (body . "One line.") (new_position . 12))))
+      ;; Forgejo has no ranges: the last line, with the range named in the text.
+      (should (equal (aref comments 1)
+                     '((path . "src/a.el") (body . "Lines 7-9:\nA range.") (old_position . 9)))))))
+
+(ert-deftest pr-forgejo-review-payload-events-and-empty-parts ()
+  (let ((recipe '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4)))
+    (should (equal (alist-get 'event (mr-x/pr--forgejo-review-payload recipe 'approve "" nil)) "APPROVED"))
+    (should (equal (alist-get 'event (mr-x/pr--forgejo-review-payload recipe 'comment "" nil)) "COMMENT"))
+    ;; No head known yet and no summary: neither key is sent.
+    (let ((payload (mr-x/pr--forgejo-review-payload recipe 'comment "" pr-test--drafts)))
+      (should-not (assq 'commit_id payload))
+      (should-not (assq 'body payload)))))
+
+(ert-deftest pr-github-review-payload ()
+  (let ((payload (mr-x/pr--github-review-payload
+                  '(:kind github :owner "o" :name "r" :number 4 :head-rev "headsha")
+                  'approve "" pr-test--drafts)))
+    (should (equal (alist-get 'event payload) "APPROVE"))
+    (should-not (assq 'body payload))
+    (should (equal (alist-get 'commit_id payload) "headsha"))
+    (let ((comments (alist-get 'comments payload)))
+      (should (vectorp comments))
+      (should (equal (aref comments 0)
+                     '((path . "src/a.el") (body . "One line.") (line . 12) (side . "RIGHT"))))
+      (should (equal (aref comments 1)
+                     '((path . "src/a.el") (body . "A range.") (line . 9) (side . "LEFT")
+                       (start_line . 7) (start_side . "LEFT")))))
+    (should (equal (alist-get 'event (mr-x/pr--github-review-payload
+                                      '(:kind github :number 4) 'request-changes "x" nil))
+                   "REQUEST_CHANGES"))))
+
+(ert-deftest pr-submit-review-posts-to-forgejo-and-reports ()
+  (let* ((session (make-review-session
+                   :source (make-review-source
+                            :recipe '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 4))))
+         posted ok failed)
+    (cl-letf (((symbol-function 'forgejo-api-post)
+               (lambda (host endpoint _params body callback &rest args)
+                 (setq posted (list host endpoint body))
+                 (if (equal (alist-get 'body body) "fail")
+                     (funcall (plist-get args :error-callback) '(:message "422 nope"))
+                   (funcall callback nil nil))))
+              ((symbol-function 'mr-x/pr-readiness-fetch) #'ignore))
+      (mr-x/pr-submit-review session 'comment "hello" pr-test--drafts
+                             (lambda () (setq ok t)) (lambda (m) (setq failed m)))
+      (should ok)
+      (should (equal (nth 0 posted) "https://h"))
+      (should (equal (nth 1 posted) "repos/o/r/pulls/4/reviews"))
+      (mr-x/pr-submit-review session 'comment "fail" pr-test--drafts
+                             #'ignore (lambda (m) (setq failed m)))
+      (should (equal failed "422 nope")))))
+
+(ert-deftest pr-viewer-actions-use-the-drafts-when-there-are-some ()
+  (let* ((session (make-review-session
+                   :source (make-review-source :recipe '(:kind forgejo :host "h" :owner "o" :repo "r" :number 4))))
+         called)
+    (with-temp-buffer
+      (setq-local review-pane--session session)
+      (cl-letf (((symbol-function 'review-comment-submit)
+                 (lambda (s verdict) (setq called (list 'drafts (eq s session) verdict))))
+                ((symbol-function 'mr-x/review-pr-action)
+                 (lambda (command &rest _) (setq called (list 'plain command)))))
+        (mr-x/review-pr-request-changes)
+        (should (equal called '(plain mr-x/pr-request-changes)))
+        (setf (review-session-comments session) '((:id 1)))
+        (mr-x/review-pr-request-changes)
+        (should (equal called '(drafts t request-changes)))
+        (mr-x/review-pr-approve)
+        (should (equal called '(drafts t approve)))
+        (mr-x/review-pr-comment)
+        (should (equal called '(drafts t comment)))))))
 
 (provide 'pr-workflow-test)
