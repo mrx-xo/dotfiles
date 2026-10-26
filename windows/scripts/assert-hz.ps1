@@ -21,6 +21,8 @@
 #    updates GDI too.
 # Multi-pass because the caller's topology task races us: its fallback can
 # land after our first assert.
+# Preserve source modes (desktop positions and dimensions) when recalculating
+# target timing. Dropping them lets Windows rearrange the Dells after `flip`.
 param([uint32]$Hz = 155)
 
 Add-Type -TypeDefinition @'
@@ -54,11 +56,30 @@ public static class CcdHz {
         public uint flags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SOURCE_MODE {
+        public uint width, height, pixelFormat;
+        public int positionX, positionY;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct REGION { public uint cx, cy; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct VIDEO_SIGNAL_INFO {
+        public ulong pixelRate;
+        public RATIONAL hSyncFreq, vSyncFreq;
+        public REGION activeSize, totalSize;
+        public uint videoStandard, scanLineOrdering;
+    }
+
     [StructLayout(LayoutKind.Explicit, Size = 64)]
     public struct MODE_INFO {
         [FieldOffset(0)] public uint infoType;
         [FieldOffset(4)] public uint id;
         [FieldOffset(8)] public LUID adapterId;
+        [FieldOffset(16)] public SOURCE_MODE sourceMode;
+        [FieldOffset(16)] public VIDEO_SIGNAL_INFO targetMode;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -141,9 +162,8 @@ public static class CcdHz {
             paths[i].targetInfo.refreshRate.Numerator = hz;
             paths[i].targetInfo.refreshRate.Denominator = 1;
             paths[i].targetInfo.modeInfoIdx = IDX_INVALID;
-            paths[i].sourceInfo.modeInfoIdx = IDX_INVALID;
         }
-        return SetDisplayConfig(np, paths, 0, null, SDC_FLAGS);
+        return SetDisplayConfig(np, paths, nm, modes, SDC_FLAGS);
     }
 }
 '@
