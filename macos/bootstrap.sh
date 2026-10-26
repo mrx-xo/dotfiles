@@ -82,6 +82,7 @@ fi
 
 ln -sf "$DOTDIR/.zshrc" "$HOME/.zshrc"
 ln -sf "$DOTDIR/.zshenv" "$HOME/.zshenv"
+ln -sf "$DOTDIR/.zprofile" "$HOME/.zprofile"
 ln -sf "$DOTDIR/yabai/yabairc" "$HOME/.yabairc"
 ln -sf "$DOTDIR/skhd/skhdrc" "$HOME/.skhdrc"
 ln -sf "$DOTDIR/sketchybar" "$HOME/.config/sketchybar"
