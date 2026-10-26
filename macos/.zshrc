@@ -11,10 +11,8 @@ autoload -U colors && colors
 colors
 # PATH=~/.console-ninja/.bin:$PATH
 
-# .zshenv already ran brew shellenv for every shell, but in a login shell
-# /etc/zprofile's path_helper then moves /usr/local/bin (the old Intel brew)
-# back in front.  Re-front the arm64 brew; typeset -U drops the duplicate
-# entries instead of stacking them.
+# .zprofile restores Homebrew's priority after path_helper in login shells.
+# Also front it for interactive nonlogin shells with an inherited PATH.
 [[ -n "$HOMEBREW_PREFIX" ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
 typeset -U path
 path=(/opt/homebrew/bin /opt/homebrew/sbin $path)
