@@ -252,6 +252,13 @@ be loaded."
 ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
 ;; ---------------------------------------------------------------------------
 
+;; This `defvar' wins: init.el loads this file before (require 'syzygy),
+;; so the `defvar' in shared syzygy-rig.el is a no-op after it and the
+;; phone's spawn sheet (/api/presets) lists these.  The picker, spawn and
+;; config helpers (`mr-x/agent-shell--read-preset',
+;; `mr-x/agent-shell-start-preset', `mr-x/agent-shell--config-with',
+;; `mr-x/agent-shell--display-new') come from syzygy-rig.el, which falls
+;; back to plain text where the Mac palette and Codex helpers are absent.
 (defvar mr-x/agent-shell-presets
   '((?f "Fable 5.1 · Bypass" "fable[1m]" "bypassPermissions")
     (?o "Opus 5.5 · Bypass"  "opus[1m]"  "bypassPermissions")
@@ -270,52 +277,10 @@ shell on (e.g. Codex) instead of the preferred (Claude) config.
 EFFORT, when present, is sent as the effort config option once the
 session is up.")
 
-(defun mr-x/agent-shell--display-new (shell-buffer)
-  "Show SHELL-BUFFER: replace current window when already in an
-agent-shell, otherwise pop to it.  Honours viewport interaction."
-  (if (derived-mode-p 'agent-shell-mode 'agent-shell-viewport-view-mode
-                      'agent-shell-viewport-edit-mode)
-      (if agent-shell-prefer-viewport-interaction
-          (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-        (switch-to-buffer shell-buffer))
-    (if agent-shell-prefer-viewport-interaction
-        (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-      (pop-to-buffer shell-buffer))))
-
-(defun mr-x/agent-shell--config-with (model-id mode-id &optional config-fn)
-  "Copy the preferred agent config, overriding model + session mode.
-When CONFIG-FN is non-nil, build the base config by calling it instead
-of resolving the preferred config: that's how a preset targets a
-different agent (Codex) entirely.  Returns a fresh config alist so the
-original is left untouched."
-  (let ((config (copy-alist
-                 (or (and config-fn (funcall config-fn))
-                     (and (fboundp 'agent-shell--resolve-preferred-config)
-                          (agent-shell--resolve-preferred-config))
-                     (agent-shell-select-config :prompt "Start new agent: ")
-                     (error "No agent config found")))))
-    (setf (alist-get :default-model-id config) (lambda () model-id))
-    (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
-    config))
-
-(defun mr-x/agent-shell--preset-prompt (question)
-  "One-line listing of `mr-x/agent-shell-presets' ending in QUESTION."
-  (concat "Preset  "
-          (mapconcat (lambda (p)
-                       (format "[%c] %s" (nth 0 p) (nth 1 p)))
-                     mr-x/agent-shell-presets "   ")
-          question))
-
-(defun mr-x/agent-shell--read-preset (&optional char)
-  "Return a preset tuple from `mr-x/agent-shell-presets'.
-Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
-if it matches no preset."
-  (let ((char (or char
-                  (read-char-choice
-                   (mr-x/agent-shell--preset-prompt ": ")
-                   (mapcar #'car mr-x/agent-shell-presets)))))
-    (or (assq char mr-x/agent-shell-presets)
-        (user-error "No preset for %c" char))))
+(declare-function mr-x/agent-shell--read-preset "syzygy-rig" (&optional char))
+(declare-function mr-x/agent-shell-start-preset "syzygy-rig" (&optional char))
+(declare-function mr-x/agent-shell--preset-prompt "syzygy-rig" (question))
+(declare-function mr-x/agent-shell--spawn-preset "syzygy-rig" (preset))
 
 (defun mr-x/agent-shell--read-preset-or-default ()
   "Read a preset char, or RET/SPC for the default (preferred/Claude) config.
@@ -358,28 +323,6 @@ path typed by hand is accepted.  Returns an expanded directory."
                                       (complete-with-action action candidates str pred))))))
     (or (cdr (assoc choice candidates))
         (expand-file-name choice))))
-
-(defun mr-x/agent-shell--spawn-preset (preset)
-  "Spawn a fresh agent shell locked to PRESET (a `mr-x/agent-shell-presets'
-tuple).  Honours the current `default-directory' as the shell's cwd."
-  (require 'agent-shell)
-  (let* ((config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
-                                                (nth 4 preset)))
-         (shell-buffer (agent-shell--start :config config
-                                           :no-focus t
-                                           :new-session t)))
-    (mr-x/agent-shell--display-new shell-buffer)
-    (when (nth 5 preset)
-      (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                   shell-buffer (nth 5 preset) 60))
-    (message "Agent preset: %s" (nth 1 preset))))
-
-(defun mr-x/agent-shell-start-preset (&optional char)
-  "Start a fresh agent shell from a launch preset.
-Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
-supplied, then spawns a new shell locked to that model + permission mode."
-  (interactive)
-  (mr-x/agent-shell--spawn-preset (mr-x/agent-shell--read-preset char)))
 
 (defun mr-x/agent-shell-preset-in-project ()
   "Spawn a fresh agent shell: pick a preset (RET = Claude default), then

@@ -3,6 +3,10 @@
 Verified on MrX on 2026-09-28 during the v1 flash. The hotdox76v2 runbook
 this file replaced is in git history up to `c39eb8b`.
 
+KOMAX (Keychron K0 Max) is flashed too, from Keychron's QMK fork; see
+[KOMAX: flashing from Keychron's fork](#komax-flashing-from-keychrons-fork)
+at the end.
+
 ## Facts
 
 - QMK target `keebio/iris/rev8`, keymap `mrx` at
@@ -59,6 +63,20 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
 
 ## Troubleshooting
 
+- **Flasher says the drive is still mounted, and typing stops:** the half is
+  still in its bootloader. A spinner bug fixed on 2026-10-22 redirected
+  `gum`'s stderr, causing `inappropriate ioctl for device` before the copy
+  started. Keep stderr attached to the terminal and use `--show-error`.
+  With `RPI-RP2` mounted, copy the built firmware directly to recover:
+
+  ```bash
+  /bin/cp -X ~/qmk_firmware/keebio_iris_rev8_mrx.uf2 /Volumes/RPI-RP2/
+  ```
+
+  Wait for the drive to disappear and the Iris to reconnect, then check
+  typing with the Mac cable still in that half. The regression test is
+  `python3 macos/scripts/tests/iris-flash.test.py`; it copies only to a
+  temporary directory and never touches a keyboard.
 - **Mac does not see the board:** check the USB cable is actually plugged in
   before theorizing. It happened once.
 - **Keyboard dead after a flash:** the other half is still on different
@@ -69,3 +87,79 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
   the home row. `aoeuidhtns-` is mrx; `asdfghjkl;'` is factory. A raw HID
   interface proves nothing either, because factory VIA firmware has one too.
   (2026-09-29: the left half was still factory after "flashing both".)
+
+## KOMAX: flashing from Keychron's fork
+
+Bootloader entry, USB flashing and lighting by cable and dongle verified
+2026-10-22. Physical desk-grammar and hidden Fn/re-pair acceptance remain
+pending; see VERSIONS.md. The old Launcher section is in git history up to
+`cb63fe1`.
+
+### Facts
+
+- Not in mainline QMK. Source: `github.com/Keychron/qmk_firmware`, branch
+  `2025q3`, checked out at `~/qmk_keychron` (separate from the Iris's
+  `~/qmk_firmware`; local branch `mrx` carries the keymap and two small
+  patches to `keyboards/keychron/common/`).
+- Target `keychron/k0_max`, keymap `mrx` at
+  `keyboards/keychron/k0_max/keymaps/mrx/`. STM32L432, `stm32-dfu`
+  bootloader, output `keychron_k0_max_mrx.bin`.
+- `VIA_ENABLE = no`: Launcher cannot see or change the keymap. The pad's
+  USB id stays `0x3434:0x0A06`; the Keychron Link dongle is `0x3434:0xD030`.
+- Bootmagic is matrix `[0, 1]` = **Esc**, whose physical keycap is **○**:
+  immediately right of the knob, above `num clear`. The `.bin` step
+  needs `dfu-suffix` (`brew install dfu-util`).
+
+### Build
+
+```bash
+cd ~/qmk_keychron && QMK_HOME=~/qmk_keychron qmk compile -kb keychron/k0_max -km mrx
+```
+
+`QMK_HOME` for that shell only, so the Iris tree is untouched.
+
+### Flash
+
+1. Put the mode switch on **cable** and plug the USB-C cable into the Mac
+   while holding **○**, immediately right of the knob, above `num clear`
+   (the firmware's Esc position). Verified 2026-10-22: this enters STM32
+   DFU mode, visible as `0483:df11` in `dfu-util -l`. If absent, unplug,
+   hold **○** before the cable goes in and keep holding until it shows up.
+2. Flash:
+
+   ```bash
+   cd ~/qmk_keychron && QMK_HOME=~/qmk_keychron qmk flash -kb keychron/k0_max -km mrx
+   ```
+
+   or, with the built file, `dfu-util -a 0 -d 0483:df11 -s 0x8000000:leave -D keychron_k0_max_mrx.bin`.
+3. Check wired: M1 to M5 and the knob press arm and fire
+   (`skhd -o`, or the sketchybar armed indicator); numpad and knob turn
+   stock.
+4. Unplug the cable, switch to **2.4 GHz**, dongle in POLLUX: it should
+   type through the dongle at once. If not, re-pair (next section).
+
+### Re-pairing the dongle and lighting (the hidden Fn layer)
+
+The stock Fn layer is still compiled in, behind a chord: hold the **knob
+press** and **Enter** (#26) together (`COMBO_TERM` 80 ms). While held:
+
+- `P2P4G` (#4, the physical **X** key at the top-right, Bksp position) re-pairs the dongle: hold it with the
+  dongle plugged into the target machine.
+- `UG_TOGG` on #24 (the `0` key; the knob press is busy holding the door),
+  `UG_NEXT` / `UG_VALU` / `UG_HUEU` and friends on the numpad set the
+  lighting; the knob turn changes brightness. These write EEPROM, so they
+  survive a power cycle. The night-lights message never does.
+
+### Night lights on the bench
+
+```bash
+~/.dotfiles/macos/scripts/keyboard-lights off
+```
+
+Cable and dongle both returned `komax: off` in the 2026-10-22 bench test.
+If a later dongle test prints `komax: no reply`, check the pad's power,
+2.4 GHz mode, dongle connection and pairing, then retry after waking it.
+A timeout alone does not establish that the dongle cannot forward raw HID:
+this dongle already passed that test. Compare with the cable path if the
+problem persists and record the observed failure. Keys pressed while dark
+must not relight it; `keyboard-lights on` brings the saved look back.

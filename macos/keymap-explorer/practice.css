@@ -1,0 +1,103 @@
+/* Practice and explorer share theme tokens; the wallpaper retains its theme. */
+:root[data-theme="gruvbox"] {
+  color-scheme: dark;
+  --bg:#282828; --panel:#2e2c29; --cap:#3c3836; --cap-hi:#504945;
+  --cap-edge:#665c54; --cap-shadow:#1d2021; --ink:#ebdbb2; --muted:#bdae93;
+  --faint:#928374; --line:#504945; --amber:#fabd2f; --amber-soft:#fabd2f18;
+  --blue:#83a598; --blue-soft:#83a59820; --red:#fb4934; --red-soft:#fb493418;
+  --violet:#d3869b; --violet-soft:#d3869b20; --green:#b8bb26; --green-soft:#b8bb2620;
+}
+:root[data-theme="paper"] {
+  color-scheme:light;
+  --bg:#fbf1c7; --panel:#f2e5bc; --cap:#f9f5d7; --cap-hi:#fff9e6;
+  --cap-edge:#bdae93; --cap-shadow:#d5c4a1; --ink:#3c3836; --muted:#665c54;
+  --faint:#7c6f64; --line:#d5c4a1; --amber:#9d5900; --amber-soft:#af3a0310;
+  --blue:#076678; --blue-soft:#07667815; --red:#9d0006; --red-soft:#9d000615;
+  --violet:#8f3f71; --violet-soft:#8f3f7115; --green:#79740e; --green-soft:#79740e15;
+}
+:root[data-theme="midnight"] {
+  color-scheme:dark;
+  --bg:#171b24; --panel:#1e2330; --cap:#252c3b; --cap-hi:#30394c;
+  --cap-edge:#45516a; --cap-shadow:#10131b; --ink:#dce4f2; --muted:#a0adc4;
+  --faint:#8190ac; --line:#313b50; --amber:#a7bcff; --amber-soft:#a7bcff18;
+  --blue:#80c7df; --blue-soft:#80c7df18; --red:#ff8b95; --red-soft:#ff8b9518;
+  --violet:#bf9cf9; --violet-soft:#bf9cf918; --green:#9cceaf; --green-soft:#9cceaf18;
+}
+.practice-nav { display:flex; align-items:center; gap:20px; font:13px var(--mono); }
+.practice-nav button, .practice-nav select, #practice button, #practice select, #practice input {
+  font:inherit; color:var(--ink); background:var(--panel); border:1px solid var(--line);
+  border-radius:6px; padding:9px 13px;
+}
+.practice-nav button, #practice button { cursor:pointer; }
+.practice-nav button[aria-pressed="true"] { color:var(--amber); border-color:var(--amber); }
+.practice-nav label { display:flex; gap:10px; align-items:center; color:var(--muted); }
+html.practicing .wrap { max-width:1180px; }
+html.practicing .masthead > .seg { display:none; }
+html.practicing body { padding:32px 36px 26px; }
+html.practicing .masthead { align-items:center; padding-bottom:24px; border-bottom:1px solid var(--line); }
+html.practicing .masthead h1 { font-size:18px; font-weight:500; }
+html.practicing .masthead .eyebrow { font-size:10px; letter-spacing:.1em; }
+#practice { font:14px var(--mono); }
+#practice [hidden] { display:none !important; }
+#practice :focus-visible, .practice-nav :focus-visible { outline:2px solid var(--amber); outline-offset:4px; }
+.practice-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; margin-top:26px; }
+.practice-toolbar label { color:var(--muted); display:flex; gap:10px; align-items:center; }
+.practice-kicker { color:var(--amber); text-transform:uppercase; letter-spacing:.16em; font-size:11px; }
+.practice-meta { color:var(--faint); font-size:11px; }
+.practice-stage { position:relative; text-align:center; padding:44px 14px 22px; min-height:292px; }
+.practice-stage h2 { font:500 clamp(24px,3vw,38px)/1.25 var(--sans); margin:16px 0 10px; letter-spacing:-.03em; }
+.practice-command { color:var(--faint); font-size:12px; overflow-wrap:anywhere; margin:0; }
+.practice-sequence { display:flex; justify-content:center; gap:10px; margin:26px 0 18px; min-height:42px; }
+#practice kbd { min-width:40px; height:40px; padding:10px; border:1px solid var(--line); border-bottom-width:3px; border-radius:6px; color:var(--muted); font:14px var(--mono); }
+#practice kbd.done { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+#practice kbd.next { color:var(--amber); border-color:var(--amber); background:var(--amber-soft); }
+.practice-feedback { min-height:20px; color:var(--muted); font-size:12px; }
+.practice-feedback.error { color:var(--red); }
+.practice-feedback.success { color:var(--green); }
+.practice-actions { display:flex; gap:10px; justify-content:center; align-items:center; margin-top:18px; }
+#practice .practice-primary { color:var(--bg); background:var(--amber); border-color:var(--amber); font-weight:600; padding:11px 22px; }
+#practice .practice-subtle { border-color:transparent; color:var(--muted); background:transparent; }
+.practice-pad { border-radius:12px; cursor:text; }
+.practice-pad:focus { outline:none; }
+.practice-pad:focus-visible { outline:1px solid var(--line) !important; outline-offset:4px; }
+.practice-board { position:relative; width:100%; aspect-ratio:15 / 5.9; max-width:880px; margin:16px auto 8px; }
+.practice-key { position:absolute; width:6%; height:15.6%; border:1px solid var(--cap-edge); border-bottom:3px solid var(--cap-shadow); border-radius:7px; background:var(--cap); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:3px; color:var(--muted); font-size:clamp(9px,1.3vw,16px); transition:background .12s,border-color .12s; }
+.practice-key small { font-size:9px; color:var(--faint); }
+.practice-key.knob { border-radius:50%; }
+.practice-key.target { border-color:var(--amber); background:var(--amber-soft); color:var(--amber); box-shadow:0 0 0 1px var(--amber); }
+.practice-key.mod-target { color:var(--blue); border-color:var(--blue); background:var(--blue-soft); }
+.practice-key.pressed { color:var(--green); background:var(--green-soft); border-color:var(--green); }
+.practice-key.wrong { color:var(--red); background:var(--red-soft); border-color:var(--red); }
+.practice-board-caption { text-align:center; font-size:11px; color:var(--faint); margin:0 0 24px; min-height:16px; }
+.practice-bottom { border-top:1px solid var(--line); padding:22px 0; display:flex; justify-content:space-between; align-items:center; gap:18px; }
+.practice-stats { display:flex; gap:36px; }
+.practice-stat { display:flex; flex-direction:column; gap:7px; color:var(--faint); font-size:10px; text-transform:uppercase; letter-spacing:.09em; }
+.practice-stat strong { color:var(--ink); font-size:21px; font-weight:400; letter-spacing:0; }
+.practice-progress { display:flex; gap:5px; }
+.practice-progress i { display:block; width:16px; height:4px; border-radius:2px; background:var(--line); }
+.practice-progress i.finished { background:var(--green); }
+.practice-progress i.current { background:var(--amber); }
+.practice-library { border-top:1px solid var(--line); padding:18px 0; color:var(--muted); font-size:12px; }
+.practice-library summary { cursor:pointer; }
+.practice-library input { width:100%; margin:16px 0 10px; }
+.practice-list { max-height:240px; overflow:auto; }
+.practice-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); }
+.practice-row span { overflow-wrap:anywhere; }
+.practice-row small { color:var(--faint); display:block; margin-top:4px; }
+.practice-source { font-size:10px; color:var(--faint); line-height:1.8; margin-top:12px; }
+.practice-empty { text-align:center; padding:65px 20px; color:var(--muted); line-height:1.8; }
+.practice-empty code { display:block; overflow-wrap:anywhere; color:var(--amber); }
+@media (max-width:680px) {
+  html.practicing body { padding:20px 14px; }
+  .practice-nav { flex-wrap:wrap; gap:10px; }
+  .practice-nav label { font-size:11px; }
+  .practice-toolbar { margin-top:18px; }
+  .practice-stage { padding-top:28px; }
+  .practice-key { border-radius:4px; border-bottom-width:2px; }
+  .practice-key small { display:none; }
+  .practice-stats { gap:20px; }
+  .practice-progress { gap:3px; }
+  .practice-progress i { width:9px; }
+  .practice-bottom { gap:10px; }
+}
+@media (prefers-reduced-motion:reduce) { .practice-key { transition:none; } }

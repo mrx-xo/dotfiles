@@ -100,10 +100,8 @@ FUNCTION returns the session, or nil when the review opens asynchronously.")
         (cond
          (saved (review-store-restore saved))
          ((eq (plist-get target :kind) 'git-range)
-          (let ((s (review-session-start (review-source-git-range (plist-get target :directory)
-                                                                  (plist-get target :range)))))
-            (review-panel-open s)
-            s))
+          (review-store-open (review-source-git-range (plist-get target :directory)
+                                                      (plist-get target :range))))
          ((alist-get (plist-get target :kind) review-walkthrough-open-functions)
           (or (funcall (alist-get (plist-get target :kind) review-walkthrough-open-functions) target)
               "retry: opening the review; run the same command again in a few seconds"))
@@ -256,7 +254,7 @@ No navigation: the saved file, hunk and scroll win over the step's."
 (defface review-walk-card '((t :background "#322830" :extend t)) "Card background.")
 (defface review-walk-rail '((t :background "#d3869b")) "Card rail.")
 (defface review-walk-title '((t :foreground "#ebdbb2" :weight bold)) "Step title.")
-(defface review-walk-body '((t :foreground "#a89984")) "Step explanation.")
+(defface review-walk-body '((t :foreground "#d5c4a1")) "Step explanation.")
 (defface review-walk-question '((t :foreground "#fabd2f")) "Review question.")
 (defface review-walk-step-number '((t :foreground "#d3869b" :weight bold)) "Line numbers of the step.")
 (defface review-walk-dim '((t :foreground "#5a524c")) "Text outside the step.")
@@ -265,11 +263,211 @@ No navigation: the saved file, hunk and scroll win over the step's."
 (defface review-walk-dim-removed '((t :foreground "#5a524c" :background "#281f1e" :extend t))
   "Removed rows outside the step.")
 
+;; The chip agent-shell draws for inline code (org-code orange on a ground
+;; just above the pane), lifted the same amount above the purple card.
+(defface review-walk-code '((t :foreground "#fe8019" :background "#3e3340" :extend nil))
+  "Inline code in a step.")
+
+(defface review-walk-code-plain '((t :foreground "#ebdbb2" :background "#3e3340" :extend nil))
+  "Inline code in a step under syntax colours: the ground, and the text
+with no syntax face of its own.")
+
+(defun review-walkthrough--mode-for (path)
+  "The major mode PATH's name picks, or nil."
+  (when (stringp path)
+    (let ((mode (assoc-default path auto-mode-alist #'string-match-p)))
+      (and (symbolp mode) (fboundp mode) mode))))
+
+(defun review-walkthrough--mode-for-language (language)
+  "The major mode for a fence's LANGUAGE label, or nil."
+  (when (and (stringp language) (not (string-empty-p language)))
+    (let* ((alias (or (and (boundp 'org-src-lang-modes)
+                           (cdr (assoc language org-src-lang-modes)))
+                      (cdr (assoc language '(("elisp" . "emacs-lisp") ("el" . "emacs-lisp")
+                                             ("bash" . "sh") ("zsh" . "sh") ("shell" . "sh")
+                                             ("py" . "python") ("js" . "javascript") ("ts" . "typescript")
+                                             ("yml" . "yaml") ("md" . "markdown"))))))
+           (name (if alias (format "%s" alias) language))
+           (mode (intern (concat name "-mode"))))
+      (and (fboundp mode) mode))))
+
+(defun review-walkthrough--fontify (text mode)
+  "TEXT with MODE's syntax faces, or TEXT itself when MODE cannot run."
+  (condition-case nil
+      (with-temp-buffer
+        (insert text)
+        (delay-mode-hooks (funcall mode))
+        (run-hooks 'review-session-fontify-hook)
+        (font-lock-ensure)
+        ;; Some modes leave faces in `font-lock-face'; the card reads `face'.
+        (let ((pos (point-min)))
+          (while (< pos (point-max))
+            (let ((next (next-single-property-change pos 'font-lock-face nil (point-max)))
+                  (f (get-text-property pos 'font-lock-face)))
+              (when f (put-text-property pos next 'face f))
+              (setq pos next))))
+        (buffer-string))
+    (error text)))
+
+(defface review-walk-bold '((t :weight bold)) "Bold Markdown in a step.")
+(defface review-walk-italic '((t :slant italic)) "Italic Markdown in a step.")
+(defface review-walk-link '((t :underline t)) "A Markdown link's text in a step.")
+
+(defconst review-walkthrough--markup
+  (concat "``\\(.+?\\)``"                                   ; 1 code, double
+          "\\|`\\([^`\n]+\\)`"                               ; 2 code
+          "\\|\\*\\*\\([^*\n]+\\)\\*\\*"                     ; 3 bold
+          "\\|\\[\\([^]\n]+\\)\\](\\([^)\n]+\\))"            ; 4 link text, 5 url
+          "\\|\\*\\([^*\n]+\\)\\*"                           ; 6 italic
+          "\\|\\(?:\\`\\|[ (]\\)_\\([^_\n]+\\)_\\(?:\\'\\|[] .,;:)!?]\\)") ; 7 italic, word-bounded
+  "The inline Markdown a step renders, in one pass so markup inside a
+code span is left alone.  Underscore italics must stand as a word, so
+`snake_case_names' outside backticks keep their underscores.")
+
+(defun review-walkthrough--code-span-p (code)
+  "Non-nil when CODE is code rather than one name: it has spaces or brackets."
+  (string-match-p "[][ (){}]" code))
+
+(defun review-walkthrough--mark-code (text &optional mode)
+  "TEXT with its inline Markdown rendered and the markup gone.
+A `code' span that is one name is an orange chip; one that is code gets
+MODE's syntax colours over the plain chip, so it reads like the pane.
+Bold, italic and a link's text get their faces.  A lone backtick or star
+is left as it is."
+  (let ((out (copy-sequence text))
+        (start 0))
+    ;; One left-to-right pass, so a span already drawn is not scanned again.
+    (while (string-match review-walkthrough--markup out start)
+      ;; Fontifying runs font-lock, which clobbers the match data: take
+      ;; everything first.
+      (let* ((beg (match-beginning 0)) (end (match-end 0))
+             (code (or (match-string 1 out) (match-string 2 out)))
+             (span (cond
+                    (code
+                     (if (and mode (review-walkthrough--code-span-p code))
+                         (let ((s (review-walkthrough--fontify code mode)))
+                           (add-face-text-property 0 (length s) 'review-walk-code-plain t s)
+                           s)
+                       (propertize code 'face 'review-walk-code)))
+                    ((match-string 3 out) (propertize (match-string 3 out) 'face 'review-walk-bold))
+                    ((match-string 4 out) (propertize (match-string 4 out) 'face 'review-walk-link
+                                                      'help-echo (match-string 5 out)))
+                    ((match-string 6 out) (propertize (match-string 6 out) 'face 'review-walk-italic))
+                    (t
+                     ;; The word-bounding characters around an _italic_ stay.
+                     (let ((inner (match-string 7 out)))
+                       (setq beg (- (match-beginning 7) 1) end (+ (match-end 7) 1))
+                       (propertize inner 'face 'review-walk-italic))))))
+        (setq out (concat (substring out 0 beg) span (substring out end))
+              start (+ beg (length span)))))
+    out))
+
+(defface review-walk-code-block '((t :background "#271f29" :extend t))
+  "A fenced code block in a step: a darker panel inside the card.")
+(defface review-walk-code-language '((t :foreground "#8a7f8a" :slant italic))
+  "The language label of a fenced block.")
+
 (defun review-walkthrough--wrap (text width)
+  "TEXT filled to WIDTH columns, as lines; text properties survive the fill."
   (with-temp-buffer
     (insert text)
-    (let ((fill-column width)) (fill-region (point-min) (point-max)))
+    ;; No adaptive prefix: `review-walkthrough--prose' hangs list items itself.
+    (let ((fill-column width) (adaptive-fill-mode nil)) (fill-region (point-min) (point-max)))
     (split-string (buffer-string) "\n")))
+
+(defcustom review-walkthrough-code-block-columns 40
+  "A `code' span in prose at least this long is laid out as a block of its own."
+  :type 'natnum :group 'review)
+
+(defun review-walkthrough--pretty (code mode)
+  "CODE laid out over lines when MODE is a Lisp and CODE reads as one form."
+  (if (and mode (provided-mode-derived-p mode 'lisp-data-mode 'lisp-mode))
+      (condition-case nil
+          (let ((read (read-from-string code)))
+            (if (= (cdr read) (length (string-trim-right code)))
+                (string-trim-right (pp-to-string (car read)))
+              code))
+        (error code))
+    code))
+
+(defun review-walkthrough--code-rows (code mode width &optional language)
+  "CODE as block rows, WIDTH wide, with MODE's colours, under a LANGUAGE label."
+  (let* ((pad (lambda (s) (let ((s (concat "  " s)))
+                            (concat s (make-string (max 0 (- width (string-width s))) ?\s)))))
+         (rows (mapcar (lambda (l)
+                         (let ((row (funcall pad l)))
+                           (add-face-text-property 0 (length row) 'review-walk-code-block t row)
+                           row))
+                       (split-string (if mode (review-walkthrough--fontify code mode) code) "\n"))))
+    (append (when language
+              (list (propertize (funcall pad language)
+                                'face '(review-walk-code-language review-walk-code-block))))
+            rows)))
+
+(defun review-walkthrough--item-lines (item width styled mode)
+  "One paragraph or list ITEM as lines, its long code spans as blocks.
+A `code' span of `review-walkthrough-code-block-columns' or more that is
+code, not a name, breaks the paragraph: prose before it, the code on its
+own rows (pretty-printed in a Lisp), prose after."
+  (if (and (string-match "`\\([^`\n]+\\)`" item)
+           (review-walkthrough--code-span-p (match-string 1 item))
+           (>= (length (match-string 1 item)) review-walkthrough-code-block-columns))
+      (let ((before (string-trim (substring item 0 (match-beginning 0))))
+            (code (match-string 1 item))
+            (after (string-trim (substring item (match-end 0)))))
+        (append (unless (string-empty-p before)
+                  (review-walkthrough--wrap (funcall styled before) width))
+                (review-walkthrough--code-rows (review-walkthrough--pretty code mode) mode width)
+                (unless (string-empty-p after)
+                  (review-walkthrough--item-lines after width styled mode))))
+    (let* ((indent (if (string-match "\\`\\(?:[-*+]\\|[0-9]+[.)]\\)[ \t]+" item)
+                       (make-string (match-end 0) ?\s)
+                     ""))
+           (wrapped (review-walkthrough--wrap (funcall styled item) (- width (length indent)))))
+      (cons (car wrapped) (mapcar (lambda (l) (concat indent l)) (cdr wrapped))))))
+
+(defun review-walkthrough--prose (text width styled &optional mode)
+  "TEXT's paragraphs and list items filled to WIDTH, as lines.
+STYLED gives a string its faces; MODE colours code.  A list item wraps
+hanging under its own first word, so a dash or number keeps its column.
+A `# heading' line is bold."
+  (let (lines)
+    (dolist (para (split-string text "\n[ \t]*\n" t))
+      (let (item)
+        (dolist (line (split-string para "\n"))
+          (if (and item (not (string-match-p "\\`[ \t]*\\(?:[-*+]\\|[0-9]+[.)]\\)[ \t]" line)))
+              (setq item (concat item " " (string-trim line)))
+            (when item (push item lines))
+            (setq item (string-trim-right line))))
+        (push item lines)))
+    (setq lines (nreverse lines))
+    (apply #'append
+           (mapcar (lambda (item)
+                     (if (string-match "\\`#+[ \t]+" item)
+                         (let ((s (funcall styled (substring item (match-end 0)))))
+                           (add-face-text-property 0 (length s) 'review-walk-bold nil s)
+                           (review-walkthrough--wrap s width))
+                       (review-walkthrough--item-lines item width styled mode)))
+                   lines))))
+
+(defun review-walkthrough--body-lines (text width styled &optional mode)
+  "TEXT as card lines: prose through `review-walkthrough--prose', fenced
+blocks verbatim on their own darker panel, WIDTH columns wide.  MODE
+colours prose code; a fence's label picks its own."
+  (let ((parts (split-string text "^```" nil))
+        (code nil) lines)
+    (dolist (part parts)
+      (if (not code)
+          (when (string-match-p "[^ \t\n]" part)
+            (setq lines (append lines (review-walkthrough--prose (string-trim part) width styled mode))))
+        (let* ((body (split-string (string-trim-right part "\n") "\n"))
+               (language (string-trim (car body))))
+          (setq lines (append lines
+                              (review-walkthrough--code-rows
+                               (string-join (cdr body) "\n")
+                               (review-walkthrough--mode-for-language language) width language)))))
+      (setq code (not code)))
+    lines))
 
 (defun review-walkthrough--card (step n total width)
   "The card for STEP, number N of TOTAL, WIDTH columns wide, as pane lines.
@@ -277,16 +475,35 @@ Its rail and indent are chrome, left out of a selection's text."
   (let* ((width (max 30 (- (or width 80) 8)))
          (rail (concat (propertize " " 'face 'review-walk-rail 'review-extra-chrome t)
                        (propertize "   " 'review-extra-chrome t)))
+         ;; Spans read as the step's file's language.
+         (mode (review-walkthrough--mode-for (plist-get step :path)))
+         ;; The base face goes under the code spans, not over them.
+         (styled (lambda (text face)
+                   (let ((s (review-walkthrough--mark-code text mode)))
+                     (add-face-text-property 0 (length s) face t s)
+                     s)))
          (wrap (lambda (text face)
-                 (mapcar (lambda (l) (propertize l 'face face)) (review-walkthrough--wrap text width))))
+                 (review-walkthrough--wrap (funcall styled text face) width)))
          (lines (append
                  (list nil
                        (propertize "◆ AGENT WALKTHROUGH" 'face 'review-walk-accent)
                        (concat (propertize (format "%d/%d" n total) 'face 'review-walk-accent) "  "
-                               (propertize (plist-get step :title) 'face 'review-walk-title)))
-                 (when (plist-get step :body) (funcall wrap (plist-get step :body) 'review-walk-body))
+                               (funcall styled (plist-get step :title) 'review-walk-title)))
+                 (when (plist-get step :body)
+                   (review-walkthrough--body-lines
+                    (plist-get step :body) width
+                    (lambda (text) (funcall styled text 'review-walk-body))
+                    mode))
+                 ;; The question stands apart: a half row of air above it, a
+                 ;; bold "?" marker, and its wrapped lines hanging under the text.
                  (when (plist-get step :question)
-                   (funcall wrap (concat "? " (plist-get step :question)) 'review-walk-question))
+                   (let ((mark (propertize "?" 'face '(review-walk-accent review-walk-question)))
+                         (text (review-walkthrough--wrap
+                                (funcall styled (plist-get step :question) 'review-walk-question)
+                                (- width 2))))
+                     (cons nil
+                           (cons (concat mark " " (car text))
+                                 (mapcar (lambda (l) (concat "  " l)) (cdr text))))))
                  (list nil)))
          ;; A nil line is a padding row, half a line tall; the layout's
          ;; filler on the other side is as short.

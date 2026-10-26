@@ -82,6 +82,7 @@ fi
 
 ln -sf "$DOTDIR/.zshrc" "$HOME/.zshrc"
 ln -sf "$DOTDIR/.zshenv" "$HOME/.zshenv"
+ln -sf "$DOTDIR/.zprofile" "$HOME/.zprofile"
 ln -sf "$DOTDIR/yabai/yabairc" "$HOME/.yabairc"
 ln -sf "$DOTDIR/skhd/skhdrc" "$HOME/.skhdrc"
 ln -sf "$DOTDIR/sketchybar" "$HOME/.config/sketchybar"
@@ -98,7 +99,7 @@ ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 
 # Agent-fleet helpers (~/docs/agent-fleet-ops.md): secret handoff, focus-safe
 # agent browser, headless smoke check, MrX2 sandbox viewer
-for s in secret agent-open agent-space-ensure agent-fleet-check sandbox-view claude-acp-headless; do
+for s in secret agent-open agent-space-ensure agent-workspace agent-fleet-check sandbox-view claude-acp-headless; do
   ln -sf "$DOTDIR/scripts/$s" "$HOME/.local/bin/$s"
 done
 # OpenCode installs to ~/.opencode/bin, which is not on PATH

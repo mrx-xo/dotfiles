@@ -669,6 +669,16 @@ kill ring, so `p' recovers it if the insertion is refused."
         (agent-shell-openai-make-authentication :login t))
   (setq agent-shell-openai-codex-environment
         (agent-shell-make-environment-variables :inherit-env t))
+  ;; SYZYGY: run Claude through acp-multiplex so acp-mobile can mirror the
+  ;; session to the phone (same wrapping as the Mac config). Both binaries
+  ;; are cross-compiled from ~/src on the Mac and copied to %USERPROFILE%\bin,
+  ;; which is not on Emacs's PATH here, hence the absolute path. Without the
+  ;; exe, agent-shell keeps its direct claude-agent-acp default.
+  (when (eq system-type 'windows-nt)
+    (let ((multiplex (expand-file-name "bin/acp-multiplex.exe" (getenv "USERPROFILE"))))
+      (when (file-executable-p multiplex)
+        (setq agent-shell-anthropic-claude-acp-command
+              (list multiplex "claude-agent-acp")))))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
   ;;   p in a shell (agent-shell-yank-dwim) -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),
@@ -808,9 +818,15 @@ coming from the provider untouched."
 ;; the dotfiles repo lives under).
 (dolist (dir '("dotfiles/macos/emacs/.emacs.d/lisp"
                "dotfiles/macos/emacs/.emacs.d/lisp/project-dashboard"
-               "dotfiles/windows/emacs/.emacs.d/lisp"))
+               "dotfiles/windows/emacs/.emacs.d/lisp"
+               "dotfiles/shared/emacs/lisp/syzygy"))
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
 (require 'agent-shell-extras)
+;; SYZYGY Lisp from the shared tree: pulls in syzygy-rig, which starts the
+;; status and labels sidecar writers under %USERPROFILE%\.acp-mobile once
+;; agent-shell is loaded. Required here, not in agent-shell's :config: acp
+;; and shell-maker load eagerly, so that :config runs before this load-path.
+(require 'syzygy)
 
 ;; ---------- Projects: projectile + project-dashboard (SPC P) ----------
 ;; The dashboard is the Mac's module, shared from the macos/ lisp dir like

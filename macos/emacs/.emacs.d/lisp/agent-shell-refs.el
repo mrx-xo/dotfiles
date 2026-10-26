@@ -108,27 +108,43 @@ the `quote' spec for unknown types."
 
 ;;; --- Capture ---
 
+(defun agent-shell-refs--selection ()
+  "Bounds of the text to capture as (BEG . END), or nil.
+The active region, or evil's visual selection: that one is still a
+selection when `transient-mark-mode' has been left buffer-locally nil,
+which makes `use-region-p' deny a highlighted `V' line."
+  (cond
+   ((use-region-p) (cons (region-beginning) (region-end)))
+   ((and (bound-and-true-p evil-local-mode)
+         (fboundp 'evil-visual-state-p)
+         (evil-visual-state-p)
+         (markerp evil-visual-beginning)
+         (markerp evil-visual-end)
+         (< evil-visual-beginning evil-visual-end))
+    (cons (marker-position evil-visual-beginning)
+          (marker-position evil-visual-end)))))
+
 (defun agent-shell-refs-capture ()
   "Capture the current region as a typed reference and pulse it.
 In an `image-mode' buffer no region is needed — the image's file path
 becomes the ref."
   (interactive)
   (let* ((type (agent-shell-refs--detect-type))
-         (image-p (eq type 'image)))
-    (unless (or image-p (use-region-p))
+         (image-p (eq type 'image))
+         (sel (agent-shell-refs--selection)))
+    (unless (or image-p sel)
       (user-error "No region selected"))
     (let* ((text (if image-p
                      (or (buffer-file-name)
                          (user-error "Image buffer has no file"))
-                   (buffer-substring-no-properties
-                    (region-beginning) (region-end))))
+                   (buffer-substring-no-properties (car sel) (cdr sel))))
            (ref (list :type type
                       :text text
                       :source (if (buffer-file-name)
                                   (abbreviate-file-name (buffer-file-name))
                                 (buffer-name))
                       :line (unless image-p
-                              (line-number-at-pos (region-beginning)))))
+                              (line-number-at-pos (car sel)))))
            (shell-buf (agent-shell-refs--find-shell-buffer)))
       (unless shell-buf
         (user-error "No agent-shell buffer found"))
@@ -136,9 +152,10 @@ becomes the ref."
         (push ref agent-shell-refs--list))
       ;; Pulse feedback + drop the region (images have neither)
       (unless image-p
-        (pulse-momentary-highlight-region (region-beginning) (region-end)
-                                          'highlight)
-        (deactivate-mark))
+        (pulse-momentary-highlight-region (car sel) (cdr sel) 'highlight)
+        (deactivate-mark)
+        (when (and (fboundp 'evil-visual-state-p) (evil-visual-state-p))
+          (evil-exit-visual-state)))
       ;; Message carries the type's icon so you see what got classified
       (let ((count (with-current-buffer shell-buf
                      (length agent-shell-refs--list))))

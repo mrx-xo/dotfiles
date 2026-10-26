@@ -69,7 +69,7 @@ a change.
   source files current hunk viewed layout frame panel
   old-buffer new-buffer old-window new-window request directory
   own-frame panel-frame (hscroll 0)
-  walkthrough notice return-state)
+  walkthrough notice return-state comments)
 
 (defvar review-session--current nil "The live session, or nil.")
 (defvar review-session-update-hook nil "Run with the session after every change.")
@@ -93,6 +93,9 @@ be followed by `review-session--ensure-layout'.")
 
 (defvar review-session-quit-functions nil
   "Called with the session as it quits, before its buffers and frames go.")
+(defvar review-session-quit-query-functions nil
+  "Called with the session before an interactive quit.
+A function returning nil keeps the review, as `kill-buffer-query-functions' does.")
 (defvar review-session--pausing nil
   "Non-nil while a pause tears the session down, so quit hooks keep its record.")
 (defvar review-session--replacing nil
@@ -126,6 +129,13 @@ The first function to return non-nil wins; otherwise a `file:' origin link is op
 (defun review-session-progress (session)
   "Return (VIEWED . TOTAL) for SESSION."
   (cons (length (review-session-viewed session)) (length (review-session-files session))))
+
+(defun review-session-comment-count (session &optional path)
+  "How many draft comments SESSION holds, or how many on file PATH."
+  (let ((drafts (review-session-comments session)))
+    (if path
+        (cl-count path drafts :key (lambda (d) (plist-get d :path)) :test #'equal)
+      (length drafts))))
 
 (defun review-session-file (session &optional index)
   "Return file plist INDEX (default current) of SESSION."
@@ -189,6 +199,12 @@ Concurrent consumers share one load; stale completions cannot alter its cache."
 
 ;;;; Pane text
 
+(defvar review-session-fontify-hook nil
+  "Run in the buffer that fontifies code for the panes and cards, after its
+major mode is set and before font-lock runs.  Mode hooks are delayed
+there, so a minor mode normally hooked on `prog-mode' (rainbow
+delimiters, say) goes here instead.")
+
 (defun review-session--fontified-lines (text path)
   "Return TEXT's lines with faces from the major mode PATH selects."
   (with-temp-buffer
@@ -198,6 +214,7 @@ Concurrent consumers share one load; stale completions cannot alter its cache."
         (if (string-match-p "\\.\\(?:md\\|markdown\\)\\'" path)
             (progn (require 'markdown-mode) (markdown-mode))
           (set-auto-mode))))
+    (run-hooks 'review-session-fontify-hook)
     (font-lock-mode 1)
     (font-lock-ensure (point-min) (point-max))
     ;; The `face' property travels with the substrings; pane buffers never
@@ -455,11 +472,12 @@ background reaching the window edge still does."
 
 (defun review-session--extras-by-row (extras count)
   "EXTRAS, a list of (ROW SIDE STRING), as a hash table.
-It maps ROW to (OLD-LINES . NEW-LINES).  Entries naming no row below
-COUNT, or no side, are left out."
+It maps ROW to (OLD-LINES . NEW-LINES).  Entries naming a row above
+COUNT, or no side, are left out; ROW equal to COUNT means after the
+last row."
   (let ((table (make-hash-table)))
     (pcase-dolist (`(,row ,side ,string) extras)
-      (when (and (natnump row) (< row count) (memq side '(old new)) (stringp string))
+      (when (and (natnump row) (<= row count) (memq side '(old new)) (stringp string))
         (let ((cell (or (gethash row table) (puthash row (cons nil nil) table)))
               (lines (review-session--extra-lines string row)))
           (if (eq side 'old) (setcar cell (append (car cell) lines))
@@ -499,7 +517,9 @@ EXTRAS is a list of (ROW SIDE STRING): STRING's lines go before ROW's
 lines on SIDE, with as many blank filler lines on the other side (see
 `review-session-layout-extras-functions').  STARTS holds the line each
 row's block starts on, extra lines included; SOURCE-STARTS the line its
-source lines start on."
+source lines start on.  A ROW equal to the row count puts its lines after
+the last row; STARTS and SOURCE-STARTS then have one more element, for
+that virtual row."
   (let* ((old-cells (review-render-cells old)) (new-cells (review-render-cells new))
          (count (length old-cells)) (starts (make-vector count 0))
          (source-starts (make-vector count 0))
@@ -522,7 +542,16 @@ source lines start on."
                                                   (review-cell-face (aref new-cells i)) i))
               news)
         (cl-incf line (+ x n))))
-    (list (string-join (nreverse olds) "\n") (string-join (nreverse news) "\n") starts source-starts)))
+    (let ((tail (and by-row (gethash count by-row)))
+          (old-text (string-join (nreverse olds) "\n"))
+          (new-text (string-join (nreverse news) "\n")))
+      (if (null tail)
+          (list old-text new-text starts source-starts)
+        (let ((x (max (length (car tail)) (length (cdr tail)))))
+          (list (concat old-text "\n" (review-session--pad-extras (car tail) x count (cdr tail)))
+                (concat new-text "\n" (review-session--pad-extras (cdr tail) x count (car tail)))
+                (vconcat starts (vector line))
+                (vconcat source-starts (vector (+ line x)))))))))
 
 (defun review-session-pane-text (rows side text &optional path)
   "Render ROWS for SIDE (old or new) of TEXT as one string, gutter included.
@@ -1126,10 +1155,14 @@ Wrapped panes have nothing to scroll, so there it does nothing."
       (review-session--mark-viewed s i))
     (review-session--notify s)))
 
-(defun review-session-quit ()
-  "Close review buffers and owned frames, restoring an in-place layout."
-  (interactive)
+(defun review-session-quit (&optional ask)
+  "Close review buffers and owned frames, restoring an in-place layout.
+With ASK, as when called interactively, a function on
+`review-session-quit-query-functions' can keep the review."
+  (interactive (list t))
   (when-let ((s review-session--current))
+    (when (and ask (not (run-hook-with-args-until-failure 'review-session-quit-query-functions s)))
+      (user-error "Review kept"))
     (run-hook-with-args 'review-session-quit-functions s)
     (setq review-session--current nil)
     (review-session--kill-panes s)
@@ -1227,6 +1260,34 @@ links to, or PATH when the caller has already resolved it."
 (autoload 'review-walkthrough-next "review-walkthrough" nil t)
 (autoload 'review-walkthrough-prev "review-walkthrough" nil t)
 
+(defun review-session--visit-with-style (session open)
+  "Arrange windows as `review-session-visit-style' says, then call OPEN there.
+OPEN shows a buffer in the selected window.  Returns that window."
+  (pcase review-session-visit-style
+    ('in-frame
+     (setf (review-session-return-state session) (review-session-pane-state session))
+     (select-window (review-session-new-window session))
+     (funcall open)
+     (let ((ignore-window-parameters t)) (delete-other-windows)))
+    ('main-frame
+     (setf (review-session-return-state session) (review-session-pane-state session))
+     (let ((frame (or (review-session--other-frame session) (make-frame))))
+       (select-frame-set-input-focus frame)
+       (funcall open)))
+    (_
+     ;; A failure after the pause resumes the review before the error goes on.
+     (review-session-pause)
+     (condition-case err (funcall open)
+       (error (review-session-resume) (signal (car err) (cdr err))))))
+  (selected-window))
+
+(defun review-session-open-path (session path)
+  "Open the file PATH from SESSION, as `review-session-visit-style' says.
+For callers that already know the file, such as a file link in a Quick
+Ask answer.  Returns the window showing it."
+  (review-session--visit-with-style
+   session (lambda () (switch-to-buffer (find-file-noselect path)))))
+
 (defun review-session-visit ()
   "Open the real file at the line under point, as `review-session-visit-style' says.
 On extra lines, such as the walkthrough card, open the line they stand above."
@@ -1235,29 +1296,16 @@ On extra lines, such as the walkthrough card, open the line they stand above."
          (selection (review-session-pane-selection (point) (point)))
          (file (review-session-file s review-pane--file-index))
          (side review-pane--side)
-         (line (plist-get selection :start)))
-    (pcase review-session-visit-style
-      ('in-frame
-       (setf (review-session-return-state s) (review-session-pane-state s))
-       (select-window (review-session-new-window s))
-       (review-session--open-location s file side line)
-       (let ((ignore-window-parameters t)) (delete-other-windows)))
-      ('main-frame
-       (setf (review-session-return-state s) (review-session-pane-state s))
-       (let ((frame (or (review-session--other-frame s) (make-frame))))
-         (select-frame-set-input-focus frame)
-         (review-session--open-location s file side line)))
-      (_
-       ;; Pause only once opening can proceed.  Visit functions can only
-       ;; be asked by running them, so one failing after the pause
-       ;; resumes the review before the error goes on.
-       (let ((path (review-session--file-link s file side line)))
-         (unless (or path review-session-visit-functions)
-           (user-error "This review cannot open %s" (plist-get file :path)))
-         (review-session-pause)
-         (condition-case err
-             (review-session--open-location s file side line path)
-           (error (review-session-resume) (signal (car err) (cdr err)))))))))
+         (line (plist-get selection :start))
+         ;; Pause only once opening can proceed: visit functions can only
+         ;; be asked by running them, so resolve the path up front.
+         (path (unless (memq review-session-visit-style '(in-frame main-frame))
+                 (let ((path (review-session--file-link s file side line)))
+                   (unless (or path review-session-visit-functions)
+                     (user-error "This review cannot open %s" (plist-get file :path)))
+                   path))))
+    (review-session--visit-with-style
+     s (lambda () (review-session--open-location s file side line path)))))
 
 (defun review-session-return ()
   "Bring the live review's panes back after `review-session-visit'."

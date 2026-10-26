@@ -20,7 +20,8 @@ BIN_DIR="$HOME/.local/bin"
 # + local 39e79c8 (shut the agent down when the primary frontend disconnects; fixes orphaned codex-acp after an Emacs crash)
 # + local fdfb2cf (synthesize `[steer]` user chunk for `_session/steering`)
 # + local 9577ffd (fake-phone scripts and README)
-ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
+# + local 88eacdd (portable process liveness probe; builds for Windows/NEMESIS)
+ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
@@ -111,7 +112,18 @@ ACP_MULTIPLEX_COMMIT="9577ffd26651ac2d144d61729ac0a1680aa02e4c"
 # + local 00a6da1 (New chat stepper: Home combos with provider icons, Project, Agent, Prompt steps)
 # + local d34f21b (New chat stepper review fixes: load order, pin focus, resume edges)
 # + local dec7228 (selectable History text; New chat photos with recoverable delivery and one-tap Start; Stop stays busy during command-list updates)
-ACP_MOBILE_COMMIT="dec7228bc66015f5f025369f8b12c7d27f85f940"
+# + local 7f25643 (preset/clone launches return exact recovery buffers; clone retries reopen instead of duplicating; Sonnet 5.5 label)
+# + local 6a895db (disabled New chat Start explains missing or unsupported selections)
+# + local d5303cc (portable process liveness probe + PATH separator; builds for Windows/NEMESIS)
+# + local d3b23c4 (fleet registry ~/fleet/syzygy.json and own machine id; registry present = hub, absent = node)
+# + local dbb096f (peer auth: tailnet callers sharing our Tailscale login via whois, behind the X-Acp-Peer header; 403 foreign logins)
+# + local 30ed8fa (hub merges every awake peer's session list with machine badges and machines[]; refreshes a stale peer IP from tailscale status)
+# + local 887035e (ws proxy: phone sockets relayed as whole frames to the machine that owns the session; bounded peer dial)
+# + local 4294c22 (phone UI: machine badge on cards, remote sessions connect through the hub)
+# + local 59499a0 (peer auth admits only hubs listed in config.json hubs; lazy self login; short error cache)
+# + local 98add8e (refreshPeerIP matches the registry DNS name, prefers online peers)
+# + local 0629659 (remote sessions cannot drive the hub's Emacs: no delete/peek on remote cards, in-chat Lisp actions disabled, hub answers 501 for a foreign machine)
+ACP_MOBILE_COMMIT="0629659fd43a0269be168e401c86c0c588a9720d"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 

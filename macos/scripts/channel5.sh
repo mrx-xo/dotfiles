@@ -73,6 +73,10 @@ fi
 if [[ -z "$briefing_run" ]]; then
   [[ -n "${CHANNEL5_HA_URL:-}" ]] || { echo "Set CHANNEL5_HA_URL in $config before preparing a briefing." >&2; exit 1; }
   [[ -r "$token_file" ]] || { echo "HA token file is not readable: $token_file" >&2; exit 1; }
+  # An interrupted run (Ctrl-C, closed tab) leaves sergio/.preparing behind; prepare.ts
+  # only releases it on a clean exit. Archive the lock if its owner PID is dead; a live
+  # owner keeps the lock and prepare.mjs still refuses, which is the intended refusal.
+  python3 "$app_dir/preparation/recover-lock.py" "$data_dir/sergio" || true
   echo 'Preparing a fresh Nabu briefing (about one minute)...'
   briefing_run=$(node prepare.mjs --ha-url "$CHANNEL5_HA_URL" \
     --person sergio --voice bm_daniel --output "$data_dir" < "$token_file")

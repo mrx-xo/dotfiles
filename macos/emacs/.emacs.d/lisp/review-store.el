@@ -75,7 +75,8 @@
           ;; A request still waiting on its reply is kept too: its reply
           ;; finds the resumed review by the :request token.
           :walkthrough (let ((w (review-session-walkthrough session)))
-                         (and (or (plist-get w :steps) (plist-get w :request)) w)))))
+                         (and (or (plist-get w :steps) (plist-get w :request)) w))
+          :comments (review-session-comments session))))
 
 (defun review-store--path (key)
   (expand-file-name (concat (md5 key) ".eld") review-store-directory))
@@ -201,7 +202,8 @@ start that fails quits, and that quit drops the record."
       (let* ((session (review-session-start (review-store-source record))))
         (setf (review-session-viewed session)
               (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed)))
-              (review-session-walkthrough session) (plist-get record :walkthrough))
+              (review-session-walkthrough session) (plist-get record :walkthrough)
+              (review-session-comments session) (plist-get record :comments))
         (review-panel-open session)
         (when-let ((panel (plist-get record :panel))
                    (buffer (review-session-panel session)))
@@ -309,6 +311,17 @@ FUNCTION is called with RECIPE and the old RECORD.")
 
 ;;;; Commands
 
+(defun review-store-open (source)
+  "Review SOURCE: resume its saved record if one exists, else start it afresh.
+Either way the review comes up with its panel.  Return the session."
+  (let* ((recipe (review-source-recipe source))
+         (saved (and recipe (review-store-load (review-source-key recipe)))))
+    (if saved
+        (review-store-restore saved)
+      (when-let ((session (review-session-start source)))
+        (review-panel-open session)
+        session))))
+
 (defun review-session-pause ()
   "Save this review and close it.  \\[review-session-resume] brings it back."
   (interactive)
@@ -347,13 +360,22 @@ With PICK (\\[universal-argument]), choose among every paused review."
 
 (defun review-store--on-quit (session)
   "Drop SESSION's saved record as it quits, unless it is paused or kept.
-When another review replaces it, save it instead, so it can be resumed."
+When another review replaces it, or it holds a walkthrough, save it
+instead, so it can be resumed: a walkthrough is the agent's work."
   (when-let ((recipe (review-source-recipe (review-session-source session))))
     (cond
      (review-session--pausing nil)
-     (review-session--replacing
+     ((or review-session--replacing
+          (plist-get (review-session-walkthrough session) :steps))
       (condition-case err (review-store-save session)
-        (error (message "Review: could not save the review being replaced: %s"
+        (error (message "Review: could not save the review as it quits: %s"
+                        (error-message-string err)))))
+     ;; Unsent draft comments: an interactive quit asked and emptied
+     ;; them, so these are from a quit nobody chose (a closed frame).
+     ;; Keep the record, or a restart would lose what was written.
+     ((review-session-comments session)
+      (condition-case err (review-store-save session)
+        (error (message "Review: could not save the unsent comments: %s"
                         (error-message-string err)))))
      (review-session-keep-on-quit nil)
      (t (review-store-drop (review-source-key recipe))))))

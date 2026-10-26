@@ -327,6 +327,176 @@ a regression here would silently bring that back."
   (should (fboundp 'mr-x/agent-shell-in-project))
   (should (fboundp 'mr-x/focus-ai-window)))
 
+(ert-deftest config-test-main-frame-lifecycle-loaded ()
+  "Main-frame registration and AI focus must load independently of agent-shell."
+  (should (featurep 'mr-x-frames))
+  (should (boundp 'mr-x/main-frame))
+  (should (boundp 'major-pane-home-frame))
+  (should (memq #'mr-x/register-frame after-make-frame-functions))
+  (should (memq #'mr-x/main-frame-deleted delete-frame-functions))
+  (should (eq (symbol-file 'mr-x/focus-ai-window 'defun)
+              (symbol-file 'mr-x/register-frame 'defun))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-narrowed ()
+  "Internal narrowing must not ask redisplay to measure the chat window."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (narrow-to-region 1 9)
+    (goto-char (point-max))
+    (let ((bounds (cons (point-min) (point-max)))
+          (saved-point (point))
+          (calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _) (cl-incf calls) t)))
+        (should-not (shell-maker--should-auto-scroll-p))
+        (should (zerop calls)))
+      (should (equal bounds (cons (point-min) (point-max))))
+      (should (= saved-point (point))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-wide ()
+  "A widened chat still follows a visible end, but not point in scrollback."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _)
+                   (should-not (buffer-narrowed-p))
+                   (cl-incf calls)
+                   t)))
+        (should (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))
+        (goto-char (point-min))
+        (should-not (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-other-modes ()
+  "The narrowed-chat guard must not change other shell-maker users."
+  (require 'shell-maker)
+  (with-temp-buffer
+    (insert "First\nSecond\n")
+    (narrow-to-region 1 7)
+    (goto-char (point-max))
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'get-buffer-window-list)
+                 (lambda (&rest _) (list (selected-window))))
+                ((symbol-function 'pos-visible-in-window-p)
+                 (lambda (&rest _) (cl-incf calls) t)))
+        (should (shell-maker--should-auto-scroll-p))
+        (should (= calls 1))))))
+
+(ert-deftest config-test-agent-shell-auto-scroll-preserves-draft ()
+  "A streamed insert above the narrowed prompt preserves draft and point."
+  (require 'agent-shell)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let* ((prompt-start (copy-marker 9))
+           (comint-last-prompt (cons prompt-start (copy-marker 16)))
+           (comint-last-output-start (copy-marker 1))
+           (comint-use-prompt-regexp nil)
+           (calls 0))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'get-buffer-window-list)
+                       (lambda (&rest _) (list (selected-window))))
+                      ((symbol-function 'pos-visible-in-window-p)
+                       (lambda (&rest _) (cl-incf calls) t)))
+              (agent-shell--with-buffer-narrowed-to prompt-start
+                (shell-maker-with-auto-scroll-edit
+                 (insert "Streamed\n"))))
+            (should (zerop calls))
+            (should-not (buffer-narrowed-p))
+            (should (eobp))
+            (should (equal (buffer-substring-no-properties
+                            prompt-start (point-max))
+                           "Agent> draft"))
+            (should (equal (buffer-substring-no-properties 1 prompt-start)
+                           "History\nStreamed\n")))
+        (set-marker (car comint-last-prompt) nil)
+        (set-marker (cdr comint-last-prompt) nil)
+        (set-marker comint-last-output-start nil)))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-hooks-advised ()
+  "Typing and visual-selection redraws must lift internal hook narrowing."
+  (require 'corfu)
+  (require 'evil)
+  (dolist (hook '(corfu--post-command evil-visual-post-command))
+    (should (advice-member-p #'mr-x/agent-shell--redisplay-without-command-narrowing
+                             hook))))
+
+(ert-deftest config-test-agent-shell-typing-corfu-redraw-wide ()
+  "Corfu must see the full chat under Emacs's labeled command-hook restriction."
+  (require 'corfu)
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (let ((full (cons (point-min) (point-max))) seen)
+      (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+        (cl-letf (((symbol-function 'corfu--continue-p) (lambda () t))
+                  ((symbol-function 'corfu--exhibit)
+                   (lambda () (setq seen (cons (point-min) (point-max))))))
+          (corfu--post-command))
+        (should (equal seen full))
+        (should (equal (cons (point-min) (point-max)) '(5 . 19)))))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-keeps-manual-narrowing ()
+  "Lifting the core hook restriction must preserve the user's outer narrowing."
+  (with-temp-buffer
+    (setq-local major-mode 'agent-shell-mode)
+    (insert "History\nAgent> draft")
+    (narrow-to-region 3 20)
+    (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+      (should (equal
+               (mr-x/agent-shell--redisplay-without-command-narrowing
+                (lambda (value) (list value (point-min) (point-max))) 'result)
+               '(result 3 20)))
+      (should (equal (cons (point-min) (point-max)) '(5 . 19))))
+    (should (equal (cons (point-min) (point-max)) '(3 . 20)))))
+
+(ert-deftest config-test-agent-shell-typing-redraw-other-modes ()
+  "Non-chat buffers must retain their internal command-hook restriction."
+  (with-temp-buffer
+    (insert "History\nAgent> draft")
+    (with-restriction 5 19 :label 'long-line-optimizations-in-command-hooks
+      (should (equal
+               (mr-x/agent-shell--redisplay-without-command-narrowing
+                (lambda () (cons (point-min) (point-max))))
+               '(5 . 19))))))
+
+(ert-deftest config-test-agent-shell-typing-line-numbers-full-width ()
+  "Gutter width must use the full transcript even inside a core restriction."
+  (with-temp-buffer
+    (insert (make-string 10000 ?\n) "Agent> draft")
+    (let ((display-line-numbers-type 'visual))
+      (with-restriction 9000 9001 :label 'long-line-optimizations-in-command-hooks
+        (mr-x/agent-shell-stable-line-numbers)
+        (should (bound-and-true-p display-line-numbers-mode))
+        (should (eq display-line-numbers 'visual))
+        (should (>= display-line-numbers-width 5))
+        (should display-line-numbers-widen)
+        (should display-line-numbers-grow-only)
+        (should (local-variable-p 'display-line-numbers-grow-only))
+        (should (memq #'display-line-numbers-update-width pre-command-hook))
+        (should (equal (cons (point-min) (point-max)) '(9000 . 9001)))))))
+
+(ert-deftest config-test-agent-shell-typing-line-numbers-keeps-settings ()
+  "Stabilizing a live chat must preserve its numbering style and larger gutter."
+  (with-temp-buffer
+    (insert "Agent> draft")
+    (setq-local display-line-numbers 'relative
+                display-line-numbers-width 7)
+    (mr-x/agent-shell-stable-line-numbers)
+    (should (eq display-line-numbers 'relative))
+    (should (= display-line-numbers-width 7))))
+
 (ert-deftest config-test-opencode-command ()
   "OpenCode is discoverable on the phone when the multiplex is installed."
   (require 'agent-shell-opencode)
@@ -347,6 +517,29 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
                      "bypass"
                      agent-shell-opencode-make-agent-config)))))
 
+(ert-deftest config-test-mobile-preset-launch-confirms-before-submitting ()
+  "Legacy phone presets must use the same confirmation gate as New Chat."
+  (with-temp-buffer
+    (let ((buffer (current-buffer)) confirmed
+          (mr-x/agent-shell-presets '((?z "Test" "sol" "agent" nil "high"))))
+      (cl-letf (((symbol-function 'mr-x/agent-shell--config-with)
+                 (lambda (&rest _) '((:identifier . codex)
+                                     (:default-model-id . (lambda () "sol"))
+                                     (:default-session-mode-id . (lambda () "agent")))))
+                ((symbol-function 'agent-shell--start)
+                 (lambda (&rest args)
+                   (should-not (map-elt (plist-get args :config) :default-model-id))
+                   (should-not (map-elt (plist-get args :config) :default-session-mode-id))
+                   buffer))
+                ((symbol-function 'syzygy-launch--configure)
+                 (lambda (buf settings task) (setq confirmed (list buf settings task))))
+                ((symbol-function 'mr-x/agent-label-sync) #'ignore)
+                ((symbol-function 'run-at-time) (lambda (&rest _) (ert-fail "Unconfirmed deferred prompt"))))
+        (mr-x/agent-shell-spawn-for-mobile temporary-file-directory "" "First prompt" "z")
+        (should (equal confirmed
+                       (list buffer '((agent . "codex") (model . "sol")
+                                      (mode . "agent") (effort . "high")) "First prompt")))))))
+
 (ert-deftest config-test-agent-preset-labels-use-canonical-names ()
   "Preset labels use family-first model versions and shared permission names."
   (should
@@ -354,12 +547,12 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
                   mr-x/agent-shell-presets)
           '((?f . "Fable 5.1 · Full")
             (?o . "Opus 5.5 · Full")
-            (?s . "Sonnet 5 · Accept edits")
+            (?s . "Sonnet 5.5 · Accept edits")
             (?p . "Opus 5.5 · Plan")
             (?a . "Astra 6 · Full")
-            (?c . "Sol 5.6 · Full")
-            (?x . "Sol 5.6 Max · Full")
-            (?O . "Luna 5.6 · Build")
+            (?c . "Sol 6.1 · Full")
+            (?x . "Sol 6.1 Max · Full")
+            (?O . "Luna 6 · Build")
             (?g . "GLM 5.3 Flash · Full")
             (?d . "DeepSeek Chat · Accept edits")))))
 
@@ -630,7 +823,7 @@ Payload shapes live-probed from claude-agent-acp 0.54.1 (2026-07-25)."
   (should (fboundp 'mr-x/quick-ask--attach-buffer))
   (should (fboundp 'mr-x/quick-ask--attach-region))
   (should (fboundp 'mr-x/quick-ask--detach-all))
-  (should (fboundp 'mr-x/quick-ask--strip-thinking)))
+  (should (fboundp 'mr-x/quick-ask--last-response)))
 
 ;; ── Bash Watcher ───────────────────────────────────────────────────────────
 
@@ -963,13 +1156,14 @@ Popper must NOT control display, the popup rule must be present, and a
 ;; Tests that exercise actual logic, not just existence.
 ;; ═══════════════════════════════════════════════════════════════════════════
 
-(ert-deftest config-test-quick-ask-strip-thinking ()
-  "mr-x/quick-ask--strip-thinking should remove agent-shell thinking blocks."
-  (should (equal (mr-x/quick-ask--strip-thinking "hello") "hello"))
-  (should (equal (mr-x/quick-ask--strip-thinking nil) ""))
-  (should (equal (mr-x/quick-ask--strip-thinking
-                  "▶ Thinking\n\nsome reasoning here\n\nactual answer")
-                 "actual answer")))
+(ert-deftest config-test-quick-ask-markdown ()
+  "Quick Ask uses the chat renderer and retains copyable Markdown."
+  (with-temp-buffer
+    (insert "Use **shared**.")
+    (mr-x/quick-ask--render-markdown)
+    (should (equal (buffer-string) "Use shared."))
+    (should (equal (agent-shell-markdown-reconstruct (point-min) (point-max))
+                   "Use **shared**."))))
 
 (ert-deftest config-test-agent-shell-refs-truncate ()
   "agent-shell-refs--truncate should truncate long strings with ellipsis."
@@ -2592,3 +2786,47 @@ Together these hid 106 lines of roaming/notes/homelab.org."
     (should (eq (mr-x/arca-caldav--completed-wins open) open))))
 
 ;;; config-tests.el ends here
+
+(ert-deftest config-test-deactivate-mark-drops-local-nil-transient-mark-mode ()
+  "A mouse selection made while evil visual block had the mode off stores
+`(only . nil)'; deactivating it must not leave a buffer-local nil behind."
+  (with-temp-buffer
+    (insert "text")
+    (setq-local transient-mark-mode '(only))
+    (set-mark (point-min))
+    (activate-mark)
+    (should (region-active-p))
+    (deactivate-mark)
+    (should-not (and (local-variable-p 'transient-mark-mode)
+                     (null transient-mark-mode)))))
+
+(ert-deftest config-test-evil-visual-entry-drops-local-nil-transient-mark-mode ()
+  "Entering visual state in a poisoned buffer repairs it so the region counts."
+  (with-temp-buffer
+    (insert "one\ntwo\n")
+    (evil-local-mode 1)
+    (setq-local transient-mark-mode nil)
+    (goto-char (point-min))
+    (evil-visual-line)
+    (should (region-active-p))))
+
+(ert-deftest config-test-hyper-emacs-layer ()
+  "Every Iris v3 Emacs-layer letter is bound; c m v w replay their SPC menu.
+The firmware sends HYPR(<letter>), so an unbound letter is a dead key."
+  (dolist (pair '(("i" . consult-imenu) ("b" . consult-buffer)
+                  ("g" . magit-status) ("s" . consult-line)
+                  ("r" . consult-recent-file) ("p" . projectile-find-file)
+                  ("o" . ace-window) ("d" . dired-jump)
+                  ("q" . mr-x/quick-ask) ("x" . execute-extended-command)))
+    (should (eq (global-key-binding (kbd (concat "H-" (car pair)))) (cdr pair))))
+  (dolist (letter '("c" "m" "v" "w"))
+    (let ((cmd (global-key-binding (kbd (concat "H-" letter))))
+          (unread-command-events nil))
+      (should (commandp cmd))
+      (funcall cmd)
+      (should (equal unread-command-events
+                     (listify-key-sequence (kbd (concat "C-SPC " letter))))))))
+
+(ert-deftest config-test-syzygy-loads-from-shared ()
+  "SYZYGY lives in the shared tree (spec 6.6)."
+  (should (string-match-p "/shared/emacs/lisp/syzygy/" (locate-library "syzygy"))))

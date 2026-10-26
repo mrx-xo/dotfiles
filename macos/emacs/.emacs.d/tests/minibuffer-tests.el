@@ -2,6 +2,14 @@
 
 (require 'ert)
 (require 'cl-lib)
+
+;; On the Mac, Elpaca has not activated packages yet when this file is loaded
+;; in batch after init.el; flush its queue first.  No-op under package.el.
+(when (fboundp 'elpaca-process-queues)
+  (elpaca-process-queues))
+(when (fboundp 'elpaca-wait)
+  (elpaca-wait))
+
 (require 'consult)
 (require 'vertico)
 (require 'mr-x-minibuffer)

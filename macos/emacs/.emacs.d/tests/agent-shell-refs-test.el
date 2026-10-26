@@ -172,5 +172,18 @@
              (p (agent-shell-refs--pill "2 · hello" ov)))
         (should (equal "#123456" (agent-shell-refs-test--fg p)))))))
 
+(ert-deftest agent-shell-refs-selection-survives-local-nil-transient-mark-mode ()
+  "An evil visual selection is still a selection when `transient-mark-mode'
+is buffer-locally nil, the state a stray `(only . nil)' leaves behind."
+  (with-temp-buffer
+    (insert "intro\n\nRebased, pushed, and refreshed PR #82, cuh.\n\nnext\n")
+    (evil-local-mode 1)
+    (goto-char (point-min)) (search-forward "Rebased") (beginning-of-line)
+    (let ((bol (point)) (nbol (line-beginning-position 2)))
+      (evil-visual-line)
+      (setq-local transient-mark-mode nil)
+      (should-not (use-region-p))
+      (should (equal (cons bol nbol) (agent-shell-refs--selection))))))
+
 (provide 'agent-shell-refs-test)
 ;;; agent-shell-refs-test.el ends here

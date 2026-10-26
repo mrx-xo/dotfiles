@@ -11,10 +11,8 @@ autoload -U colors && colors
 colors
 # PATH=~/.console-ninja/.bin:$PATH
 
-# .zshenv already ran brew shellenv for every shell, but in a login shell
-# /etc/zprofile's path_helper then moves /usr/local/bin (the old Intel brew)
-# back in front.  Re-front the arm64 brew; typeset -U drops the duplicate
-# entries instead of stacking them.
+# .zprofile restores Homebrew's priority after path_helper in login shells.
+# Also front it for interactive nonlogin shells with an inherited PATH.
 [[ -n "$HOMEBREW_PREFIX" ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
 typeset -U path
 path=(/opt/homebrew/bin /opt/homebrew/sbin $path)
@@ -73,7 +71,9 @@ case "${MACHINE_ID:-unknown}" in
   *)    PROMPT_NAME="${PROMPT_NAME:-${MACHINE_ID:-?}}" ;;
 esac
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local
-PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f %F{212}𐆖%f "
+# Two lines: context on top, input on its own line so a long command
+# gets the full window width.
+PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f"$'\n'"%F{212}𐆖%f "
 
 # Custom Jawns
 alias mrxpath='printf "%s\n" $path'

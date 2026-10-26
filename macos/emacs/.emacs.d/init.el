@@ -155,7 +155,7 @@
 (run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
-(add-to-list 'load-path (expand-file-name "lisp/syzygy" user-emacs-directory))
+(add-to-list 'load-path (expand-file-name "~/.dotfiles/shared/emacs/lisp/syzygy"))
 
 (dolist (command '(mr-x/strudel-play mr-x/strudel-update mr-x/strudel-stop
                    mr-x/strudel-show-audio mr-x/strudel-shutdown))
@@ -2295,7 +2295,6 @@ left alone."
     (message "Loading in regular Emacs!"))
 
   (defun mr-x/set-font-faces ()
-    (message "Setting faces!")
     ;; tty frames (e.g. emacsclient -t over ssh from CALLIOPE) can't see GUI
     ;; fonts — find-font returns nil for everything and the Menlo fallback
     ;; would clobber the default face on ALL frames, GUI included. Fonts are
@@ -3138,13 +3137,27 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   					  ; keybindings section
     (global-unset-key (kbd "s-t")) ; Disable macOS font panel (ns-popup-font-panel)
 
-    ;; ── Hyper Emacs layer (hotdox v4 draft d1) ──────────────────────────
-    ;; The hotdox emits real ✦ Hyper; skhd only claims a handful of Hyper
-    ;; combos (e/a/f/h/j/k/l/t/space/1-4) for yabai, so every other Hyper
-    ;; letter falls straight through to Emacs.  These 8 are the Emacs layer:
-    ;; a firmware MO(_EMACS) sends HYPR(<letter>) per key, but they also work
-    ;; today by holding Hyper on the home row.  Keep in sync with the layer
-    ;; in macos/keymap-explorer/index.html (pro5).
+    ;; ── Hyper Emacs layer (Iris v3 draft, from the hotdox v4 d1) ────────
+    ;; The keyboard emits real ✦ Hyper; skhd only claims a handful of Hyper
+    ;; combos (e/a/f/h/j/k/l/t/space/1-5) for yabai and friends, so every
+    ;; other Hyper letter falls straight through to Emacs.  Hyper+B was
+    ;; agent-workspace until 2026-10-22; that moved to Meh+B so B could be
+    ;; buffers here.  The Iris v3 Emacs layer sends HYPR(<letter>) per key,
+    ;; and every letter also works today by holding Hyper on the home row.
+    ;; Keep in sync with the layer in macos/keymap-explorer/index.html (pro5).
+    ;;
+    ;; Hybrid model (2026-10-22): most letters are one direct command; c m v
+    ;; w open the matching SPC menu instead, replayed as C-SPC <letter> (the
+    ;; leader's global prefix) so which-key shows the same labelled menu in
+    ;; every evil state.
+    (defun mr-x/hyper-leader-menu (letter)
+      "Return a command that opens the SPC LETTER leader menu.
+    Replays C-SPC LETTER, the leader's global prefix, so the menu and its
+    which-key labels are exactly the ones SPC LETTER shows."
+      (let ((keys (listify-key-sequence (kbd (concat "C-SPC " letter)))))
+        (lambda ()
+          (interactive)
+          (setq unread-command-events (append keys unread-command-events)))))
     (global-set-key (kbd "H-i") #'consult-imenu)        ; imenu
     (global-set-key (kbd "H-b") #'consult-buffer)       ; buffers
     (global-set-key (kbd "H-g") #'magit-status)         ; magit
@@ -3153,6 +3166,12 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
     (global-set-key (kbd "H-p") #'projectile-find-file) ; project find
     (global-set-key (kbd "H-o") #'ace-window)           ; jump window
     (global-set-key (kbd "H-d") #'dired-jump)           ; dired here
+    (global-set-key (kbd "H-q") #'mr-x/quick-ask)       ; ask AI (= SPC q)
+    (global-set-key (kbd "H-x") #'execute-extended-command) ; M-x
+    (global-set-key (kbd "H-c") (mr-x/hyper-leader-menu "c")) ; Agent Shell menu
+    (global-set-key (kbd "H-m") (mr-x/hyper-leader-menu "m")) ; bookmarks menu
+    (global-set-key (kbd "H-v") (mr-x/hyper-leader-menu "v")) ; vterm menu
+    (global-set-key (kbd "H-w") (mr-x/hyper-leader-menu "w")) ; window menu
 
     (global-set-key (kbd "C-<escape>") #'universal-argument)
     (global-set-key (kbd "C-c d") 'diff-buffer-with-file)
@@ -3183,35 +3202,10 @@ Including `evil', `overwrite', `god', `ryo' and `xha-fly-kyes', etc."
   ;; Prevent Emacs from resizing frames
   (setq frame-resize-pixelwise t)
 
-  ;; Secondary emacsclient frames get title bars with a frame number so
-  ;; scratch frames are tellable apart.  The FIRST/main GUI frame stays
-  ;; clean — undecorated, no title.  Guard is "am I the sole GUI frame?"
-  ;; rather than a counter, so closing the main frame and spawning a new
-  ;; one keeps the new main clean too.
-  (defvar mr-x/frame-counter 0)
-  (defun mr-x/decorate-secondary-frame ()
-    "Sole GUI frame: clean + marked MAIN + pane home.
-Secondary frames: title bar + frame number.  tty clients are neither."
-    ;; tty clients (CALLIOPE's emx) aren't counted by the GUI-frame filter,
-    ;; so with one GUI frame up they'd pass as "sole" and claim MAIN: dark
-    ;; background on the e-ink and the major-pane home moved to the tablet.
-    (when (display-graphic-p)
-      (if (> (length (seq-filter #'display-graphic-p (frame-list))) 1)
-          (progn
-            (cl-incf mr-x/frame-counter)
-            (set-frame-parameter nil 'undecorated-round nil)
-            (set-frame-parameter nil 'title
-                                 (format "Emacs #%d" mr-x/frame-counter)))
-        ;; This IS the main frame: queryable identity marker + the
-        ;; major-pane soft-locks here (convos from scratch frames land in
-        ;; this frame's pane; s-i elsewhere jumps to it).  It also wears the
-        ;; darker #1d2021 background so it's tellable apart from scratch
-        ;; frames at a glance (agent-shell panes go a shade darker still).
-        (set-frame-parameter nil 'mr-x-main-frame t)
-        (set-frame-parameter nil 'background-color "#1d2021")
-        (when (boundp 'major-pane-home-frame)
-          (setq major-pane-home-frame (selected-frame))))))
-  (add-hook 'server-after-make-frame-hook #'mr-x/decorate-secondary-frame)
+  ;; The first real GUI editor keeps its identity and hosts the AI pane.
+  ;; This also repairs existing frames on live load; child/TTY frames never
+  ;; claim main, and the pane's home is assigned before its package loads.
+  (require 'mr-x-frames)
 
 
 (use-package websocket
@@ -3278,21 +3272,37 @@ current window layout."
   (defvar mr-x/sketchybar-persp--timer nil
     "Debounce timer for sketchybar perspective updates.")
 
+  (defun mr-x/sketchybar--root-frame (&optional frame)
+    "FRAME's top-level ancestor.
+Child frames (corfu, posframe, the comment box) carry no perspective of
+their own; the perspective shown belongs to the frame they sit on."
+    (let ((f (or frame (selected-frame))))
+      (while (frame-parameter f 'parent-frame)
+        (setq f (frame-parameter f 'parent-frame)))
+      f))
+
   (defun mr-x/sketchybar-update-persp--do ()
     "Actually push perspective state to sketchybar (called by debounce timer)."
     (setq mr-x/sketchybar-persp--timer nil)
-    (when (and (bound-and-true-p persp-mode)
-               (not (string-match-p "SCRATCHPAD"
-                                    (or (frame-parameter nil 'title) ""))))
-      (let* ((active (persp-current-name))
-             (all-names (persp-names))
-             (all-str (mapconcat #'identity all-names ","))
-             (frame-title (or (frame-parameter nil 'title) "")))
-        (start-process "sketchybar-persp" nil "bash" "-c"
-                       (format "sketchybar --trigger emacs_persp_update EMACS_PERSP_NAME=%s EMACS_PERSP_ALL=%s EMACS_PERSP_FRAME_TITLE=%s"
-                               (shell-quote-argument active)
-                               (shell-quote-argument all-str)
-                               (shell-quote-argument frame-title))))))
+    (let ((frame (mr-x/sketchybar--root-frame)))
+      (when (and (bound-and-true-p persp-mode)
+                 (not (string-match-p "SCRATCHPAD"
+                                      (or (frame-parameter frame 'title) ""))))
+        (let* ((active (with-selected-frame frame (persp-current-name)))
+               (all-names (delq nil (with-selected-frame frame (persp-names))))
+               (all-str (mapconcat #'identity all-names ","))
+               (frame-title (or (frame-parameter frame 'title) "")))
+          ;; The debounce timer fires with whatever frame is selected then.
+          ;; A frame without a perspective (a child frame, a frame still
+          ;; being born) has nothing to report; `shell-quote-argument' on
+          ;; nil was the "Error running timer ... (wrong-type-argument
+          ;; arrayp nil)" in the daemon log.
+          (when active
+            (start-process "sketchybar-persp" nil "bash" "-c"
+                           (format "sketchybar --trigger emacs_persp_update EMACS_PERSP_NAME=%s EMACS_PERSP_ALL=%s EMACS_PERSP_FRAME_TITLE=%s"
+                                   (shell-quote-argument active)
+                                   (shell-quote-argument all-str)
+                                   (shell-quote-argument frame-title))))))))
 
   (defun mr-x/sketchybar-update-persp (&rest _)
     "Push current perspective name to sketchybar (debounced 0.15s)."
@@ -3611,6 +3621,37 @@ constantly, so only invoke it when Hammerspoon is actually running."
                '("\\`acp-client-stderr"
                  (display-buffer-no-window)
                  (allow-no-window . t)))
+
+  ;; Claude Code 2.1.285 forwards plugin `$.ui.log'/`$.ui.status' output
+  ;; (jev-model-router) as system ui_log/ui_status messages.
+  ;; claude-agent-acp does not know those subtypes and logs each one to
+  ;; stderr as "Unexpected case: {...}", which agent-shell renders as a
+  ;; Notices block every turn.  Drop just those lines before any
+  ;; error handler sees them; every other stderr line passes through.
+  (defconst mr-x/acp-ui-log-noise-regexp
+    "^Unexpected case: {\"type\":\"system\",\"subtype\":\"ui_\\(?:log\\|status\\)\".*\n?"
+    "Stderr lines from claude-agent-acp for plugin UI messages.")
+
+  (defun mr-x/acp-drop-ui-log-noise (args)
+    "Wrap the :on-error handler in ARGS to drop plugin UI-log stderr lines."
+    (let ((on-error (plist-get args :on-error)))
+      (if (not on-error)
+          args
+        (plist-put (copy-sequence args) :on-error
+                   (lambda (err)
+                     (let ((msg (map-elt err 'message)))
+                       (if (not (stringp msg))
+                           (funcall on-error err)
+                         (let ((kept (replace-regexp-in-string
+                                      mr-x/acp-ui-log-noise-regexp "" msg)))
+                           (cond ((string= kept msg) (funcall on-error err))
+                                 ((string-blank-p kept) nil)
+                                 (t (funcall on-error
+                                             (cons (cons 'message kept)
+                                                   (assq-delete-all
+                                                    'message (copy-alist err))))))))))))))
+
+  (advice-add 'acp-subscribe-to-errors :filter-args #'mr-x/acp-drop-ui-log-noise)
 
   ;; Agent-shell conversations always land in the major-pane, no matter
   ;; which code path displays them (agent-shell itself, agent-recall
@@ -4048,6 +4089,19 @@ Falls back to a one-liner if fastfetch isn't installed."
   (evil-mode 1)
   ;; ESC in normal state → progressive escape instead of evil-force-normal-state
   (define-key evil-normal-state-map [escape] #'mr-x/escape-quit)
+  ;; Visual block turns `transient-mark-mode' off as a global default,
+  ;; and a mouse selection made meanwhile stores `(only . nil)' in that
+  ;; buffer.  Deactivating it leaves a buffer-local nil behind: evil
+  ;; keeps highlighting `V' selections, but `use-region-p' says there
+  ;; is no region (ref capture refuses, ESC says Quit).  Nothing sets a
+  ;; local nil on purpose, so drop it wherever it shows up.
+  (defun mr-x/evil-drop-local-nil-transient-mark-mode (&rest _)
+    "Kill a buffer-local nil `transient-mark-mode'."
+    (when (and (local-variable-p 'transient-mark-mode)
+               (null transient-mark-mode))
+      (kill-local-variable 'transient-mark-mode)))
+  (add-hook 'deactivate-mark-hook #'mr-x/evil-drop-local-nil-transient-mark-mode)
+  (add-hook 'evil-visual-state-entry-hook #'mr-x/evil-drop-local-nil-transient-mark-mode)
   ;; Make M-backspace delete word without saving to register (like normal editors)
   (define-key evil-insert-state-map (kbd "M-<backspace>")
     (lambda () (interactive) (delete-region (point) (progn (backward-word) (point))))))
@@ -4255,21 +4309,9 @@ Falls back to a one-liner if fastfetch isn't installed."
         "s" '(:ignore t :wk "streaming")
         "s y" '(ytr :wk "YouTube radio"))
 
-      ;; Smart new shell: replace window when already in agent-shell
-      (defun mr-x/agent-shell--display-new (shell-buffer)
-        "Show SHELL-BUFFER: replace current window when already in an
-agent-shell, otherwise pop to it. Honours viewport interaction."
-        (if (derived-mode-p 'agent-shell-mode 'agent-shell-viewport-view-mode
-                            'agent-shell-viewport-edit-mode)
-            ;; Already in agent-shell: replace current window
-            (if agent-shell-prefer-viewport-interaction
-                (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-              (switch-to-buffer shell-buffer))
-          ;; Not in agent-shell: use normal display
-          (if agent-shell-prefer-viewport-interaction
-              (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
-            (pop-to-buffer shell-buffer))))
+      ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
+      ;; Smart new shell: replace window when already in agent-shell
       (defun mr-x/agent-shell-new-smart ()
         "Create new agent shell, replacing current window if already in agent-shell."
         (interactive)
@@ -4318,11 +4360,12 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;; display-only — codex-acp's `model' config option takes BARE families
       ;; and rejects suffixed ids with -32602 Invalid params.  Effort is its
       ;; own `reasoning_effort' config option, set post-init (EFFORT field).
-      ;;   models: "gpt-6-astra" "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
+      ;;   models: "gpt-6-astra" "gpt-6.1-sol" "gpt-6-luna"
+      ;;           "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"
       ;;           "gpt-5.5" "gpt-5.4" "gpt-5.4-mini" "gpt-5.3-codex-spark"
       ;;   modes:  "read-only" "agent" "agent-full-access"
       ;;   effort: "low" "medium" "high" "xhigh" "max" "ultra"
-      ;; Add a preset = add one line here.
+      ;; Add a preset = add one line to `mr-x/agent-shell-presets' (syzygy-rig.el).
       ;;
       ;; DeepSeek preset: DeepSeek's API speaks the Anthropic wire format
       ;; (https://api.deepseek.com/anthropic), so the stock claude-agent-acp
@@ -4445,205 +4488,7 @@ Matches an Agent header of the form \"Codex NAME\" against
       (advice-add 'agent-recall--agent-config-for-transcript :before-until
                   #'mr-x/agent-shell--codex-account-config-for-transcript)
 
-      (defvar mr-x/agent-shell-presets
-        '((?f "Fable 5.1 · Full" "fable[1m]"           "bypassPermissions")
-          (?o "Opus 5.5 · Full"  "opus[1m]"            "bypassPermissions")
-          (?s "Sonnet 5 · Accept edits" "sonnet"       "acceptEdits")
-          (?p "Opus 5.5 · Plan"  "default"             "plan")
-          (?a "Astra 6 · Full"   "gpt-6-astra"         "agent-full-access"
-              agent-shell-openai-make-codex-config "high")
-          (?c "Sol 5.6 · Full"   "gpt-5.6-sol"         "agent-full-access"
-              agent-shell-openai-make-codex-config "high")
-          (?x "Sol 5.6 Max · Full" "gpt-5.6-sol"       "agent-full-access"
-              agent-shell-openai-make-codex-config "max")
-          (?O "Luna 5.6 · Build" "openai/gpt-5.6-luna" "build"
-              agent-shell-opencode-make-agent-config)
-          (?g "GLM 5.3 Flash · Full" "openrouter/z-ai/glm-5.3-flash" "bypass"
-              agent-shell-opencode-make-agent-config)
-          (?d "DeepSeek Chat · Accept edits" "default" "acceptEdits"
-              mr-x/agent-shell-make-deepseek-config))
-        "Agent-shell launch presets: (CHAR LABEL MODEL-ID MODE-ID [CONFIG-FN EFFORT]).
-Each launches a fresh shell with that model and permission mode.
-CONFIG-FN, when present, names the agent-config constructor to base the
-shell on (e.g. Codex) instead of the preferred (Claude) config.
-EFFORT, when present, is sent as the `reasoning_effort' config option
-once the session is up (Codex-only concept).")
-
-      (defun mr-x/agent-shell--set-effort (effort &optional on-success)
-        "Set the current chat's effort to EFFORT, calling ON-SUCCESS after.
-Found by ACP category `thought_level', not id: Claude and OpenCode name
-the option \"effort\", Codex \"reasoning_effort\".  Errors when the
-agent has no such option or does not offer EFFORT."
-        (let ((opt (agent-shell--config-option-by-category (agent-shell--state)
-                                                           "thought_level")))
-          (unless opt (user-error "This agent has no effort setting"))
-          (unless (seq-find (lambda (v) (equal effort (map-elt v :value)))
-                            (map-elt opt :options))
-            (user-error "Effort %s not offered here" effort))
-          (if (equal effort (map-elt opt :current-value))
-              (when on-success (funcall on-success))
-            (agent-shell--set-session-config-option
-             :config-id (map-elt opt :id) :value effort
-             :on-success on-success))))
-
-      (defun mr-x/agent-shell--set-effort-when-ready (buf effort tries)
-        "Set BUF's `reasoning_effort' config option to EFFORT once its
-session exists, retrying TRIES times (the session id lands seconds
-after spawn, same dance as `mr-x/agent-spawn--send-when-ready')."
-        (when (buffer-live-p buf)
-          (with-current-buffer buf
-            (if (map-nested-elt agent-shell--state '(:session :id))
-                (mr-x/agent-shell--set-effort effort)
-              (if (> tries 0)
-                  (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                               buf effort (1- tries))
-                (message "agent preset: %s never became ready for effort set"
-                         (buffer-name buf)))))))
-
-      (defun mr-x/agent-shell--config-with (model-id mode-id &optional config-fn)
-        "Copy the preferred agent config, overriding model + session mode.
-When CONFIG-FN is non-nil, build the base config by calling it instead
-of resolving the preferred config — that's how a preset targets a
-different agent (Codex) entirely.  Returns a fresh config alist so the
-original is left untouched."
-        (let ((config (copy-alist
-                       (or (and config-fn (funcall config-fn))
-                           (and (fboundp 'agent-shell--resolve-preferred-config)
-                                (agent-shell--resolve-preferred-config))
-                           (agent-shell-select-config :prompt "Start new agent: ")
-                           (error "No agent config found")))))
-          (setf (alist-get :default-model-id config) (lambda () model-id))
-          (setf (alist-get :default-session-mode-id config) (lambda () mode-id))
-          config))
-
-      ;; ── Preset picker rendering ──────────────────────────
-      ;; One row per vendor, keys bold, vendor in its palette hue, mode word
-      ;; colored by how much rope it gives the agent.  Rows come from each
-      ;; preset's config constructor, so a new preset lands in its row on
-      ;; its own.  The question sits on the last line where the cursor is.
-      (defvar mr-x/agent-shell--preset-vendors
-        '((claude   "Claude"   orange)
-          (codex    "Codex"    green)
-          (opencode "OpenCode" lime)
-          (deepseek "DeepSeek" gold)
-          (other    "Other"    cream))
-        "Preset rows: (VENDOR LABEL PALETTE-COLOR), in display order.")
-
-      (defun mr-x/agent-shell--preset-vendor (preset)
-        "Vendor symbol for PRESET, from its config constructor (nil = Claude)."
-        (pcase (nth 4 preset)
-          ('nil 'claude)
-          ('agent-shell-openai-make-codex-config 'codex)
-          ('agent-shell-opencode-make-agent-config 'opencode)
-          ('mr-x/agent-shell-make-deepseek-config 'deepseek)
-          (_ 'other)))
-
-      (defun mr-x/agent-shell--buffer-vendor ()
-        "Vendor symbol for the current chat, matching `mr-x/agent-shell--preset-vendor'.
-DeepSeek runs on the Claude adapter, so only its mode-line name tells."
-        (let ((config (map-elt (agent-shell--state) :agent-config)))
-          (pcase (map-elt config :identifier)
-            ('claude-code (if (equal (map-elt config :mode-line-name) "DeepSeek")
-                              'deepseek 'claude))
-            ('codex 'codex)
-            ('opencode 'opencode)
-            (_ 'other))))
-
-      (defun mr-x/agent-shell--preset-mode-word (mode-id)
-        "Short lowercase word for session MODE-ID.
-The table lives in `major-pane-mode-words' so the banner, this picker
-and the SPC c m keys cannot drift apart."
-        (require 'major-pane)
-        (major-pane-mode-word mode-id))
-
-      (defun mr-x/agent-shell--preset-mode-color (word)
-        "Palette color name for a mode WORD: red for no guardrails, down to mint."
-        (pcase word
-          ("full" 'red)
-          ((or "accept edits" "auto") 'gold)
-          ("build" 'lime)
-          (_ 'mint)))
-
-      (defun mr-x/agent-shell--preset-entry (preset vendor-label)
-        "Render one PRESET as \"k Model mode\", dropping VENDOR-LABEL from the model."
-        (let* ((label (nth 1 preset))
-               (model (string-trim (replace-regexp-in-string " · .*\\'" "" label)))
-               (model (if (and (string-prefix-p vendor-label model)
-                               (> (length model) (length vendor-label)))
-                          (string-trim (substring model (length vendor-label)))
-                        model))
-               (word (mr-x/agent-shell--preset-mode-word (nth 3 preset))))
-          (concat (propertize (string (nth 0 preset)) 'face 'bold)
-                  " " model " "
-                  (propertize word 'face
-                              `(:foreground ,(mr-x/color
-                                              (mr-x/agent-shell--preset-mode-color word)))))))
-
-      (defun mr-x/agent-shell--preset-prompt (question)
-        "Multi-line colored listing of `mr-x/agent-shell-presets' ending in QUESTION."
-        (let* ((width (apply #'max (mapcar (lambda (v) (length (nth 1 v)))
-                                           mr-x/agent-shell--preset-vendors)))
-               (rows
-                (delq nil
-                      (mapcar
-                       (lambda (vendor)
-                         (let ((presets (seq-filter
-                                         (lambda (p) (eq (mr-x/agent-shell--preset-vendor p)
-                                                         (car vendor)))
-                                         mr-x/agent-shell-presets)))
-                           (when presets
-                             (concat
-                              (propertize (format (format "%%-%ds" width) (nth 1 vendor))
-                                          'face `(:foreground ,(mr-x/color (nth 2 vendor))
-                                                  :weight bold))
-                              "  "
-                              (mapconcat (lambda (p) (mr-x/agent-shell--preset-entry p (nth 1 vendor)))
-                                         presets "   ")
-                              (when (and (eq (car vendor) 'codex)
-                                         (> (length mr-x/agent-shell-codex-accounts) 1))
-                                (propertize "   asks account" 'face 'shadow))))))
-                       mr-x/agent-shell--preset-vendors))))
-          (concat (string-join rows "\n") "\n" question)))
-
-      (defun mr-x/agent-shell--read-preset (&optional char)
-        "Return a preset tuple from `mr-x/agent-shell-presets'.
-Reads a preset CHAR interactively (e.g. ?f) unless supplied, erroring
-if it matches no preset."
-        (let ((char (or char
-                        (read-char-choice
-                         (mr-x/agent-shell--preset-prompt "Preset: ")
-                         (mapcar #'car mr-x/agent-shell-presets)))))
-          (or (assq char mr-x/agent-shell-presets)
-              (user-error "No preset for %c" char))))
-
-      (defun mr-x/agent-shell--spawn-preset (preset)
-        "Spawn a fresh agent shell locked to PRESET (a `mr-x/agent-shell-presets'
-tuple).  Honours the current `default-directory' as the shell's cwd, so
-callers can `let'-bind it to launch the preset in another project."
-        (require 'agent-shell)
-        (let* ((account (when (mr-x/agent-shell--codex-preset-p preset)
-                          (mr-x/agent-shell--read-codex-account)))
-               (config (mr-x/agent-shell--config-with (nth 2 preset) (nth 3 preset)
-                                                      (nth 4 preset)))
-               (config (if account
-                           (mr-x/agent-shell--config-for-codex-account config account)
-                         config))
-               (shell-buffer (agent-shell--start :config config
-                                                 :no-focus t
-                                                 :new-session t)))
-          (mr-x/agent-shell--display-new shell-buffer)
-          (when (nth 5 preset)
-            (run-at-time 1 nil #'mr-x/agent-shell--set-effort-when-ready
-                         shell-buffer (nth 5 preset) 60))
-          (message "Agent preset: %s%s" (nth 1 preset)
-                   (if (cdr account) (format " (%s)" (car account)) ""))))
-
-      (defun mr-x/agent-shell-start-preset (&optional char)
-        "Start a fresh agent shell from a launch preset.
-Reads a preset CHAR from `mr-x/agent-shell-presets' (e.g. ?f) unless
-supplied, then spawns a new shell locked to that model + permission mode."
-        (interactive)
-        (mr-x/agent-shell--spawn-preset (mr-x/agent-shell--read-preset char)))
+      ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
       (defun mr-x/agent-shell-apply-preset (&optional char)
         "Apply a preset's model + permission mode to the CURRENT agent shell.
@@ -5410,7 +5255,7 @@ background, and inheriting them whole paints text over itself."
         "? m" '(consult-man :wk "Man (search all pages)")
         "F" '(mr-x/copy-file-path :wk "Copy file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)")
-        "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask show/hide"))
+        "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask focus/hide"))
 
       ;; Search commands under SPC C-s
       (mr-x/leader-def
@@ -6728,45 +6573,13 @@ TRAMP can't match under a PTY — both need pipe mode."
   ;; (compat is declared early, near the elpaca bootstrap, so it's queued
   ;; before everything that depends on it.)
 
-  ;; Pin an active minibuffer to the frame that opened it.  The Emacs 28+
-  ;; default (t) relocates it to whichever frame becomes selected — with
-  ;; yabai's focus-follows-mouse, grazing another client frame mid-completion
-  ;; teleports the vertico session there.
-  (setq minibuffer-follows-selected-frame nil)
-
-  ;; Keep the echo area from getting stuck tall.  The default (grow-only)
-  ;; never shrinks until the echo area is fully cleared, so one multi-line
-  ;; eldoc doc left the strip at a quarter of the frame.  Eldoc stays on one
-  ;; line; the full doc is in M-x eldoc-doc-buffer.
-  (setq resize-mini-windows t)
-  (setq eldoc-echo-area-use-multiline-p nil)
+  ;; Search input and picker keys are shared with the Windows config.
+  (require 'mr-x-minibuffer)
 
   (use-package vertico
     :ensure t
     :init
-    (vertico-mode 1)
-    :config
-    (setq vertico-count 15)
-    ;; Shrink with the candidate list instead of holding the tallest height.
-    (setq vertico-resize t)
-    (setq vertico-cycle t)
-    ;; Evil-friendly navigation in minibuffer
-    (define-key vertico-map (kbd "C-j") #'vertico-next)
-    (define-key vertico-map (kbd "C-k") #'vertico-previous)
-    (define-key vertico-map (kbd "C-l") #'vertico-insert))
-
-  ;; Saner filename completion: RET drills into directories instead of
-  ;; opening dired, DEL deletes whole path components, and typing ~/ or /
-  ;; mid-path tidies the shadowed prefix.  Only affects file completion —
-  ;; RET everywhere else keeps normal accept-and-exit.
-  (use-package vertico-directory
-    :ensure nil            ;; ships inside the vertico package
-    :after vertico
-    :bind (:map vertico-map
-           ("RET"   . vertico-directory-enter)
-           ("DEL"   . vertico-directory-delete-char)
-           ("M-DEL" . vertico-directory-delete-word))
-    :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
+    (vertico-mode 1))
 
   (use-package orderless
     :ensure t
@@ -7563,7 +7376,30 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     ;; Token lives in ~/.authinfo (machine omphalos.io/api/v1, login marcos^forge).
     (add-to-list 'forge-alist
                  '("omphalos.io" "omphalos.io/api/v1" "omphalos.io"
-                   forge-forgejo-repository)))
+                   forge-forgejo-repository))
+
+    ;; `forge-topics-mode' names itself through `(:eval (forge-topics-buffer-desc))',
+    ;; which reads the buffer-local `forge--buffer-topics-spec'.  A topics
+    ;; buffer that has the mode but no spec makes every redisplay of its
+    ;; window log "Error during redisplay: (eval (forge-topics-buffer-desc) t)
+    ;; signaled (wrong-type-argument ... nil)".  One such buffer lived for
+    ;; days in the 2026-09-30 daemon run (691 log lines) and died with the
+    ;; crash before it could be inspected; nothing in this config re-enters
+    ;; the mode, so its origin is unknown.  Show a placeholder instead and
+    ;; report the buffer once, so the next one says where it came from.
+    (defvar mr-x/forge--specless-reported nil
+      "Topics buffers already reported by `forge-topics-buffer-desc@mr-x/specless-guard'.")
+    (define-advice forge-topics-buffer-desc (:around (fn) mr-x/specless-guard)
+      (if (bound-and-true-p forge--buffer-topics-spec)
+          (funcall fn)
+        (unless (memq (current-buffer) mr-x/forge--specless-reported)
+          (push (current-buffer) mr-x/forge--specless-reported)
+          (message "forge: %S has no topics spec (size %d, repo %S, frames %S)"
+                   (buffer-name) (buffer-size)
+                   (bound-and-true-p forge-buffer-repository)
+                   (mapcar (lambda (w) (frame-parameter (window-frame w) 'name))
+                           (get-buffer-window-list nil nil t))))
+        "Topics?")))
 
   ;; Highlight source syntax in raw patches (including Forgejo review diffs),
   ;; falling back to the hunk when full file/revision context is unavailable.
@@ -7610,13 +7446,68 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
                    forgejo-view-diff-map forgejo-review-thread-map))
       (evil-make-overriding-map (symbol-value map) 'normal t)))
 
+  ;; Rainbow parens in the review panes and walkthrough cards: they fontify
+  ;; with mode hooks delayed, so the prog-mode hook never turns it on there.
+  (with-eval-after-load 'review-session
+    (add-hook 'review-session-fontify-hook
+              (lambda () (when (fboundp 'rainbow-delimiters-mode) (rainbow-delimiters-mode 1)))))
+
   ;; PR/review commands are entry points even before Magit or Forge loads.
   ;; Do not require this from Forgejo's :config: the workflow itself requires
   ;; Forge, so doing both would create a recursive load on first invocation.
   (use-package pr-workflow
     :ensure nil
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
-               mr-x/pr-review-session mr-x/review-git-range review-session-resume))
+               mr-x/pr-review-session mr-x/review-git-range review-session-resume)
+    :config
+    ;; Review comments: a floating compose box at the commented line, like
+    ;; Quick Ask's card.  The package ships only the window style; the box
+    ;; and the Evil state are this config's.  C-c C-t switches the two.
+    (defun mr-x/review-comment--box-poshandler (info)
+      "Below the line, or above it when the box would run off the bottom."
+      (let* ((below (posframe-poshandler-point-bottom-left-corner info))
+             (pos (if (> (+ (cdr below) (plist-get info :posframe-height))
+                         (plist-get info :parent-frame-height))
+                      (posframe-poshandler-point-bottom-left-corner-upward info)
+                    below))
+             (right (- (plist-get info :parent-frame-width) (plist-get info :posframe-width) 4)))
+        (cons (max 0 (min (car pos) right)) (cdr pos))))
+
+    (defun mr-x/review-comment--show-box (buffer window position)
+      "Show BUFFER as a box at POSITION in WINDOW; centred when POSITION is nil."
+      (if (not (and (require 'posframe nil t) (posframe-workable-p)))
+          (review-comment--show-window buffer window position)
+        (let* ((show (lambda ()
+                       (posframe-show buffer
+                                      :position (or position (point))
+                                      :poshandler (if position #'mr-x/review-comment--box-poshandler
+                                                    #'posframe-poshandler-frame-center)
+                                      :width (min 86 (- (frame-width) 4))
+                                      :height 8 :min-height 8
+                                      :border-width 1 :border-color "#504945"
+                                      :background-color "#282828"
+                                      :accept-focus t :cursor 'box
+                                      :respect-header-line t)))
+               ;; posframe resolves an integer position in the selected window.
+               (frame (if (window-live-p window)
+                          (with-selected-window window (funcall show))
+                        (funcall show))))
+          ;; posframe-show resets `cursor-type'; evil sets it back.
+          (with-current-buffer buffer
+            (when (bound-and-true-p evil-local-mode) (evil-refresh-cursor)))
+          (when (frame-live-p frame) (select-frame-set-input-focus frame)))))
+
+    (defun mr-x/review-comment--hide-box (buffer)
+      "Hide BUFFER's box, and its window when the box fell back to one."
+      (when (fboundp 'posframe-hide) (ignore-errors (posframe-hide buffer)))
+      ;; Without a workable posframe the box was shown as a window.
+      (review-comment--hide-window buffer))
+
+    (add-to-list 'review-comment-compose-styles
+                 '(box mr-x/review-comment--show-box mr-x/review-comment--hide-box))
+    (setq review-comment-compose-style 'box)
+    (add-hook 'review-comment-compose-mode-hook
+              (lambda () (when (fboundp 'evil-insert-state) (evil-insert-state)))))
 
 
 
@@ -7823,6 +7714,55 @@ If the buffers already exist, kills them first."
   :ensure t)
 
 
+
+(defvar mr-x/keymap-explorer-dir
+  (expand-file-name "~/.dotfiles/macos/keymap-explorer/"))
+(defvar mr-x/keymap-explorer-port 8080)
+(defvar mr-x/keymap-explorer--process nil)
+
+(defun mr-x/keymap-explorer--port-busy-p ()
+  (ignore-errors
+    (delete-process
+     (open-network-stream "keymap-probe" nil "127.0.0.1"
+                          mr-x/keymap-explorer-port))
+    t))
+
+(defun mr-x/keymap-explorer-serve (&optional open)
+  "Start the keymap explorer live-server in the background.
+With prefix arg OPEN, also open it in the browser."
+  (interactive "P")
+  (let ((url (format "http://localhost:%d/" mr-x/keymap-explorer-port)))
+    (cond
+     ((process-live-p mr-x/keymap-explorer--process)
+      (message "Keymap explorer already up: %s" url))
+     ((mr-x/keymap-explorer--port-busy-p)
+      (message "Port %d already in use; leaving it alone"
+               mr-x/keymap-explorer-port))
+     (t
+      (let ((default-directory mr-x/keymap-explorer-dir))
+        (setq mr-x/keymap-explorer--process
+              (make-process
+               :name "keymap-explorer"
+               :buffer " *keymap-explorer-server*"
+               :command (list (or (executable-find "live-server")
+                                  "/opt/homebrew/bin/live-server")
+                              (format "--port=%d" mr-x/keymap-explorer-port)
+                              "--no-browser" "--quiet")
+               :noquery t)))
+      (message "Keymap explorer up: %s" url)))
+    (when open (browse-url url))))
+
+(defun mr-x/keymap-explorer-stop ()
+  "Stop the keymap explorer live-server started by Emacs."
+  (interactive)
+  (when (process-live-p mr-x/keymap-explorer--process)
+    (delete-process mr-x/keymap-explorer--process))
+  (setq mr-x/keymap-explorer--process nil)
+  (message "Keymap explorer stopped"))
+
+;; Always up: start a few idle seconds after the daemon boots.
+(when (daemonp)
+  (run-with-idle-timer 5 nil #'mr-x/keymap-explorer-serve))
 
 ;; Remember last position in files (like a real bookmark)
 (save-place-mode 1)
@@ -9392,8 +9332,28 @@ Appends to the current year's transaction file."
                             "nemesis pollux" "pollux work" "status"
                             "toggle romulus" "toggle remus"
                             "romulus pollux" "romulus nemesis"
-                            "remus pollux" "remus nemesis" "remus work"))))
+                            "remus pollux" "remus nemesis" "remus work"
+                            "flip" "flip normal" "flip flipped"
+                            "solo romulus" "solo remus" "solo off"
+                            "kill romulus" "kill remus" "kill lupa"))))
   (apply #'mr-x/mon--run (split-string command)))
+
+(defun mr-x/mon-kill (display)
+  "Drop DISPLAY from POLLUX, or bring it back if it is already dropped."
+  (interactive
+   (list (completing-read "mon kill: " '("romulus" "remus" "lupa") nil t)))
+  (mr-x/mon--run "kill" display))
+
+(defun mr-x/mon-solo (target)
+  "POLLUX on one Dell and nothing else; TARGET off reconnects what that dropped."
+  (interactive
+   (list (completing-read "mon solo: " '("romulus" "remus" "off") nil t)))
+  (mr-x/mon--run "solo" target))
+
+(defun mr-x/mon-flip ()
+  "Toggle which way the Dells face on NEMESIS: normal (west) <-> flipped (east)."
+  (interactive)
+  (mr-x/mon--run "flip"))
 
 (defun mr-x/mon-toggle-romulus ()
   "Flip ROMULUS between POLLUX and NEMESIS."

@@ -2,7 +2,8 @@
 # away-mode.sh — make MrX safely reachable while away, and undo it later.
 #
 #   away on       preflight, snapshot settings, disable auto-install updates,
-#                 battery sleep -> 0, print the access recipes
+#                 battery sleep -> 0, lid sleep off (disablesleep 1),
+#                 print the access recipes
 #   away off      restore everything from the snapshot
 #   away status   on/off + preflight
 #   away dark     desk lights off + displays to sleep (HA script.sleep_desk);
@@ -91,12 +92,21 @@ PY
 
   local auto_install; auto_install=$(defaults read $SU_PLIST AutomaticallyInstallMacOSUpdates 2>/dev/null || echo "?")
   local bat_sleep; bat_sleep=$(battery_sleep)
-  echo "Settings: auto-install macOS updates=$auto_install  battery sleep=${bat_sleep}min"
+  echo "Settings: auto-install macOS updates=$auto_install  battery sleep=${bat_sleep}min  lid sleep disabled=$(sleep_disabled)"
   [ "$failures" -eq 0 ]
 }
 
 battery_sleep() {
   pmset -g custom | awk '/^Battery Power:/{b=1} /^AC Power:/{b=0} b && $1=="sleep"{print $2}'
+}
+
+# `pmset disablesleep 1` reports as SleepDisabled; absent means 0. It is
+# the only knob that makes a closed lid a no-op: `sleep 0` covers idle
+# sleep, but the lid still sleeps the Mac whenever no external display is
+# enumerated (dock unplugged, desk power cut), taking Tailscale and
+# acp-mobile down with it.
+sleep_disabled() {
+  pmset -g | awk '$1=="SleepDisabled"{print $2; f=1} END{if(!f)print 0}'
 }
 
 read_default() { defaults read "$1" "$2" 2>/dev/null || echo 1; }
@@ -130,13 +140,15 @@ do_on() {
     echo "CriticalUpdateInstall=$(read_default $SU_PLIST CriticalUpdateInstall)"
     echo "AutoUpdate=$(read_default $COMMERCE_PLIST AutoUpdate)"
     echo "battery_sleep=$(battery_sleep)"
+    echo "sleep_disabled=$(sleep_disabled)"
   } > "$STATE"
   sudo defaults write $SU_PLIST AutomaticallyInstallMacOSUpdates -bool false
   sudo defaults write $SU_PLIST CriticalUpdateInstall -bool false
   sudo defaults write $COMMERCE_PLIST AutoUpdate -bool false
   sudo pmset -b sleep 0
+  sudo pmset -a disablesleep 1
   echo
-  echo "away mode ON: auto-install updates off, battery sleep 0. Snapshot in $STATE"
+  echo "away mode ON: auto-install updates off, battery sleep 0, lid sleep disabled. Snapshot in $STATE"
   print_recipes
   [ "$dark" -eq 1 ] && { echo; do_dark; }
 }
@@ -160,8 +172,9 @@ do_off() {
   v=$(sed -n 's/^CriticalUpdateInstall=//p' "$STATE");           sudo defaults write $SU_PLIST CriticalUpdateInstall -bool "$([ "$v" = 1 ] && echo true || echo false)"
   v=$(sed -n 's/^AutoUpdate=//p' "$STATE");                      sudo defaults write $COMMERCE_PLIST AutoUpdate -bool "$([ "$v" = 1 ] && echo true || echo false)"
   v=$(sed -n 's/^battery_sleep=//p' "$STATE");                   sudo pmset -b sleep "${v:-5}"
+  local d; d=$(sed -n 's/^sleep_disabled=//p' "$STATE");        sudo pmset -a disablesleep "${d:-0}"
   rm -f "$STATE"
-  echo "away mode OFF: restored auto-install updates and battery sleep=${v:-5}"
+  echo "away mode OFF: restored auto-install updates, battery sleep=${v:-5}, lid sleep disabled=${d:-0}"
 }
 
 do_status() {

@@ -156,6 +156,12 @@ The main ERT smoke suite is
 Standalone packages may have focused ERT files under the same `tests/`
 directory; run those in addition to the smoke suite.
 
+The SYZYGY Lisp in `shared/emacs/lisp/syzygy/` has its own batch runners that
+load without agent-shell and bind `syzygy-state-directory` to a temp
+directory: `shared/emacs/tests/run-syzygy-tests.sh [--emacs PATH]` on macOS
+and `shared/emacs/tests/run-syzygy-tests.ps1` on Windows. Both exit with
+ERT's status.
+
 ### Package Management
 
 Use Elpaca through Emacs:

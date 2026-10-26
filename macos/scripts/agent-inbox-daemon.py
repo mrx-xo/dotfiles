@@ -28,6 +28,11 @@ INBOX = pathlib.Path(os.path.expanduser("~/agent-inbox"))
 OFFSET_F = INBOX / ".offset"
 ENV_FILE = pathlib.Path(os.path.expanduser("~/.config/agent-inbox/env"))
 POLL_TIMEOUT = 50  # seconds Telegram holds the getUpdates connection
+# Longest side, in pixels, an inbox image may have. agent-shell renders the
+# attachment inline through AppKit, and a 20 MP photo decoded there crashed
+# the Emacs daemon on 2026-10-08 (CoreGraphics read past the bitmap while
+# upscaling). 2000 px keeps the image readable for the agents.
+MAX_SIDE = 2000
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -142,13 +147,26 @@ def sweep():
         log.info("sweep: removed %d file(s) older than %dd", removed, RETENTION_DAYS)
 
 
+def downscale(path):
+    """Shrink PATH in place so its longest side is at most MAX_SIDE pixels.
+
+    Uses sips (always present on macOS). A failure is logged and the file is
+    left as it was: a big image is better than no image."""
+    try:
+        subprocess.run(["sips", "-Z", str(MAX_SIDE), str(path)],
+                       check=True, capture_output=True, timeout=60)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        log.warning("downscale failed for %s: %s", path.name, e)
+
+
 def download(file_id, ext):
     meta = api_get("getFile", {"file_id": file_id}, timeout=60)
     file_path = meta["result"]["file_path"]
     with urllib.request.urlopen(f"{FILE_API}/{file_path}", timeout=120) as resp:
         data = resp.read()
-    tmp = INBOX / f".tmp-{uuid.uuid4().hex}"
+    tmp = INBOX / f".tmp-{uuid.uuid4().hex}{ext}"
     tmp.write_bytes(data)
+    downscale(tmp)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     final = INBOX / f"{stamp}-{uuid.uuid4().hex[:6]}{ext}"
     os.replace(tmp, final)  # atomic on same filesystem
