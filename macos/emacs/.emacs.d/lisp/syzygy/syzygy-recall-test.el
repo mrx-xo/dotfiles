@@ -445,10 +445,9 @@ it, get returns nil for an unknown session."
       (kill-buffer buffer))))
 
 (ert-deftest syzygy-fork-json-round-trip ()
-  "Fork through the source's client, resume the new id, carry the label."
+  "Fork natively in the new chat's own client, carry the label."
   (let ((source (generate-new-buffer "syzygy-fork-test-source"))
         (major-pane--labels (make-hash-table :test #'eq))
-        (requested nil)
         (start-args nil)
         new)
     (unwind-protect
@@ -465,10 +464,7 @@ it, get returns nil for an unknown session."
           (should-not (fboundp 'mr-x/agent-shell--clone-config))
           (cl-letf (((symbol-function 'syzygy-fork--turns) (lambda (_) 3))
                     ((symbol-function 'syzygy-fork--request)
-                     (lambda (buffer)
-                       (should (eq buffer source))
-                       (setq requested t)
-                       "sess-2"))
+                     (lambda (_) (ert-fail "Native fork went through the source client")))
                     ((symbol-function 'agent-shell--start)
                      (lambda (&rest args)
                        (setq start-args args)
@@ -480,8 +476,8 @@ it, get returns nil for an unknown session."
             (let ((row (syzygy-recall-test--decode
                         (syzygy-fork-json
                          (syzygy-recall-test--b64 (buffer-name source))))))
-              (should requested)
-              (should (equal (plist-get start-args :session-id) "sess-2"))
+              (should (equal (plist-get start-args :fork-session-id) "sess-1"))
+              (should-not (plist-member start-args :session-id))
               (should (equal (plist-get start-args :config) '((:name . "Fake"))))
               (should (eq (plist-get start-args :no-focus) t))
               (should (eq (plist-get start-args :new-session) t))
@@ -496,14 +492,17 @@ it, get returns nil for an unknown session."
       (kill-buffer source))))
 
 (ert-deftest syzygy-fork-json-request-failure-is-structured ()
-  "An agent refusal comes back as ok false with its message, no new chat."
-  (let ((source (generate-new-buffer "syzygy-fork-test-refused")))
+  "An agent refusal on the resume strategy comes back as ok false with
+its message, no new chat."
+  (let ((source (generate-new-buffer "syzygy-fork-test-refused"))
+        (syzygy-fork-strategies '((legacy-agent . resume))))
     (unwind-protect
         (progn
           (with-current-buffer source
             (setq-local major-mode 'agent-shell-mode)
             (setq-local agent-shell--state
                         '((:supports-session-fork . t)
+                          (:agent-config . ((:identifier . legacy-agent)))
                           (:session . ((:id . "sess-1"))))))
           (cl-letf (((symbol-function 'syzygy-fork--turns) (lambda (_) 3))
                     ((symbol-function 'syzygy-fork--request)
@@ -643,10 +642,62 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
       (when (buffer-live-p new) (kill-buffer new))
       (kill-buffer source))))
 
-(ert-deftest syzygy-fork-run-resume-strategy-for-claude ()
-  "Claude's fork reply is a bare id: fork for the id, then resume it."
-  (let ((source (syzygy-fork-test--source "syzygy-fork-test-resume"
+(ert-deftest syzygy-fork-run-claude-forks-natively ()
+  "Claude forks in the new chat's own process: agent-shell 0.84.3+
+forks for the id and then resumes it there, so the chat never asks
+the source chat's client for anything."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-claude"
                                           3 'claude-code))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) (ert-fail "Claude fork went through the source client")))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (should (eq (syzygy-fork--run source) new))
+            (should (equal (plist-get start-args :fork-session-id) "sess-1"))
+            (should-not (plist-member start-args :session-id))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+
+;; A bare defvar is special only inside the file that holds it, so this
+;; test file needs its own for `let' to bind agent-shell's version dynamically.
+(defvar agent-shell--version)
+
+(ert-deftest syzygy-fork-strategy-downgrades-native-on-old-agent-shell ()
+  "agent-shell before 0.84.3 builds the chat from the bare fork reply and
+never resumes it, so `native' there is a dead chat: every request after
+the fork fails with Internal error (seen 2026-10-18 on 0.78.2, SPC c u a).
+The table may say native; the running agent-shell decides."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-old" 3 'claude-code))
+        (syzygy-fork-strategies '((claude-code . native))))
+    (unwind-protect
+        (progn
+          (let ((agent-shell--version "0.78.2"))
+            (should (eq (syzygy-fork--strategy source) 'resume)))
+          (let ((agent-shell--version "0.84.2"))
+            (should (eq (syzygy-fork--strategy source) 'resume)))
+          (let ((agent-shell--version "0.84.3"))
+            (should (eq (syzygy-fork--strategy source) 'native)))
+          (let ((agent-shell--version "0.87.3"))
+            (should (eq (syzygy-fork--strategy source) 'native)))
+          ;; Unit tests run without agent-shell loaded: trust the table.
+          (should (eq (syzygy-fork--strategy source) 'native)))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-old-agent-shell-resumes-instead ()
+  "On an old agent-shell the fork goes through the source client and the
+new chat starts as a resume of the forked id."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-old-run"
+                                          3 'claude-code))
+        (syzygy-fork-strategies '((claude-code . native)))
+        (agent-shell--version "0.78.2")
         (start-args nil)
         new)
     (unwind-protect
@@ -664,10 +715,34 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
       (when (buffer-live-p new) (kill-buffer new))
       (kill-buffer source))))
 
-(ert-deftest syzygy-fork-run-unknown-agent-resumes ()
-  "An agent with no strategy entry takes the resume path, which only needs load."
+(ert-deftest syzygy-fork-run-unknown-agent-forks-natively ()
+  "An agent with no strategy entry forks natively: that is the ACP
+path agent-shell maintains, and resume stays an opt-in escape hatch."
   (let ((source (syzygy-fork-test--source "syzygy-fork-test-unknown"
                                           3 'future-agent))
+        (start-args nil)
+        new)
+    (unwind-protect
+        (syzygy-fork-test--with-fakes
+          (cl-letf (((symbol-function 'syzygy-fork--request)
+                     (lambda (_) (ert-fail "Unknown agent fork went through the source client")))
+                    ((symbol-function 'agent-shell--start)
+                     (lambda (&rest args)
+                       (setq start-args args)
+                       (setq new (generate-new-buffer "syzygy-fork-test-new"))
+                       new)))
+            (syzygy-fork--run source)
+            (should (equal (plist-get start-args :fork-session-id) "sess-1"))
+            (should-not (plist-member start-args :session-id))))
+      (when (buffer-live-p new) (kill-buffer new))
+      (kill-buffer source))))
+
+(ert-deftest syzygy-fork-run-resume-strategy-opt-in ()
+  "The resume strategy still works when an agent is mapped to it:
+fork for the id through the source client, then start a resume of it."
+  (let ((source (syzygy-fork-test--source "syzygy-fork-test-resume"
+                                          3 'legacy-agent))
+        (syzygy-fork-strategies '((legacy-agent . resume)))
         (start-args nil)
         new)
     (unwind-protect
@@ -679,8 +754,9 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
                        (setq start-args args)
                        (setq new (generate-new-buffer "syzygy-fork-test-new"))
                        new)))
-            (syzygy-fork--run source)
-            (should (equal (plist-get start-args :session-id) "sess-2"))))
+            (should (eq (syzygy-fork--run source) new))
+            (should (equal (plist-get start-args :session-id) "sess-2"))
+            (should-not (plist-member start-args :fork-session-id))))
       (when (buffer-live-p new) (kill-buffer new))
       (kill-buffer source))))
 
@@ -757,24 +833,27 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
     (let ((err (should-error (syzygy-fork) :type 'user-error)))
       (should (string-match-p "agent-shell" (error-message-string err))))))
 
-(ert-deftest syzygy-fork-run-codex-resumes ()
-  "codex-acp 1.11 unsubscribes the forked thread: a native fork hangs on
-its first prompt, so Codex forks for the id and resumes it."
+(ert-deftest syzygy-fork-run-codex-forks-natively ()
+  "Codex 0.158+ holds a per-thread writer lock, so the fork and its
+load must happen inside the new chat's own codex-acp process.  A fork
+through the source client leaves the lock with the source, and the new
+chat's load fails with \"already has an active writer\"."
   (let ((source (syzygy-fork-test--source "syzygy-fork-test-codex" 3 'codex))
         (start-args nil)
         new)
     (unwind-protect
         (syzygy-fork-test--with-fakes
           (cl-letf (((symbol-function 'syzygy-fork--request)
-                     (lambda (_) "sess-2"))
+                     (lambda (_) (ert-fail "Codex fork went through the source client")))
                     ((symbol-function 'agent-shell--start)
                      (lambda (&rest args)
                        (setq start-args args)
                        (setq new (generate-new-buffer "syzygy-fork-test-new"))
                        new)))
             (syzygy-fork--run source)
-            (should (equal (plist-get start-args :session-id) "sess-2"))
-            (should-not (plist-member start-args :fork-session-id))))
+            (should (equal (plist-get start-args :fork-session-id) "sess-1"))
+            (should (eq (plist-get start-args :session-strategy) 'new))
+            (should-not (plist-member start-args :session-id))))
       (when (buffer-live-p new) (kill-buffer new))
       (kill-buffer source))))
 
