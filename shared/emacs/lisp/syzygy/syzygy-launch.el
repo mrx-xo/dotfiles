@@ -10,6 +10,7 @@
 (require 'syzygy-bridge)
 
 (defvar major-pane--labels)
+(declare-function major-pane-set-buffer-label "major-pane" (buffer label))
 (defvar syzygy-launch--capabilities (make-hash-table :test #'equal)
   "Last advertised choices for each agent in this daemon.")
 (defvar syzygy-launch--timeout 60
@@ -355,7 +356,8 @@ but settings could not be confirmed."
                    (alist-get :default-session-mode-id config) nil
                    (alist-get :default-config-options config) nil)
              (setq buffer (agent-shell--start :config config :new-session t :no-focus t))
-             (unless (string-empty-p name) (major-pane-set-buffer-label buffer name))
+             (when (and (not (string-empty-p name)) (fboundp 'major-pane-set-buffer-label))
+               (major-pane-set-buffer-label buffer name))
              (syzygy-launch--configure buffer settings task)
              (when (fboundp 'mr-x/agent-label-sync)
                (with-current-buffer buffer (mr-x/agent-label-sync)))

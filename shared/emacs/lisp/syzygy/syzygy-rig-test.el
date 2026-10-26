@@ -1,11 +1,9 @@
 ;;; syzygy-rig-test.el --- Tests for syzygy-rig -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Runs without agent-shell or major-pane being needed.  Until
-;; syzygy-recall stops hard-requiring major-pane, add the Mac's lisp
-;; directory to the load path:
+;; Runs without agent-shell or major-pane being needed:
 ;;
-;;   emacs --batch -L . -L ~/.dotfiles/macos/emacs/.emacs.d/lisp \
+;;   emacs --batch -L . \
 ;;     -l syzygy-rig-test.el -f ert-run-tests-batch-and-exit
 
 ;;; Code:
@@ -164,7 +162,6 @@ major-pane, so the binding is removed for BODY and restored after."
             (call-process (expand-file-name invocation-name invocation-directory)
                           nil t nil "--batch"
                           "-L" dir
-                          "-L" (expand-file-name "~/.dotfiles/macos/emacs/.emacs.d/lisp")
                           "-L" (expand-file-name "~/roaming/projects/agent-recall")
                           "--eval" form)
             (buffer-string))))
