@@ -1,0 +1,158 @@
+# ~/.zshrc (lite) — portable shell appearance and aliases.
+#
+# Source of truth: macos/.zshrc.lite in the dotfiles repo. Deploy as a plain
+# copy to ~/.zshrc on Macs without the repo or development toolchain.
+# To update a destination Mac, copy this file over again.
+#
+# Needs (brew): zsh-syntax-highlighting, fzf, font-iosevka-term-slab-nerd-font
+# (the prompt glyph 𐆖 has no fallback in Menlo or SF Mono). Each is optional:
+# the file degrades to a plain coloured prompt if any is missing.
+
+# TRAMP & other dumb terminals: bail to a plain prompt before any
+# prompt/tool init runs, so remote Emacs can find the shell prompt.
+if [[ $TERM == "dumb" ]]; then
+  unsetopt zle 2>/dev/null
+  PS1='$ '
+  return
+fi
+
+autoload -U colors && colors
+
+# Homebrew on PATH (arm64 location; harmless if absent).
+[[ -n "$HOMEBREW_PREFIX" || ! -x /opt/homebrew/bin/brew ]] || eval "$(/opt/homebrew/bin/brew shellenv)"
+typeset -U path
+
+# ls colours
+export CLICOLOR=1
+export LSCOLORS="gxfxcxdxbxegedabagacad"
+alias ls='ls -G'
+
+# Per-machine prompt name from ~/.config/machine-id, falling back to the
+# computer name. Displayed in uppercase unless PROMPT_NAME overrides it.
+MACHINE_ID="$(cat "$HOME/.config/machine-id" 2>/dev/null)"
+[[ -n "$MACHINE_ID" ]] || MACHINE_ID="$(scutil --get ComputerName 2>/dev/null | tr -d ' ')"
+PROMPT_NAME="${PROMPT_NAME:-${(U)MACHINE_ID:-?}}"
+[ -f ~/.zshrc.local ] && source ~/.zshrc.local
+
+# Two lines: context on top, input on its own line so a long command
+# gets the full window width.
+PS1="%F{84}${PROMPT_NAME}%f %F{117}%1~%f"$'\n'"%F{212}𐆖%f "
+
+# Dracula Theme (for zsh-syntax-highlighting)
+#
+# https://github.com/zenorocha/dracula-theme
+#
+# Copyright 2021, All rights reserved
+#
+# Code licensed under the MIT license
+# http://zenorocha.mit-license.org
+#
+# @author George Pickering <@bigpick>
+# @author Zeno Rocha <hi@zenorocha.com>
+# Paste this files contents inside your ~/.zshrc before you activate zsh-syntax-highlighting
+
+# Enable colors
+ZSH_HIGHLIGHT_HIGHLIGHTERS=(main cursor)
+typeset -gA ZSH_HIGHLIGHT_STYLES
+# Default groupings per, https://spec.draculatheme.com, try to logically separate
+# possible ZSH_HIGHLIGHT_STYLES settings accordingly...?
+#
+# Italics not yet supported by zsh; potentially soon:
+#    https://github.com/zsh-users/zsh-syntax-highlighting/issues/432
+#    https://www.zsh.org/mla/workers/2021/msg00678.html
+# ... in hopes that they will, labelling accordingly with ,italic where appropriate
+#
+# Main highlighter styling: https://github.com/zsh-users/zsh-syntax-highlighting/blob/master/docs/highlighters/main.md
+#
+## General
+### Diffs
+### Markup
+## Classes
+## Comments
+ZSH_HIGHLIGHT_STYLES[comment]='fg=61'
+## Constants
+## Entitites
+## Functions/methods
+ZSH_HIGHLIGHT_STYLES[alias]='fg=84'
+ZSH_HIGHLIGHT_STYLES[suffix-alias]='fg=84'
+ZSH_HIGHLIGHT_STYLES[global-alias]='fg=84'
+ZSH_HIGHLIGHT_STYLES[function]='fg=84'
+ZSH_HIGHLIGHT_STYLES[command]='fg=84'
+ZSH_HIGHLIGHT_STYLES[precommand]='fg=84,italic'
+ZSH_HIGHLIGHT_STYLES[autodirectory]='fg=215,italic'
+ZSH_HIGHLIGHT_STYLES[single-hyphen-option]='fg=215'
+ZSH_HIGHLIGHT_STYLES[double-hyphen-option]='fg=215'
+ZSH_HIGHLIGHT_STYLES[back-quoted-argument]='fg=141'
+## Keywords
+## Built ins
+ZSH_HIGHLIGHT_STYLES[builtin]='fg=117'
+ZSH_HIGHLIGHT_STYLES[reserved-word]='fg=117'
+ZSH_HIGHLIGHT_STYLES[hashed-command]='fg=117'
+## Punctuation
+ZSH_HIGHLIGHT_STYLES[commandseparator]='fg=212'
+ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter]='fg=255'
+ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter-unquoted]='fg=255'
+ZSH_HIGHLIGHT_STYLES[process-substitution-delimiter]='fg=255'
+ZSH_HIGHLIGHT_STYLES[back-quoted-argument-delimiter]='fg=212'
+ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]='fg=212'
+ZSH_HIGHLIGHT_STYLES[back-dollar-quoted-argument]='fg=212'
+## Serializable / Configuration Languages
+## Storage
+## Strings
+ZSH_HIGHLIGHT_STYLES[command-substitution-quoted]='fg=228'
+ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter-quoted]='fg=228'
+ZSH_HIGHLIGHT_STYLES[single-quoted-argument]='fg=228'
+ZSH_HIGHLIGHT_STYLES[single-quoted-argument-unclosed]='fg=203'
+ZSH_HIGHLIGHT_STYLES[double-quoted-argument]='fg=228'
+ZSH_HIGHLIGHT_STYLES[double-quoted-argument-unclosed]='fg=203'
+ZSH_HIGHLIGHT_STYLES[rc-quote]='fg=228'
+## Variables
+ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]='fg=255'
+ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument-unclosed]='fg=203'
+ZSH_HIGHLIGHT_STYLES[dollar-double-quoted-argument]='fg=255'
+ZSH_HIGHLIGHT_STYLES[assign]='fg=255'
+ZSH_HIGHLIGHT_STYLES[named-fd]='fg=255'
+ZSH_HIGHLIGHT_STYLES[numeric-fd]='fg=255'
+## No category relevant in spec
+ZSH_HIGHLIGHT_STYLES[unknown-token]='fg=203'
+ZSH_HIGHLIGHT_STYLES[path]='fg=255'
+ZSH_HIGHLIGHT_STYLES[path_pathseparator]='fg=212'
+ZSH_HIGHLIGHT_STYLES[path_prefix]='fg=255'
+ZSH_HIGHLIGHT_STYLES[path_prefix_pathseparator]='fg=212'
+ZSH_HIGHLIGHT_STYLES[globbing]='fg=255'
+ZSH_HIGHLIGHT_STYLES[history-expansion]='fg=141'
+#ZSH_HIGHLIGHT_STYLES[command-substitution]='fg=?'
+#ZSH_HIGHLIGHT_STYLES[command-substitution-unquoted]='fg=?'
+#ZSH_HIGHLIGHT_STYLES[process-substitution]='fg=?'
+#ZSH_HIGHLIGHT_STYLES[arithmetic-expansion]='fg=?'
+ZSH_HIGHLIGHT_STYLES[back-quoted-argument-unclosed]='fg=203'
+ZSH_HIGHLIGHT_STYLES[redirection]='fg=255'
+ZSH_HIGHLIGHT_STYLES[arg0]='fg=255'
+ZSH_HIGHLIGHT_STYLES[default]='fg=255'
+ZSH_HIGHLIGHT_STYLES[cursor]='standout'
+
+# Dracula theme main colors
+# •	Green: #50FA7B (used for functions and methods)
+# •	Blue: #8BE9FD (used for built-ins and reserved words)
+# •	Purple: #BD93F9 (used for back-quoted arguments and history expansion)
+# •	Pink: #FF79C6 (used for command separators and other punctuation)
+# •	Yellow: #F1FA8C (used for strings and command substitution)
+# •	White: #F8F8F2 (used for default text)
+
+# fzf keybindings and zsh-syntax-highlighting, each only if installed.
+# Highlighting must be sourced AFTER the styles above.
+command -v fzf >/dev/null && source <(fzf --zsh)
+_zsh_hl=/opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+[[ -r $_zsh_hl ]] && source "$_zsh_hl"
+unset _zsh_hl
+
+# Git
+alias g="git"
+alias gs="git status"
+alias gp="git push"
+alias gpl="git pull"
+alias gb="git branch"
+alias gco="git checkout"
+alias gw="git switch"
+
+alias reload='source ~/.zshrc'
