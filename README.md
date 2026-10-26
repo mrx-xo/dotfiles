@@ -53,6 +53,9 @@ for Elpaca to bootstrap packages, cron install).
   overrides System Settings modifier keys once installed), plus DualShock 4
   buttons wired to Music Assistant and push-to-talk.
 - **Terminals** — Ghostty config, plus a Dracula Terminal.app profile.
+  `macos/.zshrc.lite` is the look of the shell alone (prompt, Dracula
+  highlighting, ls colours, git aliases) for Macs that never get this repo;
+  it is copied to those boxes as `~/.zshrc`, not symlinked.
 - **Neovim** (`macos/nvim/`) — secondary editor config.
 - **Scripts** (`macos/scripts/`) — Emacs daemon/sandbox/restart helpers,
   monitor-mode switching, VENGEANCE wake-on-LAN, finance sync, and the
