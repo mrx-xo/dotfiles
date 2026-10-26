@@ -364,12 +364,16 @@ it, get returns nil for an unknown session."
 
 (defvar major-pane--labels)
 
-;; Without major-pane on the load-path (batch runs, other hosts) stand in
-;; a minimal label setter so the fork tests can observe the carried label.
-(unless (fboundp (quote major-pane-set-buffer-label))
-  (defun major-pane-set-buffer-label (buffer label)
-    "Test stand-in: record LABEL for BUFFER in `major-pane--labels'."
-    (puthash buffer label major-pane--labels)))
+;; Scoped stand-in for major-pane: binds a fresh label table and a fake
+;; setter for the duration of BODY only, so production guards still see
+;; the real (absent) state in every other test.
+(defmacro syzygy-recall-test--with-fake-major-pane (bindings &rest body)
+  "Run BODY with `let' BINDINGS and a fake `major-pane-set-buffer-label'."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'major-pane-set-buffer-label)
+              (lambda (buffer label)
+                (puthash buffer label major-pane--labels))))
+     (let ,bindings ,@body)))
 
 (ert-deftest syzygy-fork-json-rejects-non-chat-buffers ()
   "Unknown names and live non-agent buffers must return nil."
@@ -453,7 +457,7 @@ it, get returns nil for an unknown session."
 
 (ert-deftest syzygy-fork-json-round-trip ()
   "Fork natively in the new chat's own client, carry the label."
-  (let ((source (generate-new-buffer "syzygy-fork-test-source"))
+  (syzygy-recall-test--with-fake-major-pane ((source (generate-new-buffer "syzygy-fork-test-source"))
         (major-pane--labels (make-hash-table :test #'eq))
         (start-args nil)
         new)
@@ -584,7 +588,7 @@ UNSUPPORTED non-nil means the agent does not advertise session/fork."
 
 (ert-deftest syzygy-fork-run-empty-chat-clones ()
   "A chat with no turns has no history to share: fork means clone."
-  (let ((source (syzygy-fork-test--source "syzygy-fork-test-empty" 0 'codex))
+  (syzygy-recall-test--with-fake-major-pane ((source (syzygy-fork-test--source "syzygy-fork-test-empty" 0 'codex))
         (major-pane--labels (make-hash-table :test #'eq))
         (start-args nil)
         new)
@@ -866,7 +870,7 @@ chat's load fails with \"already has an active writer\"."
 
 (ert-deftest syzygy-fork-label-does-not-stack ()
   "Forking a fork numbers the label instead of appending fork again."
-  (let ((major-pane--labels (make-hash-table :test #'eq))
+  (syzygy-recall-test--with-fake-major-pane ((major-pane--labels (make-hash-table :test #'eq))
         (source (generate-new-buffer "syzygy-fork-test-label-src"))
         (new (generate-new-buffer "syzygy-fork-test-label-new")))
     (unwind-protect
@@ -923,7 +927,7 @@ chat's load fails with \"already has an active writer\"."
   (let* ((dir (file-name-directory (locate-library "syzygy-recall")))
          (out (with-temp-buffer
                 (call-process (expand-file-name invocation-name invocation-directory)
-                              nil t nil "--batch" "-L" dir "--eval"
+                              nil '(t nil) nil "--batch" "-L" dir "--eval"
                               "(progn (require 'syzygy-recall) (require 'syzygy-launch) (princ (if (featurep 'major-pane) \"pane\" \"no-pane\")))")
                 (buffer-string))))
     (should (equal out "no-pane"))))
