@@ -9,18 +9,13 @@ $syzygy = Join-Path $root 'shared\emacs\lisp\syzygy'
 $macLisp = Join-Path $root 'macos\emacs\.emacs.d\lisp'
 $macTests = Join-Path $root 'macos\emacs\.emacs.d\tests'
 
-# agent-recall comes from package.el on this box.
-$elpa = '(setq package-user-dir (expand-file-name ".emacs.d/elpa" (getenv "APPDATA")))'
-
-# The state directory is bound to a fresh temp dir before any test file loads,
-# so a batch run can never touch the real ~/.acp-mobile sidecars.
-$state = '(setq syzygy-state-directory (file-name-as-directory (make-temp-file "syzygy-tests-" t)))'
+# Package setup and the temp state directory live in run-syzygy-tests.el, not
+# in --eval forms: Windows PowerShell 5.1 strips double quotes from native args.
+$bootstrap = Join-Path $root 'shared\emacs\tests\run-syzygy-tests.el'
 
 $emacsArgs = @('--batch', '-Q',
-    '--eval', $elpa, '--eval', '(package-initialize)',
     '-L', $syzygy, '-L', $macLisp, '-L', $macTests,
-    '--eval', '(require (quote syzygy-state))',
-    '--eval', $state)
+    '-l', $bootstrap)
 Get-ChildItem -Path $syzygy -Filter '*-test.el' | Sort-Object Name | ForEach-Object {
     $emacsArgs += @('-l', $_.FullName)
 }
