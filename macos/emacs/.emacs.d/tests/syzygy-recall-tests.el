@@ -22,7 +22,12 @@
 (unless (fboundp 'agent-recall-session-label)
   (defun agent-recall-session-label (_session-id) nil))
 
-(defun syzygy-recall-test--decode (encoded)
+;; Same for the catalogue read: the real agent-recall needs agent-shell, which
+;; the batch runner deliberately does not load.
+(unless (fboundp 'agent-recall-catalogue-get)
+  (defun agent-recall-catalogue-get (_session-id) nil))
+
+(defun syzygy-recall-tests--decode (encoded)
   "Decode ENCODED base64 JSON into an alist."
   (json-parse-string
    (decode-coding-string (base64-decode-string encoded) 'utf-8)
@@ -63,7 +68,7 @@
                      (lambda (_file) cwd))
                     ((symbol-function 'agent-recall--agent-config-for-transcript)
                      (lambda (_file) '((:identifier . "Claude")))))
-            (let* ((rows (syzygy-recall-test--decode
+            (let* ((rows (syzygy-recall-tests--decode
                           (syzygy-recall-transcripts-json 10)))
                    (ready (seq-find
                            (lambda (row)
@@ -93,7 +98,7 @@
         (cl-letf (((symbol-function 'agent-recall--index-ensure) #'ignore)
                   ((symbol-function 'agent-recall--start-resume)
                    (lambda (&rest _args) (cl-incf starts))))
-          (let ((result (syzygy-recall-test--decode
+          (let ((result (syzygy-recall-tests--decode
                          (syzygy-recall-resume-json
                           (base64-encode-string file t)))))
             (should-not (alist-get 'ok result))
@@ -133,7 +138,7 @@
                     ((symbol-function 'agent-recall--start-resume)
                      (lambda (&rest _args)
                        (ert-fail "existing session should not be restarted"))))
-            (let ((result (syzygy-recall-test--decode
+            (let ((result (syzygy-recall-tests--decode
                            (syzygy-recall-resume-json
                             (base64-encode-string file t)))))
               (should (eq (alist-get 'ok result) t))
@@ -174,11 +179,11 @@
                     ((symbol-function 'agent-recall--display-buffer) #'ignore)
                     ((symbol-function 'agent-recall--start-resume)
                      (lambda (&rest _args) (cl-incf starts))))
-            (let* ((started (syzygy-recall-test--decode
+            (let* ((started (syzygy-recall-tests--decode
                              (syzygy-recall-resume-json
                               (base64-encode-string file t))))
                    (operation (alist-get 'operation started))
-                   (concurrent (syzygy-recall-test--decode
+                   (concurrent (syzygy-recall-tests--decode
                                 (syzygy-recall-resume-json
                                  (base64-encode-string file t)))))
               (should (eq (alist-get 'ok started) t))
@@ -189,7 +194,7 @@
               (with-current-buffer buffer
                 (setf (alist-get :session agent-shell--state)
                       '((:id . "session-pending"))))
-              (let ((finished (syzygy-recall-test--decode
+              (let ((finished (syzygy-recall-tests--decode
                                (syzygy-recall-resume-status-json
                                 (base64-encode-string operation t)))))
                 (should (eq (alist-get 'ok finished) t))
@@ -230,7 +235,7 @@
                     ((symbol-function 'agent-recall--start-resume)
                      (lambda (&rest _args)
                        (ert-fail "pending buffer should not be restarted"))))
-            (let* ((started (syzygy-recall-test--decode
+            (let* ((started (syzygy-recall-tests--decode
                              (syzygy-recall-resume-json
                               (base64-encode-string file t))))
                    (operation (alist-get 'operation started)))
@@ -238,7 +243,7 @@
                 (syzygy-recall--guard-new-session
                  (lambda (&rest _args) (cl-incf fallback-calls))
                  :shell-buffer buffer))
-              (let ((failed (syzygy-recall-test--decode
+              (let ((failed (syzygy-recall-tests--decode
                              (syzygy-recall-resume-status-json
                               (base64-encode-string operation t)))))
                 (should-not (alist-get 'ok failed))
@@ -285,15 +290,15 @@
                     ((symbol-function 'agent-shell-unsubscribe)
                      (lambda (&rest args)
                        (setq unsubscribed (plist-get args :subscription)))))
-            (let* ((started (syzygy-recall-test--decode
+            (let* ((started (syzygy-recall-tests--decode
                              (syzygy-recall-resume-json
                               (base64-encode-string file t))))
                    (token (alist-get 'operation started))
                    (operation (gethash token
                                        syzygy-recall--resume-operations)))
-              (setq operation (plist-put operation :deadline 0))
+              (setq operation (plist-put operation :stall-deadline 0))
               (puthash token operation syzygy-recall--resume-operations)
-              (let ((timed-out (syzygy-recall-test--decode
+              (let ((timed-out (syzygy-recall-tests--decode
                                 (syzygy-recall-resume-status-json
                                  (base64-encode-string token t)))))
                 (should-not (alist-get 'ok timed-out))
@@ -307,7 +312,7 @@
                 (should (= subscriptions 1)))
               ;; Retrying the same hung buffer returns its terminal result;
               ;; it must not allocate another operation or lifecycle monitor.
-              (let ((retry (syzygy-recall-test--decode
+              (let ((retry (syzygy-recall-tests--decode
                             (syzygy-recall-resume-json
                              (base64-encode-string file t)))))
                 (should-not (alist-get 'ok retry))
@@ -363,7 +368,7 @@
                     ((symbol-function 'accept-process-output)
                      (lambda (&rest _args)
                        (ert-fail "resume start must not block Emacs"))))
-            (let* ((result (syzygy-recall-test--decode
+            (let* ((result (syzygy-recall-tests--decode
                             (syzygy-recall-resume-json
                              (base64-encode-string file t))))
                    (operation (alist-get 'operation result)))
@@ -375,7 +380,7 @@
               (with-current-buffer buffer
                 (setf (alist-get :session agent-shell--state)
                       '((:id . "session-456"))))
-              (let ((finished (syzygy-recall-test--decode
+              (let ((finished (syzygy-recall-tests--decode
                                (syzygy-recall-resume-status-json
                                 (base64-encode-string operation t)))))
                 (should (eq (alist-get 'ok finished) t))
@@ -417,7 +422,7 @@
                      (lambda (&rest _args)
                        (setq started t)
                        buffer)))
-            (let* ((started-result (syzygy-recall-test--decode
+            (let* ((started-result (syzygy-recall-tests--decode
                                     (syzygy-recall-resume-json
                                      (base64-encode-string file t))))
                    (operation (alist-get 'operation started-result)))
@@ -426,7 +431,7 @@
                 (syzygy-recall--guard-new-session
                  (lambda (&rest _args) (cl-incf fallback-calls))
                  :shell-buffer buffer))
-              (let ((result (syzygy-recall-test--decode
+              (let ((result (syzygy-recall-tests--decode
                              (syzygy-recall-resume-status-json
                               (base64-encode-string operation t)))))
                 (should-not (alist-get 'ok result))
@@ -469,7 +474,7 @@
                      (lambda (&rest _args)
                        (setq started t)
                        buffer)))
-            (let* ((started-result (syzygy-recall-test--decode
+            (let* ((started-result (syzygy-recall-tests--decode
                                     (syzygy-recall-resume-json
                                      (base64-encode-string file t))))
                    (operation (alist-get 'operation started-result)))
@@ -477,7 +482,7 @@
                 (syzygy-recall--guard-new-session
                  (lambda (&rest _args) (cl-incf fallback-calls))
                  :shell-buffer buffer))
-              (let ((result (syzygy-recall-test--decode
+              (let ((result (syzygy-recall-tests--decode
                              (syzygy-recall-resume-status-json
                               (base64-encode-string operation t)))))
                 (should-not (alist-get 'ok result))
@@ -516,7 +521,7 @@
                        (syzygy-recall--arm-strict-resume
                         :shell-buffer buffer)
                        (error "preference restore failed"))))
-            (let ((result (syzygy-recall-test--decode
+            (let ((result (syzygy-recall-tests--decode
                            (syzygy-recall-resume-json
                             (base64-encode-string file t)))))
               (should-not (alist-get 'ok result))
@@ -554,7 +559,7 @@
                        (syzygy-recall--arm-strict-resume
                         :shell-buffer buffer)
                        (signal 'quit nil))))
-            (let ((result (syzygy-recall-test--decode
+            (let ((result (syzygy-recall-tests--decode
                            (syzygy-recall-resume-json
                             (base64-encode-string file t)))))
               (should-not (alist-get 'ok result))

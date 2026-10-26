@@ -15,13 +15,14 @@
    :object-type 'alist :array-type 'list))
 
 (ert-deftest syzygy-projects-json-expands-and-preserves-order ()
-  (let ((project-dashboard-projects
-         '(("dotfiles" . "~/.dotfiles") ("mobile" . "/tmp/mobile"))))
+  (let* ((mobile (expand-file-name "mobile" temporary-file-directory))
+         (project-dashboard-projects
+         `(("dotfiles" . "~/.dotfiles") ("mobile" . ,mobile))))
     (let ((got (syzygy-projects-test--decode (syzygy-projects-json))))
       (should (equal (mapcar (lambda (p) (alist-get 'name p)) got)
                      '("dotfiles" "mobile")))
       (should (equal (alist-get 'path (car got)) (expand-file-name "~/.dotfiles")))
-      (should (equal (alist-get 'path (nth 1 got)) "/tmp/mobile")))))
+      (should (equal (alist-get 'path (nth 1 got)) mobile)))))
 
 (ert-deftest syzygy-projects-json-empty-list-is-an-empty-array ()
   (let ((project-dashboard-projects nil))
