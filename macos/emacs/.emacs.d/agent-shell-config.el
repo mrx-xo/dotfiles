@@ -932,7 +932,7 @@ Resolves agent config once, then spawns shells staggered 3s apart."
 
 
         ;; ── Cross-machine session handoff (MrX <-> MrX2) ────────────
-        ;; Moved to lisp/syzygy/syzygy-handoff.el (SPC c H =
+        ;; Moved to shared/emacs/lisp/syzygy/syzygy-handoff.el (SPC c H =
         ;; syzygy-resume-handoff), required via the syzygy umbrella below.
 
         ;; Auto-close diff buffer when permission is accepted/rejected
@@ -1433,7 +1433,7 @@ coming from the provider untouched."
       (require 'major-pane-workspace)
       (major-pane-workspace-mode 1)
 
-      ;; SYZYGY — cross-device conversation continuity (lisp/syzygy/):
+      ;; SYZYGY — cross-device conversation continuity (shared/emacs/lisp/syzygy/):
       ;; resync lockdown (SPC c y), live 2-way sync (SPC c Y), and
       ;; cross-machine handoff resume (SPC c H).
       (require 'syzygy)

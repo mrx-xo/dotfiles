@@ -2826,3 +2826,7 @@ The firmware sends HYPR(<letter>), so an unbound letter is a dead key."
       (funcall cmd)
       (should (equal unread-command-events
                      (listify-key-sequence (kbd (concat "C-SPC " letter))))))))
+
+(ert-deftest config-test-syzygy-loads-from-shared ()
+  "SYZYGY lives in the shared tree (spec 6.6)."
+  (should (string-match-p "/shared/emacs/lisp/syzygy/" (locate-library "syzygy"))))

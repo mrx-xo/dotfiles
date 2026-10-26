@@ -6,5 +6,5 @@ cd "$(dirname "$0")/.."
 args=()
 for f in "$@"; do args+=(-l "$f"); done
 exec timeout 300 /opt/homebrew/opt/emacs-plus@30/bin/emacs --batch -Q \
-  --eval '(progn (dolist (d (directory-files "~/.emacs.d/elpaca/builds" t "^[^.]")) (add-to-list (quote load-path) d)) (dolist (d (list "lisp" "lisp/syzygy" "tests")) (add-to-list (quote load-path) (expand-file-name d))))' \
+  --eval '(progn (dolist (d (directory-files "~/.emacs.d/elpaca/builds" t "^[^.]")) (add-to-list (quote load-path) d)) (dolist (d (list "lisp" "~/.dotfiles/shared/emacs/lisp/syzygy" "tests")) (add-to-list (quote load-path) (expand-file-name d))))' \
   "${args[@]}" -f ert-run-tests-batch-and-exit
