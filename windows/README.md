@@ -15,6 +15,35 @@ Personal Windows configs, managed as symlinks from this repo.
 The repo is the source of truth — edit files here (or in their live location, since
 they're symlinked, it's the same file) and git tracks the changes.
 
+## Agent-shell pane tabs
+
+Inside an agent-shell buffer in the major pane, use Ctrl+Alt+Left/Right (with left Alt)
+to select the previous/next conversation tab, including while typing.
+Other buffers retain their normal Ctrl+Alt+arrow behavior. Windows-key and
+right-Alt behavior are unchanged; no keyboard remapper is needed.
+
+The two mode-local bindings live in
+[`agent-shell-extras.el`](emacs/.emacs.d/lisp/agent-shell-extras.el), which
+the Windows init loads automatically. For live application, evaluate its two
+`define-key` forms for `C-M-<left>` and `C-M-<right>`; do not restart Emacs.
+To undo, remove those two bindings from the file and evaluate the same forms
+with `nil` in place of the command names, restoring inherited bindings.
+
+If the keys do not switch tabs, first check that focus is in an agent-shell
+conversation in the pane. Use left Alt to avoid AltGr handling. Then inspect
+the received chord with `M-x describe-key`; an OS interception will need
+separate investigation, not a daemon restart.
+
+Regression tests cover the effective keys in every Evil state and isolation
+from other buffer modes. From Git Bash, with the Windows packages installed:
+
+```bash
+cd ~/dotfiles && emacs --batch -Q --eval '(setq package-user-dir (expand-file-name ".emacs.d/elpa" (getenv "APPDATA")))' \
+  -l windows/emacs/.emacs.d/init.el \
+  -l windows/emacs/.emacs.d/tests/agent-shell-keys-test.el \
+  -f ert-run-tests-batch-and-exit
+```
+
 ## Terminal in Emacs (ghostel)
 
 vterm and eat need a Unix pty, so native Windows Emacs went without a real
@@ -117,6 +146,31 @@ Wired like GlazeWM: not symlinked — `bootstrap.ps1` makes a login shortcut run
 `kanata --cfg <repo file>`. Validate edits with `kanata --cfg kanata\kanata.kbd --check`.
 Tune `tap-time` / `hold-time` in the config if you get misfires. (kanata only remaps
 non-elevated windows unless it runs elevated.)
+
+## AutoHotkey on/off (EA Anticheat)
+
+EA Anticheat (Javelin, used by skate. on Steam) refuses to launch the game while any
+AutoHotkey process exists, hotkeys suspended or not. `scripts/ahk-toggle.ps1` kills
+and restores the interpreter; the profile wraps it as `ahk`:
+
+```powershell
+ahk off      # kill every AutoHotkey process, remembering which scripts ran
+ahk on       # bring those back (or the enabled Startup shortcuts if nothing was recorded)
+ahk status   # what is running
+ahk          # toggle
+```
+
+Tests: `powershell -NoProfile -File windows/scripts/tests/ahk-toggle.test.ps1`.
+
+The hands-off version is `scripts/skate-steam.ps1` (profile alias `skate`, Desktop
+shortcut **skate. (Steam)** made by bootstrap): `ahk off`, `steam://rungameid/3354750`,
+wait for Steam's `Skate.exe`, wait for it to **exit**, `ahk on` — the restore runs even
+when the game never shows (a message box says so; log in `%LOCALAPPDATA%\skate-steam.log`).
+Javelin keeps watching after launch: AutoHotkey coming back mid-session ended the game
+within seconds (2026-10-20), so the script stays alive, hidden, until you quit. If it is
+killed, `ahk on` by hand. ReSkate (`C:\Games\ReSkate`) has no anticheat and is not touched —
+it is told apart by path, since its Skate.exe has the same process name and the protected
+Steam one hides its path.
 
 ## Ollama background service
 

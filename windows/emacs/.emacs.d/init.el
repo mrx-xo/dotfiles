@@ -366,6 +366,11 @@ kill ring, so `p' recovers it if the insertion is refused."
   (doom-modeline-buffer-encoding nil))     ; hide the UTF-8/encoding segment
 
 ;; ---------- Completion stack (makes LSP feel good) ----------
+;; Share interaction with the Mac while keeping package.el installation here.
+(require 'mr-x-minibuffer
+         (expand-file-name "dotfiles/macos/emacs/.emacs.d/lisp/mr-x-minibuffer.el"
+                           (or (getenv "USERPROFILE") "~")))
+
 (use-package vertico
   :init (vertico-mode))
 
@@ -389,8 +394,6 @@ kill ring, so `p' recovers it if the insertion is refused."
   ;; Use consult for xref
   (setq xref-show-xrefs-function #'consult-xref
         xref-show-definitions-function #'consult-xref)
-  ;; Preview on consult-line: grab symbol at point
-  (consult-customize consult-line :initial (thing-at-point 'symbol))
   ;; Auto-preview in consult-imenu
   (consult-customize consult-imenu :preview-key 'any))
 
@@ -463,20 +466,6 @@ kill ring, so `p' recovers it if the insertion is refused."
     (remove-list-of-text-properties (match-beginning 1) (match-end 1) '(display)))
   (advice-add 'org-modern--todo :after #'my/org-modern-todo-unpad))
 
-;; ---------- Dired ----------
-(use-package dired
-  :ensure nil                          ; built-in
-  :commands (dired dired-jump)
-  :after evil
-  :custom
-  (dired-kill-when-opening-new-dired-buffer t)
-  (dired-listing-switches "-alh")      ; ls-lisp-safe (no GNU-only flags on Windows)
-  :config
-  ;; Windows has no GNU ls; use Emacs' built-in ls-lisp and group dirs first.
-  (require 'ls-lisp)
-  (setq ls-lisp-use-insert-directory-program nil
-        ls-lisp-dirs-first t)
-  ;; h/l navigate like a file tree; Y copies the bare filename.
 ;; ---------- Markdown: editing + gruvbox preview inside Emacs ----------
 ;; Same editing stack as the Mac: markdown-mode wearing the gruvbox faces
 ;; (they match the preview), poly-markdown owning .md so fenced code blocks
@@ -556,6 +545,20 @@ kill ring, so `p' recovers it if the insertion is refused."
    '(shr-code ((t (:foreground "#8ec07c" :background "#3c3836"))))
    '(shr-link ((t (:foreground "#83a598" :underline t))))))
 
+;; ---------- Dired ----------
+(use-package dired
+  :ensure nil                          ; built-in
+  :commands (dired dired-jump)
+  :after evil
+  :custom
+  (dired-kill-when-opening-new-dired-buffer t)
+  (dired-listing-switches "-alh")      ; ls-lisp-safe (no GNU-only flags on Windows)
+  :config
+  ;; Windows has no GNU ls; use Emacs' built-in ls-lisp and group dirs first.
+  (require 'ls-lisp)
+  (setq ls-lisp-use-insert-directory-program nil
+        ls-lisp-dirs-first t)
+  ;; h/l navigate like a file tree; Y copies the bare filename.
   ;; Bound on dired-mode-map at config time so it wins over evil-collection
   ;; without the buffer-local-keymap timing issues of evil-local-set-key.
   (evil-define-key 'normal dired-mode-map
@@ -658,6 +661,14 @@ kill ring, so `p' recovers it if the insertion is refused."
   ;; Inherit the shell environment (PATH, ANTHROPIC_API_KEY if you set one, etc.)
   (setq agent-shell-anthropic-claude-environment
         (agent-shell-make-environment-variables :inherit-env t))
+  ;; Codex rides the ChatGPT login from `codex login' (~/.codex/auth.json),
+  ;; same no-API-key setup. Needs npm -g @openai/codex and
+  ;; @agentclientprotocol/codex-acp; the adapter runs its own bundled codex
+  ;; unless CODEX_PATH says otherwise. Launched from the SPC c P presets.
+  (setq agent-shell-openai-authentication
+        (agent-shell-openai-make-authentication :login t))
+  (setq agent-shell-openai-codex-environment
+        (agent-shell-make-environment-variables :inherit-env t))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
   ;;   p in a shell (agent-shell-yank-dwim) -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),
@@ -690,13 +701,13 @@ kill ring, so `p' recovers it if the insertion is refused."
   ;; Chat mode is a cosmetic relabel declined on 2026-09-23 (same call as
   ;; the Mac). The persistent prompt stays on at its upstream default.
   (setq agent-shell-chat-mode-enabled nil)
-  ;; evil-collection binds insert-state RET to `newline' and normal-state RET
-  ;; to the bare `shell-maker-submit'; make both run `agent-shell-submit',
-  ;; upstream's own RET: it queues the prompt while the agent is busy (M-RET
   ;; Never show the "new session / resume previous" picker: every shell
   ;; starts fresh, same as the Mac. Deliberate resumes go through
   ;; agent-recall, which passes session ids explicitly and ignores this.
   (setq agent-shell-session-strategy 'new)
+  ;; evil-collection binds insert-state RET to `newline' and normal-state RET
+  ;; to the bare `shell-maker-submit'; make both run `agent-shell-submit',
+  ;; upstream's own RET: it queues the prompt while the agent is busy (M-RET
   ;; steers instead) and falls through to `shell-maker-submit' when idle, so
   ;; the refs advice still fires.
   (with-eval-after-load 'evil
@@ -707,14 +718,61 @@ kill ring, so `p' recovers it if the insertion is refused."
     (evil-define-key '(normal insert) agent-shell-mode-map
       (kbd "s-<return>") #'agent-shell-submit
       [s-return]         #'agent-shell-submit))
-  ;; Make Claude Code the default agent, with a clean ◇ prompt (modal "possibility").
+  ;; The October build zebra-stripes markdown tables, and its stripe face
+  ;; inherits `lazy-highlight', which doom-gruvbox paints as the gold
+  ;; isearch block (#fabd2f bg, bold dark text). Every other row lit up
+  ;; like a search hit. Use a quiet gruvbox bg0_s stripe instead.
+  (with-eval-after-load 'agent-shell-markdown
+    (set-face-attribute 'agent-shell-markdown-table-zebra nil
+                        :inherit 'agent-shell-markdown-table
+                        :background "#32302f"))
+  ;; One prompt symbol for every agent (port of the Mac's block). Upstream
+  ;; gives each provider its own verbose prompt ("Claude> ", "Codex> ",
+  ;; "Gemini> ", ...). Every provider builds its config through
+  ;; `agent-shell-make-agent-config', so filtering that one factory
+  ;; standardizes the prompt across all of them at once, including
+  ;; providers added later.
+  (defvar mr-x/agent-shell-prompt "◇ "
+    "Input prompt used for every agent-shell agent by default.
+A clean ◇ (modal \"possibility\").")
+
+  (defvar mr-x/agent-shell-prompt-alist nil
+    "Per-agent input prompt overrides, keyed by config `:identifier'.
+Entries look like (gemini-cli . \"G> \").  Any agent not listed here
+uses `mr-x/agent-shell-prompt'.")
+
+  (defun mr-x/agent-shell-prompt-for (identifier)
+    "Return the input prompt configured for agent IDENTIFIER."
+    (or (alist-get identifier mr-x/agent-shell-prompt-alist)
+        mr-x/agent-shell-prompt))
+
+  (defun mr-x/agent-shell-standardize-prompt (config)
+    "Replace CONFIG's provider-specific input prompt with ours.
+Filters the return value of `agent-shell-make-agent-config', so
+authentication, models, session modes, and future config fields keep
+coming from the provider untouched."
+    (when (consp config)
+      (let ((prompt (mr-x/agent-shell-prompt-for
+                     (alist-get :identifier config))))
+        (setf (alist-get :shell-prompt config)
+              (propertize prompt 'face '(:foreground "#fabd2f" :weight bold))
+              (alist-get :shell-prompt-regexp config) (regexp-quote prompt))))
+    config)
+
+  (unless (advice-member-p #'mr-x/agent-shell-standardize-prompt
+                           'agent-shell-make-agent-config)
+    (advice-add 'agent-shell-make-agent-config
+                :filter-return
+                #'mr-x/agent-shell-standardize-prompt))
+
+  ;; Make Claude Code the default agent. :shell-prompt is omitted
+  ;; deliberately; the advice above fills it in like it does for every
+  ;; other agent.
   (setq agent-shell-preferred-agent-config
         (agent-shell-make-agent-config
          :identifier 'claude-code
          :mode-line-name "Claude"
          :buffer-name "Claude"
-         :shell-prompt (propertize "◇ " 'face '(:foreground "#fabd2f" :weight bold))
-         :shell-prompt-regexp "◇ "
          :welcome-function nil  ; no welcome banner (shell-maker skips it when nil)
          :client-maker (lambda (buffer)
                          (agent-shell-anthropic-make-claude-client :buffer buffer))
@@ -749,9 +807,37 @@ kill ring, so `p' recovers it if the insertion is refused."
 ;; USERPROFILE (Emacs `~' on Windows is %APPDATA%\Roaming, not the home
 ;; the dotfiles repo lives under).
 (dolist (dir '("dotfiles/macos/emacs/.emacs.d/lisp"
+               "dotfiles/macos/emacs/.emacs.d/lisp/project-dashboard"
                "dotfiles/windows/emacs/.emacs.d/lisp"))
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
 (require 'agent-shell-extras)
+
+;; ---------- Projects: projectile + project-dashboard (SPC P) ----------
+;; The dashboard is the Mac's module, shared from the macos/ lisp dir like
+;; major-pane. It hard-requires projectile, which is otherwise only here
+;; for project roots and the known-projects list. The project list below
+;; is this machine's own (the module's default is the Mac's) and also
+;; feeds the SPC c C picker in agent-shell-extras.el.
+(use-package projectile
+  :init
+  (projectile-mode +1)
+  :config
+  (setq projectile-completion-system 'default))
+
+(with-eval-after-load 'projectile
+  (require 'project-dashboard)
+  (setq project-dashboard-projects
+        `(("dotfiles" . ,(expand-file-name "dotfiles" (or (getenv "USERPROFILE") "~")))
+          ("reskate" . "C:/Games/ReSkate")))
+  ;; `a' in a dashboard asks for a launch preset, same as SPC c P.
+  (setq project-dashboard-agent-shell-function #'mr-x/agent-shell-start-preset)
+  (setq projectile-switch-project-action #'project-dashboard--projectile-switch-action))
+
+(mr-x/leader-def
+  "P"   '(:ignore t :wk "project dashboard")
+  "P p" '(project-dashboard-launch :wk "launch project")
+  "P a" '(project-dashboard-add-project :wk "add project")
+  "P d" '(project-dashboard-open :wk "dashboard for current"))
 
 ;; The repo's .dir-locals.el sets mr-x/project-commands (per-project commands,
 ;; consumed by mr-x/project-command on the Mac side). This Windows config
@@ -769,12 +855,50 @@ kill ring, so `p' recovers it if the insertion is refused."
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    '(agent-recall consult corfu dired-preview doom-modeline doom-themes
-                  evil-collection general ligature lua-mode marginalia
-                  markdown-mode nerd-icons-completion nerd-icons-dired
-                  orderless org-modern poly-markdown polymode vertico)))
+                  evil-collection evil-ghostel general ghostel
+                  ligature lua-mode marginalia markdown-mode
+                  nerd-icons-completion nerd-icons-dired orderless
+                  org-modern poly-markdown polymode vertico))
+ '(project-dashboard-projects
+   '(("dotfiles" . "c:/Users/mnand/dotfiles")
+     ("reskate" . "C:/Games/ReSkate")
+     ("reskate mods dash" . "c:/Users/mnand/Projects/reskate-mods/")
+     ("ReSkate Visage"
+      . "c:/Users/mnand/Projects/ReSkate/ReSkate-Visage/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- )
+ '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
+ '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
+ '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+ '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+ '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+ '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+ '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
+ '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
+ '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
+ '(markdown-link-face ((t (:foreground "#83a598"))))
+ '(markdown-list-face ((t (:foreground "#b8bb26"))))
+ '(markdown-markup-face ((t (:foreground "#665c54"))))
+ '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
+ '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+ '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+ '(org-level-3 ((t (:foreground "#b8bb26"))))
+ '(org-level-4 ((t (:foreground "#8ec07c"))))
+ '(org-level-5 ((t (:foreground "#d3869b"))))
+ '(org-level-6 ((t (:foreground "#505050"))))
+ '(org-level-7 ((t (:foreground "#404040"))))
+ '(org-link ((t (:foreground "#83a598" :underline t))))
+ '(shr-code ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(shr-h1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+ '(shr-h2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+ '(shr-h3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+ '(shr-h4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+ '(shr-h5 ((t (:foreground "#fabd2f" :weight bold))))
+ '(shr-h6 ((t (:foreground "#928374" :weight bold))))
+ '(shr-link ((t (:foreground "#83a598" :underline t)))))
