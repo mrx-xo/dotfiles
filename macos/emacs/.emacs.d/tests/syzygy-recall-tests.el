@@ -6,8 +6,12 @@
 
 (defvar agent-recall-resume-restore-preferences)
 
+;; Resolved from this file's real location (repo root is four levels up), not
+;; "~/.dotfiles": on Windows `~' is %APPDATA% and the clone is "dotfiles".
 (let ((source (expand-file-name
-               "~/.dotfiles/shared/emacs/lisp/syzygy/syzygy-recall.el")))
+               "../../../../shared/emacs/lisp/syzygy/syzygy-recall.el"
+               (file-name-directory
+                (file-truename (or load-file-name buffer-file-name))))))
   ;; Force the source under test to load even when init.el already provided an
   ;; installed `syzygy-recall' earlier in the same full-suite process.
   (load source nil nil t))
