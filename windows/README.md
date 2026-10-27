@@ -15,6 +15,40 @@ Personal Windows configs, managed as symlinks from this repo.
 The repo is the source of truth — edit files here (or in their live location, since
 they're symlinked, it's the same file) and git tracks the changes.
 
+## Agent-shell pane tabs
+
+Inside an agent-shell buffer in the major pane, use Ctrl+Alt+Left/Right (with left Alt)
+to select the previous/next conversation tab, including while typing.
+Other buffers retain their normal Ctrl+Alt+arrow behavior. Windows-key and
+right-Alt behavior are unchanged; no keyboard remapper is needed.
+
+The two mode-local bindings live in
+[`agent-shell-extras.el`](emacs/.emacs.d/lisp/agent-shell-extras.el), which
+the Windows init loads automatically. For live application, evaluate its two
+`define-key` forms for `C-M-<left>` and `C-M-<right>`; do not restart Emacs.
+To undo, remove those two bindings from the file and evaluate the same forms
+with `nil` in place of the command names, restoring inherited bindings.
+
+If the keys do not switch tabs, first check that focus is in an agent-shell
+conversation in the pane. Use left Alt to avoid AltGr handling. Then inspect
+the received chord with `M-x describe-key`; an OS interception will need
+separate investigation, not a daemon restart.
+
+When using Fluid Voice, keep dictation on `F20` and Fluid Intelligence on
+`F21`. A modifier-only `Ctrl+Alt` shortcut can intercept the tab chord
+before an arrow reaches Emacs. These are Fluid Voice settings, not Emacs
+bindings; changing the mode map cannot clear another application's hotkey.
+
+Regression tests cover the effective keys in every Evil state and isolation
+from other buffer modes. From Git Bash, with the Windows packages installed:
+
+```bash
+cd ~/dotfiles && emacs --batch -Q --eval '(setq package-user-dir (expand-file-name ".emacs.d/elpa" (getenv "APPDATA")))' \
+  -l windows/emacs/.emacs.d/init.el \
+  -l windows/emacs/.emacs.d/tests/agent-shell-keys-test.el \
+  -f ert-run-tests-batch-and-exit
+```
+
 ## Shared Emacs picker behavior
 
 Both Emacs configs load

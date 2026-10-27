@@ -116,6 +116,11 @@ be loaded."
 ;; ---------------------------------------------------------------------------
 
 (with-eval-after-load 'agent-shell
+  ;; Pane tab navigation without Super/Windows-key interception.  Keep
+  ;; expression navigation unchanged in every other major mode.
+  (define-key agent-shell-mode-map (kbd "C-M-<left>") #'major-pane-prev-tab)
+  (define-key agent-shell-mode-map (kbd "C-M-<right>") #'major-pane-next-tab)
+
   ;; S-<tab> cycles the session mode (permission level).
   (define-key agent-shell-mode-map (kbd "<backtab>") #'agent-shell-cycle-session-mode)
 
