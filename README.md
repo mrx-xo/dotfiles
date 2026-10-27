@@ -93,6 +93,18 @@ Design doc: `~/docs/phone-screenshot-ez-send.md`. Needs one-time secrets on a
 new machine (bot token in Keychain, chat ID in `~/.config/agent-inbox/env`) —
 see the comments in `bootstrap.sh`.
 
+### Emacs daemon launch
+
+Every start of the main daemon goes through `macos/scripts/emacs-daemon-start.sh`
+(the diagnostic launcher: a run directory, stderr capture and crash bundling at
+the next start). `Cmd+Shift+E` runs `macos/scripts/emacs-frame.sh`, which opens
+a frame when the daemon answers and otherwise starts it through that launcher;
+the zsh alias `ecd` does the same. Never start a bare `emacs --daemon` or use
+`emacsclient -a ""`: such a daemon has no run directory, so a crash of it is
+neither captured nor bundled. Nothing relaunches the daemon after a crash on
+purpose; a crash loop would otherwise never stop. `Cmd+Shift+R` restarts it
+through the launcher. Guarded by `macos/scripts/tests/emacs-frame.test.sh`.
+
 ### Emacs sandbox
 
 A full isolated copy of the config at `~/.emacs-sandbox` for testing changes

@@ -4,7 +4,7 @@
 # cmd - x : osascript -e 'display notification "skhd test successful"'
 
 # Emacs
-cmd + shift - e : /opt/homebrew/opt/emacs-plus@30/bin/emacsclient -c -n -a ""
+cmd + shift - e : ~/.dotfiles/macos/scripts/emacs-frame.sh
 cmd - e : ~/.dotfiles/macos/scripts/emacs-cycle.sh
 
 # hotdox ✦ Hyper one-taps (the old chords stay bound below — the board's
