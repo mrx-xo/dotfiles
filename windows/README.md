@@ -17,20 +17,23 @@ they're symlinked, it's the same file) and git tracks the changes.
 
 ## Agent-shell pane tabs
 
-Inside an agent-shell buffer in the major pane, use Ctrl+Alt+Left/Right (with left Alt)
-to select the previous/next conversation tab, including while typing.
-Other buffers retain their normal Ctrl+Alt+arrow behavior. Windows-key and
-right-Alt behavior are unchanged; no keyboard remapper is needed.
+Inside an agent-shell buffer in the major pane, use Ctrl+Tab for the next
+conversation and Ctrl+Shift+Tab for the previous one, including while typing.
+Ctrl+Alt+Left/Right (with left Alt) remain previous/next fallbacks. Other
+buffers retain their normal Ctrl+Alt+arrow behavior; no keyboard remapper is
+needed. Session-mode cycling is on `SPC c m c`; Shift+Tab no longer cycles it.
 
-The two mode-local bindings live in
+The mode-local bindings and Evil-state overrides live in
 [`agent-shell-extras.el`](emacs/.emacs.d/lisp/agent-shell-extras.el), which
-the Windows init loads automatically. For live application, evaluate its two
-`define-key` forms for `C-M-<left>` and `C-M-<right>`; do not restart Emacs.
-To undo, remove those two bindings from the file and evaluate the same forms
-with `nil` in place of the command names, restoring inherited bindings.
+the Windows init loads automatically. For live application, evaluate the
+navigation `define-key` forms and their `evil-define-key` block; do not restart
+Emacs. To remove just the arrow fallbacks, remove the `C-M-<left>` and
+`C-M-<right>` bindings from the file and evaluate those two forms with `nil`
+in place of the command names, restoring inherited arrow bindings.
 
 If the keys do not switch tabs, first check that focus is in an agent-shell
-conversation in the pane. Use left Alt to avoid AltGr handling. Then inspect
+conversation in the pane. For the arrow fallbacks, use left Alt to avoid AltGr
+handling. Then inspect
 the received chord with `M-x describe-key`; an OS interception will need
 separate investigation, not a daemon restart.
 
@@ -48,6 +51,35 @@ cd ~/dotfiles && emacs --batch -Q --eval '(setq package-user-dir (expand-file-na
   -l windows/emacs/.emacs.d/tests/agent-shell-keys-test.el \
   -f ert-run-tests-batch-and-exit
 ```
+
+## Terminal in Emacs (ghostel)
+
+vterm and eat need a Unix pty, so native Windows Emacs went without a real
+terminal until [ghostel](https://github.com/dakra/ghostel): libghostty-vt (the
+Ghostty VT engine) in a Zig dynamic module, driving ConPTY on Windows. It takes
+vterm's seat in the `SPC v` group, same letters as the Mac:
+
+- `SPC v v` toggle a bottom ghostel popup (project root when in a project)
+- `SPC v b` ghostel as a normal buffer, `SPC v n` a fresh one, `SPC v d` in a chosen dir
+- `SPC v e` / `SPC v E` eshell popup / buffer (eshell visual commands open in ghostel)
+- `SPC v V` Windows Terminal tab at the project root
+
+The shell is Windows PowerShell 5.1 with the riced profile (pwsh 7 is not
+installed). First `SPC v v` downloads the prebuilt module and Microsoft's ConPTY
+redistributable from GitHub releases into `%APPDATA%\.emacs.d\ghostel\`, kept out
+of `elpa\` because Windows cannot delete a loaded DLL during a package upgrade.
+`M-x ghostel-download-module` refreshes it after a ghostel update.
+
+Tests (config only, no terminal spawned):
+
+```bash
+cd ~/dotfiles/windows/emacs/.emacs.d && env -u HOME emacs --batch \
+  -l "$APPDATA/.emacs.d/init.el" -l tests/ghostel-test.el -f ert-run-tests-batch-and-exit
+```
+
+`env -u HOME` matters: Git Bash exports `HOME=C:\Users\<you>`, which makes Emacs
+put `~` there, while the daemon (no `HOME`) uses `%APPDATA%`. Without it a batch
+run reinstalls every package into a second `C:\Users\<you>\.emacs.d`.
 
 ## Shared Emacs picker behavior
 
@@ -268,6 +300,31 @@ misfires.
   hand; kill it from an elevated shell, then use the task only.
 - **Park it**: `schtasks /change /tn kanata /disable` keeps the task but stops it
   starting at logon; `kanata-ctl.ps1 uninstall` removes it.
+
+## AutoHotkey on/off (EA Anticheat)
+
+EA Anticheat (Javelin, used by skate. on Steam) refuses to launch the game while any
+AutoHotkey process exists, hotkeys suspended or not. `scripts/ahk-toggle.ps1` kills
+and restores the interpreter; the profile wraps it as `ahk`:
+
+```powershell
+ahk off      # kill every AutoHotkey process, remembering which scripts ran
+ahk on       # bring those back (or the enabled Startup shortcuts if nothing was recorded)
+ahk status   # what is running
+ahk          # toggle
+```
+
+Tests: `powershell -NoProfile -File windows/scripts/tests/ahk-toggle.test.ps1`.
+
+The hands-off version is `scripts/skate-steam.ps1` (profile alias `skate`, Desktop
+shortcut **skate. (Steam)** made by bootstrap): `ahk off`, `steam://rungameid/3354750`,
+wait for Steam's `Skate.exe`, wait for it to **exit**, `ahk on` — the restore runs even
+when the game never shows (a message box says so; log in `%LOCALAPPDATA%\skate-steam.log`).
+Javelin keeps watching after launch: AutoHotkey coming back mid-session ended the game
+within seconds (2026-10-20), so the script stays alive, hidden, until you quit. If it is
+killed, `ahk on` by hand. ReSkate (`C:\Games\ReSkate`) has no anticheat and is not touched —
+it is told apart by path, since its Skate.exe has the same process name and the protected
+Steam one hides its path.
 
 ## Ollama background service
 

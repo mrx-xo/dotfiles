@@ -33,6 +33,8 @@ function gs { git status @args }
 function gl { git log --oneline --graph --decorate -20 @args }
 function dotfiles { Set-Location "$HOME\dotfiles" }
 function remacs { & "$HOME\dotfiles\windows\scripts\emacs-restart.ps1" }   # restart the Emacs daemon + fresh frame
+function ahk { & "$HOME\dotfiles\windows\scripts\ahk-toggle.ps1" @args }    # ahk off before Steam skate. (EA Anticheat), ahk on after
+function skate { & "$HOME\dotfiles\windows\scripts\skate-steam.ps1" @args }  # ahk off -> Steam skate. -> ahk on, automatically
 
 # UTF-8 so the nerd-font glyphs render correctly.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

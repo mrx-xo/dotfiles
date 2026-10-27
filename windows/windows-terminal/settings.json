@@ -65,6 +65,18 @@
                 "hidden": false,
                 "name": "Ubuntu-24.04",
                 "source": "Microsoft.WSL"
+            },
+            {
+                "guid": "{ffdfe17b-6dad-528e-97e2-8766848cb58a}",
+                "hidden": false,
+                "name": "Developer Command Prompt for VS 2022",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{fe668808-6e4d-516f-b8b0-e12761775da1}",
+                "hidden": false,
+                "name": "Developer PowerShell for VS 2022",
+                "source": "Windows.Terminal.VisualStudio"
             }
         ]
     },
