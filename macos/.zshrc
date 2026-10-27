@@ -242,7 +242,7 @@ alias emacsclient="$(brew --prefix emacs-plus@30)/bin/emacsclient"
 # Emacs daemon and client aliases
 alias ec='emacsclient -n'           # Open in existing frame, no wait
 alias ecn='emacsclient -nc'         # New frame, no wait
-alias ecd='emacs --daemon'          # Start daemon
+alias ecd='~/.dotfiles/macos/scripts/emacs-daemon-start.sh'  # Start daemon through the crash-capturing launcher
 alias eck='emacsclient -e "(kill-emacs)"'  # Kill daemon
 alias etest='emacs --batch -l ~/.emacs.d/init.el -l ~/.emacs.d/tests/config-tests.el -f ert-run-tests-batch-and-exit'
 alias ports='lsof -iTCP -sTCP:LISTEN -P -n'
