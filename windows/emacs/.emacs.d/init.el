@@ -65,7 +65,17 @@
                ((member "Consolas"           (font-family-list)) "Consolas 13"))))
     (when font
       (set-frame-font font nil t)                          ; all current frames
-      (add-to-list 'default-frame-alist `(font . ,font))))) ; future frames
+      (add-to-list 'default-frame-alist `(font . ,font)))  ; future frames
+    ;; Symbol fallback.  Left alone, Emacs on Windows sends Dingbats and the
+    ;; geometric blocks to MS Gothic, which claims the ranges but lacks the
+    ;; org-modern heading stars (U+2726 drew as a hex box).  Segoe UI Symbol
+    ;; ships with Windows and has all of them.  Needs a GUI frame, same as
+    ;; the font above, hence inside this function.
+    (when (member "Segoe UI Symbol" (font-family-list))
+      (dolist (range '((#x2700 . #x27BF)      ; Dingbats: ❖ ✦ ✧
+                       (#x2B00 . #x2BFF)      ; Misc Symbols and Arrows: ⬡
+                       (#x25A0 . #x25FF)))    ; Geometric Shapes: ◈ ◇ ▸
+        (set-fontset-font t range "Segoe UI Symbol" nil 'prepend)))))
 
 (if (daemonp)
     ;; No GUI frame at daemon startup — set the font once a client frame opens.
@@ -79,12 +89,49 @@
         evil-want-C-u-scroll t
         evil-undo-system 'undo-redo)
   :config
-  (evil-mode 1))
+  (evil-mode 1)
+  ;; FluidVoice (Windows dictation) delivers a transcript by writing the
+  ;; clipboard and sending a synthetic Ctrl+V, then restores the old clipboard
+  ;; ~650ms later. Evil's insert-state C-v is `evil-quoted-insert' and the
+  ;; global one is `scroll-up-command', so the paste silently vanished. Make
+  ;; C-v a clipboard yank everywhere except normal/visual state, where it
+  ;; stays `evil-visual-block'. C-q still does quoted-insert.
+  (global-set-key (kbd "C-v") #'yank)
+  (define-key evil-insert-state-map (kbd "C-v") #'yank))
+
+;; FluidVoice bridge. autohotkey\fluidvoice.ahk swallows Fluid's injected
+;; Ctrl+V while an Emacs frame is foreground, writes the transcript to a
+;; file and calls this through emacsclient. Any clipboard read from inside
+;; Emacs races Fluid's ~650ms clipboard restore whenever Emacs is busy (it
+;; pasted older transcripts); handing the text over directly cannot.
+(defun mr-x/fluid-insert-file (file)
+  "Insert the FluidVoice transcript held in FILE where the user is typing.
+In an agent-shell, jump to the prompt first. The text also goes on the
+kill ring, so `p' recovers it if the insertion is refused."
+  (let ((text (with-temp-buffer
+                (let ((coding-system-for-read 'utf-8))
+                  (insert-file-contents file))
+                (buffer-string)))
+        (frame (or (seq-find #'frame-focus-state (frame-list))
+                   (selected-frame))))
+    (kill-new text)
+    (with-selected-window (frame-selected-window frame)
+      (when (and (derived-mode-p 'agent-shell-mode)
+                 (not (shell-maker-point-at-last-prompt-p)))
+        (goto-char (point-max)))
+      (condition-case err
+          (insert-for-yank text)
+        (error (message "FluidVoice: %s — transcript saved to the kill ring (p to paste)"
+                        (error-message-string err)))))))
 
 (use-package evil-collection
   :after evil
   :config
   (evil-collection-init))
+
+;; evil binds C-w f (SPC w f) to `ffap-other-window', which Emacs 30 no
+;; longer autoloads, so the key was void until ffap happened to load.
+(autoload 'ffap-other-window "ffap" nil t)
 
 ;; ---------- Leader key (SPC) via general.el ----------
 (use-package which-key
@@ -102,6 +149,7 @@
 
   (mr-x/leader-def
     "SPC" '(execute-extended-command :wk "M-x")
+    "u"   '(universal-argument :wk "universal arg")  ; mirrors the Mac leader
     ;; files
     "f"   '(:ignore t :wk "file")
     "f f" '(find-file :wk "find file")
@@ -117,6 +165,7 @@
     "b"   '(:ignore t :wk "buffer")
     "b b" '(switch-to-buffer :wk "switch")
     "b k" '(kill-current-buffer :wk "kill")
+    "b r" '(revert-buffer :wk "revert buffer")
     ;; dired
     "d"   '(:ignore t :wk "dired")
     "d d" '(dired :wk "open dired")
@@ -140,48 +189,126 @@
     "g f" '(magit-fetch :wk "fetch")
     ;; windows
     "w"   '(:keymap evil-window-map :package evil :wk "window")
+    ;; window layout history, same letters as the Mac
+    "h"   '(winner-undo :wk "winner undo")
+    "l"   '(winner-redo :wk "winner redo")
     ;; quit / restart
     "q"   '(:ignore t :wk "quit/restart")
     "q r" '(restart-emacs :wk "restart emacs")
-    "q q" '(save-buffers-kill-terminal :wk "quit emacs"))
+    "q q" '(save-buffers-kill-terminal :wk "quit emacs")))
 
-  ;; ---- Agent Shell (only commands present in this agent-shell build) ----
+;; The SPC c (agent-shell) map lives in lisp/agent-shell-extras.el, where
+;; it mirrors the Mac's map key for key.
+
+;; ---------- Terminal (SPC v) ----------
+;; vterm and eat need a Unix pty, which native Windows Emacs doesn't have.
+;; ghostel is the first real terminal here: libghostty-vt in a Zig dynamic
+;; module, ConPTY underneath on Windows.  It takes vterm's seat in the SPC v
+;; group (same letters as the Mac), eshell drops to SPC v e, and Windows
+;; Terminal stays on SPC v V for anything that wants its own window.
+(use-package ghostel
+  :custom
+  ;; `ghostel-shell' defaults to $SHELL, which this Emacs build sets to its
+  ;; own cmdproxy.exe.  pwsh 7 is not installed; 5.1 carries the riced
+  ;; profile from windows/powershell/.
+  (ghostel-shell '("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+                   "-NoLogo"))
+  ;; Keep the DLL out of elpa/: Windows cannot delete a loaded DLL, so a
+  ;; package upgrade would fail halfway with the module in use.
+  (ghostel-module-directory (expand-file-name "ghostel/" user-emacs-directory))
+  ;; First use fetches the prebuilt module plus Microsoft's ConPTY
+  ;; redistributable from GitHub releases instead of asking.
+  (ghostel-module-auto-install 'download))
+
+;; Cursor/point sync for evil states; insert state on entry.
+(use-package evil-ghostel
+  :after (ghostel evil)
+  :hook (ghostel-mode . evil-ghostel-mode))
+
+;; eshell visual commands (less, htop, lazygit...) run in a ghostel buffer.
+(use-package ghostel-eshell
+  :ensure ghostel
+  :hook (eshell-load . ghostel-eshell-visual-command-mode))
+
+;; Popups share the bottom slot: the popup ghostel gets its own buffer name
+;; so plain `ghostel' buffers (SPC v b) are left to display normally.
+(defconst mr-x/ghostel-popup-name "*ghostel-popup*"
+  "Buffer name of the SPC v v ghostel popup.")
+
+(add-to-list 'display-buffer-alist
+             `(,(regexp-quote mr-x/ghostel-popup-name)
+               (display-buffer-in-side-window)
+               (side . bottom)
+               (window-height . 0.3)))
+
+(add-to-list 'display-buffer-alist
+             '("\\*.*eshell\\*"
+               (display-buffer-in-side-window)
+               (side . bottom)
+               (window-height . 0.3)))
+
+(defun mr-x/ghostel-popup ()
+  "Toggle a bottom ghostel popup, started at the project root when in one."
+  (interactive)
+  (let ((win (get-buffer-window mr-x/ghostel-popup-name)))
+    (if win
+        (delete-window win)
+      (let ((default-directory (if (project-current)
+                                   (project-root (project-current))
+                                 default-directory))
+            (ghostel-buffer-name mr-x/ghostel-popup-name))
+        (ghostel)))))
+
+(defun mr-x/ghostel-in-dir ()
+  "Open a new ghostel in a directory chosen via prompt."
+  (interactive)
+  (let ((default-directory (read-directory-name "ghostel dir: ")))
+    (ghostel-new)))
+
+(defun mr-x/eshell-popup ()
+  "Toggle a bottom eshell, at the project root when in a project."
+  (interactive)
+  (let ((win (seq-find (lambda (w)
+                         (eq (buffer-local-value 'major-mode (window-buffer w))
+                             'eshell-mode))
+                       (window-list))))
+    (if win
+        (delete-window win)
+      (if (project-current)
+          (project-eshell)
+        (eshell)))))
+
+(defun mr-x/windows-terminal-here ()
+  "Open a Windows Terminal tab at the project root, else `default-directory'."
+  (interactive)
+  (let* ((proj (project-current))
+         (dir (if proj (project-root proj) default-directory))
+         ;; No trailing backslash: wt reads \" as an escaped quote.
+         (dir (subst-char-in-string
+               ?/ ?\\ (directory-file-name (expand-file-name dir)))))
+    (start-process "wt" nil "wt.exe" "-w" "0" "nt" "-d" dir)))
+
+;; Insert-state RET in eshell runs `newline' instead of sending the command
+;; (same evil-collection snag agent-shell has below).  Make it send.
+(with-eval-after-load 'esh-mode
+  (with-eval-after-load 'evil
+    (evil-define-key '(normal insert) eshell-mode-map
+      (kbd "RET") #'eshell-send-input
+      [return]    #'eshell-send-input)))
+
+(with-eval-after-load 'general
   (mr-x/leader-def
-    "c"     '(:ignore t :wk "agent-shell")
-    "c c"   '(agent-shell :wk "start")
-    "c n"   '(mr-x/agent-shell-new-smart :wk "new shell (smart)")
-    "c o"   '(agent-shell-other-buffer :wk "other buffer")
-    "c i"   '(agent-shell-interrupt :wk "interrupt")
-    "c q"   '(agent-shell-prompt-queue :wk "queue request")
-    "c p"   '(agent-shell-yank-dwim :wk "paste (smart)")
-    "c d"   '(agent-shell-send-dwim :wk "send dwim")
-    "c R"   '(agent-shell-send-region :wk "send region")
-    "c f"   '(agent-shell-send-file :wk "send file")
-    "c F"   '(agent-shell-send-other-file :wk "send other file")
-    "c s"   '(agent-shell-send-screenshot :wk "send screenshot")
-    "c T"   '(agent-shell-open-transcript :wk "transcript")
-    "c ."   '(agent-shell-set-session-model :wk "set model")
-    "c ,"   '(:ignore t :wk "prompts")
-    "c , p" '(agent-shell-prompt-compose :wk "compose prompt")
-    "c m"   '(:ignore t :wk "mode/permissions")
-    "c m m" '(agent-shell-set-session-mode :wk "pick mode")
-    "c m c" '(agent-shell-cycle-session-mode :wk "cycle mode")
-    "c m d" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "default")) :wk "default")
-    "c m e" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "acceptEdits")) :wk "accept edits")
-    "c m p" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "plan")) :wk "plan")
-    "c m a" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "dontAsk")) :wk "don't ask")
-    "c m b" '((lambda () (interactive) (mr-x/agent-shell-set-mode-direct "bypassPermissions")) :wk "bypass perms")
-    "c l"   '(:ignore t :wk "logs")
-    "c l l" '(agent-shell-toggle-logging :wk "toggle logging")
-    "c l v" '(agent-shell-view-traffic :wk "view traffic")
-    "c l a" '(agent-shell-view-acp-logs :wk "view acp logs")
-    "c l r" '(agent-shell-reset-logs :wk "reset logs")
-    "c a"   '(:ignore t :wk "recall")
-    "c a s" '(agent-recall-consult-search :wk "search")
-    "c a b" '(agent-recall-browse :wk "browse")
-    "c a r" '(agent-recall-resume :wk "resume")
-    "c a B" '(agent-recall-backfill :wk "backfill")
-    "c a t" '(agent-recall-stats :wk "stats")))
+    "v"   '(:ignore t :wk "terminal")
+    "v v" '(mr-x/ghostel-popup :wk "ghostel popup")
+    "v b" '(ghostel :wk "ghostel buffer")
+    "v n" '(ghostel-new :wk "new ghostel")
+    "v d" '(mr-x/ghostel-in-dir :wk "ghostel in dir")
+    "v e" '(mr-x/eshell-popup :wk "eshell popup")
+    "v E" '(eshell :wk "eshell buffer")
+    "v V" '(mr-x/windows-terminal-here :wk "Windows Terminal (project)")))
+
+;; Window-layout undo/redo for SPC h / SPC l.
+(winner-mode 1)
 
 ;; ---------- Theme: Gruvbox ----------
 (use-package doom-themes
@@ -199,6 +326,11 @@
 ;; Needs an Emacs built with Harfbuzz (standard on Windows 28+).
 ;; If glyphs look broken, check (bound-and-true-p emacs-version) >= 28 + harfbuzz.
 (use-package ligature
+  :custom
+  ;; Not in org: the set below composes "**"/"***" into one glyph, and once
+  ;; org-modern has replaced the last star and org-hide has blanked the rest,
+  ;; the leftover composition drew a stray asterisk after every heading star.
+  (ligature-ignored-major-modes '(minibuffer-inactive-mode org-mode))
   :config
   ;; Enable the standard Fira Code ligature set in all programming + text buffers.
   (ligature-set-ligatures
@@ -273,24 +405,145 @@
   (corfu-auto-prefix 2))
 
 ;; ---------- Org ----------
+;; Keyword colours: the Mac's dark palette (mr-x/palettes in emacs.org:
+;; red, orange, mint, muted) as text, not pill backgrounds.
+;; Top level, not :init, because use-package expands :custom before :init.
+(defconst my/org-todo-faces
+  '(("TODO"      . (:foreground "#FF1800" :weight bold))
+    ("NEXT"      . (:foreground "#fe8019" :weight bold))
+    ("WAIT"      . (:foreground "#B7CBA8" :weight bold))
+    ("DONE"      . (:foreground "#62656A" :weight bold))
+    ("CANCELLED" . (:foreground "#62656A" :weight bold)))
+  "TODO keyword faces used by both org and org-modern.")
+
 (use-package org
   :ensure nil                          ; built-in
   :custom
   (org-startup-indented t)             ; clean nested indentation
   (org-pretty-entities t)              ; \alpha -> α
   (org-hide-emphasis-markers t)        ; hide the *_/ markup chars
-  (org-ellipsis " ▾")                  ; nicer fold indicator
+  (org-ellipsis " ‧")                  ; fold indicator, same dot as the Mac
   (org-startup-folded 'content)        ; open folded to headings
   (org-log-done 'time)                 ; stamp a time when you mark DONE
   (org-src-fontify-natively t)         ; syntax-highlight code blocks
   (org-edit-src-content-indentation 0)
   (org-todo-keywords
-   '((sequence "TODO(t)" "NEXT(n)" "WAIT(w)" "|" "DONE(d)" "CANCELLED(c)"))))
+   '((sequence "TODO(t)" "NEXT(n)" "WAIT(w)" "|" "DONE(d)" "CANCELLED(c)")))
+  (org-todo-keyword-faces my/org-todo-faces)
+  :config
+  ;; Heading faces ported from the Mac emacs.org: a gruvbox ramp down the
+  ;; levels (orange, gold, green, aqua, purple, then two greys), level 1
+  ;; slightly larger.
+  (custom-set-faces
+   '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+   '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+   '(org-level-3 ((t (:foreground "#b8bb26"))))
+   '(org-level-4 ((t (:foreground "#8ec07c"))))
+   '(org-level-5 ((t (:foreground "#d3869b"))))
+   '(org-level-6 ((t (:foreground "#505050"))))
+   '(org-level-7 ((t (:foreground "#404040"))))
+   '(org-link ((t (:foreground "#83a598" :underline t))))))
 
 (use-package org-modern              ; modern, clean org styling
   :after org
   :hook ((org-mode . org-modern-mode)
-         (org-agenda-finalize . org-modern-agenda)))
+         (org-agenda-finalize . org-modern-agenda))
+  :custom
+  ;; Same heading bullets as the Mac, one glyph per level.
+  (org-modern-star 'replace)
+  (org-modern-replace-stars "❖✦⬡◈✧◇▸")
+  (org-modern-hide-stars nil)
+  (org-modern-table nil)
+  ;; Foreground-only faces: org-modern then skips its inverse-video
+  ;; `org-modern-todo' label, so keywords are coloured text, no background.
+  (org-modern-todo-faces my/org-todo-faces)
+  :config
+  ;; org-modern pads each keyword with a space on both sides (hardcoded
+  ;; display properties, the pill's inner padding).  Without a pill that
+  ;; is just a two-space gap on either side of TODO, so drop it.
+  (defun my/org-modern-todo-unpad ()
+    "Remove the display padding org-modern puts around a TODO keyword."
+    (remove-list-of-text-properties (match-beginning 1) (match-end 1) '(display)))
+  (advice-add 'org-modern--todo :after #'my/org-modern-todo-unpad))
+
+;; ---------- Markdown: editing + gruvbox preview inside Emacs ----------
+;; Same editing stack as the Mac: markdown-mode wearing the gruvbox faces
+;; (they match the preview), poly-markdown owning .md so fenced code blocks
+;; get their language's highlighting.  This Emacs build has no xwidgets, so
+;; the Mac's markdown-xwidget preview cannot run here; the preview is
+;; pandoc -> eww (markdown-live-preview-mode: C-c C-c l, re-renders on save,
+;; also on the Mac's C-c C-c x), with the eww/shr faces set to gruvbox
+;; below.  C-c C-c p still opens the pandoc HTML in the browser.
+;; pandoc: scoop install pandoc.
+(use-package markdown-mode
+  :custom
+  ;; A list, not a string, so the filter path survives markdown-mode's
+  ;; space-splitting.  The filter maps fence languages pandoc cannot
+  ;; highlight (elisp, sh, ps1...) onto ones it can.
+  (markdown-command
+   (list "pandoc" "--lua-filter"
+         (expand-file-name "dotfiles/windows/emacs/.emacs.d/pandoc-lang-aliases.lua"
+                           (or (getenv "USERPROFILE") "~"))))
+  (markdown-live-preview-delete-export 'delete-on-export)  ; no .html litter
+  ;; Browser preview (C-c C-c p) wears gruvbox too: markdown-mode links
+  ;; this stylesheet into the page, and pandoc's token classes give the
+  ;; code blocks syntax colours there.  Repo path, not ~ (see dired home).
+  (markdown-css-paths
+   (list (concat "file:///"
+                 (expand-file-name "dotfiles/windows/emacs/.emacs.d/markdown-gruvbox.css"
+                                   (or (getenv "USERPROFILE") "~")))))
+  :bind (:map markdown-mode-map
+         ("C-c C-c x" . markdown-live-preview-mode))
+  :config
+  ;; Gruvbox-styled markdown faces (matches preview CSS)
+  (custom-set-faces
+   ;; Headings - orange
+   '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+   '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+   '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+   '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+   '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
+   '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
+   ;; Code - aqua
+   '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   ;; Links - blue
+   '(markdown-link-face ((t (:foreground "#83a598"))))
+   '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
+   ;; Bold/Italic - yellow/purple
+   '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
+   '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
+   ;; Lists - green
+   '(markdown-list-face ((t (:foreground "#b8bb26"))))
+   ;; Blockquote - gray
+   '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
+   ;; Markup characters - dimmed
+   '(markdown-markup-face ((t (:foreground "#665c54"))))))
+
+;; Syntax highlighting in markdown code blocks
+(use-package polymode)
+
+(use-package poly-markdown
+  :after (polymode markdown-mode)
+  :mode ("\.md\'" . poly-markdown-mode)
+  :config
+  ;; Suppress org-element parser errors in polymode indirect buffers
+  ;; (org-mode chokes on markdown ** syntax in ```org code blocks)
+  (add-to-list 'warning-suppress-types '(org-element)))
+
+;; The rendered preview lives in eww; shr draws it with these faces, so
+;; the preview wears the same gruvbox as the source buffer.
+(with-eval-after-load 'shr
+  (custom-set-faces
+   '(shr-h1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+   '(shr-h2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+   '(shr-h3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+   '(shr-h4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+   '(shr-h5 ((t (:foreground "#fabd2f" :weight bold))))
+   '(shr-h6 ((t (:foreground "#928374" :weight bold))))
+   '(shr-code ((t (:foreground "#8ec07c" :background "#3c3836"))))
+   '(shr-link ((t (:foreground "#83a598" :underline t))))))
 
 ;; ---------- Dired ----------
 (use-package dired
@@ -362,7 +615,7 @@
 (use-package acp)                  ; ACP transport (MELPA)
 (use-package shell-maker)          ; shell infrastructure agent-shell builds on
 
-;; SPC c n — new agent shell, replacing the current window when already in one
+;; SPC c c — new agent shell, replacing the current window when already in one
 ;; (ported from the macOS config; uses agent-shell internals, so require it first).
 (defun mr-x/agent-shell-new-smart ()
   "Create a new agent shell, replacing the current window if already in one."
@@ -386,43 +639,6 @@
           (agent-shell-viewport--show-buffer :shell-buffer shell-buffer)
         (pop-to-buffer shell-buffer)))))
 
-;; SPC c m d/e/p/a/b — set the agent-shell session mode (permission level)
-;; directly, skipping the completing-read picker (ported from the macOS config).
-(defun mr-x/agent-shell-set-mode-direct (mode-id)
-  "Set agent-shell session mode directly by MODE-ID, skipping the picker."
-  (require 'agent-shell)
-  (let* ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
-                  (seq-first (agent-shell-project-buffers))))
-         (state (and buf (buffer-local-value 'agent-shell--state buf))))
-    (unless buf (user-error "No agent-shell buffer found"))
-    (with-current-buffer buf
-      (unless (map-nested-elt state '(:session :id))
-        (user-error "No active session"))
-      (let ((current (map-nested-elt state '(:session :mode-id))))
-        (when (and current (string= mode-id current))
-          (user-error "Already in %s mode"
-                      (or (agent-shell--resolve-session-mode-name
-                           mode-id (agent-shell--get-available-modes state))
-                          mode-id)))
-        (agent-shell--send-request
-         :state state
-         :client (map-elt state :client)
-         :request (acp-make-session-set-mode-request
-                   :session-id (map-nested-elt state '(:session :id))
-                   :mode-id mode-id)
-         :buffer buf
-         :on-success (lambda (_)
-                       (let ((session (map-elt (agent-shell--state) :session)))
-                         (map-put! session :mode-id mode-id)
-                         (map-put! (agent-shell--state) :session session)
-                         (message "Session mode: %s"
-                                  (or (agent-shell--resolve-session-mode-name
-                                       mode-id (agent-shell--get-available-modes (agent-shell--state)))
-                                      mode-id)))
-                       (agent-shell--update-header-and-mode-line))
-         :on-failure (lambda (err _)
-                       (message "Failed to set mode: %s" err)))))))
-
 (use-package agent-shell
   :after (acp shell-maker)
   :custom
@@ -439,11 +655,19 @@
                                                         :foreground "#fabd2f"))))
   :config
   ;; Use your existing Claude CLI login — no API key needed.
-  (setq agent-shell-anthropic-default-model-id "claude-opus-4-8")  ; change to taste
+  (setq agent-shell-anthropic-default-model-id "default")  ; Opus 5.5 1M; aliases resolve in claude-agent-acp
   (setq agent-shell-anthropic-authentication
         (agent-shell-anthropic-make-authentication :login t))
   ;; Inherit the shell environment (PATH, ANTHROPIC_API_KEY if you set one, etc.)
   (setq agent-shell-anthropic-claude-environment
+        (agent-shell-make-environment-variables :inherit-env t))
+  ;; Codex rides the ChatGPT login from `codex login' (~/.codex/auth.json),
+  ;; same no-API-key setup. Needs npm -g @openai/codex and
+  ;; @agentclientprotocol/codex-acp; the adapter runs its own bundled codex
+  ;; unless CODEX_PATH says otherwise. Launched from the SPC c P presets.
+  (setq agent-shell-openai-authentication
+        (agent-shell-openai-make-authentication :login t))
+  (setq agent-shell-openai-codex-environment
         (agent-shell-make-environment-variables :inherit-env t))
   ;; SYZYGY: run Claude through acp-multiplex so acp-mobile can mirror the
   ;; session to the phone (same wrapping as the Mac config). Both binaries
@@ -456,9 +680,9 @@
         (setq agent-shell-anthropic-claude-acp-command
               (list multiplex "claude-agent-acp")))))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
-  ;;   SPC c p (agent-shell-yank-dwim)   -> pastes a clipboard image; uses the
+  ;;   p in a shell (agent-shell-yank-dwim) -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),
-  ;;     so just Win+Shift+S a region, then SPC c p. Works with no extra config.
+  ;;     so just Win+Shift+S a region, then p. Works with no extra config.
   ;;   SPC c s (agent-shell-send-screenshot) -> launches the native ms-screenclip
   ;;     overlay (Windows' equivalent of `screencapture -i`) via a wrapper script.
   ;;     The default command is the X11 tool /usr/bin/import, which doesn't exist
@@ -484,23 +708,81 @@
     ;; doesn't spam "<f18> is undefined" in the echo area.
     (global-set-key (kbd "<f18>")   #'ignore)
     (global-set-key (kbd "s-<f18>") #'ignore))
-  ;; evil-collection binds insert-state RET to `newline'; make RET submit instead.
+  ;; Chat mode is a cosmetic relabel declined on 2026-09-23 (same call as
+  ;; the Mac). The persistent prompt stays on at its upstream default.
+  (setq agent-shell-chat-mode-enabled nil)
+  ;; Never show the "new session / resume previous" picker: every shell
+  ;; starts fresh, same as the Mac. Deliberate resumes go through
+  ;; agent-recall, which passes session ids explicitly and ignores this.
+  (setq agent-shell-session-strategy 'new)
+  ;; evil-collection binds insert-state RET to `newline' and normal-state RET
+  ;; to the bare `shell-maker-submit'; make both run `agent-shell-submit',
+  ;; upstream's own RET: it queues the prompt while the agent is busy (M-RET
+  ;; steers instead) and falls through to `shell-maker-submit' when idle, so
+  ;; the refs advice still fires.
   (with-eval-after-load 'evil
-    (evil-define-key 'insert agent-shell-mode-map
-      (kbd "RET") #'shell-maker-submit
-      [return]    #'shell-maker-submit)
+    (evil-define-key '(normal insert) agent-shell-mode-map
+      (kbd "RET") #'agent-shell-submit
+      [return]    #'agent-shell-submit)
     ;; Win+Enter submits from any mode (Windows port of Mac's Cmd+Enter "lazy mode").
     (evil-define-key '(normal insert) agent-shell-mode-map
-      (kbd "s-<return>") #'shell-maker-submit
-      [s-return]         #'shell-maker-submit))
-  ;; Make Claude Code the default agent, with a clean ◇ prompt (modal "possibility").
+      (kbd "s-<return>") #'agent-shell-submit
+      [s-return]         #'agent-shell-submit))
+  ;; The October build zebra-stripes markdown tables, and its stripe face
+  ;; inherits `lazy-highlight', which doom-gruvbox paints as the gold
+  ;; isearch block (#fabd2f bg, bold dark text). Every other row lit up
+  ;; like a search hit. Use a quiet gruvbox bg0_s stripe instead.
+  (with-eval-after-load 'agent-shell-markdown
+    (set-face-attribute 'agent-shell-markdown-table-zebra nil
+                        :inherit 'agent-shell-markdown-table
+                        :background "#32302f"))
+  ;; One prompt symbol for every agent (port of the Mac's block). Upstream
+  ;; gives each provider its own verbose prompt ("Claude> ", "Codex> ",
+  ;; "Gemini> ", ...). Every provider builds its config through
+  ;; `agent-shell-make-agent-config', so filtering that one factory
+  ;; standardizes the prompt across all of them at once, including
+  ;; providers added later.
+  (defvar mr-x/agent-shell-prompt "◇ "
+    "Input prompt used for every agent-shell agent by default.
+A clean ◇ (modal \"possibility\").")
+
+  (defvar mr-x/agent-shell-prompt-alist nil
+    "Per-agent input prompt overrides, keyed by config `:identifier'.
+Entries look like (gemini-cli . \"G> \").  Any agent not listed here
+uses `mr-x/agent-shell-prompt'.")
+
+  (defun mr-x/agent-shell-prompt-for (identifier)
+    "Return the input prompt configured for agent IDENTIFIER."
+    (or (alist-get identifier mr-x/agent-shell-prompt-alist)
+        mr-x/agent-shell-prompt))
+
+  (defun mr-x/agent-shell-standardize-prompt (config)
+    "Replace CONFIG's provider-specific input prompt with ours.
+Filters the return value of `agent-shell-make-agent-config', so
+authentication, models, session modes, and future config fields keep
+coming from the provider untouched."
+    (when (consp config)
+      (let ((prompt (mr-x/agent-shell-prompt-for
+                     (alist-get :identifier config))))
+        (setf (alist-get :shell-prompt config)
+              (propertize prompt 'face '(:foreground "#fabd2f" :weight bold))
+              (alist-get :shell-prompt-regexp config) (regexp-quote prompt))))
+    config)
+
+  (unless (advice-member-p #'mr-x/agent-shell-standardize-prompt
+                           'agent-shell-make-agent-config)
+    (advice-add 'agent-shell-make-agent-config
+                :filter-return
+                #'mr-x/agent-shell-standardize-prompt))
+
+  ;; Make Claude Code the default agent. :shell-prompt is omitted
+  ;; deliberately; the advice above fills it in like it does for every
+  ;; other agent.
   (setq agent-shell-preferred-agent-config
         (agent-shell-make-agent-config
          :identifier 'claude-code
          :mode-line-name "Claude"
          :buffer-name "Claude"
-         :shell-prompt (propertize "◇ " 'face '(:foreground "#fabd2f" :weight bold))
-         :shell-prompt-regexp "◇ "
          :welcome-function nil  ; no welcome banner (shell-maker skips it when nil)
          :client-maker (lambda (buffer)
                          (agent-shell-anthropic-make-claude-client :buffer buffer))
@@ -535,6 +817,7 @@
 ;; USERPROFILE (Emacs `~' on Windows is %APPDATA%\Roaming, not the home
 ;; the dotfiles repo lives under).
 (dolist (dir '("dotfiles/macos/emacs/.emacs.d/lisp"
+               "dotfiles/macos/emacs/.emacs.d/lisp/project-dashboard"
                "dotfiles/windows/emacs/.emacs.d/lisp"
                "dotfiles/shared/emacs/lisp/syzygy"))
   (add-to-list 'load-path (expand-file-name dir (or (getenv "USERPROFILE") "~"))))
@@ -545,12 +828,39 @@
 ;; and shell-maker load eagerly, so that :config runs before this load-path.
 (require 'syzygy)
 
-;; The repo's .dir-locals.el sets mr-x/project-cmd-alist (per-project commands,
+;; ---------- Projects: projectile + project-dashboard (SPC P) ----------
+;; The dashboard is the Mac's module, shared from the macos/ lisp dir like
+;; major-pane. It hard-requires projectile, which is otherwise only here
+;; for project roots and the known-projects list. The project list below
+;; is this machine's own (the module's default is the Mac's) and also
+;; feeds the SPC c C picker in agent-shell-extras.el.
+(use-package projectile
+  :init
+  (projectile-mode +1)
+  :config
+  (setq projectile-completion-system 'default))
+
+(with-eval-after-load 'projectile
+  (require 'project-dashboard)
+  (setq project-dashboard-projects
+        `(("dotfiles" . ,(expand-file-name "dotfiles" (or (getenv "USERPROFILE") "~")))
+          ("reskate" . "C:/Games/ReSkate")))
+  ;; `a' in a dashboard asks for a launch preset, same as SPC c P.
+  (setq project-dashboard-agent-shell-function #'mr-x/agent-shell-start-preset)
+  (setq projectile-switch-project-action #'project-dashboard--projectile-switch-action))
+
+(mr-x/leader-def
+  "P"   '(:ignore t :wk "project dashboard")
+  "P p" '(project-dashboard-launch :wk "launch project")
+  "P a" '(project-dashboard-add-project :wk "add project")
+  "P d" '(project-dashboard-open :wk "dashboard for current"))
+
+;; The repo's .dir-locals.el sets mr-x/project-commands (per-project commands,
 ;; consumed by mr-x/project-command on the Mac side). This Windows config
 ;; doesn't use it, but Emacs still processes the dir-local on every visit and
-;; would prompt unless the value is known-safe. The `-alist' name is non-risky,
-;; so this predicate silences the prompt for good.
-(put 'mr-x/project-cmd-alist 'safe-local-variable #'listp)
+;; flags the `-commands' suffix as risky, prompting every time. Mirror the Mac
+;; side's predicate so the value is known-safe.
+(put 'mr-x/project-commands 'safe-local-variable #'listp)
 
 (provide 'init)
 ;;; init.el ends here
@@ -561,12 +871,50 @@
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    '(agent-recall consult corfu dired-preview doom-modeline doom-themes
-                  evil-collection general ligature lua-mode marginalia
+                  evil-collection evil-ghostel general ghostel
+                  ligature lua-mode marginalia markdown-mode
                   nerd-icons-completion nerd-icons-dired orderless
-                  org-modern vertico)))
+                  org-modern poly-markdown polymode vertico))
+ '(project-dashboard-projects
+   '(("dotfiles" . "c:/Users/mnand/dotfiles")
+     ("reskate" . "C:/Games/ReSkate")
+     ("reskate mods dash" . "c:/Users/mnand/Projects/reskate-mods/")
+     ("ReSkate Visage"
+      . "c:/Users/mnand/Projects/ReSkate/ReSkate-Visage/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- )
+ '(markdown-blockquote-face ((t (:foreground "#928374" :slant italic))))
+ '(markdown-bold-face ((t (:foreground "#fabd2f" :weight bold))))
+ '(markdown-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-header-face-1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+ '(markdown-header-face-2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+ '(markdown-header-face-3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+ '(markdown-header-face-4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+ '(markdown-header-face-5 ((t (:foreground "#fabd2f" :weight bold))))
+ '(markdown-header-face-6 ((t (:foreground "#928374" :weight bold))))
+ '(markdown-inline-code-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-italic-face ((t (:foreground "#d3869b" :slant italic))))
+ '(markdown-link-face ((t (:foreground "#83a598"))))
+ '(markdown-list-face ((t (:foreground "#b8bb26"))))
+ '(markdown-markup-face ((t (:foreground "#665c54"))))
+ '(markdown-pre-face ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(markdown-url-face ((t (:foreground "#83a598" :underline t))))
+ '(org-level-1 ((t (:foreground "#fe8019" :weight bold :height 1.15))))
+ '(org-level-2 ((t (:foreground "#fabd2f" :weight bold))))
+ '(org-level-3 ((t (:foreground "#b8bb26"))))
+ '(org-level-4 ((t (:foreground "#8ec07c"))))
+ '(org-level-5 ((t (:foreground "#d3869b"))))
+ '(org-level-6 ((t (:foreground "#505050"))))
+ '(org-level-7 ((t (:foreground "#404040"))))
+ '(org-link ((t (:foreground "#83a598" :underline t))))
+ '(shr-code ((t (:foreground "#8ec07c" :background "#3c3836"))))
+ '(shr-h1 ((t (:foreground "#fe8019" :weight bold :height 1.4))))
+ '(shr-h2 ((t (:foreground "#fe8019" :weight bold :height 1.3))))
+ '(shr-h3 ((t (:foreground "#fe8019" :weight bold :height 1.2))))
+ '(shr-h4 ((t (:foreground "#fabd2f" :weight bold :height 1.1))))
+ '(shr-h5 ((t (:foreground "#fabd2f" :weight bold))))
+ '(shr-h6 ((t (:foreground "#928374" :weight bold))))
+ '(shr-link ((t (:foreground "#83a598" :underline t)))))
