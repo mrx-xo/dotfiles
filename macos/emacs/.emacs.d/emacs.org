@@ -9160,14 +9160,6 @@ Expand =div>ul>li*3= style abbreviations into HTML/CSS. =C-j= to expand.
     (global-corfu-mode)
     (keymap-unset corfu-map "RET"))
 
-  ;; Extensions for Corfu
-  (use-package corfu-terminal
-    :ensure t
-    :after corfu
-    :config
-    (unless (display-graphic-p)
-      (corfu-terminal-mode +1)))
-
   ;; Cape - extra completion-at-point backends for Corfu
   (use-package cape
     :ensure t

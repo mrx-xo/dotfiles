@@ -8776,14 +8776,6 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   (global-corfu-mode)
   (keymap-unset corfu-map "RET"))
 
-;; Extensions for Corfu
-(use-package corfu-terminal
-  :ensure t
-  :after corfu
-  :config
-  (unless (display-graphic-p)
-    (corfu-terminal-mode +1)))
-
 ;; Cape - extra completion-at-point backends for Corfu
 (use-package cape
   :ensure t
