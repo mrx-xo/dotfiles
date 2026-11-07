@@ -11,10 +11,10 @@
 ;;   C-c t  cycle tab styles (default/underline/underline+body/chunky/minimal)
 ;;   C-c c  cycle active-tab underline color through gruvbox
 ;;   C-c b  cycle banner background through gruvbox (auto-contrast text)
-;;   C-c n  back to normal (clear every override)
+;;   C-c 0  back to normal (clear every override)
 ;;
 ;; Everything styling-related happens on the face-override layer, so
-;; `C-c n' always returns to whatever major-pane.el really ships.
+;; `C-c 0' always returns to whatever major-pane.el really ships.
 
 ;;; Code:
 
@@ -121,7 +121,7 @@
     (major-pane--display buf)
     (major-pane--refresh-decorations))
   (force-mode-line-update t)
-  (message "tab-lab: C-c t styles · C-c c underline · C-c b banner · C-c n normal"))
+  (message "tab-lab: C-c t styles · C-c c underline · C-c b banner · C-c 0 normal"))
 
 ;;; Cyclers
 
@@ -263,7 +263,7 @@
 (global-set-key (kbd "C-c t") #'mr-x/tab-lab-style-cycle)
 (global-set-key (kbd "C-c c") #'mr-x/tab-lab-underline-cycle)
 (global-set-key (kbd "C-c b") #'mr-x/tab-lab-banner-cycle)
-(global-set-key (kbd "C-c n") #'mr-x/tab-lab-reset)
+(global-set-key (kbd "C-c 0") #'mr-x/tab-lab-reset)
 
 (provide 'tab-lab)
 ;;; tab-lab.el ends here
