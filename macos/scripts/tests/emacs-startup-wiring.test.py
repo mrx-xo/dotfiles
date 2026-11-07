@@ -62,8 +62,8 @@ sys.exit(1)
 
     def run_wrapper(self, name, *args):
         text = (SCRIPTS / name).read_text()
-        text = text.replace('/opt/homebrew/opt/emacs-plus@30/bin/emacsclient',str(self.bin / "emacsclient"))
-        text = text.replace('/opt/homebrew/opt/emacs-plus@30/bin/emacs',str(self.bin / "emacs"))
+        text = text.replace('/opt/homebrew/opt/emacs-plus@31/bin/emacsclient',str(self.bin / "emacsclient"))
+        text = text.replace('/opt/homebrew/opt/emacs-plus@31/bin/emacs',str(self.bin / "emacs"))
         text = text.replace('SANDBOX_DIR="$HOME/.emacs-sandbox"', 'SANDBOX_DIR="'+str(self.sandbox)+'"')
         script = self.root / name
         script.write_text(text)

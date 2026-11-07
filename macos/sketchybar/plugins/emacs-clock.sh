@@ -3,7 +3,7 @@
 # Emacs org-clock display plugin for sketchybar
 # Shows the currently clocked-in task name and elapsed time
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 GRUVBOX_YELLOW=0xFFfabd2f
 
 # If pushed from Emacs via event vars, use those directly

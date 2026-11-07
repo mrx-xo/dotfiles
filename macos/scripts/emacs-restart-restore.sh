@@ -11,7 +11,7 @@
 #   emacs-restart-restore.sh save-emacs   # only save emacs session state
 #   emacs-restart-restore.sh restore-yabai # only restore yabai space assignments
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 PLIST=~/Library/LaunchAgents/com.marcosandrade.emacsdaemon.plist
 # Lives in ~/.emacs.d (not /tmp) so it survives a reboot; overridable so
 # crash recovery can point it at the crash-state copy.

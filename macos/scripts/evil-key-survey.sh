@@ -20,7 +20,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$HERE/evil-key-survey"
-EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
+EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@31/bin/emacs}"
 export EKS_DIR="${EKS_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/eks.XXXXXX")}"
 trap 'rm -rf "$EKS_DIR"' EXIT
 

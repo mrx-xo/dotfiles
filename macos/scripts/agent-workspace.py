@@ -180,7 +180,7 @@ def open_url(url):
 
 
 def sandbox_frame(show=False, test=False):
-    client = os.environ.get("EMACSCLIENT", "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient")
+    client = os.environ.get("EMACSCLIENT", "/opt/homebrew/opt/emacs-plus@31/bin/emacsclient")
     # Do not use emacsclient -c: its server path raises the new frame.
     expression = """(progn
       (unless (and (equal (daemonp) "sandbox") (equal server-name "sandbox"))

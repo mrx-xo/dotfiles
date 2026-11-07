@@ -1,7 +1,7 @@
 #!/bin/bash
 # Wait for the daemon to be ready, then open a client frame
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 MAX_ATTEMPTS=30
 ATTEMPT=0
 

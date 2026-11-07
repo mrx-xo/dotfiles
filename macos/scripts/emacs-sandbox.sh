@@ -5,8 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX_DIR="${SANDBOX_DIR:-$HOME/.emacs-sandbox}"
 SOURCE_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
-EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
-EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
+EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@31/bin/emacs}"
+EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@31/bin/emacsclient}"
 SOCKET_NAME="sandbox"
 AUTO_TEST=""; KILL_DAEMON=""; FRESH=""; RESTART=""; WINDOW_MODE=""
 RUNTIME_ARGS=()

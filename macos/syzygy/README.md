@@ -188,7 +188,7 @@ wrapper below in a directory on the plist's PATH.
   `printf '%s\n' '#!/bin/sh' '/Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' > ~/.local/bin/tailscale && chmod 755 ~/.local/bin/tailscale`
   (POLLUX has the same wrapper in `/usr/local/bin` from the app's CLI
   install). Keep `config.json` with
-  `{"extraPath": ["<home>/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["<hub MagicDNS name>"]}`
+  `{"extraPath": ["<home>/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@31/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["<hub MagicDNS name>"]}`
   for the tools acp-mobile spawns and the hub it trusts.
 - Windows: the Tailscale installer puts `C:\Program Files\Tailscale` on the
   machine PATH, which is what makes it resolve. The `extraPath` entry in
@@ -210,7 +210,7 @@ mkdir -p ~/.acp-mobile ~/.local/bin ~/Library/Logs/acp-mobile   # launchd cannot
 printf '%s\n' '#!/bin/sh' '/Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' > ~/.local/bin/tailscale
 chmod 755 ~/.local/bin/tailscale
 HUB='<hub MagicDNS name>'
-printf '{"extraPath": ["%s/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@30/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["%s"]}\n' "$HOME" "$HUB" > ~/.acp-mobile/config.json
+printf '{"extraPath": ["%s/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@31/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["%s"]}\n' "$HOME" "$HUB" > ~/.acp-mobile/config.json
 python3 -m json.tool ~/.acp-mobile/config.json
 zsh -lc '~/.dotfiles/macos/syzygy/build-acp-tools.sh'
 launchctl bootstrap gui/$(id -u) ~/.dotfiles/macos/syzygy/com.marcosandrade.acp-mobile.plist

@@ -23,7 +23,7 @@
         <string>/Users/marcosandrade</string>
         <!-- config.json extraPath extends this further inside acp-mobile -->
         <key>PATH</key>
-        <string>/Users/marcosandrade/.local/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/opt/emacs-plus@30/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>/Users/marcosandrade/.local/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/opt/emacs-plus@31/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 
     <key>StandardOutPath</key>

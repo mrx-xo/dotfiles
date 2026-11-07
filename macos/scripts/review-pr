@@ -10,7 +10,7 @@ set -euo pipefail
 
 URL="${1:-https://omphalos.io/mr-x/review-fixtures/pulls/1}"
 SOCKET="${REVIEW_EMACS_SOCKET:-sandbox}"
-EMACSCLIENT=/opt/homebrew/opt/emacs-plus@30/bin/emacsclient
+EMACSCLIENT=/opt/homebrew/opt/emacs-plus@31/bin/emacsclient
 
 case "$URL" in
   *'"'* | *'\'*) echo "review-pr: unexpected characters in URL" >&2; exit 1 ;;

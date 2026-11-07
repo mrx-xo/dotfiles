@@ -16,7 +16,7 @@ SCRIPTS="$HOME/.dotfiles/macos/scripts"
 EMACSD="$HOME/.dotfiles/macos/emacs/.emacs.d"
 LISP="$EMACSD/lisp"
 FLAG="$HOME/.claude/agent-tmux-enabled"
-EMACS_BATCH="/opt/homebrew/opt/emacs-plus@30/bin/emacs"
+EMACS_BATCH="/opt/homebrew/opt/emacs-plus@31/bin/emacs"
 LIVE=0; INEMACS=0
 for arg in "$@"; do
   case "$arg" in

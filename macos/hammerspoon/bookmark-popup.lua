@@ -13,7 +13,7 @@ function M:launch()
     math.floor(area.x), math.floor(area.y), math.floor(area.w), math.floor(area.h))
 
   self.task = hs.task.new(
-    "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient",
+    "/opt/homebrew/opt/emacs-plus@31/bin/emacsclient",
     function(code, stdout, stderr)
       self.task = nil
       if code ~= 0 then

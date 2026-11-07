@@ -147,7 +147,7 @@ The main ERT smoke suite is
 `init.el`, run it and confirm the tangled output remains synchronized.
 
 ```bash
-/opt/homebrew/opt/emacs-plus@30/bin/emacs --batch \
+/opt/homebrew/opt/emacs-plus@31/bin/emacs --batch \
   -l ~/.emacs.d/init.el \
   -l ~/.emacs.d/tests/config-tests.el \
   -f ert-run-tests-batch-and-exit

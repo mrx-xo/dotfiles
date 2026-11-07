@@ -183,7 +183,7 @@ first definition; its source ranges and parked old-side origin remain correct.
 After touching `emacs.org`/`init.el`:
 
 ```bash
-/opt/homebrew/opt/emacs-plus@30/bin/emacs --batch \
+/opt/homebrew/opt/emacs-plus@31/bin/emacs --batch \
   -l ~/.emacs.d/init.el \
   -l ~/.emacs.d/tests/config-tests.el \
   -f ert-run-tests-batch-and-exit

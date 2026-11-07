@@ -3,8 +3,8 @@
 # Restart/shutdown authorization and lifecycle actions belong to the caller.
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@30/bin/emacs}"
-EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
+EMACS="${EMACS:-/opt/homebrew/opt/emacs-plus@31/bin/emacs}"
+EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@31/bin/emacsclient}"
 INIT_DIR="${EMACS_CONFIG_SOURCE:-$HOME/.emacs.d}"
 RUNTIME_ARGS=()
 [[ -z "${EMACS_RUNTIME_DIRECTORY:-}" ]] || RUNTIME_ARGS=(--runtime-directory "$EMACS_RUNTIME_DIRECTORY")

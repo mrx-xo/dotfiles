@@ -1,7 +1,7 @@
 #!/bin/bash
 # Restart Emacs daemon and open a new client frame
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 PLIST=~/Library/LaunchAgents/com.marcosandrade.emacsdaemon.plist
 
 # Confirm before tearing the daemon down. skhd binds this to Cmd+Shift+R

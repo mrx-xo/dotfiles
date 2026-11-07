@@ -2,7 +2,7 @@
 # Dedicated org-agenda frame
 # Opens Focus agenda view ("f") in a new emacsclient frame
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 
 # If an agenda frame already exists, focus it instead of creating a new one
 EXISTING=$(yabai -m query --windows | jq -r '.[] | select(.app == "Emacs" and (.title | contains("Agenda"))) | .id' | head -1)
