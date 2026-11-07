@@ -187,7 +187,7 @@ def sandbox_frame(show=False, test=False):
         (error "Not the sandbox daemon"))
       (let ((frame (or (seq-find (lambda (f) (and (display-graphic-p f)
                                                   (not (frame-parent f)))) (frame-list))
-                       (make-frame '((name . "SANDBOX") (no-focus-on-map . t))))))
+                       (make-frame '((window-system . ns) (name . "SANDBOX") (no-focus-on-map . t))))))
         (modify-frame-parameters frame '((no-focus-on-map . t)))
         (make-frame-visible frame)
         %s
