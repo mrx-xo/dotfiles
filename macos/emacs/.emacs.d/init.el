@@ -4635,6 +4635,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
+        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")

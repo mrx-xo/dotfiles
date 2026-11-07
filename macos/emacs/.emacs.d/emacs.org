@@ -4863,6 +4863,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
+        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
@@ -10181,6 +10182,42 @@ Resolves agent config once, then spawns shells staggered 3s apart."
         ;; ============================================
         ;; Bash Command Watcher
         ;; ============================================
+        (defun mr-x/agent-shell-detach-to-ghostty ()
+          "Resume the current Claude conversation in a new Ghostty window.
+Runs `claude --resume <session-id>' in the shell's project directory, so
+the same transcript continues outside Emacs.  Use it before anything that
+restarts the daemon.  Send turns from one side at a time: the terminal and
+agent-shell writing to one transcript together corrupts it."
+          (interactive)
+          (let* ((shell (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+                            (ignore-errors (agent-shell--current-shell))
+                            (user-error "Not in an agent shell")))
+                 (id (map-nested-elt (buffer-local-value 'agent-shell--state shell)
+                                     '(:session :id)))
+                 (cwd (with-current-buffer shell
+                        (directory-file-name
+                         (file-truename (agent-shell--resolve-path (agent-shell-cwd))))))
+                 ;; Claude names its project dir after the resolved cwd with every
+                 ;; non-alphanumeric character turned into "-".
+                 (transcript (expand-file-name
+                              (concat (replace-regexp-in-string "[^[:alnum:]]" "-" cwd)
+                                      "/" (or id "") ".jsonl")
+                              "~/.claude/projects/"))
+                 (claude (executable-find "claude")))
+            (unless id (user-error "Shell has no live session yet"))
+            (unless claude (user-error "claude is not on exec-path"))
+            (unless (file-exists-p transcript)
+              (user-error "%s has no Claude transcript (%s); only Claude chats can detach"
+                          (buffer-name shell) (abbreviate-file-name transcript)))
+            (call-process "open" nil 0 nil "-na" "Ghostty.app" "--args"
+                          (concat "--working-directory=" cwd)
+                          "--wait-after-command=true"
+                          "-e" "/bin/zsh" "-lc"
+                          (format "exec %s --resume %s"
+                                  (shell-quote-argument claude) (shell-quote-argument id)))
+            (message "Resuming %s in Ghostty; send turns from one side at a time"
+                     (substring id 0 8))))
+
 
         (defvar mr-x/bash-watcher-buffer "*Bash Watcher*"
           "Buffer name for watching Bash commands.")
