@@ -628,6 +628,42 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                   (switch-to-prev-buffer))
               (agent-shell--display-buffer shell-buffer))))
 
+        (defun mr-x/agent-shell-detach-to-ghostty ()
+          "Resume the current Claude conversation in a new Ghostty window.
+Runs `claude --resume <session-id>' in the shell's project directory, so
+the same transcript continues outside Emacs.  Use it before anything that
+restarts the daemon.  Send turns from one side at a time: the terminal and
+agent-shell writing to one transcript together corrupts it."
+          (interactive)
+          (let* ((shell (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+                            (ignore-errors (agent-shell--current-shell))
+                            (user-error "Not in an agent shell")))
+                 (id (map-nested-elt (buffer-local-value 'agent-shell--state shell)
+                                     '(:session :id)))
+                 (cwd (with-current-buffer shell
+                        (directory-file-name
+                         (file-truename (agent-shell--resolve-path (agent-shell-cwd))))))
+                 ;; Claude names its project dir after the resolved cwd with every
+                 ;; non-alphanumeric character turned into "-".
+                 (transcript (expand-file-name
+                              (concat (replace-regexp-in-string "[^[:alnum:]]" "-" cwd)
+                                      "/" (or id "") ".jsonl")
+                              "~/.claude/projects/"))
+                 (claude (executable-find "claude")))
+            (unless id (user-error "Shell has no live session yet"))
+            (unless claude (user-error "claude is not on exec-path"))
+            (unless (file-exists-p transcript)
+              (user-error "%s has no Claude transcript (%s); only Claude chats can detach"
+                          (buffer-name shell) (abbreviate-file-name transcript)))
+            (call-process "open" nil 0 nil "-na" "Ghostty.app" "--args"
+                          (concat "--working-directory=" cwd)
+                          "--wait-after-command=true"
+                          "-e" "/bin/zsh" "-lc"
+                          (format "exec %s --resume %s"
+                                  (shell-quote-argument claude) (shell-quote-argument id)))
+            (message "Resuming %s in Ghostty; send turns from one side at a time"
+                     (substring id 0 8))))
+
         (defun mr-x/agent-shell-test-prompt ()
           "Send a random test prompt to exercise agent-shell functionality."
           (interactive)
