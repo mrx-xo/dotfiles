@@ -20,7 +20,7 @@ set -u
 
 STATE_DIR="${AWAY_STATE_DIR:-$HOME/.config/away-mode}"
 STATE="$STATE_DIR/state"
-EMACSCLIENT=/opt/homebrew/opt/emacs-plus@30/bin/emacsclient
+EMACSCLIENT=/opt/homebrew/opt/emacs-plus@31/bin/emacsclient
 SU_PLIST=/Library/Preferences/com.apple.SoftwareUpdate
 COMMERCE_PLIST=/Library/Preferences/com.apple.commerce
 HOMELAB_TS=100.80.97.50

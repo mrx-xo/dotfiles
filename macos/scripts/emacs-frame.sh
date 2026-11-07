@@ -6,7 +6,7 @@
 # already in progress falls back to waiting for it.
 set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@30/bin/emacsclient}"
+EMACSCLIENT="${EMACSCLIENT:-/opt/homebrew/opt/emacs-plus@31/bin/emacsclient}"
 CLIENT=("$EMACSCLIENT" --socket-name=server --alternate-editor=false)
 if timeout 5 "${CLIENT[@]}" --eval t >/dev/null 2>&1; then
     exec "${CLIENT[@]}" -c -n

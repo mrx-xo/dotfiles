@@ -140,7 +140,7 @@ class DiagnosticsTest(unittest.TestCase):
         init = self.root / 'init "界\n'
         init.mkdir()
         run = self.module.create_run(self.root, "fixture", init)
-        emacs = "/opt/homebrew/opt/emacs-plus@30/bin/emacs"
+        emacs = "/opt/homebrew/opt/emacs-plus@31/bin/emacs"
         library = SCRIPT.parents[1] / "emacs/.emacs.d/lisp"
         env = dict(os.environ, FIXTURE_RUN=str(run), FIXTURE_INIT=str(init))
         result = subprocess.run([emacs, "--batch", "-Q", "-L", str(library),
@@ -223,7 +223,7 @@ env=dict(os.environ, MR_X_EMACS_RUN_ID=run.name, MR_X_EMACS_RUN_DIRECTORY=str(ru
 setup='(setq server-name "fixture" user-emacs-directory '+json.dumps(str(init)+"/")+')'
 ''' + ('' if uninitialized else '''setup+='(setq mr-x/crash-runtime--identity (list :run-id (getenv "MR_X_EMACS_RUN_ID") :pid (emacs-pid)))'
 ''') + '''
-r=subprocess.run(["/opt/homebrew/opt/emacs-plus@30/bin/emacs","--batch","-Q","--eval","(progn "+setup+")","--eval","(prin1 "+sys.argv[-1]+")"],env=env)
+r=subprocess.run(["/opt/homebrew/opt/emacs-plus@31/bin/emacs","--batch","-Q","--eval","(progn "+setup+")","--eval","(prin1 "+sys.argv[-1]+")"],env=env)
 sys.exit(r.returncode)
 ''')
         result = self.launch(emacs, client, "0.6")

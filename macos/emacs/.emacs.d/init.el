@@ -6792,7 +6792,7 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :config
     ;; Fix for daemon mode - explicitly set the emacsclient path
     (setq with-editor-emacsclient-executable
-          "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"))
+          "/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"))
 
   ;; Pane-aware magit display: fullcolumn-most-v1 splits below the
   ;; selected window and deletes the rest of the column — invoked from
@@ -6816,7 +6816,7 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     (magit-display-buffer-function #'mr-x/magit-display-buffer-pane-aware)
     :init
     ;; Fix for daemon mode - set EDITOR globally so git uses emacsclient
-    (setenv "EDITOR" "/opt/homebrew/opt/emacs-plus@30/bin/emacsclient")
+    (setenv "EDITOR" "/opt/homebrew/opt/emacs-plus@31/bin/emacsclient")
     :bind
     (:map magit-mode-map
           ("s-<return>" . magit-diff-visit-worktree-file-other-window)))

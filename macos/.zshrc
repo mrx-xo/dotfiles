@@ -236,8 +236,8 @@ icue() {
 }
 
 # Emacs-plus@30 aliases
-alias emacs="$(brew --prefix emacs-plus@30)/bin/emacs"
-alias emacsclient="$(brew --prefix emacs-plus@30)/bin/emacsclient"
+alias emacs="$(brew --prefix emacs-plus@31)/bin/emacs"
+alias emacsclient="$(brew --prefix emacs-plus@31)/bin/emacsclient"
 
 # Emacs daemon and client aliases
 alias ec='emacsclient -n'           # Open in existing frame, no wait

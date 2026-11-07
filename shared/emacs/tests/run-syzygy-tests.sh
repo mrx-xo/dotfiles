@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 root="$PWD"
 
-emacs=/opt/homebrew/opt/emacs-plus@30/bin/emacs
+emacs=/opt/homebrew/opt/emacs-plus@31/bin/emacs
 if [[ "${1:-}" == "--emacs" ]]; then
   emacs="${2:?--emacs needs a path}"
   shift 2

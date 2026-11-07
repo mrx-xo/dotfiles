@@ -100,7 +100,7 @@ done
 
 # Reload, never restart: the daemon is holding agent-shell conversations.
 if [ "$emacs_moved" = 1 ] && [ "$reload_emacs" = 1 ]; then
-  EC=/opt/homebrew/opt/emacs-plus@30/bin/emacsclient
+  EC=/opt/homebrew/opt/emacs-plus@31/bin/emacsclient
   if [ ! -x "$EC" ]; then
     printf "%-12s skipped reload (no emacsclient at %s)\n" "emacs" "$EC"
   elif ! "$EC" --eval t >/dev/null 2>&1; then

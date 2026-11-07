@@ -4,7 +4,7 @@
 # One slot item per perspective name — positions stay fixed,
 # background highlight + brightness move to the active one
 
-EMACSCLIENT="/opt/homebrew/opt/emacs-plus@30/bin/emacsclient"
+EMACSCLIENT="/opt/homebrew/opt/emacs-plus@31/bin/emacsclient"
 WHITE=0xFFFFFFFF
 DIM=0x60FFFFFF
 HIGHLIGHT=0x00000000
