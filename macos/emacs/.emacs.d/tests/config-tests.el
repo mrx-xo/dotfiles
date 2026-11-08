@@ -1900,6 +1900,15 @@ Evil-normal 1/2/3 digit binds were retired in the F-key migration."
           (call-interactively (config-test--leader-key "g r")))))
     (should (eq opened 'range))))
 
+(ert-deftest config-test-review-conversation-enabled-with-workflow ()
+  "Loading the PR workflow enables linked chat without changing frame placement."
+  (require 'pr-workflow)
+  (should (featurep 'review-conversation))
+  (should review-conversation-mode)
+  (should (eq review-walkthrough-agent-session-function #'review-conversation--ensure-shell))
+  (should review-session-pop-out)
+  (should review-panel-pop-out))
+
 (ert-deftest config-test-mode-hydra-dispatches-pr-buffers ()
   "SPC , in a PR diff opens the PR hydra."
   (let (opened)

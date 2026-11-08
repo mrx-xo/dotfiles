@@ -1923,7 +1923,7 @@ With \\[universal-argument] ARG, do a full-text line search instead."
   ;;; ============================================
 
   (defvar mr-x/file-grab-roots '("~/.dotfiles" "~/roaming")
-    "Roots that `mr-x/copy-file-path' offers files from.")
+    "Roots that `mr-x/insert-file-at-point' offers files from.")
 
   (defun mr-x/file-grab--candidates ()
     "All files under `mr-x/file-grab-roots' as abbreviated paths.
@@ -1933,22 +1933,21 @@ Uses fd: respects .gitignore, includes dotfiles, skips .git."
                    "--exclude" ".git" "--absolute-path" "."
                    (mapcar #'expand-file-name mr-x/file-grab-roots))))
 
-  (defun mr-x/copy-file-path ()
-    "Pick a file from the usual roots and copy its absolute path.
+  (defun mr-x/insert-file-at-point ()
+    "Pick a file from the usual roots and insert its absolute path at point.
 Flat list — orderless matches anywhere in the path, no directory
 navigation.  Candidates are file targets, so embark actions
 (`s-r') work on them too."
     (interactive)
     (let* ((files (mr-x/file-grab--candidates))
            (choice (completing-read
-                    "Copy path: "
+                    "Insert path: "
                     (lambda (str pred action)
                       (if (eq action 'metadata)
                           '(metadata (category . file))
                         (complete-with-action action files str pred)))
                     nil t)))
-      (kill-new (expand-file-name choice))
-      (message "Copied: %s" (expand-file-name choice))))
+      (insert (expand-file-name choice))))
 
   ;;; ============================================
   ;;; Mdox Format Spec & Tooling
@@ -4635,8 +4634,8 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
-        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
+        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
         "c N" '(agent-shell-push-mode :wk "Phone push toggle (done/perms to DAEMON)")
@@ -4713,7 +4712,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g p" '(magit-push-current :wk "push current")
         "g P" '(magit-pull-branch :wk "pull branch")
         "g r" '(mr-x/review :wk "review (PR here, else a range)")
-        "g R" '(mr-x/pr-list :wk "pull requests")
+        "g R" '(mr-x/pr-list :wk "pull requests (C-u pick repo)")
         "g w" '(review-session-resume :wk "review: back / resume (C-u pick)")
         "g f" '(magit-fetch :wk "fetch"))
 
@@ -5254,7 +5253,7 @@ background, and inheriting them whole paints text over itself."
         "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
         "? t" '(mr-x/tldr :wk "tldr (examples)")
         "? m" '(consult-man :wk "Man (search all pages)")
-        "F" '(mr-x/copy-file-path :wk "Copy file path")
+        "F" '(mr-x/insert-file-at-point :wk "Insert file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)")
         "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask focus/hide"))
 
@@ -6623,8 +6622,6 @@ TRAMP can't match under a PTY — both need pipe mode."
     ;; Use consult for xref
     (setq xref-show-xrefs-function #'consult-xref
           xref-show-definitions-function #'consult-xref)
-    ;; Preview on consult-line: grab symbol at point
-    (consult-customize consult-line :add-history (thing-at-point 'symbol))
     ;; Auto-preview in consult-imenu
     (consult-customize consult-imenu :preview-key 'any))
 
@@ -7461,6 +7458,10 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
                mr-x/pr-review-session mr-x/review-git-range review-session-resume)
     :config
+    ;; Continue with the walkthrough's own agent inside the review frame.
+    ;; Agent-shell itself stays lazy; opening a review does not start an agent.
+    (require 'review-conversation)
+    (review-conversation-mode 1)
     ;; Review comments: a floating compose box at the commented line, like
     ;; Quick Ask's card.  The package ships only the window style; the box
     ;; and the Evil state are this config's.  C-c C-t switches the two.
@@ -7752,6 +7753,16 @@ With prefix arg OPEN, also open it in the browser."
                :noquery t)))
       (message "Keymap explorer up: %s" url)))
     (when open (browse-url url))))
+
+(defun mr-x/keymap-explorer-open ()
+  "Open the keymap explorer in the default browser.
+Starts the live-server first if nothing is listening yet."
+  (interactive)
+  (unless (or (process-live-p mr-x/keymap-explorer--process)
+              (mr-x/keymap-explorer--port-busy-p))
+    (mr-x/keymap-explorer-serve)
+    (sleep-for 0.5))
+  (browse-url (format "http://localhost:%d/" mr-x/keymap-explorer-port)))
 
 (defun mr-x/keymap-explorer-stop ()
   "Stop the keymap explorer live-server started by Emacs."
@@ -9324,8 +9335,9 @@ Appends to the current year's transaction file."
                           '("nemesis" "pollux" "pollux nemesis"
                             "nemesis pollux" "pollux work" "status"
                             "toggle romulus" "toggle remus"
-                            "romulus pollux" "romulus nemesis"
+                            "romulus pollux" "romulus nemesis" "romulus work"
                             "remus pollux" "remus nemesis" "remus work"
+                            "lupa pollux" "lupa work" "reset"
                             "flip" "flip normal" "flip flipped"
                             "solo romulus" "solo remus" "solo off"
                             "kill romulus" "kill remus" "kill lupa"))))
@@ -9364,7 +9376,7 @@ Appends to the current year's transaction file."
   (mr-x/mon--run "nemesis"))
 
 (defun mr-x/mon-pollux ()
-  "ROMULUS + REMUS -> POLLUX."
+  "ROMULUS + REMUS + LUPA -> POLLUX."
   (interactive)
   (mr-x/mon--run "pollux"))
 
