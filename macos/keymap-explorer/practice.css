@@ -36,7 +36,6 @@ html.practicing .masthead > .seg { display:none; }
 html.practicing body { padding:32px 36px 26px; }
 html.practicing .masthead { align-items:center; padding-bottom:24px; border-bottom:1px solid var(--line); }
 html.practicing .masthead h1 { font-size:18px; font-weight:500; }
-html.practicing .masthead .eyebrow { font-size:10px; letter-spacing:.1em; }
 #practice { font:14px var(--mono); }
 #practice [hidden] { display:none !important; }
 #practice :focus-visible, .practice-nav :focus-visible { outline:2px solid var(--amber); outline-offset:4px; }

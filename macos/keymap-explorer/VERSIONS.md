@@ -1,7 +1,7 @@
 # Layout version ledger
 
 One integer per **flashed** layout, forever incrementing. "What version is on
-the board?" is answered here and in the explorer's eyebrow and footer.
+the board?" is answered here and in the explorer's layout picker.
 
 A flash promotes a draft: it gets a keymap.c reference and a flash date here,
 the old current is marked retired, and the explorer's `cur` maps are updated
@@ -94,6 +94,25 @@ branch `mrx`). Its entries cite that checkout's commit.
 - Knob on Base turns a mouse wheel (`MS_WHLU` / `MS_WHLD`, needs
   `MOUSEKEY_ENABLE = yes`); held Shift / Cmd / Alt give horizontal / zoom /
   fast scroll from macOS. Volume moves to the Symbols turn; Prev/Next drop.
+
+### v4: draft, not flashed
+
+- Status: explorer draft. Owner: Iris layout in `macos/keymap-explorer/`.
+- Starts from flashed v3. System #33 (Base `N`) adds **Shot · Copy**,
+  beside the existing **Shot · Area** at #34 (Base `S`). Hold Space +
+  Enter for System, then tap #33 to request area capture to the clipboard.
+- Planned keycode: `LCTL(LSG(KC_4))` (Ctrl+Cmd+Shift+4).
+- Host prerequisite: assign Ctrl+Cmd+Shift+4 to CleanShot X's
+  **Capture Area & Copy to Clipboard**. On 2026-10-23 this action has no
+  saved shortcut, and the matching macOS screenshot shortcut is disabled.
+  Shortcut setup and physical capture/paste acceptance remain pending.
+- Firmware implementation, compilation, and flashing both halves remain
+  pending. Current v3, Practice, and the wallpaper widget keep the flashed map.
+- Emacs one-shot layer #27 (Base `E`) adds **Embark**: press #52 + #53
+  together, release, then tap E. Planned keycode `LGUI(KC_R)` sends Cmd+R
+  to the existing `embark-act` binding (verified live 2026-11-04).
+  Hyper+E keeps its Emacs window shortcut; no new Emacs binding is needed.
+  Included in the explorer draft; firmware and physical acceptance are pending.
 
 ## Ledger: KOMAX (Keychron K0 Max, keychron/k0_max)
 

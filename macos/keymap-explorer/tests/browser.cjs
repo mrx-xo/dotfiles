@@ -138,8 +138,7 @@ const assert = require('node:assert/strict');
             indicators: [
               delta.backgroundColor,
               getComputedStyle(count).borderTopColor,
-              getComputedStyle(summary).borderLeftColor,
-              getComputedStyle(document.querySelector('.l-pro-change i')).borderTopColor
+              getComputedStyle(summary).borderLeftColor
             ],
             textContrast: {
               count: contrast(rgba(getComputedStyle(count).color), background(count)),
@@ -157,6 +156,32 @@ const assert = require('node:assert/strict');
       await page.locator('#ir-tabs button[data-l="5"]').click();
       assert.match(await page.locator('#ir-board').textContent(), /imenu/);
     }
+    // Draft v4 differs from flashed v3 at System #33 and Emacs #27. Switching versions
+    // must not mutate current, and either comparison pane can show the draft.
+    await page.locator('#sel-ir-a').selectOption('cur');
+    await page.locator('#ir-tabs button[data-l="3"]').click();
+    const flashedSystem = await page.locator('#ir-board .key').evaluateAll(keys => keys.map(k => k.title));
+    assert.equal(flashedSystem[33], '#33 · KC_TRNS');
+    await page.locator('#sel-ir-a').selectOption('draft');
+    const draftShot = page.locator('#ir-board .key').nth(33);
+    assert.equal(await draftShot.locator('.tap').textContent(), 'Shot');
+    assert.equal(await draftShot.locator('.hold').textContent(), 'Copy');
+    assert.equal(await draftShot.getAttribute('title'), '#33 · LCTL(LSG(KC_4))');
+    assert.equal(await page.locator('#ir-board .key').nth(34).getAttribute('title'), flashedSystem[34]);
+    for (let layer = 0; layer < 6; layer++) {
+      await page.locator(`#ir-tabs button[data-l="${layer}"]`).click();
+      assert.deepEqual(await page.locator('#ir-board .key').evaluateAll(keys =>
+        keys.flatMap((key, i) => key.classList.contains('pro-change') ? [i] : [])), layer === 3 ? [33] : layer === 5 ? [27] : []);
+    }
+    await page.locator('#ir-tabs button[data-l="3"]').click();
+    assert.match(await page.locator('#ir-pro-change-summary').textContent(), /current v3/);
+    await page.locator('#btn-ir-both').click();
+    await page.locator('#sel-ir-a').selectOption('cur');
+    await page.locator('#sel-ir-b').selectOption('draft');
+    assert.deepEqual(await page.locator('#ir-board .key').evaluateAll(keys => keys.map(k => k.title)), flashedSystem);
+    assert.deepEqual(await page.locator('#ir-board2 .key').evaluateAll(keys =>
+      keys.flatMap((key, i) => key.classList.contains('pro-change') ? [i] : [])), [33]);
+    await page.locator('#btn-ir-single').click();
     await page.getByRole('button', {name:'Practice',exact:true}).first().click();
     await page.getByRole('button', {name:'Start a round',exact:true}).click();
     await page.getByRole('button', {name:'Reveal keys',exact:true}).click();

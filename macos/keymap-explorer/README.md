@@ -22,9 +22,9 @@ history up to `c39eb8b`. KOMAX took over the Creator Micro's slot on
 agent-open "file://$HOME/.dotfiles/macos/keymap-explorer/index.html"
 ```
 
-`#idx` in the hash numbers every key (0-55, `LAYOUT` order), same as the
-`key #s` button. `#komax` opens the KOMAX board (`#komax&idx` numbers its
-keys 0-26).
+Key numbers are on by default (Iris 0-55, `LAYOUT` order; KOMAX 0-26).
+The `key #s` button toggles them. `#komax` opens the KOMAX board.
+Widgets keep numbers hidden unless `&idx` is added to the hash.
 
 ## What it shows
 
@@ -43,6 +43,15 @@ keys 0-26).
   `S` position (#34), labeled `Shot · Area`. `LSG(KC_4)` sends Cmd+Shift+4
   to start CleanShot X area selection using its existing shortcut. Explorer
   and firmware now agree; physical shortcut acceptance remains pending.
+- **Draft v4** adds `Shot · Copy` at System #33 beside #34, using
+  `LCTL(LSG(KC_4))` (Ctrl+Cmd+Shift+4). Select **Draft v4 · not flashed**
+  and **3 · System** to preview it; cyan marks changes against current v3.
+  CleanShot's clipboard shortcut setup and firmware work are pending;
+  [the v4 ledger](VERSIONS.md#v4-draft-not-flashed) tracks those requirements.
+- **Draft v4 · Emacs** adds **Embark** at #27 (Base `E`). Press #52 + #53
+  together, release, then tap E; the planned key sends Cmd+R (`embark-act`).
+  Select **Draft v4 · not flashed** and **5 · Emacs** to preview it.
+  Firmware implementation and flashing remain pending.
 
 ## Practice
 
@@ -197,7 +206,9 @@ microphone and types into its focused app. This does not forward audio.
 These Hammerspoon bindings cover **all connected keypads** on the opted-in
 Mac. They consume keypad plus/Enter, leaving the main keyboard's plus and
 Return alone. Knob+Enter still selects the firmware Fn combo. Firmware
-continues to emit `KC_PPLS` / `KC_PENT`; the explorer shows those raw keys.
+continues to emit `KC_PPLS` / `KC_PENT`. The overlay labels them **Voice /
+Windows** and **Voice / Mac**, retaining the raw keycodes in their tooltips.
+The explorer's firmware views keep the raw key legends for layout comparisons.
 
 The Mac module is `macos/hammerspoon/keyboard-voice.lua`, enabled when
 `~/.config/keyboard-voice/enabled` exists. Put the Windows SSH alias alone in
@@ -281,6 +292,11 @@ The floating panel stays above ordinary app windows and requests full-screen
 auxiliary behavior; native full-screen apps need separate live verification.
 Wallpaper mode still belongs to the portrait display. Its visibility toggle
 changes the saved wallpaper state while the floating panel is open.
+
+Both wallpaper and floating views use transparent native windows with translucent
+dark panels and keycaps. Labels stay fully opaque and use brighter colours for
+contrast. Adjust the `html.widget` CSS in `index.html` directly to change this
+appearance; there is no separate widget theme picker.
 
 After editing the widget host, reload Hammerspoon with `hs -c 'hs.reload()'`;
 after editing shortcuts, run `skhd --reload`. Reloading Hammerspoon returns
