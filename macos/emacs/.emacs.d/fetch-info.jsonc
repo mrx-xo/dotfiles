@@ -1,0 +1,10 @@
+// Info column for the *fetch* splash (mr-x/fetch--parts in emacs.org).
+// fastfetch 2.x dropped CLI module options, so the custom line lives here.
+{
+  "logo": { "type": "none" },
+  "modules": [
+    "title", "separator", "os", "kernel", "uptime", "packages",
+    { "type": "custom", "format": "{#1;33}Status{#}: swag" },
+    "shell", "cpu", "memory"
+  ]
+}

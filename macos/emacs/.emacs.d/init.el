@@ -154,6 +154,8 @@
 
 (run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 
+(setq native-comp-async-report-warnings-errors 'silent)
+
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (add-to-list 'load-path (expand-file-name "~/.dotfiles/shared/emacs/lisp/syzygy"))
 
@@ -3905,10 +3907,10 @@ separately lets us do the column math (and responsive layouts) here."
             (split-string
              (replace-regexp-in-string
               trim "" (mr-x/fetch--run
-                       "--logo" "none"
-                       "--custom-format" "{#1;33}Status{#}: swag"
-                       "--structure"
-                       "title:separator:os:kernel:uptime:packages:custom:shell:cpu:memory"))
+                       ;; fastfetch 2.x removed CLI module options
+                       ;; (--custom-format), so the module list lives in JSON.
+                       "-c" (expand-file-name "fetch-info.jsonc"
+                                              user-emacs-directory)))
              "\n"))))
 
   (defun mr-x/fetch--compose-wide ()
