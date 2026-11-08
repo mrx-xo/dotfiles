@@ -67,8 +67,13 @@ def parse_usage(response):
         current = _legacy_percent(response, "five_hour")
     if weekly is None:
         weekly = _legacy_percent(response, "seven_day")
-    if current is None or weekly is None:
-        raise ValueError("Claude response has no session or weekly usage")
+    if weekly is None:
+        raise ValueError("Claude response has no weekly usage")
+    # The server drops the session window entirely (five_hour null, no
+    # "session" limit) when nothing has been used in the current 5-hour
+    # block. That is an idle session, not a broken response.
+    if current is None:
+        current = 0
 
     # The trailing pipe is its own sketchybar item, so it never takes a color.
     primary_label = "{}% · {}%".format(current, weekly)

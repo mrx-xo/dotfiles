@@ -117,6 +117,30 @@ class ClaudeUsageParserTest(unittest.TestCase):
             ("9% · 40%", None, "normal", "normal"),
         )
 
+    def test_idle_session_reads_as_zero_instead_of_failing(self):
+        # Live shape seen 2026-11-08 right after the weekly reset: no session
+        # window at all (five_hour null, no "session" limit), weekly at 0, and
+        # the Fable scoped limit present but inactive. Failing here made the
+        # plugin fall back to a stale cache forever.
+        parser = load_parser()
+        response = {
+            "five_hour": None,
+            "seven_day": {"utilization": 0.0, "resets_at": "2026-11-15T06:59:59Z"},
+            "limits": [
+                {"kind": "weekly_all", "group": "weekly", "percent": 0,
+                 "severity": "normal", "scope": None, "is_active": True},
+                {"kind": "weekly_scoped", "group": "weekly", "percent": 0,
+                 "severity": "normal", "is_active": False,
+                 "scope": {"model": {"id": None, "display_name": "Fable"},
+                           "surface": None}},
+            ],
+        }
+
+        self.assertEqual(
+            parser.parse_usage(response),
+            ("0% · 0%", "0%", "normal", "normal"),
+        )
+
     def test_uses_latest_desktop_history_sample_when_api_is_unavailable(self):
         parser = load_parser()
         self.assertTrue(
