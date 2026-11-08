@@ -29,6 +29,8 @@ check "keyboards off runs keyboard-lights off"   "keyboards off"  0 "keyboard-li
 check "keyboards on runs keyboard-lights on"     "keyboards on"   0 "keyboard-lights on"
 check "keyboards bogus is refused"               "keyboards bogus" 1 -
 check "keyboards off; id is refused"             "keyboards off; id" 1 -
+check "romulus work reaches monitor-mode" "romulus work" 0 "monitor-mode.sh romulus work"
+check "romulus work injection is refused" "romulus work; id" 1 -
 check "empty command is refused"                 "" 1 -
 
 echo "$pass passed, $fail failed"

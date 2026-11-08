@@ -19,6 +19,9 @@ if [ "$1" = get ] && [[ "$*" == *"--uuid=8C207E30-FF6D-4624-A998-F6D7962597F6"* 
   [ -e "$HOME/romulus-away" ] && { echo Failed.; exit 1; }
   echo 4370
 fi
+if [ "$1" = get ] && [[ "$*" == *"--uuid=56FEF42D-88B7-46E3-9C9B-7746A0929EB7"* ]]; then
+  echo 4369
+fi
 exit 0
 STUB
 cat > "$T/bin/displayplacer" <<'STUB'
@@ -26,11 +29,13 @@ cat > "$T/bin/displayplacer" <<'STUB'
 # both Dells online Mac-side
 echo "Persistent screen id: 0CDDE5CC-F566-4B56-85FD-48B8EA229946"
 echo "Persistent screen id: 8C207E30-FF6D-4624-A998-F6D7962597F6"
+echo "Persistent screen id: 56FEF42D-88B7-46E3-9C9B-7746A0929EB7"
 STUB
 for s in osascript ssh; do
   printf '#!/usr/bin/env bash\necho "%s $*" >> "$HOME/calls.log"; exit 0\n' "$s" > "$T/bin/$s"
 done
 printf '#!/usr/bin/env bash\necho "yabai $*" >> "$HOME/calls.log"; echo "[]"; exit 0\n' > "$T/bin/yabai"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/sleep"
 chmod +x "$T/bin/"*
 
 export HOME="$T/home" PATH="$T/bin:$PATH"
@@ -109,4 +114,28 @@ fresh pollux pollux; printf '#!/usr/bin/env bash\nexit 139\n' > "$T/bin/m1ddc"; 
 "$SCRIPT" nemesis >/dev/null 2>&1
 t "a crashing m1ddc (Sidecar attached) no longer matters: both Dells switch" \
   '[ "$(cat "$S/romulus")" = nemesis ] && [ "$(cat "$S/remus")" = nemesis ]'
+
+# kill on a Dell that is showing NEMESIS goes dark Windows-side (2026-10-11):
+# the HA "Kill ROMULUS" button used to answer "nothing to kill" in game mode.
+fresh nemesis nemesis; touch "$HOME/romulus-away"; "$SCRIPT" kill romulus >/dev/null 2>&1
+t "kill romulus on NEMESIS: mon-only4 keeps REMUS, then mon-assert; dark marker written" \
+  'grep -q "schtasks /run /tn mon-only4 && .*mon-assert" "$HOME/calls.log" && [ -e "$S/dark-romulus" ]'
+t "kill on NEMESIS never touches the Mac-side connection or DDC" \
+  '! grep -q -- "--connected=off" "$HOME/calls.log" && ! grep -q "betterdisplaycli set" "$HOME/calls.log"'
+t "kill on NEMESIS: state file still says nemesis" '[ "$(cat "$S/romulus")" = nemesis ]'
+t "status shows the dark panel" '"$SCRIPT" status 2>/dev/null | grep -q "romulus:  nemesis (.*, dark on NEMESIS)"'
+rm -f "$HOME/calls.log"; "$SCRIPT" kill romulus >/dev/null 2>&1
+t "kill romulus again: back on NEMESIS via mon-extend + layout, marker cleared" \
+  'grep -q "schtasks /run /tn mon-extend && .*mon-layout-normal && .*mon-assert" "$HOME/calls.log" && [ ! -e "$S/dark-romulus" ]'
+
+fresh nemesis nemesis; touch "$HOME/romulus-away"; "$SCRIPT" kill remus >/dev/null 2>&1
+t "kill remus on NEMESIS: mon-only3 keeps ROMULUS" \
+  'grep -q "schtasks /run /tn mon-only3 && .*mon-assert" "$HOME/calls.log" && [ -e "$S/dark-remus" ]'
+
+fresh nemesis pollux; touch "$HOME/romulus-away"; "$SCRIPT" kill romulus >/dev/null 2>&1
+t "kill romulus refused when it is NEMESIS's last display: no SSH" \
+  '! grep -q "^ssh" "$HOME/calls.log" && grep -q "NEMESIS.s last display" "$HOME/calls.log"'
+
+fresh nemesis nemesis; touch "$HOME/romulus-away"; touch "$S/dark-romulus"; "$SCRIPT" nemesis >/dev/null 2>&1
+t "a desk preset re-extends and clears a NEMESIS-side kill" '[ ! -e "$S/dark-romulus" ]'
 exit $fail
