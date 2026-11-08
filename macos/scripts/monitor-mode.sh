@@ -5,7 +5,7 @@
 # name. ROMULUS and REMUS are the Dell S2719DGF twins (ROMULUS sits left in
 # the normal layout; they swap places), LUPA is the portrait S2725HS, TIBER
 # is the built-in display. POLLUX is MrX, NEMESIS is VENGEANCE, work is the
-# work laptop (REMUS only).
+# work laptop (ROMULUS, REMUS and LUPA).
 #
 # Desk states (idempotent, CM v3 monitors layer): name what ROMULUS shows,
 # then what REMUS shows; one name means both.
@@ -14,10 +14,12 @@
 #   monitor-mode.sh pollux nemesis  # ROMULUS -> POLLUX, REMUS -> NEMESIS
 #   monitor-mode.sh nemesis pollux  # ROMULUS -> NEMESIS, REMUS -> POLLUX
 #   monitor-mode.sh pollux work     # ROMULUS -> POLLUX, REMUS -> work laptop
+#                                  # LUPA also -> work; pollux/mac brings it home
 #
 # One display (mix & match freely):
-#   monitor-mode.sh romulus pollux|nemesis
+#   monitor-mode.sh romulus pollux|nemesis|work
 #   monitor-mode.sh remus   pollux|nemesis|work
+#   monitor-mode.sh lupa    pollux|work
 #   monitor-mode.sh toggle romulus|remus    # flip POLLUX <-> NEMESIS
 #
 # POLLUX on one Dell and nothing else, with everything still plugged in:
@@ -27,9 +29,12 @@
 # for a Dell brings it back, reset brings everything back. A Dell showing
 # another machine is left alone. TIBER and Sidecar are never touched.
 #
-# One display off POLLUX on its own (same drop as solo, one at a time):
+# One display dark, whichever machine it shows (one at a time):
 #   monitor-mode.sh kill romulus|remus|lupa  # again to bring it back
-# Refuses POLLUX's last display, and a Dell that is showing another machine.
+# On POLLUX it is the same drop as solo. On NEMESIS the panel is disabled
+# Windows-side (mon-only3/4 keep the other Dell; a dark-<panel> marker
+# remembers it, any desk preset re-extends and clears it). Refuses either
+# machine's last display, and a Dell that is showing the work laptop.
 #
 # Which way the Dells face (they turn around; LUPA stays put). NEMESIS only:
 # with both Dells on it, left/right is re-arranged to match.
@@ -44,11 +49,11 @@
 #   monitor-mode.sh nyx pollux|nemesis       # NYX: Sidecar display, or AIDOS remote (held)
 #
 # Diagnostics:
-#   monitor-mode.sh status          # which machine each Dell shows, NYX, facing
+#   monitor-mode.sh status          # which machine each external display shows, NYX, facing
 #   monitor-mode.sh hz              # real GDI refresh of NEMESIS displays (~25s)
 #
 # Escape hatch (ignores the state files; use when state got funky):
-#   monitor-mode.sh reset           # reconnect + DDC both -> POLLUX
+#   monitor-mode.sh reset           # reconnect + DDC all three -> POLLUX
 #
 # Sleep/wake every screen, whichever machine it is showing:
 #   monitor-mode.sh displays sleep|wake
@@ -94,13 +99,13 @@
 # raw 16-bit VCP value (Dell: 0x11xx), so only the low byte is the input.
 #
 # S2719DGF VCP 60 input values: DP=15, HDMI1(1.4)=17, HDMI2(2.0)=18
-# LUPA (S2725HS) is POLLUX-only for now — no NEMESIS cable run to it.
+# LUPA (S2725HS): HDMI1=17 -> POLLUX, HDMI2=18 -> work. No NEMESIS cable.
 
 set -euo pipefail
 
 ROMULUS="8C207E30-FF6D-4624-A998-F6D7962597F6"  # yabai display 3, left in the normal layout
 REMUS="0CDDE5CC-F566-4B56-85FD-48B8EA229946"    # yabai display 4, right in the normal layout
-LUPA="56FEF42D-88B7-46E3-9C9B-7746A0929EB7"     # portrait, POLLUX-only: on or off, never switched
+LUPA="56FEF42D-88B7-46E3-9C9B-7746A0929EB7"     # portrait, POLLUX/work
 
 DP=15       # NEMESIS
 HDMI_14=17  # work laptop hub
@@ -151,7 +156,15 @@ uuid_for() {
   esac
 }
 
-input_for() {
+input_for() {  # input_for <machine> <display>: LUPA's HDMI mapping is reversed
+  if [ "${2:-}" = lupa ]; then
+    case "$1" in
+      pollux) echo 17 ;;
+      work)   echo 18 ;;
+      *) echo "unsupported machine for lupa: $1 (want pollux|work)" >&2; return 1 ;;
+    esac
+    return 0
+  fi
   case "$1" in
     pollux)  echo $HDMI_20 ;;
     nemesis) echo $DP ;;
@@ -176,18 +189,18 @@ label() {  # notification text for a display or machine name
   esac
 }
 
-ddc_set_input() {  # ddc_set_input <romulus|remus> <vcp-value>
+ddc_set_input() {  # ddc_set_input <romulus|remus|lupa> <vcp-value>
   betterdisplaycli set --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect --value="$2" > /dev/null 2>&1
 }
 
-ddc_get_input() {  # ddc_get_input <romulus|remus> -> input value (low byte)
+ddc_get_input() {  # ddc_get_input <romulus|remus|lupa> -> input value (low byte)
   local raw
   raw=$(betterdisplaycli get --uuid="$(uuid_for "$1")" --ddc --vcp=inputSelect 2>/dev/null) || return 1
   [[ "$raw" =~ ^[0-9]+$ ]] || return 1
   echo $((raw & 0xFF))
 }
 
-bd_connect() {  # bd_connect <romulus|remus> <on|off>
+bd_connect() {  # bd_connect <romulus|remus|lupa> <on|off>
   betterdisplaycli set --uuid="$(uuid_for "$1")" --connected="$2" > /dev/null 2>&1
 }
 
@@ -252,13 +265,14 @@ maybe_restore() {
   restore_layout
 }
 
-set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
+set_display() {  # set_display <romulus|remus|lupa> <pollux|nemesis|work>
   # DDC only reaches the display while the Mac-side connection is up,
   # so: ensure connected -> DDC-switch input -> disconnect unless the
   # target is POLLUX itself.
   # The Anker adapter throws transient DDC I/O errors — retry before
   # giving up, and never record state for a flip that didn't happen.
-  local try cur
+  local try cur input
+  input=$(input_for "$2" "$1") || return 1
   cur=$(current_machine "$1")
   # Windows shuffle onto surviving displays the moment one disconnects —
   # snapshot before the first pollux->away flip, while everything is home.
@@ -283,7 +297,7 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
     wait_ddc "$1" || { notify "FAILED: $1 never re-enumerated"; return 1; }
   fi
   for try in 1 2 3 4 5 6; do
-    if ddc_set_input "$1" "$(input_for "$2")"; then
+    if ddc_set_input "$1" "$input"; then
       echo "$2" > "$STATE_DIR/$1"
       # No phantom desktop: drop the display from macOS while it shows
       # another machine. (Its DDC becomes unreachable until reconnect.)
@@ -300,7 +314,7 @@ set_display() {  # set_display <romulus|remus> <pollux|nemesis|work>
   return 1
 }
 
-force_pollux() {  # force_pollux <romulus|remus>: ignore state, put it on POLLUX
+force_pollux() {  # force_pollux <romulus|remus|lupa>: ignore state, put it on POLLUX
   # The reset path. Skips no step: reconnect if dropped, DDC to the POLLUX
   # input, record pollux. State is written even when DDC fails so the next
   # preset does the full dance instead of trusting a stale file.
@@ -312,7 +326,7 @@ force_pollux() {  # force_pollux <romulus|remus>: ignore state, put it on POLLUX
   fi
   RESTORE_PENDING="$RESTORE_PENDING $(uuid_for "$1")"
   for try in 1 2 3; do
-    ddc_set_input "$1" "$HDMI_20" && return 0
+    ddc_set_input "$1" "$(input_for pollux "$1")" && return 0
     sleep 0.4
   done
   notify "reset: $(label "$1") -> POLLUX failed (DDC error x3)"
@@ -331,11 +345,10 @@ drop_display() {  # drop_display <romulus|remus|lupa>: off POLLUX, input untouch
 
 lupa_on() {  # reconnect LUPA if solo dropped it
   [ "$(cat "$STATE_DIR/lupa" 2>/dev/null)" = off ] || return 0
-  if ! ddc_visible lupa; then
-    bd_connect lupa on
-    wait_ddc lupa || { notify "FAILED: LUPA never re-enumerated"; return 1; }
-    RESTORE_PENDING="$RESTORE_PENDING $LUPA"
-  fi
+  # A dock replug can make a dropped display visible again. Clear the
+  # saved off state, but preserve a manual change to the work input.
+  [ "$(current_machine lupa)" != work ] || return 0
+  set_display lupa pollux || return 1
   echo pollux > "$STATE_DIR/lupa"
 }
 
@@ -347,7 +360,7 @@ solo() {  # solo <romulus|remus>: POLLUX on that Dell and nothing else
   # The other Dell is dropped only while POLLUX is what it shows; one
   # pointed at another machine is already off the Mac and keeps its picture.
   if [ "$(current_machine "$other")" = pollux ]; then drop_display "$other" || true; fi
-  drop_display lupa || true
+  if [ "$(current_machine lupa)" = pollux ]; then drop_display lupa || true; fi
   notify "Solo: POLLUX on $(label "$keep") only"
   sync_windows
   maybe_restore
@@ -366,15 +379,10 @@ solo_off() {  # reconnect whatever solo dropped
 
 kill_display() {  # kill_display <romulus|remus|lupa>: off POLLUX, or back if already off
   local d="$1" cur
-  if [ "$d" = lupa ]; then
-    # LUPA has no input to read: enumerated means on, whatever the file says.
-    if ddc_visible lupa; then cur=pollux; else cur=$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux); fi
-  else
-    cur=$(current_machine "$d")
-  fi
+  cur=$(current_machine "$d")
   case "$cur" in
     off)
-      if [ "$d" = lupa ]; then lupa_on || return 1; else set_display "$d" pollux || return 1; fi
+      set_display "$d" pollux || return 1
       notify "$(label "$d") back on POLLUX"
       ;;
     pollux)
@@ -391,12 +399,45 @@ kill_display() {  # kill_display <romulus|remus|lupa>: off POLLUX, or back if al
       drop_display "$d" || return 1
       notify "$(label "$d") off"
       ;;
+    nemesis)
+      kill_nemesis "$d"
+      ;;
     *)
       echo "$d is showing $cur; nothing to kill" >&2
       notify "$(label "$d") is showing $(label "$cur"); nothing to kill"
       return 1
       ;;
   esac
+}
+
+kill_nemesis() {  # kill_nemesis <romulus|remus>: dark on NEMESIS, or back if already dark
+  # POLLUX cannot reach a Dell that shows NEMESIS (no DDC, not enumerated),
+  # so the panel is disabled Windows-side instead: mon-only3 keeps ROMULUS
+  # (display 3), mon-only4 keeps REMUS (display 4). Windows refuses to
+  # disable its last display, so refuse that here, before any SSH.
+  local d="$1" other task
+  if [ "$d" = romulus ]; then other=remus; task=mon-only4; else other=romulus; task=mon-only3; fi
+  if [ -e "$STATE_DIR/dark-$d" ]; then
+    rm -f "$STATE_DIR/dark-$d"
+    sync_windows
+    notify "$(label "$d") back on NEMESIS"
+    return 0
+  fi
+  if [ "$(current_machine "$other")" != nemesis ]; then
+    echo "refused: $d is NEMESIS's last display" >&2
+    notify "Refused: $(label "$d") is NEMESIS's last display"
+    return 1
+  fi
+  if ! ssh -n -o ConnectTimeout=4 -o BatchMode=yes \
+     -o ServerAliveInterval=5 -o ServerAliveCountMax=2 vengeance \
+     "MSYS_NO_PATHCONV=1 schtasks /run /tn $task && MSYS_NO_PATHCONV=1 schtasks /run /tn mon-assert" \
+     >"$STATE_DIR/windows-sync.log" 2>&1; then
+    echo "NEMESIS $task failed; see $STATE_DIR/windows-sync.log" >&2
+    notify "Kill failed: NEMESIS may be asleep or unreachable"
+    return 1
+  fi
+  touch "$STATE_DIR/dark-$d"
+  notify "$(label "$d") dark on NEMESIS"
 }
 
 check_drift() {  # notify when an away display is enumerated Mac-side again
@@ -406,11 +447,19 @@ check_drift() {  # notify when an away display is enumerated Mac-side again
   # since a flip connects the display before it disconnects it.
   [ -e "$BUSY" ] && return 0
   local d cur key
-  for d in romulus remus; do
+  for d in romulus remus lupa; do
     cur=$(current_machine "$d")
+    # A readable Mac input does not clear the intent to keep LUPA off.
+    if [ "$d" = lupa ] && [ "$cur" = pollux ] && [ "$(cat "$STATE_DIR/lupa" 2>/dev/null)" = off ]; then
+      cur=off
+    fi
     [ "$cur" != pollux ] && ddc_visible "$d" || continue
     if [ "$cur" = off ]; then
       notify "$(label "$d") is back on POLLUX but solo dropped it. Run solo again, or ctrl+alt+0 to reset."
+      continue
+    fi
+    if [ "$d" = lupa ]; then
+      notify "LUPA is back on POLLUX but state says $cur. Run mon lupa work, or ctrl+alt+0 to reset."
       continue
     fi
     case "$cur" in nemesis) key="ctrl+alt+$([ "$d" = romulus ] && echo 3 || echo 4)" ;;
@@ -419,18 +468,25 @@ check_drift() {  # notify when an away display is enumerated Mac-side again
   done
 }
 
-current_machine() {  # current_machine <romulus|remus> -> pollux|nemesis|work
-  # romulus: live DDC read (authoritative, catches manual OSD changes),
+current_machine() {  # current_machine <romulus|remus|lupa> -> pollux|nemesis|work|off
+  # romulus/lupa: live DDC read (authoritative, catches manual OSD changes),
   #          state file as fallback.
   # remus:   state file ONLY. The Anker adapter's DDC reads not only
   #         fail — they sometimes return garbage WITH exit 0, which
   #         must never be trusted.
   local val
-  if [ "$1" = romulus ] && val=$(ddc_get_input "$1"); then
-    case "$val" in
-      $DP) echo nemesis ;; $HDMI_14) echo work ;; $HDMI_20) echo pollux ;;
-      *) cat "$STATE_DIR/$1" 2>/dev/null || echo pollux ;;
-    esac
+  if [ "$1" != remus ] && val=$(ddc_get_input "$1"); then
+    if [ "$1" = lupa ]; then
+      case "$val" in
+        17) echo pollux ;; 18) echo work ;;
+        *) cat "$STATE_DIR/$1" 2>/dev/null || echo pollux ;;
+      esac
+    else
+      case "$val" in
+        $DP) echo nemesis ;; $HDMI_14) echo work ;; $HDMI_20) echo pollux ;;
+        *) cat "$STATE_DIR/$1" 2>/dev/null || echo pollux ;;
+      esac
+    fi
   else
     cat "$STATE_DIR/$1" 2>/dev/null || echo pollux
   fi
@@ -490,7 +546,7 @@ release_display() {  # release_display <display> <holder>
 status_json() {
   local d sep=""
   printf '{'
-  for d in romulus remus; do
+  for d in romulus remus lupa; do
     printf '%s"%s":{"machine":"%s","claimedBy":"%s"}' "$sep" "$d" \
       "$(current_machine "$d")" "$(claim_get "$d" holder)"
     sep=","
@@ -554,7 +610,7 @@ nyx_set() {  # nyx_set <pollux|nemesis>: POLLUX = Sidecar connected, NEMESIS = A
       # side (SidecarErrorDeviceTimedOut, seen 2026-10-21); one retry lands it.
       out=$("$SIDECAR_BIN" release 2>&1) &&
         { out=$("$SIDECAR_BIN" connect 2>&1) || { sleep 3; out=$("$SIDECAR_BIN" connect 2>&1); }; } ;;
-    nemesis) out=$("$SIDECAR_BIN" hold 2>&1) && out=$("$SIDECAR_BIN" disconnect 2>&1) ;;
+    nemesis) out=$("$SIDECAR_BIN" remote 2>&1) ;;
     *) return 1 ;;
   esac || {
     # Helper output can carry quotes and Lua tracebacks; osascript must never see them.
@@ -582,7 +638,6 @@ fire() {  # fire <pollux|nemesis|work> [screens]: screens -> machine
   for s in $set; do
     case "$s" in
       romulus)
-        if [ "$m" = work ]; then notify "ROMULUS cannot show the work laptop"; continue; fi
         dells=1; set_display romulus "$m" && moved="$moved ROMULUS" || rc=1 ;;
       remus)
         dells=1
@@ -642,10 +697,18 @@ flip() {  # flip [normal|flipped]: record which way the Dells face
 
 desk() {  # desk <romulus-machine> <remus-machine>: a full desk state
   set_display romulus "$1"; set_display remus "$2"
+  local extra=""
+  if [ "$2" = work ]; then
+    set_display lupa work
+    extra=", LUPA -> work laptop"
+  elif [ "$1" = pollux ] && [ "$2" = pollux ]; then
+    set_display lupa pollux
+    extra=", LUPA -> POLLUX"
+  fi
   if [ "$1" = "$2" ]; then
-    notify "ROMULUS + REMUS -> $(label "$1")"
+    notify "ROMULUS + REMUS -> $(label "$1")$extra"
   else
-    notify "ROMULUS -> $(label "$1"), REMUS -> $(label "$2")"
+    notify "ROMULUS -> $(label "$1"), REMUS -> $(label "$2")$extra"
   fi
   sync_windows
   maybe_restore
@@ -659,6 +722,9 @@ sync_windows() {
   # MultiMonitorTool. Wait for SSH to submit the tasks: a detached SSH
   # process can die when Emacs closes the command's PTY on script exit.
   local c r task wake=""
+  # The topology below is re-derived from scratch, so a NEMESIS-side kill
+  # (see kill_nemesis) is over: any desk preset brings the panel back.
+  rm -f "$STATE_DIR"/dark-*
   c=$(current_machine romulus); r=$(current_machine remus)
   if   [ "$c" = nemesis ] && [ "$r" = nemesis ]; then task=mon-extend
   elif [ "$r" = nemesis ];                       then task=mon-only4
@@ -733,10 +799,12 @@ case "${1:-}" in
     m1=$(machine_name "$1"); m2=$(machine_name "${2:-$1}")
     desk "$m1" "$m2"
     ;;
-  romulus|remus|center|right|3|4)
+  romulus|remus|lupa|center|right|3|4)
     [ -n "${2:-}" ] || { echo "usage: $(basename "$0") $1 <pollux|nemesis|work>" >&2; exit 1; }
-    d=$(display_name "$1"); m=$(machine_name "$2")
-    set_display "$d" "$m" && notify "$(label "$d") -> $(label "$m")"
+    if [ "$1" = lupa ]; then d=lupa; else d=$(display_name "$1"); fi
+    m=$(machine_name "$2")
+    set_display "$d" "$m" || exit 1
+    notify "$(label "$d") -> $(label "$m")"
     sync_windows
     maybe_restore
     ;;
@@ -767,8 +835,8 @@ case "${1:-}" in
     ;;
   reset)
     force_pollux romulus || true; force_pollux remus || true
-    lupa_on || true
-    notify "Reset: ROMULUS + REMUS -> POLLUX (state cleared)"
+    force_pollux lupa || true
+    notify "Reset: ROMULUS + REMUS + LUPA -> POLLUX (state cleared)"
     sync_windows
     maybe_restore
     ;;
@@ -817,12 +885,11 @@ case "${1:-}" in
     armed_list
     ;;
   status)
-    for d in romulus remus; do
+    for d in romulus remus lupa; do
       if ddc_visible "$d"; then conn=connected; else conn=disconnected; fi
+      [ -e "$STATE_DIR/dark-$d" ] && conn="$conn, dark on NEMESIS"
       printf '%-9s %s (%s)\n' "$d:" "$(current_machine "$d")" "$conn"
     done
-    if ddc_visible lupa; then conn=connected; else conn=disconnected; fi
-    printf '%-9s %s (%s)\n' "lupa:" "$(cat "$STATE_DIR/lupa" 2>/dev/null || echo pollux)" "$conn"
     case "$("$SIDECAR_BIN" status 2>/dev/null)" in
       *"hold on"*) hold=on ;; *"hold off"*) hold=off ;; *) hold=unknown ;;
     esac

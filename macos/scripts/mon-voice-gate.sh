@@ -17,7 +17,7 @@ case "$cmd" in
   # desk states: what ROMULUS shows, then what REMUS shows
   pollux|nemesis) set -- $cmd ;;
   pollux\ nemesis|nemesis\ pollux|pollux\ work) set -- $cmd ;;
-  romulus\ pollux|romulus\ nemesis) set -- $cmd ;;
+  romulus\ pollux|romulus\ nemesis|romulus\ work) set -- $cmd ;;
   remus\ pollux|remus\ nemesis|remus\ work) set -- $cmd ;;
   lupa\ pollux|lupa\ work) set -- $cmd ;;
   toggle\ romulus|toggle\ remus) set -- $cmd ;;

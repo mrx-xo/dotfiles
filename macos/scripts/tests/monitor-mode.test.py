@@ -68,6 +68,7 @@ class ClaimTest(unittest.TestCase):
             "osascript": "exit 0",
             "ssh": "exit 0",
             "yabai": "echo '[]'",
+            "sleep": "exit 0",
         }.items():
             exe = bindir / name
             exe.write_text("#!/bin/bash\n" + body + "\n")
@@ -140,6 +141,7 @@ class ClaimTest(unittest.TestCase):
             self.assertEqual((self.state / "remus").read_text().strip(), "nemesis")
         finally:
             holder.kill()
+            holder.wait()
 
     def test_stale_lock_is_taken_over(self):
         lock = self.state / "lock.d"
@@ -164,8 +166,17 @@ case "$*" in
   *--connected=off*) grep -v "$uuid" "$HOME/visible" > "$HOME/visible.new"
                      mv "$HOME/visible.new" "$HOME/visible" ;;
   *--connected=on*)  echo "$uuid" >> "$HOME/visible" ;;
+  set*--ddc*) [ -e "$HOME/fail-ddc" ] && exit 1
+              value=$(printf '%s\n' "$@" | sed -n 's/^--value=//p')
+              echo "$value" > "$HOME/input-$uuid" ;;
   get*) grep -q "$uuid" "$HOME/visible" || exit 1
-        echo 4370 ;;
+        if [ -f "$HOME/input-$uuid" ]; then
+          echo $((4352 + $(cat "$HOME/input-$uuid")))
+        elif [ "$uuid" = 56FEF42D-88B7-46E3-9C9B-7746A0929EB7 ]; then
+          echo 4369
+        else
+          echo 4370
+        fi ;;
 esac
 exit 0
 '''
@@ -187,8 +198,9 @@ class FakeDesk(unittest.TestCase):
         for name, body in {
             "betterdisplaycli": FAKE_BETTERDISPLAY,
             "displayplacer": 'sed "s/^/Persistent screen id: /" "$HOME/visible"',
-            "osascript": "exit 0",
+            "osascript": 'echo "$*" >> "$HOME/notifications.log"',
             "ssh": "exit 0",
+            "sleep": "exit 0",
             # enumerated displays, so the restore wait sees a reconnect at once
             "yabai": 'cat "$HOME/visible"',
         }.items():
@@ -345,6 +357,8 @@ class KomaxDesk(FakeDesk):
             exe = bindir / name
             exe.write_text("#!/bin/bash\n" + body + "\n")
             exe.chmod(0o755)
+        # FakeDesk stubs sleep for speed; the arm expiry needs the real one.
+        (bindir / "sleep").unlink(missing_ok=True)
         self.env["MONITOR_MODE_ARM_SECONDS"] = "1"
         sidecar = bindir / "sidecar"
         sidecar.write_text(
@@ -440,11 +454,24 @@ class FireTest(KomaxDesk):
         self.assertEqual(self.machine("remus"), "pollux")
         self.assertEqual(self.machine("lupa"), "pollux")
 
-    def test_romulus_to_work_is_skipped_but_remus_still_moves(self):
+    def test_both_armed_dells_can_move_to_work(self):
         self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
         self.run_mm("fire", "work")
-        self.assertEqual(self.machine("romulus"), "pollux")
+        self.assertEqual(self.machine("romulus"), "work")
         self.assertEqual(self.machine("remus"), "work")
+
+    def test_romulus_work_only_moves_romulus(self):
+        (self.state / "lupa").write_text("pollux\n")
+        for args in (("romulus", "work"), ("fire", "work", "romulus")):
+            with self.subTest(args=args):
+                result = self.run_mm(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.machine("romulus"), "work")
+                self.assertEqual(self.machine("remus"), "pollux")
+                self.assertEqual(self.machine("lupa"), "pollux")
+                self.assertNotIn(ROMULUS, self.visible())
+                self.run_mm("romulus", "pollux")
+                self.assertIn(ROMULUS, self.visible())
 
     def test_fire_syncs_windows_once(self):
         self.run_mm("arm", "romulus"); self.run_mm("arm", "remus")
@@ -513,10 +540,10 @@ class FireTest(KomaxDesk):
 
 
 class NyxTest(KomaxDesk):
-    def test_nyx_nemesis_holds_then_disconnects(self):
+    def test_nyx_nemesis_requests_native_remote(self):
         r = self.run_mm("nyx", "nemesis")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+        self.assertEqual(self.sidecar_calls(), ["remote"])
 
     def test_nyx_pollux_releases_then_connects(self):
         self.run_mm("nyx", "pollux")
@@ -537,12 +564,12 @@ class NyxTest(KomaxDesk):
         self.assertEqual(self.machine("romulus"), "pollux")
         self.assertEqual(self.machine("remus"), "pollux")
         self.assertNotIn("ssh ", self.calls())
-        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+        self.assertEqual(self.sidecar_calls(), ["remote"])
 
     def test_fire_with_dell_and_nyx_does_both(self):
         self.run_mm("arm", "romulus"); self.run_mm("arm", "nyx"); self.run_mm("fire", "nemesis")
         self.assertEqual(self.machine("romulus"), "nemesis")
-        self.assertEqual(self.sidecar_calls(), ["hold", "disconnect"])
+        self.assertEqual(self.sidecar_calls(), ["remote"])
 
     def test_fire_nyx_to_work_is_ignored(self):
         self.run_mm("arm", "nyx"); self.run_mm("fire", "work")
@@ -572,6 +599,150 @@ class NyxTest(KomaxDesk):
         self.assertIn("nyx:", out)
         self.assertIn("pollux", out.split("nyx:")[1])
         self.assertIn("(hold off)", out.split("nyx:")[1])
+
+
+class LupaSwitchTest(FakeDesk):
+    def setUp(self):
+        super().setUp()
+        (self.state / "lupa").write_text("pollux\n")
+
+    def test_work_switches_to_hdmi2_before_disconnecting(self):
+        r = self.run_mm("lupa", "work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("lupa"), "work")
+        self.assertEqual(self.visible(), {ROMULUS, REMUS})
+        calls = (self.home / "bd.log").read_text().splitlines()
+        switch = f"set --uuid={LUPA} --ddc --vcp=inputSelect --value=18"
+        disconnect = f"set --uuid={LUPA} --connected=off"
+        self.assertLess(calls.index(switch), calls.index(disconnect))
+
+    def test_pollux_reconnects_before_selecting_hdmi1(self):
+        (self.state / "lupa").write_text("work\n")
+        self.show(ROMULUS, REMUS)
+        r = self.run_mm("lupa", "pollux")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("lupa"), "pollux")
+        self.assertIn(LUPA, self.visible())
+        calls = (self.home / "bd.log").read_text().splitlines()
+        connect = f"set --uuid={LUPA} --connected=on"
+        switch = f"set --uuid={LUPA} --ddc --vcp=inputSelect --value=17"
+        self.assertLess(calls.index(connect), calls.index(switch))
+
+    def test_work_presets_include_lupa(self):
+        for args in [("work",), ("pollux", "work")]:
+            with self.subTest(args=args):
+                r = self.run_mm(*args)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.machine("lupa"), "work")
+                self.assertEqual(self.machine("remus"), "work")
+                self.assertEqual(self.visible(), {ROMULUS})
+
+    def test_mac_presets_return_lupa_from_work(self):
+        for args in [("mac",), ("pollux",)]:
+            with self.subTest(args=args):
+                (self.state / "lupa").write_text("work\n")
+                self.show(ROMULUS, REMUS)
+                r = self.run_mm(*args)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.machine("lupa"), "pollux")
+                self.assertIn(LUPA, self.visible())
+                self.assertIn(f"set --uuid={LUPA} --ddc --vcp=inputSelect --value=17",
+                              (self.home / "bd.log").read_text())
+
+    def test_reset_forces_mac_input_despite_stale_pollux_state(self):
+        (self.state / "lupa").write_text("pollux\n")
+        (self.home / f"input-{LUPA}").write_text("18\n")
+        r = self.run_mm("reset")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.home / f"input-{LUPA}").read_text().strip(), "17")
+
+    def test_status_and_json_read_lupa_input_with_its_own_mapping(self):
+        import json
+        for value, machine in [(17, "pollux"), (18, "work")]:
+            with self.subTest(machine=machine):
+                (self.home / f"input-{LUPA}").write_text(str(value))
+                r = self.run_mm("status")
+                line = next(line for line in r.stdout.splitlines() if line.startswith("lupa:"))
+                self.assertEqual(line.split()[1], machine)
+                data = json.loads(self.run_mm("json").stdout)
+                self.assertIn("lupa", data)
+                self.assertEqual(data["lupa"]["machine"], machine)
+
+    def test_solo_and_solo_off_preserve_lupa_on_work(self):
+        (self.state / "lupa").write_text("work\n")
+        self.show(ROMULUS, REMUS)
+        self.run_mm("solo", "remus")
+        r = self.run_mm("solo", "off")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("lupa"), "work")
+        self.assertNotIn(LUPA, self.visible())
+
+    def test_solo_off_clears_off_state_after_lupa_reenumerates(self):
+        self.run_mm("solo", "remus")
+        self.show(REMUS, LUPA)
+        r = self.run_mm("solo", "off")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.machine("lupa"), "pollux")
+        self.assertIn(LUPA, self.visible())
+
+    def test_check_warns_when_dropped_lupa_reenumerates_without_switching(self):
+        (self.state / "lupa").write_text("off\n")
+        r = self.run_mm("check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.home / "notifications.log").exists())
+        self.assertIn("LUPA", (self.home / "notifications.log").read_text())
+        self.assertEqual(self.machine("lupa"), "off")
+        self.assertNotIn("set ", (self.home / "bd.log").read_text())
+
+    def test_solo_does_not_drop_reenumerated_lupa_showing_work(self):
+        (self.home / f"input-{LUPA}").write_text("18\n")
+        r = self.run_mm("solo", "remus")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(LUPA, self.visible())
+        self.assertNotIn(f"set --uuid={LUPA} --connected=off",
+                         (self.home / "bd.log").read_text())
+
+    def test_kill_refuses_lupa_showing_work_even_if_reenumerated(self):
+        (self.home / f"input-{LUPA}").write_text("18\n")
+        r = self.run_mm("kill", "lupa")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nothing to kill", r.stderr)
+        self.assertIn(LUPA, self.visible())
+
+    def test_nemesis_is_rejected_without_switching_lupa(self):
+        r = self.run_mm("lupa", "nemesis")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("pollux|work", r.stderr)
+        self.assertEqual(self.visible(), {ROMULUS, REMUS, LUPA})
+        self.assertNotIn("set ", (self.home / "bd.log").read_text()
+                         if (self.home / "bd.log").exists() else "")
+
+    def test_failed_ddc_does_not_record_work_or_disconnect(self):
+        (self.state / "lupa").write_text("pollux\n")
+        (self.home / "fail-ddc").touch()
+        r = self.run_mm("lupa", "work")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.machine("lupa"), "pollux")
+        self.assertIn(LUPA, self.visible())
+
+
+class LupaVoiceGateTest(FakeDesk):
+    def test_voice_gate_allows_lupa_for_mac_and_work_only(self):
+        scripts = self.home / ".dotfiles/macos/scripts"
+        scripts.mkdir(parents=True)
+        monitor = scripts / "monitor-mode.sh"
+        monitor.write_text('#!/bin/bash\nprintf "%s\\n" "$*"\n')
+        monitor.chmod(0o755)
+        gate = SCRIPT.with_name("mon-voice-gate.sh")
+        for command in ["lupa pollux", "lupa work", "lupa nemesis", "lupa work; id"]:
+            with self.subTest(command=command):
+                env = dict(self.env, SSH_ORIGINAL_COMMAND=command)
+                r = subprocess.run(["/bin/bash", str(gate)], env=env,
+                                   capture_output=True, text=True, timeout=5)
+                allowed = command in ["lupa pollux", "lupa work"]
+                self.assertEqual(r.returncode, 0 if allowed else 1, r.stderr)
+                if allowed:
+                    self.assertEqual(r.stdout.strip(), command)
 
 
 if __name__ == "__main__":
