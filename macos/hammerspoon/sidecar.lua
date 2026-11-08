@@ -45,6 +45,7 @@ function M.new(api, config)
   end
 
   function self:release()
+    if self.remotePending then self:cancel() end
     if config.holdPath then os.remove(config.holdPath) end
   end
 
@@ -92,6 +93,9 @@ function M.new(api, config)
   end
 
   function self:cancel()
+    if self.remotePending then self.lastResult = "native app launch cancelled" end
+    self.remotePending = nil
+    self.remoteDetached = nil
     self.generation = self.generation + 1
     if self.timer then self.timer:stop(); self.timer = nil end
     if self.deadline then self.deadline:stop(); self.deadline = nil end
@@ -153,16 +157,87 @@ function M.new(api, config)
   end
 
   function self:connect()
+    if self.remotePending then self:cancel() end
     if self.task then return "Connection already in progress" end
     self:release()
     self:cancel()
     self.attempts = 0
+    if self:connected() and config.remoteBundle then
+      -- AIDOS may have suspended the existing session. Resume its iPad app
+      -- even though macOS still enumerates the Sidecar display.
+      self.lastResult = "connecting"
+      self:run(self.generation, "/usr/bin/xcrun", {"devicectl", "device", "process", "launch",
+        "--device", config.device, "--timeout", "15", "com.apple.sidecar"}, 20,
+        function(code, output, err)
+          if code == 0 then
+            self.lastResult = "connected"
+          else
+            self.lastResult = "Sidecar resume failed: " .. ((output or "") .. (err or "")):sub(1, 240)
+            api.alert.show(self.lastResult)
+          end
+        end)
+      return self.lastResult
+    end
     self:attempt(true)
     return self.lastResult
   end
 
+  function self:remote()
+    if type(config.remoteBundle) ~= "string" or config.remoteBundle == ""
+        or type(config.remoteLauncher) ~= "string" then
+      return false, "Native remote app is not configured"
+    end
+    self:hold()
+    self.remotePending = true
+    self.remoteDetached = not self:connected()
+    local generation = self.generation
+    local function finish(code, output, err)
+      if generation ~= self.generation then return end
+      self.remotePending = nil
+      if code == 0 then
+        self.lastResult = "native app launch requested"
+      else
+        self.lastResult = "Native app failed: " .. ((output or "") .. (err or "")):sub(1, 240)
+        api.alert.show(self.lastResult)
+      end
+    end
+    -- Disconnecting before the iPad foreground transition settles locks NYX.
+    -- Launch first, then give that transition three seconds before removing
+    -- the Mac display. The timer is cancelled by any return to Sidecar.
+    self.lastResult = "opening native app; unlock iPad if prompted"
+    self:run(generation, "/usr/bin/python3", {config.remoteLauncher,
+      "--device", config.device, "--bundle", config.remoteBundle}, 110,
+      function(code, output, err)
+        if code ~= 0 or not self:connected() then
+          finish(code, output, err)
+          return
+        end
+        self.lastResult = "waiting for native app transition"
+        self.timer = api.timer.doAfter(3, function()
+          if generation ~= self.generation then return end
+          self.timer = nil
+          if not self:connected() then finish(0, "", ""); return end
+          self.lastResult = "finishing native app switch"
+          self:run(generation, config.binary, {"disconnect", config.device}, 25, finish)
+        end)
+      end)
+    return true, self.lastResult
+  end
+
+  function self:observeRemoteScreen()
+    if not self.remotePending then return end
+    if not self:connected() then
+      self.remoteDetached = true
+    elseif self.remoteDetached then
+      -- A new Sidecar screen after disappearance is an external reconnect.
+      -- Ignore the old screen while our own disconnect is still settling.
+      self:release()
+    end
+  end
+
   function self:schedule()
-    if config.autoConnect == false or self.task or self:holding() then return end
+    self:observeRemoteScreen()
+    if config.autoConnect == false or self.remotePending or self.task or self:holding() then return end
     self:cancel()
     self.attempts = 0
     self.timer = api.timer.doAfter(5, function()
@@ -179,6 +254,8 @@ function M.new(api, config)
   end
 
   function self:start()
+    self.screenWatcher = api.screen.watcher.new(function() self:observeRemoteScreen() end)
+    self.screenWatcher:start()
     local events = api.caffeinate.watcher
     self.watcher = events.new(function(event)
       if event == events.systemDidWake or event == events.screensDidWake
@@ -198,6 +275,7 @@ function M.new(api, config)
 
   function self:stop()
     self:cancel()
+    if self.screenWatcher then self.screenWatcher:stop(); self.screenWatcher = nil end
     if self.watcher then self.watcher:stop(); self.watcher = nil end
     if self.hotkey then self.hotkey:delete(); self.hotkey = nil end
   end
