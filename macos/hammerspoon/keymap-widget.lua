@@ -28,7 +28,7 @@ local lastModsJS = "window.__setMods({cmd:false,alt:false,shift:false,ctrl:false
 local function applyPresentation(wv)
   local overlay = overlayScreen ~= nil
   wv:level(overlay and hs.drawing.windowLevels.floating or hs.drawing.windowLevels.desktopIcon)
-  wv:transparent(overlay)
+  wv:transparent(true)
   wv:shadow(overlay)
   wv:behaviorAsLabels(overlay and {"canJoinAllSpaces", "stationary", "fullScreenAuxiliary"}
     or {"canJoinAllSpaces", "stationary"})
