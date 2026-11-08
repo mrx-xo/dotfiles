@@ -1,6 +1,8 @@
 ;;; review-hydra.el --- Mode hydra for review panes and files -*- lexical-binding: t; -*-
 (require 'hydra)
 (require 'review-panel)
+(autoload 'review-conversation-continue "review-conversation" nil t)
+(autoload 'review-conversation-hide "review-conversation" nil t)
 
 (defun review-hydra--focus (window)
   "Select WINDOW and its frame."
@@ -58,7 +60,7 @@
  _C-k_: prev hunk      _K_: prev file        _h_: old pane   _l_: new pane         _A_: approve
  _C-n_: next step      _C-p_: prev step      _w_: wrap or scroll long lines      _X_: request changes
  _TAB_: fold           _x_: viewed           _a_: Quick Ask  _u_: park             _m_: merge
- _z_: strip
+ _z_: strip            _C_: Continue conversation   _H_: hide conversation
  _P_: pause review     _Q_: quit review      _q_: quit hydra"
   ;; Same keys as `review-session-keys'; review-hydra-test keeps them equal.
   ("C-j" review-session-next-hunk)
@@ -70,6 +72,8 @@
   ("x" review-session-toggle-viewed)
   ("TAB" review-hydra-fold)
   ("z" review-hydra-strip)
+  ("C" review-conversation-continue :exit t)
+  ("H" review-conversation-hide :exit t)
   ("w" review-session-toggle-long-lines)
   ("f" review-hydra-files :exit t)
   ("h" review-hydra-old :exit t)

@@ -8,6 +8,7 @@
 (require 'agent-shell-ui)
 (require 'agent-shell-markdown)
 (require 'agent-shell)
+(require 'review-conversation-test)
 
 ;; Focused batch runs load just the existing Quick Ask block.  Full-config
 ;; smoke runs already have it from init.el, and skip this extraction.
@@ -70,6 +71,79 @@
                      ("y" . mr-x/quick-ask--copy)))
     (should (eq (lookup-key mr-x/quick-ask-response-map (kbd (car binding)))
                 (cdr binding)))))
+
+(ert-deftest quick-ask-continue-preserves-panes-and-walkthrough-producer ()
+  (review-conversation-test--with s
+    (review-panel-open s)
+    (let* ((producer (review-conversation-test--shell "producer"))
+           (shell (review-conversation-test--shell "quick-ask"))
+           (mr-x/quick-ask--shell-buffer shell)
+           (mr-x/quick-ask--sessions (make-hash-table :test #'equal))
+           (old (review-session-old-window s))
+           (new (review-session-new-window s)))
+      (unwind-protect
+          (progn
+            (review-walkthrough-start review-walk-test--steps)
+            (review-conversation--accepted s producer)
+            (puthash "project" shell mr-x/quick-ask--sessions)
+            (with-temp-buffer
+              (setq-local mr-x/quick-ask--source-buffer (review-session-new-buffer s))
+              (cl-letf (((symbol-function 'mr-x/quick-ask--dismiss)
+                         (lambda () (select-window old)))
+                        ((symbol-function 'pop-to-buffer)
+                         (lambda (&rest _) (ert-fail "Review chat must not use generic buffer placement"))))
+                (call-interactively (lookup-key mr-x/quick-ask-response-map (kbd "c")))))
+            (should (eq (window-buffer old) (review-session-old-buffer s)))
+            (should (eq (window-buffer new) (review-session-new-buffer s)))
+            (should (eq (window-buffer (review-conversation--window s)) shell))
+            (should (>= (nth 1 (window-edges (review-conversation--window s)))
+                        (nth 3 (window-edges old))))
+            (should-not mr-x/quick-ask--shell-buffer)
+            (should (= 0 (hash-table-count mr-x/quick-ask--sessions)))
+            (should (equal "producer" (plist-get (plist-get (review-conversation--data s) :producer) :session-id)))
+            (with-current-buffer shell
+              (should (string-prefix-p " [Collapse] Quick Ask agent" (review-conversation--header)))
+              (should (string-match-p "Review context supplied" (plist-get
+                       (review-conversation--prompt-args (list :shell-buffer shell :prompt "why?")) :prompt))))
+            (review-walkthrough-next)
+            (should (eq (window-buffer (review-conversation--window s)) shell))
+            (review-conversation-hide)
+            (should-not (review-conversation--window s))
+            (should (buffer-live-p shell))
+            (should (eq (window-buffer old) (review-session-old-buffer s)))
+            (should (eq (window-buffer new) (review-session-new-buffer s)))
+            (review-conversation-continue)
+            (should (eq (window-buffer (review-conversation--window s)) producer)))
+        (kill-buffer shell)
+        (kill-buffer producer)))))
+
+(ert-deftest quick-ask-continue-outside-review-keeps-normal-placement ()
+  (review-conversation-test--with _s
+    (let* ((shell (review-conversation-test--shell "quick-ask"))
+           (mr-x/quick-ask--shell-buffer shell)
+           (mr-x/quick-ask--sessions (make-hash-table :test #'equal)) shown)
+      (unwind-protect
+          (with-temp-buffer
+            (setq-local mr-x/quick-ask--source-buffer (current-buffer))
+            (cl-letf (((symbol-function 'mr-x/quick-ask--dismiss) #'ignore)
+                      ((symbol-function 'pop-to-buffer) (lambda (buffer &rest _) (setq shown buffer))))
+              (mr-x/quick-ask--surface-session)
+              (should (eq shown shell))))
+        (kill-buffer shell)))))
+
+(ert-deftest quick-ask-continue-repairs-replaced-pane-and-can-reopen ()
+  (review-conversation-test--with s
+    (let ((shell (review-conversation-test--shell "quick-ask")))
+      (unwind-protect
+          (progn
+            (set-window-buffer (review-session-old-window s) shell)
+            (review-conversation-open-quick-ask s shell)
+            (should (eq (window-buffer (review-session-old-window s)) (review-session-old-buffer s)))
+            (should-not (review-conversation--data s))
+            (review-conversation-hide)
+            (review-conversation-continue)
+            (should (eq (window-buffer (review-conversation--window s)) shell)))
+        (kill-buffer shell)))))
 
 (ert-deftest quick-ask-park-keeps-review-origin-and-clean-context ()
   (review-session-test--with s
@@ -743,3 +817,31 @@
 
 (provide 'quick-ask-review-test)
 ;;; quick-ask-review-test.el ends here
+
+(defun quick-ask-review-test--dark-wrap-p (pos)
+  "Non-nil when the row at POS wraps onto a prefix painted in the card's dark colour.
+The box's own `wrap-prefix' is two bare spaces: on a dark row they show
+through in the body colour, a light notch at the left of the second line."
+  (let* ((prefix (get-text-property pos 'wrap-prefix))
+         (face (and (stringp prefix) (get-text-property 0 'face prefix))))
+    (and (stringp prefix)
+         (equal (plist-get face :background) (review-panel--hex 'bg-hard)))))
+
+(ert-deftest quick-ask-dark-rows-stay-dark-when-they-wrap ()
+  ;; A long origin, like a walkthrough step, wraps the context row; so can
+  ;; the keycaps in a narrow box.  Every dark row keeps its colour.
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (insert (review-panel-ask-context "step 2: a label long enough to wrap  /  ~/home-lab"))
+    (should (quick-ask-review-test--dark-wrap-p (point-min)))
+    (let ((footer (point)))
+      (insert (review-panel-ask-footer '(("RET" "ask" fg) ("C-g" "cancel" dim))))
+      (should (quick-ask-review-test--dark-wrap-p
+               (text-property-any footer (point-max) 'review-ask-footer t)))))
+  (with-temp-buffer
+    (mr-x/quick-ask-mode)
+    (review-panel-ask-card "a long origin  /  ~/home-lab" "why?" "because.")
+    (should (quick-ask-review-test--dark-wrap-p (point-min)))
+    (goto-char (point-max))
+    (forward-line -2)
+    (should (quick-ask-review-test--dark-wrap-p (point)))))

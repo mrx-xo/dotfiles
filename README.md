@@ -143,6 +143,23 @@ fall back to a foreground browser launch. The routing/focus regression suite is
 
 ### Read-only review sessions
 
+Review window diagnostics append UTC timestamps, daemon PID/run ID, frame
+creation/resize/deletion events, and review-issued yabai command start/exit
+records to `~/.emacs.d/var/review-diagnostics.log`. Queries retain only geometry
+and identifiers (window queries only retain this Emacs process); source text,
+conversation text and window titles from yabai are excluded. The log rotates
+at 1 MiB, retaining one `.1` file, and each event is written before returning
+so evidence survives a process crash. Logging errors do not interrupt reviews;
+`review-frame-log-last-error` holds the latest write error.
+
+After another review-related crash, preserve both log files alongside the
+matching `~/Library/Logs/DiagnosticReports/Emacs-*.ips` report. These logs are
+separate from the automatic crash bundles. A start without a matching end can
+locate the interrupted operation, but does not prove that operation caused
+the crash. External yabai hooks are not traced directly; their resulting
+review-frame size changes are recorded when Emacs processes them. Set
+`review-frame-log-file` to nil to disable this diagnostic capture.
+
 `SPC g R G` opens a picker for uncommitted changes (the default), staged
 changes, the latest commit, the last three commits, or branch changes since
 `main`. Each preset shows its Git expression. You can also type any revision

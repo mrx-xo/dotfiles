@@ -919,7 +919,7 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
 (defun review-panel--make-frame ()
   "Create a frame for review files without taking input focus."
   (save-selected-window
-    (make-frame (review-frame-parameters
+    (review-frame-create (review-frame-parameters
                  `((name . "Review files") (title . "Review files")
                    (width . ,review-panel-width)
                    (height . 45) (min-width . ,review-panel-strip-width)
@@ -1013,13 +1013,20 @@ the hydra.  Scrolling panes trade parking and asking for their sideways keys."
                              ("y" "copy" dim) ("r" "again" dim)))
                        (review-panel--gap 14)))))
 
+(defun review-panel--dark-wrap ()
+  "The wrap prefix for a dark row: the card's indent, in the row's colour.
+The box's own `wrap-prefix' is bare spaces, painted in the body colour;
+on a dark row that wraps, they show as a light notch at the left."
+  (propertize (review-panel--gap 12) 'face `(:background ,(review-panel--hex 'bg-hard))))
+
 (defun review-panel-ask-context (origin)
-  "The card's dark context row: a yellow ASK tag, then ORIGIN."
+  "The card's dark context row: a yellow ASK tag, then ORIGIN.
+A long origin, like a walkthrough step, wraps in the row's own colour."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (review-panel--row
      (concat (review-panel--gap 12) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
              (review-panel--gap 8) (review-panel--txt (or origin "") 'dim :height 0.83))
-     :bg 'bg-hard :pad '(8 8))))
+     :bg 'bg-hard :pad '(8 8) :props (list 'wrap-prefix (review-panel--dark-wrap)))))
 
 (defun review-panel-ask-footer (exits)
   "The card's dark footer: keycaps for EXITS, each (KEY LABEL TOKEN).
@@ -1028,8 +1035,9 @@ evil state tag at the row's left edge."
   (let ((review-panel--scale (/ (frame-char-width) 6.0)))
     (concat (review-panel--divider)
             (review-panel--spacer 8 'bg-hard)
-            (propertize (review-panel--row (review-panel--ask-exits exits) :bg 'bg-hard)
-                        'review-ask-footer t)
+            (review-panel--row (review-panel--ask-exits exits) :bg 'bg-hard
+                               :props (list 'review-ask-footer t
+                                            'wrap-prefix (review-panel--dark-wrap)))
             (review-panel--spacer 8 'bg-hard))))
 
 (defun review-panel-ask-indent ()
@@ -1102,10 +1110,7 @@ buffer showing line numbers counts only the answer's lines."
         (indent (lambda () (review-panel--gap 12)))
         (card-start (point)))
     (face-remap-set-base 'default :background (review-panel--hex 'bg-0))
-    (insert (review-panel--row
-             (concat (funcall indent) (review-panel--txt "ASK" 'yellow :weight 'bold :height 0.75)
-                     (review-panel--gap 8) (review-panel--txt (or origin "") 'dim :height 0.83))
-             :bg 'bg-hard :pad '(8 8)))
+    (insert (review-panel-ask-context origin))
     (let ((start (point)))
       (insert (review-panel--row (review-panel--txt question 'fg :weight 'medium) :pad '(10 10)))
       (put-text-property start (point) 'line-prefix (funcall indent))
@@ -1127,7 +1132,8 @@ buffer showing line numbers counts only the answer's lines."
       ;; Padding comes from spacer lines: extra line height on the row itself
       ;; would stretch every keycap's background to the full row.
       (insert (review-panel--spacer 8 'bg-hard)
-              (review-panel--row (review-panel--ask-exits) :bg 'bg-hard)
+              (review-panel--row (review-panel--ask-exits) :bg 'bg-hard
+                                 :props (list 'wrap-prefix (review-panel--dark-wrap)))
               (review-panel--spacer 8 'bg-hard))
       (put-text-property footer (point) 'display-line-numbers-disable t))))
 

@@ -69,7 +69,7 @@ a change.
   source files current hunk viewed layout frame panel
   old-buffer new-buffer old-window new-window request directory
   own-frame panel-frame (hscroll 0)
-  walkthrough notice return-state comments)
+  walkthrough notice return-state comments extensions)
 
 (defvar review-session--current nil "The live session, or nil.")
 (defvar review-session-update-hook nil "Run with the session after every change.")
@@ -1329,7 +1329,7 @@ On extra lines, such as the walkthrough card, open the line they stand above."
            (layout (unless pop-out (current-window-configuration)))
            (frame (if pop-out
                       (save-selected-window
-                        (make-frame (review-frame-parameters
+                        (review-frame-create (review-frame-parameters
                                      '((name . "Review diff") (title . "Review diff") (width . 160)
                                        (height . 45) (no-focus-on-map . t)))))
                     (selected-frame)))

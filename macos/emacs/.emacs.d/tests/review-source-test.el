@@ -469,7 +469,7 @@ BASE and HEAD are bound to the PR's base and head commits."
                  (review-source-key '(:kind git-range :directory "/tmp/x/" :range nil))))
   (should (string-match-p "worktree\\'" (review-source-key '(:kind git-range :directory "/tmp/x"))))
   (should (equal (review-source-key '(:kind forgejo :host "https://h" :owner "o" :repo "r" :number 3))
-                 "forgejo:o/r#3"))
+                 "forgejo:https://h/o/r#3"))
   (should (equal (review-source-key '(:kind github :owner "o" :name "n" :number 9)) "github:o/n#9")))
 
 (ert-deftest review-source-forgejo-recipe ()

@@ -76,7 +76,8 @@
           ;; finds the resumed review by the :request token.
           :walkthrough (let ((w (review-session-walkthrough session)))
                          (and (or (plist-get w :steps) (plist-get w :request)) w))
-          :comments (review-session-comments session))))
+          :comments (review-session-comments session)
+          :extensions (copy-tree (review-session-extensions session)))))
 
 (defun review-store--path (key)
   (expand-file-name (concat (md5 key) ".eld") review-store-directory))
@@ -198,12 +199,25 @@ nothing waits on its reply after a restart."
   "Start a review on RECORD's snapshot, where it was left.  Return the session.
 If restoring signals, RECORD is put back in memory and on disk first: a
 start that fails quits, and that quit drops the record."
+  ;; Older PR keys omitted the forge host.  Upgrade only this exact saved
+  ;; recipe, retaining the old file as a non-listed recovery copy.
+  (let* ((old-key (plist-get record :key))
+         (key (review-source-key (plist-get record :recipe))))
+    (unless (equal old-key key)
+      (setq record (plist-put (copy-tree record) :key key))
+      (review-store--write record)
+      (puthash key record review-store--memory)
+      (remhash old-key review-store--memory)
+      (let ((old-file (review-store--path old-key)))
+        (when (file-exists-p old-file)
+          (rename-file old-file (make-temp-name (concat old-file ".legacy-")))))))
   (condition-case err
       (let* ((session (review-session-start (review-store-source record))))
         (setf (review-session-viewed session)
               (delq nil (mapcar (lambda (p) (review-store--index session p)) (plist-get record :viewed)))
               (review-session-walkthrough session) (plist-get record :walkthrough)
-              (review-session-comments session) (plist-get record :comments))
+              (review-session-comments session) (plist-get record :comments)
+              (review-session-extensions session) (copy-tree (plist-get record :extensions)))
         (review-panel-open session)
         (when-let ((panel (plist-get record :panel))
                    (buffer (review-session-panel session)))
@@ -285,6 +299,21 @@ start that fails quits, and that quit drops the record."
   "Alist of (KIND . FUNCTION) that open a fresh review for a recipe.
 FUNCTION is called with RECIPE and the old RECORD.")
 
+(defvar review-store-refreshed-functions nil
+  "Called with the new SESSION and old RECORD after a successful refresh.")
+
+(defun review-store-refresh-complete (session record)
+  "Carry extensions from RECORD into fresh SESSION, including async sources."
+  (when (and (review-session-p session) (eq session review-session--current))
+    (setf (review-session-extensions session) (copy-tree (plist-get record :extensions)))
+    (setf (review-session-viewed session)
+          (delq nil (mapcar (lambda (path) (review-store--index session path))
+                           (plist-get record :viewed))))
+    (review-session-show (or (review-store--index session (plist-get record :current-path)) 0)
+                         (plist-get record :hunk))
+    (run-hook-with-args 'review-store-refreshed-functions session record))
+  session)
+
 (defun review-store--refresh-git (recipe record)
   (let ((session (review-session-start (review-source-git-range (plist-get recipe :directory)
                                                                 (plist-get recipe :range)))))
@@ -304,10 +333,12 @@ FUNCTION is called with RECIPE and the old RECORD.")
          (recipe (review-source-recipe (review-session-source s)))
          (refresh (alist-get (plist-get recipe :kind) review-store-refresh-functions)))
     (unless refresh (user-error "This review cannot be refreshed"))
-    (let ((record (review-store-record s)))
+    (let ((record (review-store-save s)))
       ;; Quit as a pause: the saved record must outlive a refresher that fails.
       (let ((review-session--pausing t)) (review-session-quit))
-      (funcall refresh recipe record))))
+      (let ((fresh (funcall refresh recipe record)))
+        (when (review-session-p fresh) (review-store-refresh-complete fresh record))
+        fresh))))
 
 ;;;; Commands
 
@@ -315,7 +346,14 @@ FUNCTION is called with RECIPE and the old RECORD.")
   "Review SOURCE: resume its saved record if one exists, else start it afresh.
 Either way the review comes up with its panel.  Return the session."
   (let* ((recipe (review-source-recipe source))
-         (saved (and recipe (review-store-load (review-source-key recipe)))))
+         (saved (and recipe
+                     (or (review-store-load (review-source-key recipe))
+                         ;; Legacy forge keys omitted the host.  Recover only
+                         ;; when the saved recipe proves this is the same target.
+                         (seq-find (lambda (record)
+                                     (equal (review-source-key recipe)
+                                            (review-source-key (plist-get record :recipe))))
+                                   (review-store-list))))))
     (if saved
         (review-store-restore saved)
       (when-let ((session (review-session-start source)))
@@ -366,6 +404,7 @@ instead, so it can be resumed: a walkthrough is the agent's work."
     (cond
      (review-session--pausing nil)
      ((or review-session--replacing
+          (review-session-extensions session)
           (plist-get (review-session-walkthrough session) :steps))
       (condition-case err (review-store-save session)
         (error (message "Review: could not save the review as it quits: %s"
