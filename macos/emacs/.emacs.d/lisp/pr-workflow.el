@@ -25,9 +25,11 @@
 
 (with-eval-after-load 'review-store
   (add-to-list 'review-store-refresh-functions
-               (cons 'forgejo (lambda (recipe _record)
+               (cons 'forgejo (lambda (recipe record)
                                 (mr-x/pr--review-forgejo (plist-get recipe :host) (plist-get recipe :owner)
-                                                         (plist-get recipe :repo) (plist-get recipe :number))))))
+                                                         (plist-get recipe :repo) (plist-get recipe :number)
+                                                         (lambda (session)
+                                                           (review-store-refresh-complete session record)))))))
 
 (with-eval-after-load 'review-walkthrough
   (add-to-list 'review-walkthrough-open-functions
@@ -113,9 +115,30 @@ A review pane or panel answers with the PR its session reviews."
       (user-error "Select a PR in the list or open its detail buffer first"))
     (plist-put context :directory default-directory)))
 
-(defun mr-x/pr-list ()
-  "Open this repository's pull requests using its provider."
-  (interactive)
+(defun mr-x/pr--read-repository ()
+  "Pick a git repository among the known projects."
+  (require 'projectile)
+  (let ((repos (seq-filter (lambda (dir) (file-directory-p (expand-file-name ".git" dir)))
+                           (projectile-relevant-known-projects))))
+    (unless repos (user-error "No known git repositories"))
+    (file-name-as-directory
+     (expand-file-name (completing-read "Pull requests of repository: " repos nil t)))))
+
+(defun mr-x/pr-list (&optional pick)
+  "Open this repository's pull requests using its provider.
+With a prefix argument, PICK, choose the repository first instead of
+taking it from the current buffer."
+  (interactive "P")
+  (if pick
+      ;; A scratch buffer so the chosen directory, not the current
+      ;; buffer's mode or PR, decides the context.
+      (with-temp-buffer
+        (setq default-directory (mr-x/pr--read-repository))
+        (mr-x/pr--list-here))
+    (mr-x/pr--list-here)))
+
+(defun mr-x/pr--list-here ()
+  "List the pull requests of the repository of `default-directory'."
   (let* ((c (mr-x/pr-context))
          (repo (plist-get c :repository)))
     (pcase (plist-get c :backend)
@@ -329,7 +352,7 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
                              :base-ref (oref pr base-ref) :head-ref (oref pr head-ref)
                              :base-rev (oref pr base-rev) :head-rev (oref pr head-rev))))
 
-(defun mr-x/pr-review-session ()
+(defun mr-x/pr-review-session (&optional fresh)
   "Review this PR one file at a time: an open Forgejo PR diff, or a GitHub PR."
   (interactive)
   (let ((source
@@ -341,11 +364,16 @@ From a diff, return to the PR detail so the diff can be reopened afterward."
            (mr-x/pr--github-review-source (mr-x/pr--github-review-context)))
           (t (user-error "Open a Forgejo PR diff (SPC , d) or a GitHub PR first")))))
     ;; A review quit with a walkthrough comes back as it was left.
-    (review-store-open source)))
+    (if fresh
+        (let ((session (review-session-start source)))
+          (review-panel-open session)
+          session)
+      (review-store-open source))))
 
-(defun mr-x/pr--review-forgejo (host owner repo number)
+(defun mr-x/pr--review-forgejo (host owner repo number &optional after-refresh)
   "Fetch Forgejo PR NUMBER of OWNER/REPO on HOST, then review it.
-Needs no PR buffer: this is the route from a PR list row or details."
+Needs no PR buffer: this is the route from a PR list row or details.
+With AFTER-REFRESH, open fresh source content and call it with the new session."
   (let ((url-request-method "GET")
         (url-request-extra-headers
          `(("Authorization" . ,(encode-coding-string
@@ -358,7 +386,9 @@ Needs no PR buffer: this is the route from a PR list row or details."
        (let ((response (current-buffer)))
          (unwind-protect
              (condition-case err
-                 (if-let ((failure (plist-get status :error)))
+                 (if (and after-refresh review-session--current)
+                     (message "PR refresh skipped: another review is already open")
+                   (if-let ((failure (plist-get status :error)))
                      (message "PR review: fetching %s/%s#%d failed: %S" owner repo number failure)
                    (goto-char (point-min))
                    (re-search-forward "\r?\n\r?\n" nil t)
@@ -368,7 +398,10 @@ Needs no PR buffer: this is the route from a PR list row or details."
                      ;; only the review frames should appear.
                      (save-window-excursion
                        (forgejo-view--show-diff-buffer name text host owner repo number))
-                     (with-current-buffer name (mr-x/pr-review-session))))
+                     (let ((session (with-current-buffer name
+                                      (if after-refresh (mr-x/pr-review-session t)
+                                        (mr-x/pr-review-session)))))
+                       (when after-refresh (funcall after-refresh session))))))
                (error (message "PR review: %s" (error-message-string err))))
            (when (buffer-live-p response) (kill-buffer response)))))
      nil t)))

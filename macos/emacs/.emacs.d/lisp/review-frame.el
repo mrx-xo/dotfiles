@@ -3,6 +3,86 @@
 (require 'json)
 (require 'subr-x)
 
+(defcustom review-frame-log-file
+  (unless noninteractive
+    (expand-file-name "var/review-diagnostics.log" user-emacs-directory))
+  "Persistent review window evidence, or nil to disable logging.
+One previous file is retained as .1.  No source or conversation text is logged."
+  :type '(choice (const nil) file) :group 'review)
+(defvar review-frame-log-max-bytes (* 1024 1024))
+(defvar review-frame--operation 0)
+(defvar review-frame-log-last-error nil)
+
+(defun review-frame-log (event &rest data)
+  "Append timestamped EVENT and DATA before returning; never disrupt a review."
+  (when review-frame-log-file
+    (condition-case err
+        (let ((file (expand-file-name review-frame-log-file))
+              (coding-system-for-write 'utf-8-unix)
+              (print-length nil) (print-level nil)
+              (print-escape-newlines t))
+          (make-directory (file-name-directory file) t)
+          (when (and (file-exists-p file)
+                     (> (file-attribute-size (file-attributes file))
+                        review-frame-log-max-bytes))
+            (rename-file file (concat file ".1") t))
+          (let ((previous-modes (default-file-modes)))
+            (unwind-protect
+                (progn
+                  (set-default-file-modes #o600)
+                  (write-region
+                   (concat (prin1-to-string
+                            (list :time (format-time-string "%Y-%m-%dT%H:%M:%S.%6NZ" nil t)
+                                  :pid (emacs-pid) :run (getenv "MR_X_EMACS_RUN_ID")
+                                  :event event :data data)) "\n")
+                   nil file t 'silent))
+              (set-default-file-modes previous-modes))))
+      (error (setq review-frame-log-last-error (error-message-string err))))))
+
+(defun review-frame--record (event frame)
+  "Record EVENT for a review FRAME, without querying other processes."
+  (condition-case nil
+      (when (and review-frame-log-file (frame-live-p frame)
+                 (member (frame-parameter frame 'title) '("Review diff" "Review files")))
+        (review-frame-log event
+                          :title (frame-parameter frame 'title)
+                          :window (frame-parameter frame 'outer-window-id)
+                          :position (frame-position frame)
+                          :pixels (cons (frame-pixel-width frame) (frame-pixel-height frame))
+                          :selected (eq frame (selected-frame))))
+    (error nil)))
+
+(defun review-frame-create (parameters)
+  "Create a review frame with PARAMETERS, persisting evidence before creation."
+  (review-frame-log 'create-start :title (alist-get 'title parameters)
+                    :width (alist-get 'width parameters) :height (alist-get 'height parameters))
+  (let ((frame (make-frame parameters)))
+    (review-frame--record 'create-end frame)
+    frame))
+
+(defun review-frame--resized (frame)
+  (review-frame--record 'resize-observed frame))
+(defun review-frame--deleted (frame)
+  (review-frame--record 'delete-start frame))
+(add-hook 'window-size-change-functions #'review-frame--resized)
+(add-hook 'delete-frame-functions #'review-frame--deleted)
+
+(defun review-frame--query-evidence (args output)
+  "Extract only geometry and identifiers from yabai query OUTPUT for ARGS."
+  (when (equal (car args) "query")
+    (condition-case nil
+        (let ((rows (json-parse-string output :array-type 'list :object-type 'alist)))
+          (when (equal (cadr args) "--windows")
+            (setq rows (cl-remove-if-not
+                        (lambda (row) (eql (alist-get 'pid row) (emacs-pid))) rows)))
+          (mapcar (lambda (row)
+                    (cl-remove-if-not
+                     (lambda (pair) (memq (car pair)
+                                         '(id index pid display space frame is-floating
+                                              is-visible is-native-fullscreen))) row))
+                  rows))
+      (error nil))))
+
 (defcustom review-session-display 3
   "Yabai display index for a new compare frame, or nil to leave it in place."
   :type '(choice (const :tag "Do not move" nil) (integer :tag "Display index"))
@@ -27,7 +107,9 @@ display even though its only frame is a terminal one."
 Never wait on yabai synchronously: after a frame is created, yabai asks
 this Emacs about the new window through accessibility, which Emacs
 cannot answer while blocked, and both stall until macOS times out."
-  (let ((buffer (generate-new-buffer " *review-yabai*")))
+  (let ((buffer (generate-new-buffer " *review-yabai*"))
+        (operation (cl-incf review-frame--operation)))
+    (review-frame-log 'yabai-start :operation operation :args args)
     (make-process
      :name "review-yabai" :buffer buffer :noquery t :connection-type 'pipe
      :command (cl-list* "yabai" "-m" args)
@@ -37,6 +119,10 @@ cannot answer while blocked, and both stall until macOS times out."
          (unwind-protect
              (condition-case err
                  (let ((output (with-current-buffer buffer (buffer-string))))
+                   (review-frame-log 'yabai-end :operation operation :args args
+                                     :status (process-exit-status process)
+                                     :geometry (and review-frame-log-file
+                                                    (review-frame--query-evidence args output)))
                    (unless (eq 0 (process-exit-status process))
                      (error "Yabai: %s" (string-trim output)))
                    (funcall callback output))
@@ -161,6 +247,8 @@ wants its own size must float first.  Without yabai, just call THEN."
 
 (defun review-frame-place (frame display)
   "Move a new graphical review FRAME onto yabai DISPLAY, without blocking."
+  (review-frame--record 'placement-request frame)
+  (review-frame-log 'placement-target :display display)
   (when (and display (eq system-type 'darwin) (display-graphic-p frame)
              (executable-find "yabai"))
     (review-frame--move frame display)))

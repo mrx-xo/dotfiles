@@ -94,6 +94,21 @@
       (cl-letf (((symbol-function 'forge-get-repository) (lambda (&rest _) repo)))
         (should (equal (plist-get (mr-x/pr-context) :host) "http://forge.example:3000"))))))
 
+(ert-deftest pr-list-prefix-picks-the-repository ()
+  (pr-test--github
+    (let ((chosen (file-name-as-directory (make-temp-file "pr-pick" t)))
+          resolved-in listed)
+      (cl-letf (((symbol-function 'mr-x/pr--read-repository) (lambda () chosen))
+                ((symbol-function 'forge-get-repository)
+                 (lambda (&rest _) (setq resolved-in default-directory) repo))
+                ((symbol-function 'forge-topics-setup-buffer)
+                 (lambda (r &rest _) (setq listed r)))
+                ((symbol-function 'forge--pull) #'ignore))
+        (mr-x/pr-list '(4))
+        ;; The pick wins over the PR buffer the command was called from.
+        (should (equal resolved-in chosen))
+        (should (eq listed repo))))))
+
 (ert-deftest pr-list-routes-to-each-provider ()
   (pr-test--github
     (let (listed pulled)
@@ -267,6 +282,26 @@
 
 (ert-deftest pr-workflow-review-open-rejects-non-pr-url ()
   (should-error (mr-x/pr-review-open "https://forge.example/team/project") :type 'user-error))
+
+(ert-deftest pr-workflow-refresh-fetches-fresh-source-before-restoring-extensions ()
+  (let ((review-session--current nil) callback opened completed)
+    (cl-letf (((symbol-function 'forgejo-token) (lambda (_host) "test-token"))
+              ((symbol-function 'url-retrieve)
+               (lambda (_url fn &rest _) (setq callback fn)))
+              ((symbol-function 'mr-x/pr-review-session)
+               (lambda (&optional fresh) (setq opened fresh) 'fresh-session)))
+      (unwind-protect
+          (save-window-excursion
+            (mr-x/pr--review-forgejo "https://forge.example" "team" "project" 7
+                                     (lambda (session) (setq completed session)))
+            (should-not completed)
+            (with-temp-buffer
+              (insert "HTTP/1.1 200 OK\r\n\r\ndiff --git a/x b/x\n")
+              (funcall callback nil))
+            (should opened)
+            (should (eq completed 'fresh-session)))
+        (when (get-buffer "*forgejo-diff: team/project#7*")
+          (kill-buffer "*forgejo-diff: team/project#7*"))))))
 
 (ert-deftest pr-workflow-review-session-builds-github-source-from-forge-shas ()
   (pr-test--github

@@ -107,6 +107,12 @@ FUNCTION returns the session, or nil when the review opens asynchronously.")
               "retry: opening the review; run the same command again in a few seconds"))
          (t (format "error: cannot open a %s review" (plist-get target :kind)))))))))
 
+(defvar review-walkthrough-started-functions nil
+  "Called with SESSION after a new route is installed, before rendering.")
+
+(defvar review-walkthrough-card-actions-functions nil
+  "Functions returning additional action lines for a walkthrough card.")
+
 (defun review-walkthrough-start (steps &optional target)
   "Show STEPS as a walkthrough of TARGET's review (a recipe), or the current one.
 Return a report for the calling agent: `ok N of M steps' and one line per
@@ -135,6 +141,7 @@ rejected step, `retry: ...', or `error: ...'."
           ;; head.
           (let ((count (length valid)))
             (setf (review-session-walkthrough session) (list :steps (vconcat (nreverse valid)) :index 0))
+            (run-hook-with-args 'review-walkthrough-started-functions session)
             (review-walkthrough--go session 0)
             (string-join (cons (format "ok %d of %d steps" count n) (nreverse errors)) "\n"))))))))
 
@@ -504,6 +511,7 @@ Its rail and indent are chrome, left out of a selection's text."
                      (cons nil
                            (cons (concat mark " " (car text))
                                  (mapcar (lambda (l) (concat "  " l)) (cdr text))))))
+                 (mapcan #'funcall review-walkthrough-card-actions-functions)
                  (list nil)))
          ;; A nil line is a padding row, half a line tall; the layout's
          ;; filler on the other side is as short.

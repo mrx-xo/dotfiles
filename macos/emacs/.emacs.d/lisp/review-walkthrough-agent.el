@@ -27,6 +27,13 @@
 
 (defvar review-walkthrough-agent--last-output nil "The agent's last reply to a walkthrough request.")
 
+(defvar review-walkthrough-agent-session-function
+  (lambda (session) (mr-x/quick-ask--ensure-session (review-session-directory session)))
+  "Function of review SESSION returning the agent shell to request a route from.")
+
+(defvar review-walkthrough-agent-accepted-functions nil
+  "Called with SESSION and producing SHELL when its requested route is accepted.")
+
 (defun review-walkthrough-agent--diff (session)
   "SESSION's hunks as text, the largest cut to their header past the budget."
   (let (chunks)
@@ -205,6 +212,7 @@ reports the failure and gives up."
         (let ((report result))
           (cond
            ((string-prefix-p "ok" report)
+            (run-hook-with-args 'review-walkthrough-agent-accepted-functions session shell)
             (when (string-match-p "\n" report) (message "%s" report)))
            ((string-prefix-p "retry:" report)
             (if (< retries 5)
@@ -241,7 +249,7 @@ to show it instead of a bare error, but never send the request either way,
 since the caller has no way to know the busy turn will ever finish."
   (interactive)
   (let* ((session (review-session--require))
-         (shell (mr-x/quick-ask--ensure-session (review-session-directory session)))
+         (shell (funcall review-walkthrough-agent-session-function session))
          (request (make-symbol "walk")))
     (if (with-current-buffer shell (shell-maker-busy))
         (when (y-or-n-p "The project agent is busy (maybe waiting on a prompt). Show its session? ")
@@ -273,7 +281,7 @@ since the caller has no way to know the busy turn will ever finish."
           ((eq (plist-get w :status) 'no-route) (review-walkthrough-show-answer))
           ((eq (plist-get w :status) 'planning)
            (pcase (read-key "The agent is planning a route.  s: show its session  c: cancel planning  other: nothing")
-             (?s (pop-to-buffer (mr-x/quick-ask--ensure-session (review-session-directory session))))
+             (?s (pop-to-buffer (plist-get review-walkthrough-agent--pending :shell)))
              (?c (review-walkthrough-agent--unsubscribe)
                  (setf (review-session-walkthrough session) nil)
                  (review-session--notify session)

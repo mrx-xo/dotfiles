@@ -25,9 +25,13 @@ RECIPE is a plist that rebuilds the source; `review-store' saves it."
                         (abbreviate-file-name
                          (file-name-as-directory (expand-file-name (plist-get recipe :directory))))
                         (or (plist-get recipe :range) "worktree")))
-    ('forgejo (format "forgejo:%s/%s#%d" (plist-get recipe :owner) (plist-get recipe :repo)
+    ('forgejo (format "forgejo:%s%s/%s#%d"
+                      (if-let ((host (plist-get recipe :host))) (concat (string-trim-right host "/+") "/") "")
+                      (plist-get recipe :owner) (plist-get recipe :repo)
                       (plist-get recipe :number)))
-    ('github (format "github:%s/%s#%d" (plist-get recipe :owner) (plist-get recipe :name)
+    ('github (format "github:%s%s/%s#%d"
+                     (if-let ((host (plist-get recipe :host))) (concat (string-trim-right host "/+") "/") "")
+                     (plist-get recipe :owner) (plist-get recipe :name)
                      (plist-get recipe :number)))
     (_ (format "%S" recipe))))
 
