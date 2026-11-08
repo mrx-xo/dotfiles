@@ -8,7 +8,10 @@ local function fixture(connected, wake)
   local api = {
     screen = {allScreens = function()
       return f.connected and {{name = function() return "Sidecar Display (AirPlay)" end}} or {}
-    end},
+    end, watcher = {new = function(callback)
+      f.screenChanged = callback
+      return {start = function() end, stop = function() f.screenWatcherStopped = true end}
+    end}},
     alert = {show = function(message) table.insert(f.alerts, message) end},
     logger = {new = function() return {i = function() end, w = function() end} end},
     timer = {doAfter = function(delay, fn)
@@ -294,6 +297,124 @@ test("a marker on disk while already connected is released at start", function()
   local h = assert(io.open(f.holdPath, "w")); h:write("1"); h:close()
   f.controller:start()
   assert(not f.controller:held())
+end)
+
+test("remote opens the native app before disconnecting and holds Sidecar", function()
+  local f = fixture(true)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  local ok = f.controller:remote()
+  assert(ok and f.controller:held())
+  assert(table.concat(f.tasks[1].args, " ") == "/test/sidecar-app.py --device Test iPad --bundle io.marx.aidos")
+  f.tasks[1].callback(0, "native app launch requested", "")
+  assert(#f.tasks == 1, "must wait for the native foreground transition")
+  f:fire(3)
+  assert(#f.tasks == 2)
+  assert(f.tasks[2].args[1] == "disconnect")
+  assert(f.controller.remotePending)
+  f.connected = false
+  f.tasks[2].callback(0, "", "")
+  assert(not f.controller.remotePending and f.controller.lastResult == "native app launch requested")
+  f.controller:release()
+end)
+
+test("return to Sidecar cancels a pending native launch and ignores late success", function()
+  local f = fixture(false)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  assert(f.controller:remote())
+  local launch = f.tasks[1]
+  f.controller:release(); f.controller:connect()
+  assert(launch.terminated and not f.controller:held())
+  assert(#f.tasks == 2 and f.tasks[2].bin == "/test/SidecarLauncher")
+  launch.callback(0, "", "")
+  assert(f.controller.lastResult == "connecting")
+end)
+
+test("a failed native launch leaves Sidecar connected", function()
+  local f = fixture(true)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  assert(f.controller:remote())
+  assert(f.tasks[1].bin == "/usr/bin/python3")
+  f.tasks[1].callback(1, "launch failed", "")
+  assert(#f.tasks == 1 and not f.controller.remotePending)
+  assert(f.controller.lastResult:find("launch failed", 1, true))
+  f.controller:release()
+end)
+
+test("disconnect failure is reported after a successful native launch", function()
+  local f = fixture(true)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  assert(f.controller:remote())
+  f.tasks[1].callback(0, "", "")
+  f:fire(3)
+  f.tasks[2].callback(1, "disconnect failed", "")
+  assert(not f.controller.remotePending and f.controller:held())
+  assert(f.controller.lastResult:find("disconnect failed", 1, true))
+  f.controller:release()
+end)
+
+test("remote fails clearly when no native bundle is configured", function()
+  local f = fixture(true)
+  local ok, message = f.controller:remote()
+  assert(not ok and message:find("configured", 1, true))
+  assert(#f.tasks == 0)
+end)
+
+test("external Sidecar reconnect cancels a pending app launch", function()
+  local f = fixture(false)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  f.controller:start()
+  assert(f.controller:remote())
+  local launch = f.tasks[1]
+  f.connected = true
+  f.screenChanged()
+  assert(launch.terminated and not f.controller:held())
+  launch.callback(0, "", "")
+  assert(f.controller.lastResult == "native app launch cancelled")
+  f.controller:stop()
+  assert(f.screenWatcherStopped)
+end)
+
+test("stale Sidecar screen does not cancel our disconnect", function()
+  local f = fixture(true)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  f.controller:start()
+  assert(f.controller:remote())
+  f.screenChanged()
+  f.event(2)
+  assert(not f.tasks[1].terminated and f.controller:held())
+  f.tasks[1].callback(0, "", "")
+  f.screenChanged()
+  f.event(2)
+  assert(f.controller.remotePending and f.controller:held())
+  f:fire(3)
+  assert(not f.tasks[2].terminated)
+  f.connected = false; f.screenChanged()
+  f.connected = true; f.screenChanged()
+  assert(f.tasks[2].terminated and not f.controller:held())
+  f.controller:stop()
+end)
+
+test("return during the app transition cancels disconnect and resumes Sidecar", function()
+  local f = fixture(true)
+  f.controller.config.remoteBundle = "io.marx.aidos"
+  f.controller.config.remoteLauncher = "/test/sidecar-app.py"
+  assert(f.controller:remote())
+  f.tasks[1].callback(0, "", "")
+  local transition = f.timers[#f.timers]
+  assert(transition.delay == 3)
+  f.controller:release(); f.controller:connect()
+  assert(transition.stopped and not f.controller:held())
+  assert(#f.tasks == 2 and f.tasks[2].args[#f.tasks[2].args] == "com.apple.sidecar")
+  transition.fn() -- stale timer must not disconnect the resumed session
+  assert(#f.tasks == 2)
+  f.tasks[2].callback(0, "", "")
+  assert(f.controller.lastResult == "connected")
 end)
 
 print(string.format("%d Sidecar tests passed", count))

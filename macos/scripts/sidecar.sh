@@ -34,8 +34,11 @@ case "${1:-connect}" in
   hold|release)
     hs_eval "sidecar:$1(); print(sidecar:status())"
     ;;
+  remote)
+    hs_eval 'local ok, message = sidecar:remote(); if not ok then error(message) end; print(message)'
+    ;;
   status)
     hs_eval 'print(sidecar:status())'
     ;;
-  *) printf 'Usage: sidecar [connect|disconnect|hold|release|status]\n' >&2; exit 2 ;;
+  *) printf 'Usage: sidecar [connect|disconnect|remote|hold|release|status]\n' >&2; exit 2 ;;
 esac
