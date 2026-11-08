@@ -6593,7 +6593,13 @@ made is deleted and the evidence stays; the review shows why."
       :ensure t
       :after evil
       :init
-      (setq evil-collection-repl-submit-state '(normal insert))
+      ;; RET submits in both normal and insert state in REPL-like buffers
+      ;; (agent-shell, cider, ...); S-RET still inserts a newline.
+      ;; evil-collection 2.0 (2026-09-11) removed
+      ;; `evil-collection-repl-submit-state' in favour of these overrides.
+      (setq evil-collection-binding-overrides
+            '((repl-submit  :state (normal insert))
+              (repl-newline :enabled nil)))
       :config
       (evil-collection-init))
 
