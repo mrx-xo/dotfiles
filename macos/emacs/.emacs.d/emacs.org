@@ -213,6 +213,14 @@ doing while Elpaca works through its queue (see =lisp/mr-x-boot-status.el=).
   (run-with-idle-timer 5 t #'mr-x/idle-garbage-collect)
 #+end_src
 
+** Native compilation warnings
+Background native-comp of package builds emits upstream "not known to
+be defined" warnings that pop a *Warnings* window at startup.  Log them
+to *Warnings* silently instead.
+#+begin_src emacs-lisp
+  (setq native-comp-async-report-warnings-errors 'silent)
+#+end_src
+
 ** Local lisp load-path
 Add ~lisp/~ to ~load-path~ early so packages like ~org-habit-flex~ can be
 ~require~'d from the org ~:config~ block below. ~shared/emacs/lisp/syzygy/~ (in
@@ -4108,10 +4116,10 @@ separately lets us do the column math (and responsive layouts) here."
             (split-string
              (replace-regexp-in-string
               trim "" (mr-x/fetch--run
-                       "--logo" "none"
-                       "--custom-format" "{#1;33}Status{#}: swag"
-                       "--structure"
-                       "title:separator:os:kernel:uptime:packages:custom:shell:cpu:memory"))
+                       ;; fastfetch 2.x removed CLI module options
+                       ;; (--custom-format), so the module list lives in JSON.
+                       "-c" (expand-file-name "fetch-info.jsonc"
+                                              user-emacs-directory)))
              "\n"))))
 
   (defun mr-x/fetch--compose-wide ()
