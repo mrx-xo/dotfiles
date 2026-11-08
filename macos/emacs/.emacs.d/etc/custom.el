@@ -111,7 +111,8 @@
 		    org-superstar package-lint popper projectile
 		    toc-org visual-fill-column))
  '(project-dashboard-org-task-files
-   '(("~/.dotfiles" "~/roaming/notes/dotfiles.org")
+   '(("~/channel5" "~/roaming/notes/channel-5.org")
+     ("~/.dotfiles" "~/roaming/notes/dotfiles.org")
      ("~/roaming/projects/agent-recall"
       "~/roaming/notes/agent-recall.org")
      ("~/roaming/projects/home-lab" "~/roaming/notes/homelab.org")

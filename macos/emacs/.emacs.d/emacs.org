@@ -2028,7 +2028,7 @@ With \\[universal-argument] ARG, do a full-text line search instead."
   ;;; ============================================
 
   (defvar mr-x/file-grab-roots '("~/.dotfiles" "~/roaming")
-    "Roots that `mr-x/copy-file-path' offers files from.")
+    "Roots that `mr-x/insert-file-at-point' offers files from.")
 
   (defun mr-x/file-grab--candidates ()
     "All files under `mr-x/file-grab-roots' as abbreviated paths.
@@ -2038,22 +2038,21 @@ Uses fd: respects .gitignore, includes dotfiles, skips .git."
                    "--exclude" ".git" "--absolute-path" "."
                    (mapcar #'expand-file-name mr-x/file-grab-roots))))
 
-  (defun mr-x/copy-file-path ()
-    "Pick a file from the usual roots and copy its absolute path.
+  (defun mr-x/insert-file-at-point ()
+    "Pick a file from the usual roots and insert its absolute path at point.
 Flat list — orderless matches anywhere in the path, no directory
 navigation.  Candidates are file targets, so embark actions
 (`s-r') work on them too."
     (interactive)
     (let* ((files (mr-x/file-grab--candidates))
            (choice (completing-read
-                    "Copy path: "
+                    "Insert path: "
                     (lambda (str pred action)
                       (if (eq action 'metadata)
                           '(metadata (category . file))
                         (complete-with-action action files str pred)))
                     nil t)))
-      (kill-new (expand-file-name choice))
-      (message "Copied: %s" (expand-file-name choice))))
+      (insert (expand-file-name choice))))
 
   ;;; ============================================
   ;;; Mdox Format Spec & Tooling
@@ -2111,7 +2110,7 @@ Announce time is =DEADLINE=: VTODO =DUE= imports as =DEADLINE= and only
 The server address lives outside this public repo, in
 =~/.config/org-caldav/url= (one line, the CalDAV base URL for the user's
 calendars). Missing file = org-caldav stays unconfigured and never syncs.
-Credentials: =~/.authinfo=, =machine HOST:443 login USER= (a Nextcloud app
+Credentials: =~/.authinfo=, =machine HOST login USER= (a Nextcloud app
 password). Nothing in this file.
 
 #+begin_src emacs-lisp
@@ -4863,8 +4862,8 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c s" '(mr-x/agent-send-screenshot :wk "Send screenshot")
         "c i" '(agent-shell-interrupt :wk "Interrupt")
         "c I" '(agent-shell-inbox-arm :wk "Arm phone inbox")
-        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c H" '(syzygy-resume-handoff :wk "Handoff resume (other machine)")
+        "c D" '(mr-x/agent-shell-detach-to-ghostty :wk "Detach → Ghostty (claude --resume)")
         "c y" '(syzygy-resync-buffer :wk "Re-sync phone turns (C-u: send anyway)")
         "c Y" '(syzygy-live-mode :wk "LIVE 2-way sync (phone turns render)")
         "c N" '(agent-shell-push-mode :wk "Phone push toggle (done/perms to DAEMON)")
@@ -4941,7 +4940,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "g p" '(magit-push-current :wk "push current")
         "g P" '(magit-pull-branch :wk "pull branch")
         "g r" '(mr-x/review :wk "review (PR here, else a range)")
-        "g R" '(mr-x/pr-list :wk "pull requests")
+        "g R" '(mr-x/pr-list :wk "pull requests (C-u pick repo)")
         "g w" '(review-session-resume :wk "review: back / resume (C-u pick)")
         "g f" '(magit-fetch :wk "fetch"))
 
@@ -5482,7 +5481,7 @@ background, and inheriting them whole paints text over itself."
         "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
         "? t" '(mr-x/tldr :wk "tldr (examples)")
         "? m" '(consult-man :wk "Man (search all pages)")
-        "F" '(mr-x/copy-file-path :wk "Copy file path")
+        "F" '(mr-x/insert-file-at-point :wk "Insert file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)")
         "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask focus/hide"))
 
@@ -6963,8 +6962,6 @@ TRAMP can't match under a PTY — both need pipe mode."
     ;; Use consult for xref
     (setq xref-show-xrefs-function #'consult-xref
           xref-show-definitions-function #'consult-xref)
-    ;; Preview on consult-line: grab symbol at point
-    (consult-customize consult-line :add-history (thing-at-point 'symbol))
     ;; Auto-preview in consult-imenu
     (consult-customize consult-imenu :preview-key 'any))
 
@@ -7805,6 +7802,10 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
     :commands (hydra-pr/body mr-x/review mr-x/pr-list mr-x/pr-diff mr-x/pr-merge
                mr-x/pr-review-session mr-x/review-git-range review-session-resume)
     :config
+    ;; Continue with the walkthrough's own agent inside the review frame.
+    ;; Agent-shell itself stays lazy; opening a review does not start an agent.
+    (require 'review-conversation)
+    (review-conversation-mode 1)
     ;; Review comments: a floating compose box at the commented line, like
     ;; Quick Ask's card.  The package ships only the window style; the box
     ;; and the Evil state are this config's.  C-c C-t switches the two.
@@ -8111,6 +8112,16 @@ listens on the port it is left alone.
                    :noquery t)))
           (message "Keymap explorer up: %s" url)))
         (when open (browse-url url))))
+
+    (defun mr-x/keymap-explorer-open ()
+      "Open the keymap explorer in the default browser.
+    Starts the live-server first if nothing is listening yet."
+      (interactive)
+      (unless (or (process-live-p mr-x/keymap-explorer--process)
+                  (mr-x/keymap-explorer--port-busy-p))
+        (mr-x/keymap-explorer-serve)
+        (sleep-for 0.5))
+      (browse-url (format "http://localhost:%d/" mr-x/keymap-explorer-port)))
 
     (defun mr-x/keymap-explorer-stop ()
       "Stop the keymap explorer live-server started by Emacs."
@@ -10163,17 +10174,6 @@ Resolves agent config once, then spawns shells staggered 3s apart."
                   (switch-to-prev-buffer))
               (agent-shell--display-buffer shell-buffer))))
 
-        (defun mr-x/agent-shell-test-prompt ()
-          "Send a random test prompt to exercise agent-shell functionality."
-          (interactive)
-          (mr-x/focus-ai-window)
-          (goto-char (point-max))
-          (insert "I am testing the functionality of agent-shell and the Emacs application. Modify random code files in this project - the actual code changes don't matter, just make some edits to test the tool calling flow.")
-          (shell-maker-submit))
-
-        ;; ============================================
-        ;; Bash Command Watcher
-        ;; ============================================
         (defun mr-x/agent-shell-detach-to-ghostty ()
           "Resume the current Claude conversation in a new Ghostty window.
 Runs `claude --resume <session-id>' in the shell's project directory, so
@@ -10210,6 +10210,17 @@ agent-shell writing to one transcript together corrupts it."
             (message "Resuming %s in Ghostty; send turns from one side at a time"
                      (substring id 0 8))))
 
+        (defun mr-x/agent-shell-test-prompt ()
+          "Send a random test prompt to exercise agent-shell functionality."
+          (interactive)
+          (mr-x/focus-ai-window)
+          (goto-char (point-max))
+          (insert "I am testing the functionality of agent-shell and the Emacs application. Modify random code files in this project - the actual code changes don't matter, just make some edits to test the tool calling flow.")
+          (shell-maker-submit))
+
+        ;; ============================================
+        ;; Bash Command Watcher
+        ;; ============================================
 
         (defvar mr-x/bash-watcher-buffer "*Bash Watcher*"
           "Buffer name for watching Bash commands.")
@@ -12543,18 +12554,30 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (mr-x/quick-ask))
 
       (defun mr-x/quick-ask--surface-session ()
-        "Surface the hidden agent-shell buffer as a visible window."
+        "Continue in the agent shell, below both diff panes when asked from a review."
         (interactive)
-        (let ((shell-buf mr-x/quick-ask--shell-buffer))
+        (let* ((shell-buf mr-x/quick-ask--shell-buffer)
+               ;; Capture provenance before dismiss changes buffer/window focus.
+               (source mr-x/quick-ask--source-buffer)
+               (review (and (buffer-live-p source)
+                            (with-current-buffer source
+                              (or (bound-and-true-p review-pane--session)
+                                  (bound-and-true-p review-panel--session))))))
+          (when review
+            (unless (and (eq review (bound-and-true-p review-session--current))
+                         (bound-and-true-p review-conversation-mode))
+              (user-error "Return to the originating review and enable review-conversation-mode first")))
           (mr-x/quick-ask--dismiss)
           (if (and shell-buf (buffer-live-p shell-buf))
               (progn
+                (if review
+                    (review-conversation-open-quick-ask review shell-buf)
+                  (pop-to-buffer shell-buf))
                 (setq mr-x/quick-ask--shell-buffer nil)
                 ;; It is a normal chat now; the next question starts afresh.
                 (maphash (lambda (root buf)
                            (when (eq buf shell-buf) (remhash root mr-x/quick-ask--sessions)))
-                         mr-x/quick-ask--sessions)
-                (pop-to-buffer shell-buf))
+                         mr-x/quick-ask--sessions))
             (message "No active Quick Ask session to surface"))))
 
       ;; Submit flow — sends to hidden agent-shell
@@ -13290,11 +13313,14 @@ the =C-c f= transient. Package in =lisp/voicelog.el=.
 
 ** Monitor Mode
 Emacs front-end for =monitor-mode.sh= (the =mon= shell alias): point the desk
-monitors at POLLUX or NEMESIS over DDC. Async — the script polls up to ~15s
+monitors at POLLUX, NEMESIS, or work over DDC. Async — the script polls up to ~15s
 while a display re-enumerates, and it already fires a macOS notification on
 completion. Monitors go by panel name, not position (they swap places):
 ROMULUS and REMUS are the Dell twins, ROMULUS on the left in the normal layout.
-A desk state names what ROMULUS shows, then what REMUS shows.
+A desk state names what ROMULUS shows, then what REMUS shows. LUPA is the
+portrait monitor: =lupa work= and =lupa pollux= switch it individually.
+=pollux work= sends REMUS and LUPA to work; =pollux= and =reset= bring all
+three external monitors back to POLLUX. Choose these with =M-x mr-x/mon=.
 #+begin_src emacs-lisp
   (defconst mr-x/mon-script "~/.dotfiles/macos/scripts/monitor-mode.sh")
 
@@ -13318,8 +13344,9 @@ A desk state names what ROMULUS shows, then what REMUS shows.
                             '("nemesis" "pollux" "pollux nemesis"
                               "nemesis pollux" "pollux work" "status"
                               "toggle romulus" "toggle remus"
-                              "romulus pollux" "romulus nemesis"
+                              "romulus pollux" "romulus nemesis" "romulus work"
                               "remus pollux" "remus nemesis" "remus work"
+                              "lupa pollux" "lupa work" "reset"
                               "flip" "flip normal" "flip flipped"
                               "solo romulus" "solo remus" "solo off"
                               "kill romulus" "kill remus" "kill lupa"))))
@@ -13358,7 +13385,7 @@ A desk state names what ROMULUS shows, then what REMUS shows.
     (mr-x/mon--run "nemesis"))
 
   (defun mr-x/mon-pollux ()
-    "ROMULUS + REMUS -> POLLUX."
+    "ROMULUS + REMUS + LUPA -> POLLUX."
     (interactive)
     (mr-x/mon--run "pollux"))
 

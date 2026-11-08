@@ -3008,18 +3008,30 @@ Each returns a context item (:type SYMBOL :label STRING :content STRING) or nil.
         (mr-x/quick-ask))
 
       (defun mr-x/quick-ask--surface-session ()
-        "Surface the hidden agent-shell buffer as a visible window."
+        "Continue in the agent shell, below both diff panes when asked from a review."
         (interactive)
-        (let ((shell-buf mr-x/quick-ask--shell-buffer))
+        (let* ((shell-buf mr-x/quick-ask--shell-buffer)
+               ;; Capture provenance before dismiss changes buffer/window focus.
+               (source mr-x/quick-ask--source-buffer)
+               (review (and (buffer-live-p source)
+                            (with-current-buffer source
+                              (or (bound-and-true-p review-pane--session)
+                                  (bound-and-true-p review-panel--session))))))
+          (when review
+            (unless (and (eq review (bound-and-true-p review-session--current))
+                         (bound-and-true-p review-conversation-mode))
+              (user-error "Return to the originating review and enable review-conversation-mode first")))
           (mr-x/quick-ask--dismiss)
           (if (and shell-buf (buffer-live-p shell-buf))
               (progn
+                (if review
+                    (review-conversation-open-quick-ask review shell-buf)
+                  (pop-to-buffer shell-buf))
                 (setq mr-x/quick-ask--shell-buffer nil)
                 ;; It is a normal chat now; the next question starts afresh.
                 (maphash (lambda (root buf)
                            (when (eq buf shell-buf) (remhash root mr-x/quick-ask--sessions)))
-                         mr-x/quick-ask--sessions)
-                (pop-to-buffer shell-buf))
+                         mr-x/quick-ask--sessions))
             (message "No active Quick Ask session to surface"))))
 
       ;; Submit flow — sends to hidden agent-shell
