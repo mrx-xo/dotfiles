@@ -8003,7 +8003,7 @@ _q_: quit
     :ensure t
     ;; Don't register .md here - poly-markdown-mode handles it (with code block highlighting)
     :custom
-    (markdown-command "pandoc")
+    (markdown-command "pandoc --syntax-highlighting=none")
     :config
     ;; Gruvbox-styled markdown faces (matches preview CSS)
     (custom-set-faces
