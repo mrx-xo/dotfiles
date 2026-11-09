@@ -123,7 +123,9 @@ ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
 # + local 59499a0 (peer auth admits only hubs listed in config.json hubs; lazy self login; short error cache)
 # + local 98add8e (refreshPeerIP matches the registry DNS name, prefers online peers)
 # + local 0629659 (remote sessions cannot drive the hub's Emacs: no delete/peek on remote cards, in-chat Lisp actions disabled, hub answers 501 for a foreign machine)
-ACP_MOBILE_COMMIT="79d9fa755fd74a2c3b826b69550bfd1879228146"
+# + local 79d9fa7 (tailscale CLI runs one at a time; one whois per peer burst)
+# + local b3c0c00 (startup waits up to two minutes for Tailscale before binding; each failed attempt logged; no wait when the CLI is missing)
+ACP_MOBILE_COMMIT="b3c0c0081d919aa912830b412b2db3228a22b84b"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
