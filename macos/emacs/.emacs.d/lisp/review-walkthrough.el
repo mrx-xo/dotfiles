@@ -476,8 +476,9 @@ colours prose code; a fence's label picks its own."
       (setq code (not code)))
     lines))
 
-(defun review-walkthrough--card (step n total width)
+(defun review-walkthrough--card (step n total width &optional author)
   "The card for STEP, number N of TOTAL, WIDTH columns wide, as pane lines.
+AUTHOR non-nil labels the route as the change author's own.
 Its rail and indent are chrome, left out of a selection's text."
   (let* ((width (max 30 (- (or width 80) 8)))
          (rail (concat (propertize " " 'face 'review-walk-rail 'review-extra-chrome t)
@@ -493,7 +494,7 @@ Its rail and indent are chrome, left out of a selection's text."
                  (review-walkthrough--wrap (funcall styled text face) width)))
          (lines (append
                  (list nil
-                       (propertize "◆ AGENT WALKTHROUGH" 'face 'review-walk-accent)
+                       (propertize (if author "◆ AUTHOR WALKTHROUGH" "◆ AGENT WALKTHROUGH") 'face 'review-walk-accent)
                        (concat (propertize (format "%d/%d" n total) 'face 'review-walk-accent) "  "
                                (funcall styled (plist-get step :title) 'review-walk-title)))
                  (when (plist-get step :body)
@@ -599,7 +600,8 @@ read-only lines on the step's side, and the layout fills the other pane."
            (window (and (buffer-live-p buffer) (get-buffer-window buffer t))))
       (list (list (car rows) side
                   (review-walkthrough--card step (1+ (plist-get w :index)) (length (plist-get w :steps))
-                                            (and window (window-body-width window))))))))
+                                            (and window (window-body-width window))
+                                            (plist-get w :author)))))))
 
 (defun review-walkthrough--draw (session)
   "Draw SESSION's current step in its panes, replacing any earlier drawing.

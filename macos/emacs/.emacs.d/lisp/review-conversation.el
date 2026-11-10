@@ -259,6 +259,8 @@
     (list :label label
           :text (concat "Review context: " label "\n"
                         (format "Snapshot: %S\n" revision)
+                        (when (fboundp 'review-handoff-context-text)
+                          (review-handoff-context-text session))
                         (when step (format "Walkthrough: %s\n%s\n" (plist-get step :title)
                                            (or (plist-get step :body) "")))
                         (when range (format "Selected source:\n%s\n%s\n"

@@ -702,6 +702,17 @@ Nothing happens for a review of a git range."
     (message "PR readiness: %s" message)
     (mr-x/pr-readiness--store session (list :error message))))
 
+;; The readiness fetch already holds the PR, body included, so the author's
+;; handoff is collected from it with no extra request.
+(defun mr-x/pr-handoff--collect (session pr)
+  "Store the author handoff in PR's body on SESSION, against PR's head."
+  (when (require 'review-handoff nil t)
+    (let ((body (alist-get 'body pr)))
+      (review-handoff-collect session (and (stringp body) body)
+                              (alist-get 'sha (alist-get 'head pr))))
+    (when (eq session review-session--current)
+      (review-panel--show-bar session))))
+
 (defun mr-x/pr-readiness--fetch-forgejo (session recipe)
   "Fetch Forgejo readiness for SESSION from RECIPE."
   (let* ((host (plist-get recipe :host))
@@ -712,6 +723,7 @@ Nothing happens for a review of a git range."
     (forgejo-api-get
      host base nil
      (lambda (pr _headers)
+       (mr-x/pr-handoff--collect session pr)
        (forgejo-api-get
         host (concat base "/reviews") nil
         (lambda (reviews _headers)
@@ -740,6 +752,7 @@ Nothing happens for a review of a git range."
         :errorback fail
         :callback
         (lambda (pr &rest _)
+          (mr-x/pr-handoff--collect session pr)
           (forge--rest repo "GET" (format "/repos/:owner/:repo/pulls/%d/reviews" number) nil
             :errorback fail
             :callback
