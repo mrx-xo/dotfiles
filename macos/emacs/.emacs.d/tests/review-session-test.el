@@ -572,6 +572,93 @@ Return (OLD-LINES NEW-LINES STARTS)."
                      (1- (line-number-at-pos (window-start nw))))
                    3))))))
 
+;;;; Keeping the panes level under pixel scrolling
+
+(defconst review-session-test--ten-lines
+  (mapconcat (lambda (i) (format "line %d" i)) (number-sequence 1 10) "\n"))
+
+(defun review-session-test--line-start (window n)
+  "Position of line N (from 0) in WINDOW's buffer."
+  (with-current-buffer (window-buffer window)
+    (save-excursion (goto-char (point-min)) (forward-line n) (point))))
+
+(defun review-session-test--start-line (window)
+  "The line (from 0) at the top of WINDOW."
+  (with-current-buffer (window-buffer window)
+    (1- (line-number-at-pos (window-start window)))))
+
+(ert-deftest review-session-follow-levels-the-other-pane-to-a-moved-window ()
+  ;; A pane whose viewport moved since it was last seen drives; the other
+  ;; pane goes to the same line.  An unmoved pane changes nothing.
+  (review-session-test--long s 'wrap (concat review-session-test--ten-lines "\n")
+                             (concat review-session-test--ten-lines " x\n")
+    (let* ((ow (review-session-old-window s)) (nw (review-session-new-window s))
+           (opened (review-session-test--start-line nw)))
+      (review-session--follow ow)
+      (should (= (review-session-test--start-line nw) opened))
+      (set-window-start ow (review-session-test--line-start ow 2) t)
+      (review-session--follow ow)
+      (should (= (review-session-test--start-line nw) 2)))))
+
+(ert-deftest review-session-follow-does-not-reflect-back-on-the-driver ()
+  ;; Once leveled, the follower has nothing new to report: its own
+  ;; redisplay must not push its viewport back onto the driver.
+  (review-session-test--long s 'wrap (concat review-session-test--ten-lines "\n")
+                             (concat review-session-test--ten-lines " x\n")
+    (let ((ow (review-session-old-window s)) (nw (review-session-new-window s)))
+      (set-window-start ow (review-session-test--line-start ow 2) t)
+      (review-session--follow ow)
+      ;; The driver glides on before anyone looks at it again.
+      (set-window-start ow (review-session-test--line-start ow 1) t)
+      (review-session--follow nw)
+      (should (= (review-session-test--start-line ow) 1))
+      (should (= (review-session-test--start-line nw) 2)))))
+
+(ert-deftest review-session-follow-brings-the-follower-point-into-view ()
+  ;; A follower whose point is left outside its new viewport would be
+  ;; scrolled back to that point by redisplay, dragging the driver with
+  ;; it.  Its point moves to the driver's line instead; a point still in
+  ;; view stays where it is.
+  (review-session-test--long s 'wrap (concat review-session-test--ten-lines "\n")
+                             (concat review-session-test--ten-lines " x\n")
+    (let ((ow (review-session-old-window s)) (nw (review-session-new-window s)))
+      (dolist (w (list ow nw))
+        (set-window-start w (review-session-test--line-start w 0) t)
+        (set-window-point w (review-session-test--line-start w 1)))
+      (set-window-start ow (review-session-test--line-start ow 3) t)
+      (set-window-point ow (review-session-test--line-start ow 5))
+      (review-session--follow ow)
+      (should (= (with-current-buffer (window-buffer nw) (1- (line-number-at-pos (window-point nw)))) 5))
+      ;; Visible already: untouched.
+      (set-window-start ow (review-session-test--line-start ow 4) t)
+      (set-window-point ow (review-session-test--line-start ow 7))
+      (review-session--follow ow)
+      (should (= (with-current-buffer (window-buffer nw) (1- (line-number-at-pos (window-point nw)))) 5)))))
+
+(ert-deftest review-session-follow-copies-the-pixel-offset ()
+  ;; Trackpad scrolling moves a window by pixels inside its top line;
+  ;; the other pane gets the same offset.  Only a graphic frame has one.
+  (skip-unless (display-graphic-p))
+  (review-session-test--long s 'wrap (concat review-session-test--ten-lines "\n")
+                             (concat review-session-test--ten-lines " x\n")
+    (let ((ow (review-session-old-window s)) (nw (review-session-new-window s)))
+      (set-window-start ow (review-session-test--line-start ow 1) t)
+      (set-window-vscroll ow 7 t t)
+      (review-session--follow ow)
+      (should (= (review-session-test--start-line nw) 1))
+      (should (= (window-vscroll nw t) 7))
+      ;; A step that only changes the offset is a move too.
+      (set-window-vscroll ow 13 t t)
+      (review-session--follow ow)
+      (should (= (window-vscroll nw t) 13)))))
+
+(ert-deftest review-session-panes-follow-before-redisplay-and-after-a-scroll ()
+  (review-session-test--with s
+    (dolist (b (list (review-session-old-buffer s) (review-session-new-buffer s)))
+      (with-current-buffer b
+        (should (memq #'review-session--follow pre-redisplay-functions))
+        (should (memq #'review-session--sync-scroll window-scroll-functions))))))
+
 ;;;; Extra lines: read-only text before a row, filler facing it
 
 (defun review-session-test--layout-extras (old new extras)

@@ -951,21 +951,68 @@ change; they redraw instead of scrolling the window, so the gutter stays."
                                      buffer (max 0 (- (plist-get hunk :start) 3))))
                 (set-window-point w (point))))))))))
 
-(defun review-session--sync-scroll (window start)
-  "Keep the other pane level with WINDOW after it scrolls to START.
-Every row takes the same number of lines in both panes, so line N of one
-is level with line N of the other."
+(defun review-session--other-pane-window (window)
+  "The window showing the pane that faces WINDOW's, or nil."
   (with-current-buffer (window-buffer window)
-    (when (and review-pane--session (not (bound-and-true-p review-pane--syncing)))
-      (let* ((s review-pane--session)
-             (other (if (eq review-pane--side 'old) (review-session-new-buffer s) (review-session-old-buffer s)))
-             (line (save-excursion (goto-char start) (1- (line-number-at-pos)))))
-        (when-let ((ow (and (buffer-live-p other) (get-buffer-window other t))))
-          (with-current-buffer other
-            (setq-local review-pane--syncing t)
-            (unwind-protect
-                (set-window-start ow (save-excursion (goto-char (point-min)) (forward-line line) (point)))
-              (setq-local review-pane--syncing nil))))))))
+    (when-let* ((s review-pane--session)
+                (other (if (eq review-pane--side 'old) (review-session-new-buffer s)
+                         (review-session-old-buffer s))))
+      (and (buffer-live-p other) (get-buffer-window other t)))))
+
+(defun review-session--viewport (window)
+  "WINDOW's start and pixel offset within its top line, as a cons."
+  (cons (window-start window) (window-vscroll window t)))
+
+(defun review-session--level (source target)
+  "Put TARGET at SOURCE's line and pixel offset, and mark both windows seen.
+Every row takes the same number of lines in both panes, so line N of one
+is level with line N of the other.  The forced start brings TARGET's
+point into view; the offset is set with PRESERVE, so that redisplay keeps
+it instead of cancelling it as a forced start otherwise does."
+  (let* ((line (with-current-buffer (window-buffer source)
+                 (save-excursion (goto-char (window-start source)) (1- (line-number-at-pos)))))
+         (pixels (window-vscroll source t))
+         (pos (with-current-buffer (window-buffer target)
+                (save-excursion (goto-char (point-min)) (forward-line line) (point)))))
+    (set-window-start target pos nil)
+    (set-window-vscroll target pixels t t)
+    (review-session--keep-point-in-view target line pixels
+                                        (with-current-buffer (window-buffer source)
+                                          (1- (line-number-at-pos (window-point source)))))
+    (set-window-parameter source 'review-pane-seen (review-session--viewport source))
+    (set-window-parameter target 'review-pane-seen (review-session--viewport target))))
+
+(defun review-session--keep-point-in-view (window start pixels line)
+  "Move WINDOW's point to LINE unless it is in view from START with PIXELS clipped.
+Redisplay scrolls a window back to a point it cannot show, and a forced
+start does not reliably move the point first; so the follower's point
+goes to the driver's line, which the driver is showing in full.  In view
+means on a line fully shown: not the first when PIXELS clips it, and
+short of the last two, which may be partial."
+  (let* ((at (with-current-buffer (window-buffer window)
+               (1- (line-number-at-pos (window-point window)))))
+         (first (if (> pixels 0) (1+ start) start))
+         (last (+ start (window-body-height window) -3)))
+    (unless (<= first at last)
+      (set-window-point window (with-current-buffer (window-buffer window)
+                                 (save-excursion (goto-char (point-min)) (forward-line line) (point)))))))
+
+(defun review-session--follow (window)
+  "Level the other pane with WINDOW when WINDOW moved since it was last seen.
+On `pre-redisplay-functions' in both panes.  The pane that moved drives
+and the other follows, wherever the move came from: a trackpad glide
+sets a new start and offset without ever running `window-scroll-functions'.
+A pane just leveled has nothing new to report, so nothing reflects back."
+  (let ((now (review-session--viewport window)))
+    (unless (equal now (window-parameter window 'review-pane-seen))
+      (let ((other (review-session--other-pane-window window)))
+        (if other (review-session--level window other)
+          (set-window-parameter window 'review-pane-seen now))))))
+
+(defun review-session--sync-scroll (window _start)
+  "Level the other pane after redisplay itself scrolled WINDOW to show point.
+That scroll comes after `pre-redisplay-functions' ran, so this catches it."
+  (review-session--follow window))
 
 (defun review-session--display (session)
   "Show both panes of SESSION side by side in its frame.
@@ -989,6 +1036,7 @@ windows (the panel) are left alone and nothing flickers."
       (set-window-buffer rw new)
       (dolist (b (list old new))
         (with-current-buffer b
+          (add-hook 'pre-redisplay-functions #'review-session--follow nil t)
           (add-hook 'window-scroll-functions #'review-session--sync-scroll nil t)))
       (select-window rw)
       (run-hook-with-args 'review-session-display-hook session))))
