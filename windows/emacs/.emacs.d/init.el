@@ -678,7 +678,13 @@ kill ring, so `p' recovers it if the insertion is refused."
     (let ((multiplex (expand-file-name "bin/acp-multiplex.exe" (getenv "USERPROFILE"))))
       (when (file-executable-p multiplex)
         (setq agent-shell-anthropic-claude-acp-command
-              (list multiplex "claude-agent-acp")))))
+              (list multiplex "claude-agent-acp"))
+        ;; Codex through the same multiplex, as on the Mac: the proxy is a
+        ;; provider-neutral JSON-RPC tee, so Codex chats get a socket and a
+        ;; card on the phone too. Without it they ran direct and were
+        ;; invisible to SYZYGY (2026-11-10).
+        (setq agent-shell-openai-codex-acp-command
+              (list multiplex "codex-acp")))))
   ;; Image input on Windows (port of the Mac pngpaste/screencapture flow):
   ;;   p in a shell (agent-shell-yank-dwim) -> pastes a clipboard image; uses the
   ;;     built-in "powershell" clipboard handler (Get-Clipboard -Format image),
