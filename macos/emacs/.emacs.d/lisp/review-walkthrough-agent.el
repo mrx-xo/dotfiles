@@ -8,6 +8,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'review-walkthrough)
+(require 'review-handoff)
 
 (declare-function mr-x/quick-ask--ensure-session "agent-shell-config")
 (declare-function agent-shell-subscribe-to "agent-shell")
@@ -271,9 +272,28 @@ since the caller has no way to know the busy turn will ever finish."
       (special-mode))
     (display-buffer (current-buffer))))
 
-(defun review-walkthrough-agent-dwim ()
-  "Request a walkthrough, end the running one, or show why none came back."
-  (interactive)
+(defun review-walkthrough-agent--author (session)
+  "Play SESSION's author route; nil when the agent should build one instead."
+  (let ((handoff (review-handoff-get session)))
+    (cond
+     ((plist-get handoff :error)
+      (message "Author handoff unusable (%s); asking the agent" (plist-get handoff :error))
+      nil)
+     ((and (plist-get handoff :stale)
+           (not (eq (read-key "The author route is for an older commit.  u: use it anyway  other: ask the agent") ?u)))
+      nil)
+     ;; Only a route the viewer rejects falls back to the agent; files still
+     ;; loading are a retry, and the author's route must not be thrown away.
+     (t (let ((report (review-handoff-start session)))
+          (message "Author walkthrough: %s"
+                   (if (string-prefix-p "retry:" report) "files still loading; press W again" report))
+          (not (string-prefix-p "error:" report)))))))
+
+(defun review-walkthrough-agent-dwim (&optional agent)
+  "Request a walkthrough, end the running one, or show why none came back.
+An author handoff for this review plays first; with prefix AGENT, or when
+it cannot be used, the agent builds a route instead."
+  (interactive "P")
   (let* ((session (review-session--require))
          (w (review-session-walkthrough session)))
     (cond ((plist-get w :steps)
@@ -286,6 +306,8 @@ since the caller has no way to know the busy turn will ever finish."
                  (setf (review-session-walkthrough session) nil)
                  (review-session--notify session)
                  (message "Walkthrough planning cancelled"))))
+          ((and (not agent) (review-handoff-get session)
+                (review-walkthrough-agent--author session)))
           (t (review-walkthrough-request)))))
 
 (defun review-walkthrough-agent--ask-context ()
