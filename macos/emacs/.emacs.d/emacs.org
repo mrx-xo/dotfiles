@@ -11695,7 +11695,12 @@ silent context-only capture with no marker."
       (defun mr-x/quick-ask--start-session (&optional dir)
         "Create a hidden agent-shell session in DIR's project. Returns the buffer."
         (let* ((root (mr-x/quick-ask--project-directory dir))
-               (default-directory root))
+               (default-directory root)
+               ;; Direct ACP, not acp-multiplex: a hidden helper session has
+               ;; no business on the phone, and the multiplex socket is what
+               ;; SYZYGY discovers.  agent-shell reads these at start time.
+               (agent-shell-anthropic-claude-acp-command '("claude-agent-acp"))
+               (agent-shell-openai-codex-acp-command '("codex-acp")))
           (condition-case err
               (setq mr-x/quick-ask--shell-buffer
                     (agent-shell--start
