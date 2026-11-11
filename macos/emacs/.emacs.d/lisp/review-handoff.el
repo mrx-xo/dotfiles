@@ -90,6 +90,9 @@ A block whose JSON cannot be read gives (:head SHA :error MESSAGE)."
 
 ;;; Storage on the session
 
+(defvar review-handoff-collected-functions nil
+  "Called with SESSION and the handoff after a PR's handoff is collected.")
+
 (defun review-handoff-get (session)
   "SESSION's handoff, with :stale set when it was written for another commit.
 A git-range review looks for its local file the first time it is asked."
@@ -116,6 +119,8 @@ A git-range review looks for its local file the first time it is asked."
 Return the stored handoff, or nil when BODY has none."
   (let ((handoff (review-handoff-parse body)))
     (review-handoff--put session (and handoff (plist-put handoff :reviewed reviewed-head)))
+    (when (and handoff (null (plist-get handoff :error)))
+      (run-hook-with-args 'review-handoff-collected-functions session handoff))
     handoff))
 
 ;;; Playing it
