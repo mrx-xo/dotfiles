@@ -10,6 +10,7 @@
 (require 'map)
 (require 'review-store)
 (require 'review-walkthrough-agent)
+(require 'review-author-agent)
 
 (defvar agent-shell--state)
 (defvar agent-shell-preferred-agent-config)
@@ -289,7 +290,9 @@
                             'local-map (let ((map (make-sparse-keymap)))
                                          (define-key map [header-line mouse-1] #'review-conversation-hide)
                                          map))
-                " " (cond ((eq review-conversation--role 'quick-ask) "Quick Ask agent")
+                " " (cond ((review-author-agent-label session (current-buffer))
+                           (concat "Review agent: " (review-author-agent-label session (current-buffer))))
+                          ((eq review-conversation--role 'quick-ask) "Quick Ask agent")
                           ((eq (plist-get (review-conversation--data session) :relationship) 'replacement)
                            "Replacement agent")
                           (t "Walkthrough agent"))
@@ -308,7 +311,7 @@
     (if (not (and review-conversation-mode session (buffer-live-p shell)
                   (equal (buffer-local-value 'review-conversation--key shell)
                          (review-conversation--key session))
-                  (or (eq (buffer-local-value 'review-conversation--role shell) 'quick-ask)
+                  (or (memq (buffer-local-value 'review-conversation--role shell) '(quick-ask author))
                       (review-conversation--same-identity-p
                        (review-conversation--identity shell)
                        (plist-get (review-conversation--data session) :session)))
@@ -320,7 +323,7 @@
                      (concat (plist-get args :prompt)
                              "\n\n--- Review context supplied by the viewer ---\n"
                              (plist-get context :text)
-                             (when-let ((seed (and (not (eq review-conversation--role 'quick-ask))
+                             (when-let ((seed (and (null review-conversation--role)
                                                   (plist-get (review-conversation--data session) :seed))))
                                (concat "\nSaved walkthrough and evidence (historical, not the current revision):\n" seed))
                              "\nAnswer the user's question conversationally. The earlier JSON-only "
@@ -407,6 +410,9 @@
       (review-conversation--started session))
     (setq review-conversation--resume-token token)
     (cond
+     ((and (plist-get (review-session-walkthrough session) :author)
+           (review-author-agent-shell session))
+      (review-conversation--show session (review-author-agent-shell session) t 'author))
      (live (review-conversation--show session live t))
      ((and (null data) (not (plist-get (review-session-walkthrough session) :steps))
            (buffer-live-p review-conversation--visible-buffer)
@@ -501,7 +507,8 @@
         (add-hook 'review-store-refreshed-functions #'review-conversation--refreshed)
         (add-hook 'post-command-hook #'review-conversation--capture-selection)
         (advice-add 'agent-shell--update-header-and-mode-line :after #'review-conversation--keep-header)
-        (advice-add 'agent-shell--send-command :filter-args #'review-conversation--prompt-args))
+        (advice-add 'agent-shell--send-command :filter-args #'review-conversation--prompt-args)
+        (review-author-agent-mode 1))
     (setq review-walkthrough-agent-session-function review-conversation--previous-session-function)
     (review-conversation-hide)
     (remove-hook 'review-walkthrough-started-functions #'review-conversation--started)
@@ -518,7 +525,8 @@
         (when review-conversation--key
           (setq header-line-format review-conversation--old-header
                 review-conversation--key nil))))
-    (advice-remove 'agent-shell--send-command #'review-conversation--prompt-args)))
+    (advice-remove 'agent-shell--send-command #'review-conversation--prompt-args)
+    (review-author-agent-mode -1)))
 
 (provide 'review-conversation)
 ;;; review-conversation.el ends here
