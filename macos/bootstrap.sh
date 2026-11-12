@@ -98,8 +98,9 @@ mkdir -p "$HOME/.local/bin"
 ln -sf "$REPO_ROOT/shared/bin/whereami" "$HOME/.local/bin/whereami"
 
 # Agent-fleet helpers (~/docs/agent-fleet-ops.md): secret handoff, focus-safe
-# agent browser, headless smoke check, MrX2 sandbox viewer
-for s in secret agent-open agent-space-ensure agent-workspace agent-fleet-check sandbox-view claude-acp-headless; do
+# agent browser, headless smoke check, MrX2 sandbox viewer, PR opener with
+# review handoff (agent-pr)
+for s in secret agent-open agent-space-ensure agent-workspace agent-fleet-check sandbox-view claude-acp-headless agent-pr; do
   ln -sf "$DOTDIR/scripts/$s" "$HOME/.local/bin/$s"
 done
 # OpenCode installs to ~/.opencode/bin, which is not on PATH

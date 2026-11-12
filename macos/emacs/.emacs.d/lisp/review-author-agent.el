@@ -134,19 +134,23 @@ Keys: :rung :buffer :owned :reason :token :transcript :cwd :replacement.")
                       (review-author-agent--agent-buffers))))
     (cl-some (lambda (p) (alist-get p pids)) (review-author-agent--ancestors pid))))
 
-(defun review-author-agent-record (pid &optional pr head)
+(defun review-author-agent-record (pid &optional pr head notes)
   "Record the agent-shell session that owns shell PID as a change's author.
 Run by the authoring agent through emacsclient with its shell's $$.
 Write the local side file and return the `session' JSON for the handoff:
 agent, session id and a hashed machine, nothing that locates the machine.
 With PR (OWNER/REPO#N) and HEAD, also mark the PR opened, or updated when
-this session already marked it."
+this session already marked it.  NOTES is the author's decision-notes file,
+kept in the side file for a replacement agent."
   (require 'review-conversation)
   (let* ((buffer (or (review-author-agent--buffer-for-pid pid)
                      (error "No agent-shell session owns process %s" pid)))
          (identity (review-conversation--identity buffer))
          (sid (or (plist-get identity :session-id) (error "The session has no id yet")))
-         (file (review-author-agent--side-file sid)))
+         (file (review-author-agent--side-file sid))
+         (identity (if (and notes (not (string-empty-p notes)))
+                       (plist-put identity :notes (expand-file-name notes))
+                     identity)))
     (make-directory (file-name-directory file) t)
     (with-temp-file file
       (let ((print-length nil) (print-level nil))
@@ -219,7 +223,7 @@ Return the entry, or nil when the review has no usable handoff."
                (transcript (plist-get side :transcript))
                (live (and sid (review-author-agent--live sid))))
           (review-author-agent--set session :transcript transcript :head (plist-get handoff :head)
-                                    :cwd (plist-get side :cwd)
+                                    :cwd (plist-get side :cwd) :notes (plist-get side :notes)
                                     :buffer nil :owned nil :reason nil)
           (cond
            (live
@@ -314,6 +318,11 @@ The author's live or resumed session when ready, else the replacement."
          (format "[Review] You are a replacement agent answering review questions about %s. You did not write it; its author is unavailable (%s). %s\n"
                  title (or (plist-get entry :reason) "unknown reason") rules)
          "\nAuthor handoff:\n" (or (plist-get handoff :text) "(route only)") "\n"
+         (when-let* ((notes (plist-get entry :notes))
+                     ((file-readable-p notes))
+                     (text (string-trim (with-temp-buffer (insert-file-contents notes) (buffer-string))))
+                     ((not (string-empty-p text))))
+           (concat "\nThe author's decision notes, written while working:\n" text "\n"))
          (when digest (concat "\nDigest of the author's transcript:\n" digest "\n"))
          (when (and transcript (file-readable-p transcript))
            (let* ((pr (review-author-agent--pr-id session))

@@ -48,6 +48,37 @@ duplicated and will drift.
 @~/docs/agents/core.md
 @~/docs/agents/orchestrator.md
 EOF
+
+# Claude Code guard hooks (PreToolUse): secrets, and PRs only through agent-pr.
+python3 - "$HOME/.claude/settings.json" "$HOME/.dotfiles/macos/scripts" claude <<'EOF'
+import json, sys, os
+
+path, scripts, kind = sys.argv[1], sys.argv[2], sys.argv[3]
+# (guard script, matcher): secrets for Bash and Read; PRs through agent-pr.
+guards = [("secret-guard-hook.sh", "Bash|Read"), ("pr-guard-hook.sh", "Bash")]
+label = path.replace(os.path.expanduser("~"), "~")
+config = {}
+if os.path.exists(path):
+    with open(path) as fh:
+        config = json.load(fh)
+groups = config.setdefault("hooks", {}).setdefault("PreToolUse", [])
+changed = False
+for name, matcher in guards:
+    guard = os.path.join(scripts, name)
+    if any(h.get("command") == guard for g in groups for h in g.get("hooks", [])):
+        print(f"already wired: {label} ({name})")
+        continue
+    hook = {"type": "command", "command": guard}
+    if kind == "codex":
+        hook["timeout"] = 10
+    groups.append({"matcher": matcher, "hooks": [hook]})
+    changed = True
+    print(f"wired: {label} ({name})")
+if changed:
+    with open(path, "w") as fh:
+        json.dump(config, fh, indent=2)
+        fh.write("\n")
+EOF
 echo "wired: ~/.claude/CLAUDE.md (pointer)"
 
 # Codex and Gemini: no import support, so copy the stub into place.
@@ -88,29 +119,37 @@ fi
 # Codex harness: guard hook (trusted) + org-mcp.
 CODEX_HOME="$HOME/.codex"
 if [ -d "$CODEX_HOME" ] && command -v codex >/dev/null 2>&1; then
-    GUARD="$HOME/.dotfiles/macos/scripts/secret-guard-hook.sh"
     HOOKS_JSON="$CODEX_HOME/hooks.json"
     # A fresh Codex login has no config.toml; both TOML edits below need one.
     touch "$CODEX_HOME/config.toml"
-    python3 - "$HOOKS_JSON" "$GUARD" <<'EOF'
+    python3 - "$HOOKS_JSON" "$HOME/.dotfiles/macos/scripts" codex <<'EOF'
 import json, sys, os
 
-path, guard = sys.argv[1], sys.argv[2]
-want = {"type": "command", "command": guard, "timeout": 10}
-config = {"hooks": {}}
+path, scripts, kind = sys.argv[1], sys.argv[2], sys.argv[3]
+# (guard script, matcher): secrets for Bash and Read; PRs through agent-pr.
+guards = [("secret-guard-hook.sh", "Bash|Read"), ("pr-guard-hook.sh", "Bash")]
+label = path.replace(os.path.expanduser("~"), "~")
+config = {}
 if os.path.exists(path):
     with open(path) as fh:
         config = json.load(fh)
 groups = config.setdefault("hooks", {}).setdefault("PreToolUse", [])
-present = any(h.get("command") == guard for g in groups for h in g.get("hooks", []))
-if present:
-    print("already wired: ~/.codex/hooks.json (guard hook)")
-else:
-    groups.append({"matcher": "Bash|Read", "hooks": [want]})
+changed = False
+for name, matcher in guards:
+    guard = os.path.join(scripts, name)
+    if any(h.get("command") == guard for g in groups for h in g.get("hooks", [])):
+        print(f"already wired: {label} ({name})")
+        continue
+    hook = {"type": "command", "command": guard}
+    if kind == "codex":
+        hook["timeout"] = 10
+    groups.append({"matcher": matcher, "hooks": [hook]})
+    changed = True
+    print(f"wired: {label} ({name})")
+if changed:
     with open(path, "w") as fh:
         json.dump(config, fh, indent=2)
         fh.write("\n")
-    print("wired: ~/.codex/hooks.json (guard hook)")
 EOF
 
     # Trust it: ask the app-server for the hook's key + current hash, then
@@ -133,12 +172,14 @@ for line in sys.stdin:
         for h in cwd["hooks"]:
             if h["source"] == "user" and h["command"].endswith("guard-hook.sh"):
                 print(h["key"], h["currentHash"], h["trustStatus"])
-                sys.exit(0)
+    sys.exit(0)
 ' )
     if [ -z "$HOOK_INFO" ]; then
-        echo "warning: codex app-server did not list the guard hook; trust not recorded" >&2
-    else
-        python3 - "$CODEX_HOME/config.toml" $HOOK_INFO <<'EOF'
+        echo "warning: codex app-server did not list the guard hooks; trust not recorded" >&2
+    fi
+    printf '%s\n' "$HOOK_INFO" | while read -r HOOK_KEY HOOK_HASH HOOK_STATUS; do
+        [ -n "$HOOK_KEY" ] || continue
+        python3 - "$CODEX_HOME/config.toml" "$HOOK_KEY" "$HOOK_HASH" "$HOOK_STATUS" <<'EOF'
 import sys, re
 
 path, key, digest, status = sys.argv[1:5]
@@ -148,7 +189,7 @@ block = f'[hooks.state."{key}"]\ntrusted_hash = "{digest}"\nenabled = true\n'
 pat = re.compile(r'\[hooks\.state\."' + re.escape(key) + r'"\]\n(?:[^\[\n][^\n]*\n|\n)*')
 m = pat.search(s)
 if m and m.group(0).strip() == block.strip():
-    print("already trusted: ~/.codex/hooks.json guard hook")
+    print(f"already trusted: ~/.codex/hooks.json {key}")
     sys.exit(0)
 if m:
     s = s[:m.start()] + block + "\n" + s[m.end():]
@@ -159,9 +200,9 @@ else:
     s = s.rstrip("\n") + "\n\n[hooks.state]\n\n" + block
 with open(path, "w") as fh:
     fh.write(s)
-print(f"trusted: ~/.codex/hooks.json guard hook (was {status})")
+print(f"trusted: ~/.codex/hooks.json {key} (was {status})")
 EOF
-    fi
+    done
 
     # org-mcp: milestones, todos, notes. Lives in ~/roaming (Syncthing), so the
     # path is the same on every Mac that has a roaming clone.

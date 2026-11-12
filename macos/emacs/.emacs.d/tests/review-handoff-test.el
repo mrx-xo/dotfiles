@@ -206,3 +206,15 @@
     (review-handoff-collect s (review-handoff-test--body "1234567") "1234567")
     (let ((copy (copy-tree (review-session-extensions s))))
       (should (equal (car (read-from-string (prin1-to-string copy))) copy)))))
+
+(ert-deftest review-handoff-missing-bar-only-for-prs-without-one ()
+  (review-handoff-test--with s '(:kind forgejo :host "h" :owner "o" :repo "r" :number 1)
+    (should-not (review-handoff--missing-bar s))
+    (review-handoff-collect s "Just a description." "1234567")
+    (should-not (review-handoff-get s))
+    (should (string-match-p "no handoff" (review-handoff--missing-bar s)))
+    (review-handoff-collect s (review-handoff-test--body "1234567") "1234567")
+    (should-not (review-handoff--missing-bar s)))
+  (review-handoff-test--with s nil
+    (review-handoff-collect s "Just a description." "1234567")
+    (should-not (review-handoff--missing-bar s))))
