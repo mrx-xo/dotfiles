@@ -41,6 +41,11 @@
 (declare-function shell-maker-busy "shell-maker")
 (declare-function mr-x/quick-ask--track-response "agent-shell-config" (shell))
 (defvar agent-shell--state)
+(defvar agent-shell--transcript-file)
+(defvar shell-maker--config)
+(declare-function shell-maker-config-prompt "shell-maker" (config))
+(declare-function agent-shell-subscribe-to "agent-shell")
+(declare-function agent-shell-unsubscribe "agent-shell")
 (defvar agent-shell-preferred-agent-config)
 (defvar major-pane-launch-ejected)
 (defvar major-pane-prompt-label-on-start)
@@ -87,6 +92,9 @@ DONE takes nil on success or an error string.  Never blocks.")
   "Review key -> plist describing who answers that review.
 Keys: :rung :buffer :owned :reason :token :transcript :cwd :replacement.")
 
+(defvar review-author-agent--digest-span nil
+  "Lines (START . END) the running digest should focus on, or nil.")
+
 (defvar-local review-author-agent--prefix nil
   "Function returning text to put before this shell's next prompt, once.")
 
@@ -126,11 +134,13 @@ Keys: :rung :buffer :owned :reason :token :transcript :cwd :replacement.")
                       (review-author-agent--agent-buffers))))
     (cl-some (lambda (p) (alist-get p pids)) (review-author-agent--ancestors pid))))
 
-(defun review-author-agent-record (pid)
+(defun review-author-agent-record (pid &optional pr head)
   "Record the agent-shell session that owns shell PID as a change's author.
 Run by the authoring agent through emacsclient with its shell's $$.
 Write the local side file and return the `session' JSON for the handoff:
-agent, session id and a hashed machine, nothing that locates the machine."
+agent, session id and a hashed machine, nothing that locates the machine.
+With PR (OWNER/REPO#N) and HEAD, also mark the PR opened, or updated when
+this session already marked it."
   (require 'review-conversation)
   (let* ((buffer (or (review-author-agent--buffer-for-pid pid)
                      (error "No agent-shell session owns process %s" pid)))
@@ -141,6 +151,12 @@ agent, session id and a hashed machine, nothing that locates the machine."
     (with-temp-file file
       (let ((print-length nil) (print-level nil))
         (prin1 identity (current-buffer))))
+    (when pr
+      (review-author-agent-mark
+       buffer (if (seq-some (lambda (f) (review-author-agent--marked-p f pr 'opened))
+                            (review-author-agent--transcripts-for (plist-get identity :transcript) pr))
+                  'updated 'opened)
+       pr head))
     (json-encode `((agent . ,(format "%s" (plist-get identity :agent)))
                    (session_id . ,sid)
                    (machine . ,(review-author-agent--machine-hash))))))
@@ -300,7 +316,15 @@ The author's live or resumed session when ready, else the replacement."
          "\nAuthor handoff:\n" (or (plist-get handoff :text) "(route only)") "\n"
          (when digest (concat "\nDigest of the author's transcript:\n" digest "\n"))
          (when (and transcript (file-readable-p transcript))
-           (format "\nThe author's full transcript is %s. When the handoff and digest do not answer a question, search it (rg -n, then read around the hit) and cite the transcript line you relied on. Do not read it whole.\n" transcript)))))))
+           (let* ((pr (review-author-agent--pr-id session))
+                  (files (review-author-agent--transcripts-for transcript pr))
+                  (span (review-author-agent--span transcript pr)))
+             (concat
+              (format "\nThe author's transcript%s: %s. When the handoff and digest do not answer a question, search them (rg -n, then read around the hit) and cite the file and line you relied on. Do not read them whole.\n"
+                      (if (cdr files) "s" "") (string-join files ", "))
+              (when span
+                (format "In %s the change was made in lines %d to %d; `review-mark' lines delimit it.\n"
+                        (file-name-nondirectory transcript) (car span) (cdr span)))))))))))
 
 (defun review-author-agent--prompt-args (args)
   "Put a primed shell's one-time prefix before its next prompt."
@@ -337,12 +361,14 @@ The author's live or resumed session when ready, else the replacement."
       (review-author-agent--set session :digesting t)
       (make-directory (file-name-directory file) t)
       (let ((key (review-author-agent--key session)))
-        (funcall review-author-agent-digest-function transcript file
+        (let ((review-author-agent--digest-span
+               (review-author-agent--span transcript (review-author-agent--pr-id session))))
+          (funcall review-author-agent-digest-function transcript file
                  (lambda (err)
                    (let ((e (gethash key review-author-agent--agents)))
                      (puthash key (plist-put (plist-put (copy-sequence e) :digesting nil) :digest-error err)
                               review-author-agent--agents))
-                   (when err (message "Review digest failed: %s" err))))))))
+                   (when err (message "Review digest failed: %s" err)))))))))
 
 (defconst review-author-agent--digest-prompt
   "Read the agent transcript file %s in this directory. It is the conversation in which an AI agent wrote a code change that is now under review. Write a digest for a reviewer, in Markdown, at most 1500 words, with these sections: '## Tried and abandoned', '## Decisions', '## Doubts the author had', '## What was run'. Each bullet ends with the transcript line it comes from, as (L1234). Leave out file dumps and chatter. Output only the digest.")
@@ -351,7 +377,11 @@ The author's live or resumed session when ready, else the replacement."
   "Digest TRANSCRIPT into OUTPUT through the cheap OpenCode lane; then DONE."
   (let* ((default-directory (file-name-directory transcript))
          (buffer (generate-new-buffer " *review-digest*"))
-         (prompt (format review-author-agent--digest-prompt (file-name-nondirectory transcript))))
+         (span review-author-agent--digest-span)
+         (prompt (concat (format review-author-agent--digest-prompt (file-name-nondirectory transcript))
+                         (when span
+                           (format " The change itself was made in lines %d to %d (between the review-mark lines); read only that range, and treat anything after it as later review discussion."
+                                   (car span) (cdr span))))))
     (condition-case err
         ;; OpenCode reads stdin when it is a pipe; close it or it waits forever.
         (process-send-eof
@@ -368,6 +398,178 @@ The author's live or resumed session when ready, else the replacement."
                              (progn (with-temp-file output (insert text "\n")) (funcall done nil))
                            (funcall done (format "exit %s, %d chars" (process-exit-status process) (length text)))))))))
       (error (when (buffer-live-p buffer) (kill-buffer buffer)) (funcall done (error-message-string err))))))
+
+;;; Transcript marks
+;;
+;; Where a PR's story starts and ends inside an agent's session: a divider in
+;; the agent-shell buffer and a visible line plus a machine tag in its
+;; transcript.  Digests read only the marked span, and every transcript that
+;; carries a PR's tag is offered to a replacement, so a resumed author's new
+;; transcript file is found too.  A mark made mid-turn waits for the turn to
+;; end, so it never lands inside a streamed message.
+
+(defface review-author-agent-mark '((t :inherit shadow))
+  "Face of the PR dividers drawn in agent-shell buffers.")
+
+(defconst review-author-agent--mark-regexp
+  "<!-- review-mark v1 pr=\\([^ ]+\\) event=\\([a-z]+\\)"
+  "A transcript mark; group 1 is the PR (or -), group 2 the event.")
+
+(defconst review-author-agent--mark-labels
+  '((started . "work started") (opened . "PR opened") (updated . "PR updated")
+    (merged . "PR merged") (closed . "PR closed")))
+
+(defun review-author-agent--mark-text (pr event head note)
+  (let ((time (format-time-string "%Y-%m-%d %H:%M")))
+    (format "\n\n---\n\n**▸ %s%s**%s (%s)\n<!-- review-mark v1 pr=%s event=%s head=%s time=%s -->\n\n---\n\n"
+            (alist-get event review-author-agent--mark-labels)
+            (if pr (concat " " pr) "")
+            (cond (note (format " %s" note)) (head (format " · %s" (substring head 0 (min 7 (length head))))) (t ""))
+            time (or pr "-") event (or head "-") (format-time-string "%FT%T%z"))))
+
+(defun review-author-agent--turn-start (buffer)
+  "Start of the line holding the prompt of BUFFER's current turn, or nil."
+  (with-current-buffer buffer
+    (when-let* ((config (bound-and-true-p shell-maker--config))
+                (prompt (ignore-errors (shell-maker-config-prompt config))))
+      (save-excursion
+        (goto-char (point-max))
+        (when (search-backward prompt nil t) (line-beginning-position))))))
+
+(defun review-author-agent--divider (buffer text &optional pos)
+  "Draw TEXT as a dim divider at POS in BUFFER, else above its prompt line."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (or pos (point-max)))
+      (forward-line 0)
+      (let ((ov (make-overlay (point) (point) nil nil nil)))
+        (overlay-put ov 'review-author-agent-mark t)
+        (overlay-put ov 'before-string
+                     (propertize (concat "──── " text " ────\n") 'face 'review-author-agent-mark))))))
+
+(defun review-author-agent--marked-p (transcript pr event)
+  "Whether TRANSCRIPT already carries PR's EVENT mark."
+  (and transcript (file-readable-p transcript)
+       (with-temp-buffer
+         (insert-file-contents transcript)
+         (search-forward (format "pr=%s event=%s " pr event) nil t))))
+
+(defun review-author-agent--insert-before-turn (buffer transcript pr event head note)
+  "Mark EVENT before BUFFER's current turn, in its transcript and buffer.
+The transcript is rewritten with the mark above the turn's last user
+heading; agent-shell only appends, so its later writes land after."
+  (let ((text (review-author-agent--mark-text pr event head note))
+        (label (concat "▸ " (alist-get event review-author-agent--mark-labels)
+                       (if pr (concat " " pr) "") (if note (concat " " note) ""))))
+    (when (and transcript (file-writable-p transcript))
+      (with-temp-buffer
+        (insert-file-contents transcript)
+        (goto-char (point-max))
+        (if (re-search-backward "^## User" nil t)
+            (insert (string-trim-left text) "\n")
+          (goto-char (point-max)) (insert text))
+        (write-region nil nil transcript nil 'no-message)))
+    (review-author-agent--divider buffer label (review-author-agent--turn-start buffer))))
+
+(defun review-author-agent--write-mark (buffer transcript pr event head note)
+  (let ((text (review-author-agent--mark-text pr event head note)))
+    (when (and transcript (file-writable-p transcript))
+      (write-region text nil transcript t 'no-message))
+    (when (buffer-live-p buffer)
+      (review-author-agent--divider
+       buffer (concat "▸ " (alist-get event review-author-agent--mark-labels)
+                      (if pr (concat " " pr) "")
+                      (if note (concat " " note) ""))))))
+
+(defun review-author-agent--turn-active-p (buffer)
+  "Whether BUFFER's agent is in a turn: a prompt request is in flight.
+A prompt sent without shell-maker never sets its busy flag, so the
+request list is the signal; shell-maker's flag is kept as well."
+  (with-current-buffer buffer
+    (or (seq-some (lambda (r) (equal (map-elt r :method) "session/prompt"))
+                  (and (boundp 'agent-shell--state) (map-elt agent-shell--state :active-requests)))
+        (and (fboundp 'shell-maker-busy) (ignore-errors (shell-maker-busy))))))
+
+(defun review-author-agent-mark (buffer event &optional pr head note transcript)
+  "Mark EVENT for PR in agent-shell BUFFER and its transcript.
+EVENT is started, opened, updated, merged or closed.  Without a live
+BUFFER, only TRANSCRIPT is written.  A busy BUFFER is marked when its
+turn completes."
+  (let ((transcript (or transcript
+                        (and (buffer-live-p buffer)
+                             (buffer-local-value 'agent-shell--transcript-file buffer)))))
+    (cond
+     ;; Work starts with the turn that asked for it: mark above that turn.
+     ((and (eq event 'started) (buffer-live-p buffer) (review-author-agent--turn-active-p buffer))
+      (review-author-agent--insert-before-turn buffer transcript pr event head note)
+      'written)
+     ((and (buffer-live-p buffer) (fboundp 'agent-shell-subscribe-to)
+           (review-author-agent--turn-active-p buffer))
+      (let (token)
+          (setq token (agent-shell-subscribe-to
+                       :shell-buffer buffer :event 'turn-complete
+                       :on-event (lambda (_event)
+                                   (agent-shell-unsubscribe :subscription token)
+                                   (review-author-agent--write-mark buffer transcript pr event head note))))
+        'queued))
+     (t (review-author-agent--write-mark buffer transcript pr event head note)
+        'written))))
+
+(defun review-author-agent-mark-start (pid &optional title)
+  "Mark that the agent owning shell PID starts feature work, called TITLE.
+Run by the authoring agent through emacsclient with its shell's $$."
+  (let ((buffer (or (review-author-agent--buffer-for-pid pid)
+                    (error "No agent-shell session owns process %s" pid))))
+    (format "%s" (review-author-agent-mark buffer 'started nil nil (and title (format "\"%s\"" title))))))
+
+(defun review-author-agent--transcripts-for (transcript pr)
+  "TRANSCRIPT plus every transcript beside it that carries PR's marks."
+  (let* ((dir (and transcript (file-name-directory transcript)))
+         (needle (format "pr=%s event=" pr))
+         (tagged (and dir pr (file-directory-p dir)
+                      (seq-filter (lambda (f)
+                                    (with-temp-buffer
+                                      (insert-file-contents f)
+                                      (search-forward needle nil t)))
+                                  (directory-files dir t "\\.md\\'")))))
+    (delete-dups (delq nil (cons (and transcript (file-readable-p transcript) transcript) tagged)))))
+
+(defun review-author-agent--span (transcript pr)
+  "Lines (START . END) of TRANSCRIPT where PR was authored, or nil.
+From the last `started' mark before PR's first opened mark (else line 1)
+to PR's last opened or updated mark."
+  (when (and pr transcript (file-readable-p transcript))
+    (with-temp-buffer
+      (insert-file-contents transcript)
+      (let (start first-open last-open last-started)
+        (goto-char (point-min))
+        (while (re-search-forward review-author-agent--mark-regexp nil t)
+          (let ((mpr (match-string 1)) (event (intern (match-string 2))) (line (line-number-at-pos)))
+            (cond ((eq event 'started) (unless first-open (setq last-started line)))
+                  ((and (equal mpr pr) (memq event '(opened updated)))
+                   (unless first-open (setq first-open line start last-started))
+                   (setq last-open line)))))
+        (when first-open (cons (or start 1) last-open))))))
+
+(defun review-author-agent--pr-id (session)
+  "SESSION's PR as OWNER/REPO#N, or nil for a review of a git range."
+  (let ((recipe (review-source-recipe (review-session-source session))))
+    (when-let* ((number (plist-get recipe :number))
+                (owner (plist-get recipe :owner))
+                (repo (or (plist-get recipe :repo) (plist-get recipe :name))))
+      (format "%s/%s#%s" owner repo number))))
+
+(defun review-author-agent-pr-state (session state)
+  "Mark the author's session once when SESSION's PR reaches STATE.
+STATE is the readiness state; only `merged' and `closed' are marked."
+  (when-let* (((memq state '(merged closed)))
+              (pr (review-author-agent--pr-id session))
+              (handoff (review-handoff-get session))
+              (sid (plist-get (plist-get handoff :session) :session_id))
+              (side (review-author-agent--read-side sid))
+              (transcript (plist-get side :transcript))
+              ((not (review-author-agent--marked-p transcript pr state))))
+    (review-author-agent-mark (review-author-agent--live sid) state pr (plist-get handoff :head) nil transcript)))
 
 ;;; Labels
 

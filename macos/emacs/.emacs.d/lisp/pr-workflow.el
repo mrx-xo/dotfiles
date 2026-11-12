@@ -709,7 +709,9 @@ Nothing happens for a review of a git range."
   (when (require 'review-handoff nil t)
     (let ((body (alist-get 'body pr)))
       (review-handoff-collect session (and (stringp body) body)
-                              (alist-get 'sha (alist-get 'head pr))))
+                              (alist-get 'sha (alist-get 'head pr)))
+      (when (fboundp 'review-author-agent-pr-state)
+        (ignore-errors (review-author-agent-pr-state session (mr-x/pr-readiness--state pr)))))
     (when (eq session review-session--current)
       (review-panel--show-bar session))))
 

@@ -398,3 +398,172 @@
         (review-conversation-mode -1)
         (review-author-agent-mode 1)
         (kill-buffer live)))))
+
+;;; Transcript marks
+
+(defvar agent-shell--transcript-file nil)
+
+(defun review-author-test--transcript-buffer (sid transcript)
+  (let ((b (review-author-test--agent-buffer sid)))
+    (with-current-buffer b
+      (setq-local agent-shell--transcript-file transcript)
+      (insert "## Agent\nanswer\n𐆖 "))
+    b))
+
+(ert-deftest review-author-agent-mark-writes-transcript-and-divider ()
+  (let* ((transcript (make-temp-file "t" nil ".md" "# Agent Shell Transcript\n"))
+         (b (review-author-test--transcript-buffer "sid-m" transcript)))
+    (unwind-protect
+        (progn
+          (should (eq (review-author-agent-mark b 'opened "mr-x/fx#1" "4f942ff81938") 'written))
+          (let ((text (with-temp-buffer (insert-file-contents transcript) (buffer-string))))
+            (should (string-match-p "\\*\\*▸ PR opened mr-x/fx#1\\*\\* · 4f942ff" text))
+            (should (string-match-p "<!-- review-mark v1 pr=mr-x/fx#1 event=opened head=4f942ff81938 " text)))
+          (with-current-buffer b
+            (let ((ov (car (seq-filter (lambda (o) (overlay-get o 'review-author-agent-mark))
+                                       (overlays-in (point-min) (point-max))))))
+              (should ov)
+              (should (string-match-p "▸ PR opened mr-x/fx#1" (overlay-get ov 'before-string)))
+              ;; The divider sits above the prompt line, not inside the answer.
+              (should (= (overlay-start ov) (save-excursion (goto-char (point-max)) (line-beginning-position)))))))
+      (kill-buffer b) (delete-file transcript))))
+
+(ert-deftest review-author-agent-mark-waits-for-turn-end ()
+  (let* ((transcript (make-temp-file "t" nil ".md" "x\n"))
+         (b (review-author-test--transcript-buffer "sid-q" transcript))
+         handler unsubscribed)
+    (unwind-protect
+        (cl-letf (((symbol-function 'agent-shell-subscribe-to)
+                   (lambda (&rest args) (setq handler (plist-get args :on-event)) 'tok))
+                  ((symbol-function 'agent-shell-unsubscribe) (lambda (&rest _) (setq unsubscribed t))))
+          (with-current-buffer b
+            (setq-local agent-shell--state
+                        (append agent-shell--state
+                                (list (cons :active-requests (list (list (cons :method "session/prompt"))))))))
+          (should (eq (review-author-agent-mark b 'updated "mr-x/fx#1" "abc1234") 'queued))
+          (should-not (string-match-p "review-mark" (with-temp-buffer (insert-file-contents transcript) (buffer-string))))
+          (funcall handler '((:event . turn-complete)))
+          (should unsubscribed)
+          (should (string-match-p "event=updated" (with-temp-buffer (insert-file-contents transcript) (buffer-string)))))
+      (kill-buffer b) (delete-file transcript))))
+
+(ert-deftest review-author-agent-record-marks-opened-then-updated ()
+  (let* ((dir (make-temp-file "tdir" t))
+         (transcript (expand-file-name "2026-11-11.md" dir))
+         (review-author-agent-state-directory (file-name-as-directory (make-temp-file "state" t)))
+         (b (progn (with-temp-file transcript (insert "# T\n"))
+                   (review-author-test--transcript-buffer "sid-r" transcript)))
+         (parent (alist-get 'ppid (process-attributes (emacs-pid)))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-author-agent--agent-buffers) (lambda () (list b)))
+                  ((symbol-function 'review-author-agent--client-pid) (lambda (_b) parent))
+                  ((symbol-function 'review-conversation--identity)
+                   (lambda (_b) (list :agent 'claude-code :session-id "sid-r" :cwd dir :machine "m" :transcript transcript))))
+          (review-author-agent-record (emacs-pid) "mr-x/fx#2" "1111111aaaa")
+          (review-author-agent-record (emacs-pid) "mr-x/fx#2" "2222222bbbb")
+          (review-author-agent-record (emacs-pid))
+          (let ((text (with-temp-buffer (insert-file-contents transcript) (buffer-string))))
+            (with-temp-buffer (insert text) (goto-char (point-min))
+                              (should (= 1 (how-many "event=opened"))))
+            (should (string-match-p "pr=mr-x/fx#2 event=opened head=1111111aaaa" text))
+            (should (string-match-p "pr=mr-x/fx#2 event=updated head=2222222bbbb" text))
+            (with-temp-buffer (insert text) (goto-char (point-min))
+                              (should (= 2 (how-many "review-mark v1"))))))
+      (kill-buffer b) (delete-directory dir t))))
+
+(ert-deftest review-author-agent-mark-start-from-pid ()
+  (let* ((transcript (make-temp-file "t" nil ".md" "x\n"))
+         (b (review-author-test--transcript-buffer "sid-s" transcript))
+         (parent (alist-get 'ppid (process-attributes (emacs-pid)))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-author-agent--agent-buffers) (lambda () (list b)))
+                  ((symbol-function 'review-author-agent--client-pid) (lambda (_b) parent)))
+          (should (equal (review-author-agent-mark-start (emacs-pid) "author marks") "written"))
+          (should (string-match-p "\\*\\*▸ work started\\*\\* \"author marks\".*\n<!-- review-mark v1 pr=- event=started"
+                                  (with-temp-buffer (insert-file-contents transcript) (buffer-string)))))
+      (kill-buffer b) (delete-file transcript))))
+
+(ert-deftest review-author-agent-span-and-tagged-transcripts ()
+  (let* ((dir (make-temp-file "tdir" t))
+         (a (expand-file-name "a.md" dir)) (b (expand-file-name "b.md" dir)) (c (expand-file-name "c.md" dir))
+         (mark (lambda (pr ev) (review-author-agent--mark-text pr ev "abc1234" nil))))
+    (unwind-protect
+        (progn
+          (with-temp-file a
+            (insert "chat\nchat\n" (funcall mark nil 'started) "old work\n" (funcall mark nil 'started)
+                    "work\nwork\n" (funcall mark "o/r#1" 'opened) "q&a\n" (funcall mark "o/r#1" 'updated) "more\n"))
+          (with-temp-file b (insert "resumed\n" (funcall mark "o/r#1" 'merged)))
+          (with-temp-file c (insert "unrelated\n" (funcall mark "o/r#2" 'opened)))
+          (let ((span (review-author-agent--span a "o/r#1")))
+            (should span)
+            (with-temp-buffer
+              (insert-file-contents a)
+              (goto-char (point-min)) (forward-line (1- (car span)))
+              (should (looking-at ".*event=started"))
+              (should (save-excursion (re-search-forward "^work$" nil t)))
+              (should-not (save-excursion (re-search-forward "^old work$" nil t)))
+              (goto-char (point-min)) (forward-line (1- (cdr span)))
+              (should (looking-at ".*event=updated"))))
+          (should-not (review-author-agent--span a "o/r#9"))
+          (should (equal (sort (review-author-agent--transcripts-for a "o/r#1") #'string<) (list a b))))
+      (delete-directory dir t))))
+
+(ert-deftest review-author-agent-pr-state-marks-once-without-buffer ()
+  (review-author-test--with s
+    (let ((transcript (make-temp-file "t" nil ".md" "x\n")))
+      (review-author-test--side "sid-1" "other" transcript)
+      (unwind-protect
+          (cl-letf (((symbol-function 'review-author-agent--pr-id) (lambda (_s) "o/r#3")))
+            (review-handoff-collect s (review-author-test--body review-author-test--session) "1234567")
+            (review-author-agent-pr-state s 'open)
+            (review-author-agent-pr-state s 'merged)
+            (review-author-agent-pr-state s 'merged)
+            (with-temp-buffer
+              (insert-file-contents transcript)
+              (should (= 1 (how-many "pr=o/r#3 event=merged")))
+              (should (= 0 (how-many "event=open ")))))
+        (delete-file transcript)))))
+
+(ert-deftest review-author-agent-digest-gets-span ()
+  (review-author-test--with s
+    (let* ((dir (make-temp-file "tdir" t))
+           (transcript (expand-file-name "t.md" dir)) seen)
+      (with-temp-file transcript
+        (insert "a\n" (review-author-agent--mark-text nil 'started nil nil) "w\n"
+                (review-author-agent--mark-text "o/r#4" 'opened "abc" nil) "q\n"))
+      (review-author-test--side "sid-1" "other" transcript)
+      (unwind-protect
+          (cl-letf (((symbol-function 'review-author-agent--pr-id) (lambda (_s) "o/r#4"))
+                    (review-author-agent-digest-function
+                     (lambda (_tr _out done) (setq seen review-author-agent--digest-span) (funcall done "stop"))))
+            (review-handoff-collect s (review-author-test--body review-author-test--session) "1234567")
+            (should (consp seen))
+            (should (< (car seen) (cdr seen)))
+            (should (string-match-p "lines [0-9]+ to [0-9]+" (review-author-agent--prefix-text s 'replacement))))
+        (delete-directory dir t)))))
+
+(ert-deftest review-author-agent-start-mid-turn-goes-above-the-turn ()
+  (let* ((transcript (make-temp-file "t" nil ".md"
+                                     "## User (1)\nold\n\n## Agent (1)\nold reply\n\n## User (2)\nbuild the feature\n\n## Agent (2)\nworking"))
+         (b (review-author-test--agent-buffer "sid-st")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-author-agent--turn-active-p) (lambda (_b) t))
+                  ((symbol-function 'review-author-agent--turn-start)
+                   (lambda (buf) (with-current-buffer buf (save-excursion (goto-char (point-min)) (forward-line 1) (point))))))
+          (with-current-buffer b
+            (setq-local agent-shell--transcript-file transcript)
+            (insert "> old\n> build the feature\nworking\n"))
+          (should (eq (review-author-agent-mark b 'started nil nil "\"feat\"") 'written))
+          (with-temp-buffer
+            (insert-file-contents transcript)
+            (goto-char (point-min))
+            (let ((mark (progn (search-forward "event=started") (point)))
+                  (turn (progn (goto-char (point-min)) (search-forward "## User (2)") (point)))
+                  (first (progn (goto-char (point-min)) (search-forward "## User (1)") (point))))
+              (should (< first mark turn))))
+          (should (string-suffix-p "working" (with-temp-buffer (insert-file-contents transcript) (buffer-string))))
+          (with-current-buffer b
+            (let ((ov (car (seq-filter (lambda (o) (overlay-get o 'review-author-agent-mark))
+                                       (overlays-in (point-min) (point-max))))))
+              (should (= (overlay-start ov) (save-excursion (goto-char (point-min)) (forward-line 1) (point)))))))
+      (kill-buffer b) (delete-file transcript))))
