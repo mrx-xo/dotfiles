@@ -213,7 +213,8 @@ HUB='<hub MagicDNS name>'
 printf '{"extraPath": ["%s/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/emacs-plus@31/bin", "/usr/local/bin", "/usr/sbin", "/Applications/Tailscale.app/Contents/MacOS"], "hubs": ["%s"]}\n' "$HOME" "$HUB" > ~/.acp-mobile/config.json
 python3 -m json.tool ~/.acp-mobile/config.json
 zsh -lc '~/.dotfiles/macos/syzygy/build-acp-tools.sh'
-launchctl bootstrap gui/$(id -u) ~/.dotfiles/macos/syzygy/com.marcosandrade.acp-mobile.plist
+cp ~/.dotfiles/macos/syzygy/com.marcosandrade.acp-mobile.plist ~/Library/LaunchAgents/   # a job loaded from the repo path is gone after a reboot
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.marcosandrade.acp-mobile.plist
 launchctl print gui/$(id -u)/com.marcosandrade.acp-mobile | grep -E '^\s*(state|pid) '
 sed 's/authkey=.*/authkey=REDACTED/' ~/.acp-mobile/link
 ```
