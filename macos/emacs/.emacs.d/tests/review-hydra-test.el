@@ -54,6 +54,10 @@
   ;; `v' is left to Evil so panes can select text for Quick Ask.
   (should-not (lookup-key review-pane-mode-map (kbd "v"))))
 
+(ert-deftest review-hydra-starts-the-walkthrough ()
+  (should (string-prefix-p "hydra-review/review-walkthrough-agent-dwim"
+                           (symbol-name (lookup-key hydra-review/keymap (kbd "W"))))))
+
 (ert-deftest review-hydra-has-the-pr-actions ()
   (dolist (pair '(("c" . mr-x/review-pr-comment) ("A" . mr-x/review-pr-approve)
                   ("X" . mr-x/review-pr-request-changes) ("m" . mr-x/review-pr-merge)))
