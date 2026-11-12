@@ -456,12 +456,17 @@ The author's live or resumed session when ready, else the replacement."
         (overlay-put ov 'before-string
                      (propertize (concat "──── " text " ────\n") 'face 'review-author-agent-mark))))))
 
+(defvar review-author-agent--pending nil
+  "Marks queued for a turn's end, as (TRANSCRIPT PR EVENT).
+They count as made, so a second record in the same turn writes `updated'.")
+
 (defun review-author-agent--marked-p (transcript pr event)
-  "Whether TRANSCRIPT already carries PR's EVENT mark."
-  (and transcript (file-readable-p transcript)
-       (with-temp-buffer
-         (insert-file-contents transcript)
-         (search-forward (format "pr=%s event=%s " pr event) nil t))))
+  "Whether TRANSCRIPT carries, or has queued, PR's EVENT mark."
+  (or (member (list transcript pr event) review-author-agent--pending)
+      (and transcript (file-readable-p transcript)
+           (with-temp-buffer
+             (insert-file-contents transcript)
+             (search-forward (format "pr=%s event=%s " pr event) nil t)))))
 
 (defun review-author-agent--insert-before-turn (buffer transcript pr event head note)
   "Mark EVENT before BUFFER's current turn, in its transcript and buffer.
@@ -514,12 +519,14 @@ turn completes."
       'written)
      ((and (buffer-live-p buffer) (fboundp 'agent-shell-subscribe-to)
            (review-author-agent--turn-active-p buffer))
-      (let (token)
-          (setq token (agent-shell-subscribe-to
-                       :shell-buffer buffer :event 'turn-complete
-                       :on-event (lambda (_event)
-                                   (agent-shell-unsubscribe :subscription token)
-                                   (review-author-agent--write-mark buffer transcript pr event head note))))
+      (let ((pending (list transcript pr event)) token)
+        (push pending review-author-agent--pending)
+        (setq token (agent-shell-subscribe-to
+                     :shell-buffer buffer :event 'turn-complete
+                     :on-event (lambda (_event)
+                                 (agent-shell-unsubscribe :subscription token)
+                                 (setq review-author-agent--pending (delete pending review-author-agent--pending))
+                                 (review-author-agent--write-mark buffer transcript pr event head note))))
         'queued))
      (t (review-author-agent--write-mark buffer transcript pr event head note)
         'written))))
