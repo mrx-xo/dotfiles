@@ -1502,22 +1502,9 @@ coming from the provider untouched."
 
       ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
-      ;; Tell acp-multiplex which Emacs buffer owns the session: it
-      ;; caches ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification
-      ;; that acp-mobile shows on cards, so phone entries are matchable
-      ;; against rig buffers (e.g. "Claude Agent @ .dotfiles<15>").
-      ;; Injected at client spawn; a reload re-spawns, so renames catch up.
-      (with-eval-after-load 'acp
-        (defun mr-x/acp-inject-multiplex-name (args)
-          "Append ACP_MULTIPLEX_NAME=<buffer name> to `acp-make-client' ARGS."
-          (let* ((buf (or (plist-get args :context-buffer) (current-buffer)))
-                 (name (and (get-buffer buf) (buffer-name (get-buffer buf)))))
-            (if name
-                (plist-put args :environment-variables
-                           (cons (concat "ACP_MULTIPLEX_NAME=" name)
-                                 (plist-get args :environment-variables)))
-              args)))
-        (advice-add 'acp-make-client :filter-args #'mr-x/acp-inject-multiplex-name))
+      ;; The ACP_MULTIPLEX_NAME injection (buffer name on phone cards) moved
+      ;; to shared/emacs/lisp/syzygy/syzygy-rig.el as
+      ;; `syzygy-rig-inject-multiplex-name', so NEMESIS gets it too.
 
       ;; Session bookmarks get their own jump (SPC m a) and are hidden from
       ;; the general SPC m j list. To unhide: rebind "m j" back to
