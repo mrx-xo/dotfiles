@@ -118,7 +118,9 @@ A git-range review looks for its local file the first time it is asked."
   "Store the handoff in PR BODY on SESSION, checked against REVIEWED-HEAD.
 Return the stored handoff, or nil when BODY has none."
   (let ((handoff (review-handoff-parse body)))
-    (review-handoff--put session (and handoff (plist-put handoff :reviewed reviewed-head)))
+    ;; :none records that the PR was read and carries no handoff.
+    (review-handoff--put session (if handoff (plist-put handoff :reviewed reviewed-head)
+                                   (list :none t :reviewed reviewed-head)))
     (when (and handoff (null (plist-get handoff :error)))
       (run-hook-with-args 'review-handoff-collected-functions session handoff))
     handoff))
@@ -148,6 +150,15 @@ Only while SESSION is playing the author's route."
             (when-let* ((s (plist-get handoff :session)))
               (format "Author session reference: %S\n" s))
             "Check these claims against the code; do not defend them.\n")))
+
+(defun review-handoff--missing-bar (session)
+  "A dim `no handoff' for a PR whose body was read and carries none."
+  (when (and (plist-get (plist-get (review-session-extensions session) :handoff) :none)
+             (memq (plist-get (review-source-recipe (review-session-source session)) :kind)
+                   '(forgejo github)))
+    (review-panel--txt "no handoff" 'purple :faded t :height 0.92)))
+
+(add-hook 'review-panel-bar-functions #'review-handoff--missing-bar)
 
 (defun review-handoff--bar (session)
   "`WALK ready' in the bar when an author route waits and none is running."

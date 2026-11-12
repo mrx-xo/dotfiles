@@ -567,3 +567,36 @@
                                        (overlays-in (point-min) (point-max))))))
               (should (= (overlay-start ov) (save-excursion (goto-char (point-min)) (forward-line 1) (point)))))))
       (kill-buffer b) (delete-file transcript))))
+
+;;; Decision notes
+
+(ert-deftest review-author-agent-record-keeps-notes-path ()
+  (let* ((repo (make-temp-file "notes-repo" t))
+         (review-author-agent-state-directory (file-name-as-directory (make-temp-file "notes-state" t)))
+         (buffer (review-author-test--agent-buffer "sid-n"))
+         (parent (alist-get 'ppid (process-attributes (emacs-pid)))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'review-author-agent--agent-buffers) (lambda () (list buffer)))
+                  ((symbol-function 'review-author-agent--client-pid) (lambda (_b) parent))
+                  ((symbol-function 'review-conversation--identity)
+                   (lambda (_b) (list :agent 'claude-code :session-id "sid-n" :cwd repo :machine "m" :transcript nil))))
+          (review-author-agent-record (emacs-pid) nil nil "/tmp/notes.md")
+          (should (equal (plist-get (review-author-agent--read-side "sid-n") :notes) "/tmp/notes.md"))
+          (review-author-agent-record (emacs-pid) nil nil "")
+          (should-not (plist-get (review-author-agent--read-side "sid-n") :notes)))
+      (kill-buffer buffer) (delete-directory repo t))))
+
+(ert-deftest review-author-agent-replacement-gets-notes ()
+  (review-author-test--with s
+    (let ((notes (make-temp-file "notes" nil ".md" "- Chose overlays over text, because agent-shell owns the text\n")))
+      (review-author-test--side "sid-1" "other")
+      (let ((side (review-author-agent--read-side "sid-1")))
+        (with-temp-file (review-author-agent--side-file "sid-1")
+          (prin1 (plist-put side :notes notes) (current-buffer))))
+      (unwind-protect
+          (progn
+            (review-handoff-collect s (review-author-test--body review-author-test--session) "1234567")
+            (let ((text (review-author-agent--prefix-text s 'replacement)))
+              (should (string-match-p "decision notes" text))
+              (should (string-match-p "Chose overlays over text" text))))
+        (delete-file notes)))))

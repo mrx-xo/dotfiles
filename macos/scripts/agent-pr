@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""agent-pr: how agents open and update pull requests, with their review handoff.
+
+    agent-pr start "short feature title"
+        Mark the start of the work in the agent's session and create the
+        decision-notes file for this branch.  Prints the notes path.
+
+    agent-pr notes
+        Print the notes path for the current branch.
+
+    agent-pr open --handoff FILE --route FILE [--title T --summary TEXT]
+                  [--base BRANCH] [--draft]
+        Validate the handoff, write it into the PR body as the collapsed
+        "Review handoff" block, create the PR (or update the open PR for this
+        branch), record the agent session and mark the transcript.  The
+        branch must already be pushed.  --title and --summary are required
+        when creating; on update only the handoff block is replaced, so text
+        a human edited outside it is kept.
+
+FILE for --handoff is Markdown with "## Intent", "## Decisions" and
+"## Evidence".  FILE for --route is JSON {"steps": [...]} in the format of
+the review-handoff skill (~/skills/review-handoff/SKILL.md).
+
+Works with GitHub (through gh) and Forgejo (REST, token from
+`secret forgejo-api-token`, never on argv).  Emacs is reached with
+emacsclient; when it is unavailable the PR is still opened, without a
+recorded session.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+
+BLOCK_RE = re.compile(r"<details><summary>Review handoff</summary>.*?</details>\n?", re.S)
+REQUIRED_HEADINGS = ("## Intent", "## Decisions", "## Evidence")
+
+
+class Fail(Exception):
+    pass
+
+
+def run(args, cwd=None, check=True, input=None):
+    p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, input=input)
+    if check and p.returncode != 0:
+        raise Fail(f"{' '.join(args[:3])}: {(p.stderr or p.stdout).strip()}")
+    return p
+
+
+def git(*args, cwd=None, check=True):
+    return run(["git", *args], cwd=cwd, check=check).stdout.strip()
+
+
+# --- repository facts
+
+def repo_facts(cwd=None):
+    root = git("rev-parse", "--show-toplevel", cwd=cwd)
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
+    if branch == "HEAD":
+        raise Fail("detached HEAD; check out the feature branch first")
+    return {
+        "root": root,
+        "git_dir": git("rev-parse", "--absolute-git-dir", cwd=root),
+        "branch": branch,
+        "head": git("rev-parse", "HEAD", cwd=root),
+    }
+
+
+def notes_path(facts):
+    safe = re.sub(r"[^A-Za-z0-9._-]", "__", facts["branch"])
+    return os.path.join(facts["git_dir"], "review-handoffs", "notes", f"{safe}.md")
+
+
+def parse_remote(url):
+    """(host, owner, repo) from a git remote URL."""
+    m = (re.match(r"^[a-z+]+://(?:[^@/]+@)?([^/:]+)(?::\d+)?/(.+?)/([^/]+?)(?:\.git)?/?$", url)
+         or re.match(r"^(?:[^@]+@)?([^:/]+):(.+?)/([^/]+?)(?:\.git)?/?$", url))
+    if not m:
+        raise Fail(f"cannot read the forge from remote {url!r}")
+    return m.group(1), m.group(2), m.group(3)
+
+
+# --- handoff validation and body
+
+def check_handoff(text):
+    missing = [h for h in REQUIRED_HEADINGS if not re.search(rf"^{re.escape(h)}\b", text, re.M)]
+    if missing:
+        raise Fail("handoff is missing " + ", ".join(missing))
+    if "-->" in text:
+        raise Fail("handoff text must not contain -->")
+    return text.strip()
+
+
+def check_route(route, changed):
+    steps = route.get("steps") if isinstance(route, dict) else None
+    if not steps or not isinstance(steps, list):
+        raise Fail("route needs a non-empty \"steps\" list")
+    for i, step in enumerate(steps, 1):
+        if not isinstance(step, dict) or not step.get("path") or not isinstance(step.get("line_start"), int):
+            raise Fail(f"route step {i} needs path and an integer line_start")
+        if step.get("side", "new") not in ("new", "old"):
+            raise Fail(f"route step {i}: side must be new or old")
+        if changed is not None and step["path"] not in changed:
+            raise Fail(f"route step {i}: {step['path']} is not changed by this branch")
+        if not step.get("title"):
+            raise Fail(f"route step {i} needs a title")
+    if "-->" in json.dumps(route):
+        raise Fail("route must not contain -->")
+    return route
+
+
+def handoff_block(handoff, route, head):
+    return ("<details><summary>Review handoff</summary>\n\n" + handoff +
+            f"\n\n<!-- review-handoff v1 head={head}\n" + json.dumps(route) + "\n-->\n</details>\n")
+
+
+def splice_body(old_body, block, summary=None):
+    """Replace the handoff block in OLD_BODY, keeping everything else."""
+    old_body = old_body or ""
+    if BLOCK_RE.search(old_body):
+        return BLOCK_RE.sub(lambda _m: block, old_body, count=1)
+    base = (summary if summary is not None else old_body).rstrip()
+    return (base + "\n\n" if base else "") + block
+
+
+# --- Emacs
+
+def elisp_string(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+EMACS_TIMEOUT = 20
+
+
+def emacs(expr):
+    # A stuck or outdated Emacs must never block opening the PR.
+    try:
+        p = subprocess.run(["emacsclient", "--eval", expr], capture_output=True, text=True,
+                           timeout=EMACS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise Fail(f"emacsclient did not answer within {EMACS_TIMEOUT}s")
+    if p.returncode != 0:
+        raise Fail(p.stderr.strip() or "emacsclient failed")
+    return p.stdout.strip()
+
+
+def emacs_call(fn, *args):
+    lisp_args = " ".join(a if isinstance(a, str) and a.startswith("(") else
+                         (str(a) if isinstance(a, int) else elisp_string(a)) for a in args)
+    return emacs(f"(progn (require 'review-author-agent) ({fn} {lisp_args}))")
+
+
+def record(pr=None, head=None, notes=None):
+    """The session JSON object, or None when Emacs cannot identify the agent."""
+    try:
+        out = emacs_call("review-author-agent-record", os.getpid(),
+                         *( [pr or "(identity nil)", head or "(identity nil)", notes or ""] if (pr or notes) else []))
+        return json.loads(json.loads(out))
+    except (Fail, ValueError) as err:
+        print(f"agent-pr: session not recorded ({err})", file=sys.stderr)
+        return None
+
+
+# --- forges
+
+class GitHub:
+    def __init__(self, facts, owner, repo):
+        self.facts, self.owner, self.repo = facts, owner, repo
+
+    def gh(self, *args, check=True, input=None):
+        return run(["gh", *args], cwd=self.facts["root"], check=check, input=input)
+
+    def default_branch(self):
+        return json.loads(self.gh("repo", "view", "--json", "defaultBranchRef").stdout)["defaultBranchRef"]["name"]
+
+    def find_open(self):
+        p = self.gh("pr", "view", self.facts["branch"], "--json", "number,body,url,state", check=False)
+        if p.returncode != 0:
+            return None
+        d = json.loads(p.stdout)
+        return d if d.get("state") == "OPEN" else None
+
+    def create(self, title, body, base, draft):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            fh.write(body)
+        try:
+            args = ["pr", "create", "--title", title, "--body-file", fh.name, "--base", base,
+                    "--head", self.facts["branch"]] + (["--draft"] if draft else [])
+            url = self.gh(*args).stdout.strip().splitlines()[-1]
+        finally:
+            os.unlink(fh.name)
+        return int(url.rstrip("/").split("/")[-1]), url
+
+    def update(self, number, body):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            fh.write(body)
+        try:
+            self.gh("pr", "edit", str(number), "--body-file", fh.name)
+        finally:
+            os.unlink(fh.name)
+
+
+class Forgejo:
+    def __init__(self, facts, host, owner, repo):
+        self.facts, self.owner, self.repo = facts, owner, repo
+        self.api = f"https://{host}/api/v1/repos/{owner}/{repo}"
+        token = run(["secret", "forgejo-api-token"]).stdout.strip()
+        if not token:
+            raise Fail("no forgejo-api-token in the keychain")
+        self._auth = f"token {token}"
+
+    def call(self, method, path, data=None):
+        req = urllib.request.Request(self.api + path, method=method,
+                                     data=None if data is None else json.dumps(data).encode())
+        req.add_header("Authorization", self._auth)
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read() or b"null")
+        except urllib.error.HTTPError as err:
+            raise Fail(f"Forgejo {method} {path}: HTTP {err.code} {err.read()[:200]!r}")
+
+    def default_branch(self):
+        return self.call("GET", "")["default_branch"]
+
+    def find_open(self):
+        for page in range(1, 6):
+            pulls = self.call("GET", f"/pulls?state=open&limit=50&page={page}")
+            for pr in pulls or []:
+                if pr["head"]["ref"] == self.facts["branch"]:
+                    return {"number": pr["number"], "body": pr.get("body") or "", "url": pr["html_url"]}
+            if not pulls or len(pulls) < 50:
+                return None
+        return None
+
+    def create(self, title, body, base, draft):
+        pr = self.call("POST", "/pulls", {"title": ("WIP: " if draft else "") + title, "body": body,
+                                          "head": self.facts["branch"], "base": base})
+        return pr["number"], pr["html_url"]
+
+    def update(self, number, body):
+        self.call("PATCH", f"/pulls/{number}", {"body": body})
+
+
+def forge_for(facts):
+    host, owner, repo = parse_remote(git("remote", "get-url", "origin", cwd=facts["root"]))
+    if host == "github.com":
+        return GitHub(facts, owner, repo)
+    return Forgejo(facts, host, owner, repo)
+
+
+# --- commands
+
+def cmd_start(args):
+    facts = repo_facts()
+    path = notes_path(facts)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.exists(path):
+        with open(path, "w") as fh:
+            fh.write(f"# Decisions: {args.title}\n\n"
+                     "One line per decision, as it happens: what you chose, what you rejected,\n"
+                     "why, and what you tested.\n\n")
+    try:
+        emacs_call("review-author-agent-mark-start", os.getpid(), args.title)
+    except Fail as err:
+        print(f"agent-pr: start not marked in the session ({err})", file=sys.stderr)
+    print(path)
+
+
+def cmd_notes(_args):
+    print(notes_path(repo_facts()))
+
+
+def cmd_open(args):
+    facts = repo_facts()
+    upstream = git("rev-parse", "@{u}", cwd=facts["root"], check=False)
+    if upstream != facts["head"]:
+        raise Fail(f"push first: git push -u origin {facts['branch']}")
+    forge = forge_for(facts)
+    base = args.base or forge.default_branch()
+    git("fetch", "-q", "origin", base, cwd=facts["root"], check=False)
+    changed = set(filter(None, git("diff", "--name-only", f"origin/{base}...HEAD",
+                                   cwd=facts["root"], check=False).splitlines())) or None
+    with open(args.handoff) as fh:
+        handoff = check_handoff(fh.read())
+    with open(args.route) as fh:
+        try:
+            route = check_route(json.load(fh), changed)
+        except json.JSONDecodeError as err:
+            raise Fail(f"route is not valid JSON: {err}")
+
+    notes = notes_path(facts)
+    if not os.path.exists(notes) or len(open(notes).read().splitlines()) <= 4:
+        print("agent-pr: warning: no decision notes recorded in " + notes, file=sys.stderr)
+
+    session = record(notes=notes)
+    if session:
+        route = dict(route, session=session)
+    block = handoff_block(handoff, route, facts["head"])
+
+    existing = forge.find_open()
+    if existing:
+        number, url = existing["number"], existing["url"]
+        forge.update(number, splice_body(existing["body"], block, args.summary))
+        action = "updated"
+    else:
+        if not args.title or not args.summary:
+            raise Fail("--title and --summary are required to create a PR")
+        number, url = forge.create(args.title, splice_body("", block, args.summary), base, args.draft)
+        action = "opened"
+
+    pr = f"{forge.owner}/{forge.repo}#{number}"
+    marked = record(pr=pr, head=facts["head"], notes=notes) is not None
+    print(f"{action} {pr}: {url}")
+    print(f"handoff: {len(route['steps'])} steps at {facts['head'][:7]}; "
+          f"session {'recorded and marked' if marked else 'not recorded'}")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="agent-pr", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("start", help="mark the start of feature work, create the notes file")
+    s.add_argument("title")
+    sub.add_parser("notes", help="print the notes path for this branch")
+    o = sub.add_parser("open", help="open or update the PR with its review handoff")
+    o.add_argument("--handoff", required=True)
+    o.add_argument("--route", required=True)
+    o.add_argument("--title")
+    o.add_argument("--summary")
+    o.add_argument("--base")
+    o.add_argument("--draft", action="store_true")
+    args = ap.parse_args(argv)
+    try:
+        {"start": cmd_start, "notes": cmd_notes, "open": cmd_open}[args.cmd](args)
+    except Fail as err:
+        print(f"agent-pr: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
