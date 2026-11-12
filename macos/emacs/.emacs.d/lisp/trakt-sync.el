@@ -35,6 +35,14 @@
   :type 'string
   :group 'applications)
 
+(defcustom trakt-sync-after-log-command
+  (expand-file-name "letterboxd-kick.sh" trakt-sync-script-dir)
+  "Program run in the background after `log-watched' syncs to Trakt.
+The default mirrors the new play to Letterboxd.  Skipped when the file is
+not executable; set to nil to turn it off."
+  :type '(choice (const :tag "None" nil) file)
+  :group 'applications)
+
 (defcustom trakt-sync-poster-width 100
   "Width of poster thumbnails in pixels."
   :type 'integer
@@ -612,11 +620,33 @@ Returns t if a line was removed."
         ;; Report
         (if (null result)
             (message "WARNING: Logged to org but Trakt sync FAILED for %s — check *Messages*" title)
-          (message "Logged: %s%s — %s%s"
+          (message "Logged: %s%s — %s%s%s"
                    title
                    (if year (format " (%s)" year) "")
                    date
-                   (if removed " (removed from watchlist)" "")))))))
+                   (if removed " (removed from watchlist)" "")
+                   (if (trakt-sync--run-after-log) ", Letterboxd queued" "")))))))
+
+(defun trakt-sync--run-after-log ()
+  "Start `trakt-sync-after-log-command' in the background.
+Return non-nil when it was started.  A failure is reported in the echo area
+when the process exits; output stays in the \" *trakt-sync-after-log*\" buffer."
+  (let ((cmd trakt-sync-after-log-command))
+    (when (and cmd (file-executable-p cmd))
+      (let ((buf (get-buffer-create " *trakt-sync-after-log*")))
+        (with-current-buffer buf (erase-buffer))
+        (make-process
+         :name "trakt-sync-after-log"
+         :buffer buf
+         :command (list cmd)
+         :noquery t
+         :sentinel (lambda (proc _event)
+                     (when (and (memq (process-status proc) '(exit signal))
+                                (/= (process-exit-status proc) 0))
+                       (message "Letterboxd push failed (exit %d): see buffer %s"
+                                (process-exit-status proc)
+                                (buffer-name (process-buffer proc))))))
+        t))))
 
 ;;;###autoload
 (defun trakt-sync--watchlist-titles ()
