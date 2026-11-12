@@ -579,5 +579,29 @@ even if confirmation fails."
   (run-with-timer 5 3 #'mr-x/agent-status-sync)
   (run-with-timer 6 3 #'mr-x/agent-label-heal))
 
+;; Tell acp-multiplex which Emacs buffer owns the session: it caches
+;; ACP_MULTIPLEX_NAME as an acp-multiplex/meta notification that acp-mobile
+;; shows on cards and sends back to /api/kill, so phone entries match rig
+;; buffers (e.g. "Claude Agent @ .dotfiles<15>").  Injected at client
+;; spawn; a reload re-spawns, so renames catch up.  Lives here, not in a
+;; per-OS config, because a machine without it serves nameless cards
+;; (NEMESIS until 2026-11-12).
+(defun syzygy-rig-inject-multiplex-name (args)
+  "Add ACP_MULTIPLEX_NAME=<buffer name> to `acp-make-client' ARGS.
+ARGS already carrying one are returned untouched, so a second copy of
+this advice cannot stack entries."
+  (let* ((buf (or (plist-get args :context-buffer) (current-buffer)))
+         (name (and (get-buffer buf) (buffer-name (get-buffer buf))))
+         (env (plist-get args :environment-variables)))
+    (if (and name
+             (not (seq-some (lambda (e) (string-prefix-p "ACP_MULTIPLEX_NAME=" e))
+                            env)))
+        (plist-put args :environment-variables
+                   (cons (concat "ACP_MULTIPLEX_NAME=" name) env))
+      args)))
+
+(with-eval-after-load 'acp
+  (advice-add 'acp-make-client :filter-args #'syzygy-rig-inject-multiplex-name))
+
 (provide 'syzygy-rig)
 ;;; syzygy-rig.el ends here

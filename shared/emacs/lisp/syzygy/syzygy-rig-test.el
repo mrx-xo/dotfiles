@@ -115,6 +115,29 @@ for BODY and restored after."
         (should (equal mtime (file-attribute-modification-time
                               (file-attributes (syzygy-state-file "status.json")))))))))
 
+;; NEMESIS, 2026-11-12: this advice lived only in the Mac config, so
+;; Windows chats reached the phone without a buffer name: bare cards, and
+;; nothing for /api/kill to name.
+(ert-deftest syzygy-rig-multiplex-name-is-injected-from-the-context-buffer ()
+  (with-temp-buffer
+    (rename-buffer "Claude Agent @ studio-bridge<2>" t)
+    (let ((args (syzygy-rig-inject-multiplex-name
+                 (list :command "acp-multiplex"
+                       :context-buffer (current-buffer)
+                       :environment-variables '("ANTHROPIC_API_KEY=")))))
+      (should (equal (plist-get args :environment-variables)
+                     '("ACP_MULTIPLEX_NAME=Claude Agent @ studio-bridge<2>"
+                       "ANTHROPIC_API_KEY=")))
+      (should (equal (plist-get args :command) "acp-multiplex")))))
+
+(ert-deftest syzygy-rig-multiplex-name-is-not-injected-twice ()
+  (with-temp-buffer
+    (let* ((env '("ACP_MULTIPLEX_NAME=already" "X=1"))
+           (args (syzygy-rig-inject-multiplex-name
+                  (list :context-buffer (current-buffer)
+                        :environment-variables env))))
+      (should (equal (plist-get args :environment-variables) env)))))
+
 (ert-deftest syzygy-rig-close-session-kills-buffer ()
   (with-temp-buffer
     (let ((name (buffer-name)))
