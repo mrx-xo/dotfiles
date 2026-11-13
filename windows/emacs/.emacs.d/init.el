@@ -44,6 +44,41 @@
 (setq initial-major-mode 'org-mode
       initial-scratch-message "#+title: Scratch\n\n")
 
+(defun mr-x/new-scratch ()
+  "Create a new scratch buffer with a unique name."
+  (interactive)
+  (let ((n 1)
+        bufname)
+    (while (progn
+             (setq bufname (format "*scratch<%d>*" n))
+             (get-buffer bufname))
+      (setq n (1+ n)))
+    (switch-to-buffer (get-buffer-create bufname))
+    (org-mode)))
+
+;; Don't lose scratch work (ported from the Mac config).
+;; persistent-scratch autosaves every 5 min and on exit, and restores the
+;; scratches on startup.  On top of that, C-x C-s / SPC f s in a scratch buffer
+;; has no file to write, so snapshot every scratch to the store instead.
+(use-package persistent-scratch
+  :config
+  (setq persistent-scratch-scratch-buffer-p-function
+        (lambda ()
+          (string-match-p "\\*\\(scratch\\|global-scratch\\)\\(<[0-9]+>\\)?\\*"
+                          (buffer-name))))
+  (defun mr-x/save-buffer-or-persist-scratch (orig-fn &rest args)
+    "Snapshot scratch buffers via `persistent-scratch'; else save normally."
+    (if (and persistent-scratch-scratch-buffer-p-function
+             (funcall persistent-scratch-scratch-buffer-p-function))
+        (progn
+          (persistent-scratch-save)
+          (set-buffer-modified-p nil)
+          (message "Scratch snapshotted -> %s"
+                   (abbreviate-file-name persistent-scratch-save-file)))
+      (apply orig-fn args)))
+  (advice-add 'save-buffer :around #'mr-x/save-buffer-or-persist-scratch)
+  (persistent-scratch-setup-default))
+
 ;; UTF-8 everywhere, with Unix (LF) line endings by default.
 ;; (Existing CRLF files still open fine — Emacs auto-detects; this sets the
 ;;  default for new files and keeps things consistent with macOS/git.)
@@ -162,8 +197,9 @@ kill ring, so `p' recovers it if the insertion is refused."
                                            (or (getenv "USERPROFILE") "~"))))
             :wk "edit init.el")
     ;; buffers
+    "S"   '(mr-x/new-scratch :wk "new scratch")
     "b"   '(:ignore t :wk "buffer")
-    "b b" '(switch-to-buffer :wk "switch")
+    "b b" '(consult-buffer :wk "switch")
     "b k" '(kill-current-buffer :wk "kill")
     "b r" '(revert-buffer :wk "revert buffer")
     ;; dired
@@ -179,6 +215,9 @@ kill ring, so `p' recovers it if the insertion is refused."
     ;; git (magit) — same letters as the macOS config
     "g"   '(:ignore t :wk "git")
     "g g" '(magit-status :wk "status")
+    "g G" '(mr-x/magit-status-side-window :wk "status (side window)")
+    ;; projectile — the whole command map, same as the Mac (SPC p p, SPC p f...)
+    "p"   '(:keymap projectile-command-map :package projectile :wk "projectile")
     "g d" '(magit-diff-unstaged :wk "diff unstaged")
     "g l" '(magit-log-current :wk "log current")
     "g L" '(magit-log-all :wk "log all")
@@ -444,6 +483,29 @@ kill ring, so `p' recovers it if the insertion is refused."
    '(org-level-7 ((t (:foreground "#404040"))))
    '(org-link ((t (:foreground "#83a598" :underline t))))))
 
+;; Heading insertion keys, ported from the Mac. s- (Win, which is super
+;; here, see agent-shell below) and C- = new sibling after the subtree;
+;; M- = context-aware (heading, list item...); adding S- = TODO variant.
+;; Bound explicitly in evil's states too: unbound, normal-state M-RET fell
+;; through to org-ctrl-c-ret (always a heading, even inside a list).
+(setq org-M-RET-may-split-line '((default . nil)))  ; M-RET never splits the line
+(with-eval-after-load 'org
+  (define-key org-mode-map (kbd "s-<return>") #'org-insert-heading-respect-content)
+  (define-key org-mode-map (kbd "s-S-<return>") #'org-insert-todo-heading-respect-content)
+  (define-key org-mode-map (kbd "C-<return>") #'org-insert-heading-respect-content)
+  (define-key org-mode-map (kbd "C-S-<return>") #'org-insert-todo-heading-respect-content)
+  (define-key org-mode-map (kbd "M-<return>") #'org-meta-return)
+  (define-key org-mode-map (kbd "M-S-<return>") #'org-insert-todo-subheading))
+(with-eval-after-load 'evil
+  (dolist (state '(normal insert))
+    (evil-define-key state org-mode-map
+      (kbd "s-<return>") #'org-insert-heading-respect-content
+      (kbd "s-S-<return>") #'org-insert-todo-heading-respect-content
+      (kbd "C-<return>") #'org-insert-heading-respect-content
+      (kbd "C-S-<return>") #'org-insert-todo-heading-respect-content
+      (kbd "M-<return>") #'org-meta-return
+      (kbd "M-S-<return>") #'org-insert-todo-subheading)))
+
 (use-package org-modern              ; modern, clean org styling
   :after org
   :hook ((org-mode . org-modern-mode)
@@ -590,13 +652,46 @@ kill ring, so `p' recovers it if the insertion is refused."
           (window-width . 0.5))))
 
 ;; ---------- Git (magit) ----------
-;; Essentials build: plain magit, no delta/difftastic/pane-aware display (those
-;; are the macOS setup). Deferred — first `SPC g g' autoloads and installs it.
+;; Plain magit plus delta highlighting and the Mac's window rules; no
+;; difftastic. Deferred — first `SPC g g' autoloads and installs it.
+
+;; Pane-aware display, same as the Mac: fullcolumn-most-v1 takes over only
+;; the selected column, not the frame. Invoked from the major-pane it would
+;; split-and-delete the conversation (soft dedication only blocks reuse), so
+;; from the pane, magit goes to another window instead.
+(defun mr-x/magit-display-buffer-pane-aware (buffer)
+  "Display magit BUFFER, keeping it out of the major-pane."
+  (if (window-parameter (selected-window) 'major-pane)
+      (display-buffer buffer '((display-buffer-use-some-window)
+                               (inhibit-same-window . t)))
+    (magit-display-buffer-fullcolumn-most-v1 buffer)))
+
 (use-package magit
   :commands (magit-status magit-get-current-branch)
   :custom
-  ;; magit takes over the frame, restores the window layout on quit.
-  (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1))
+  (magit-display-buffer-function #'mr-x/magit-display-buffer-pane-aware))
+
+;; SPC g G — magit-status in a right side window, leaving the layout alone.
+(defun mr-x/magit-status-side-window ()
+  "Open magit-status in a side window on the right."
+  (interactive)
+  (let ((magit-display-buffer-function
+         (lambda (buffer)
+           (display-buffer buffer
+                           '((display-buffer-in-side-window)
+                             (side . right)
+                             (window-width . 0.4))))))
+    (magit-status)))
+
+;; Syntax highlighting in Magit diffs via delta, same as the Mac. Needs the
+;; delta binary on PATH (`scoop install delta'); skipped when it's missing.
+(use-package magit-delta
+  :if (executable-find "delta")
+  :hook (magit-mode . magit-delta-mode)
+  :config
+  (setq magit-delta-delta-args
+        '("--syntax-theme" "gruvbox-dark" "--max-line-distance" "0.6"
+          "--true-color" "always" "--color-only")))
 
 ;; ---------- Lua + LSP (eglot is built-in) ----------
 (use-package lua-mode
@@ -610,6 +705,74 @@ kill ring, so `p' recovers it if the insertion is refused."
   ;; lua-language-server must be on PATH (install via scoop — see notes).
   (add-to-list 'eglot-server-programs
                '(lua-mode . ("lua-language-server"))))
+
+;; ---------- C/C++ LSP (lsp-mode + clangd) ----------
+;; Same client and UI settings as the Mac. clangd comes from `scoop install
+;; clangd' and needs a compile_commands.json per project: for CMake projects,
+;; configure once with -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON from a VS
+;; dev shell, and point a .clangd file at the build dir if it isn't build/.
+(use-package lsp-mode
+  :commands (lsp lsp-deferred)
+  :hook ((c-mode . lsp-deferred)
+         (c++-mode . lsp-deferred))
+  :init
+  (setq lsp-keymap-prefix "C-c l")
+  :config
+  (setq read-process-output-max (* 1024 1024)  ; 1mb, clangd replies are big
+        lsp-idle-delay 0.500
+        ;; Root from projectile/.git without the import-root prompt.
+        lsp-auto-guess-root t
+        ;; clangd watches files itself; lsp-mode's watchers would ask before
+        ;; watching ReSkate's thousands of vendored directories.
+        lsp-enable-file-watchers nil
+        lsp-lens-enable nil
+        lsp-headerline-breadcrumb-enable nil
+        lsp-modeline-code-actions-enable nil
+        lsp-modeline-diagnostics-enable t
+        lsp-signature-auto-activate t
+        lsp-signature-render-documentation nil
+        lsp-eldoc-enable-hover t
+        lsp-completion-provider :none     ; corfu handles completion
+        lsp-enable-snippet t))
+
+(use-package lsp-ui
+  :commands (lsp-ui-mode lsp-ui-imenu)
+  :hook (lsp-mode . lsp-ui-mode)
+  :config
+  (setq lsp-ui-sideline-enable nil
+        lsp-ui-doc-enable t
+        lsp-ui-doc-show-with-cursor nil
+        lsp-ui-doc-show-with-mouse t
+        lsp-ui-doc-position 'at-point
+        lsp-ui-peek-enable t))
+
+(use-package consult-lsp
+  :after (lsp-mode consult))
+
+;; SPC ; — the Mac's LSP group. No flycheck here, so errors list via flymake.
+(mr-x/leader-def
+  ";"   '(:ignore t :wk "LSP")
+  "; s" '(consult-lsp-symbols :wk "search symbol")
+  "; d" '(lsp-find-definition :wk "find definition")
+  "; D" '(lsp-find-declaration :wk "find declaration")
+  "; r" '(lsp-find-references :wk "find references")
+  "; i" '(lsp-find-implementation :wk "find implementation")
+  "; t" '(lsp-goto-type-definition :wk "type definition")
+  "; R" '(lsp-rename :wk "rename")
+  "; a" '(lsp-execute-code-action :wk "code action")
+  "; f" '(lsp-format-buffer :wk "format buffer")
+  "; F" '(lsp-format-region :wk "format region")
+  "; h" '(lsp-describe-thing-at-point :wk "describe at point")
+  "; H" '(lsp-ui-doc-glance :wk "doc glance")
+  "; e" '(consult-flymake :wk "error list")
+  "; p" '(lsp-ui-peek-find-definitions :wk "peek definition")
+  "; P" '(lsp-ui-peek-find-references :wk "peek references")
+  "; l" '(lsp :wk "start LSP")
+  "; q" '(lsp-disconnect :wk "disconnect LSP")
+  "; w" '(lsp-restart-workspace :wk "restart workspace")
+  "; I" '(:ignore t :wk "imenu")
+  "; I i" '(consult-imenu :wk "imenu")
+  "; I I" '(lsp-ui-imenu :wk "LSP imenu"))
 
 ;; ---------- agent-shell (LLM agents in a native buffer) ----------
 (use-package acp)                  ; ACP transport (MELPA)
@@ -844,7 +1007,16 @@ coming from the provider untouched."
   :init
   (projectile-mode +1)
   :config
-  (setq projectile-completion-system 'default))
+  (setq projectile-completion-system 'default)
+  ;; The Mac's fast uncached listing: alien runs git ls-files in repos, so
+  ;; new files show up immediately. Outside git it falls back to the generic
+  ;; command, which defaults to Unix find; cmd.exe would run Windows' find
+  ;; instead, so use ripgrep (on PATH via scoop).
+  (setq projectile-indexing-method 'alien
+        projectile-enable-caching nil
+        projectile-generic-command "rg --files --hidden --null -g !.git")
+  :bind (:map projectile-mode-map
+              ("C-c p" . projectile-command-map)))
 
 (with-eval-after-load 'projectile
   (require 'project-dashboard)
@@ -876,17 +1048,21 @@ coming from the provider untouched."
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
-   '(agent-recall consult corfu dired-preview doom-modeline doom-themes
-                  evil-collection evil-ghostel general ghostel
-                  ligature lua-mode marginalia markdown-mode
+   '(agent-recall consult consult-lsp corfu dired-preview doom-modeline
+                  doom-themes evil-collection evil-ghostel general
+                  ghostel ligature lsp-mode lsp-ui lua-mode
+                  magit-delta marginalia markdown-mode
                   nerd-icons-completion nerd-icons-dired orderless
-                  org-modern poly-markdown polymode vertico))
+                  org-modern persistent-scratch poly-markdown polymode
+                  vertico))
  '(project-dashboard-projects
    '(("dotfiles" . "c:/Users/mnand/dotfiles")
      ("reskate" . "C:/Games/ReSkate")
      ("reskate mods dash" . "c:/Users/mnand/Projects/reskate-mods/")
      ("ReSkate Visage"
-      . "c:/Users/mnand/Projects/ReSkate/ReSkate-Visage/"))))
+      . "c:/Users/mnand/Projects/ReSkate/ReSkate-Visage/")
+     ("Studio Bridge"
+      . "c:/Users/mnand/Projects/ReSkate/studio-bridge/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
