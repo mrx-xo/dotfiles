@@ -3824,11 +3824,14 @@ constantly, so only invoke it when Hammerspoon is actually running."
   ;; (jev-model-router) as system ui_log/ui_status messages.
   ;; claude-agent-acp does not know those subtypes and logs each one to
   ;; stderr as "Unexpected case: {...}", which agent-shell renders as a
-  ;; Notices block every turn.  Drop just those lines before any
-  ;; error handler sees them; every other stderr line passes through.
+  ;; Notices block every turn.  claude-agent-acp also prints its own
+  ;; idle-compaction bookkeeping ("[idle-compaction] skip: disabled by
+  ;; idleCompaction setting", "armed deadline=...", "disarmed") to stderr
+  ;; after every idle turn.  Drop just those lines before any error
+  ;; handler sees them; every other stderr line passes through.
   (defconst mr-x/acp-ui-log-noise-regexp
-    "^Unexpected case: {\"type\":\"system\",\"subtype\":\"ui_\\(?:log\\|status\\)\".*\n?"
-    "Stderr lines from claude-agent-acp for plugin UI messages.")
+    "^\\(?:Unexpected case: {\"type\":\"system\",\"subtype\":\"ui_\\(?:log\\|status\\)\"\\|\\[idle-compaction\\] \\).*\n?"
+    "Stderr lines from claude-agent-acp that are diagnostics, not errors.")
 
   (defun mr-x/acp-drop-ui-log-noise (args)
     "Wrap the :on-error handler in ARGS to drop plugin UI-log stderr lines."
