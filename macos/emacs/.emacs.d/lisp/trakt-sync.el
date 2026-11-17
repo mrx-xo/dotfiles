@@ -640,13 +640,31 @@ when the process exits; output stays in the \" *trakt-sync-after-log*\" buffer."
          :buffer buf
          :command (list cmd)
          :noquery t
-         :sentinel (lambda (proc _event)
-                     (when (and (memq (process-status proc) '(exit signal))
-                                (/= (process-exit-status proc) 0))
-                       (message "Letterboxd push failed (exit %d): see buffer %s"
-                                (process-exit-status proc)
-                                (buffer-name (process-buffer proc))))))
+         :sentinel #'trakt-sync--after-log-sentinel)
         t))))
+
+(defun trakt-sync--after-log-sentinel (proc _event)
+  "Report a failed `trakt-sync-after-log-command' run.
+Echo-area message plus a macOS notification carrying the first FAIL or
+ABORT line of the output, since the push may run on another machine and
+nothing else would surface it."
+  (when (and (memq (process-status proc) '(exit signal))
+             (/= (process-exit-status proc) 0))
+    (let* ((buf (process-buffer proc))
+           (detail (and (buffer-live-p buf)
+                        (with-current-buffer buf
+                          (goto-char (point-min))
+                          (when (re-search-forward "^.*\\(FAIL\\|ABORT\\|unreachable\\).*$" nil t)
+                            (string-trim (match-string 0))))))
+           (body (or detail (format "exit %d" (process-exit-status proc)))))
+      (message "Letterboxd push failed (exit %d): see buffer %s"
+               (process-exit-status proc) (buffer-name buf))
+      (when-let ((notifier (executable-find "terminal-notifier")))
+        (make-process :name "trakt-sync-notify" :noquery t
+                      :command (list notifier
+                                     "-title" "Letterboxd push failed"
+                                     "-message" (concat "\\" body)
+                                     "-group" "trakt-sync-letterboxd"))))))
 
 ;;;###autoload
 (defun trakt-sync--watchlist-titles ()
