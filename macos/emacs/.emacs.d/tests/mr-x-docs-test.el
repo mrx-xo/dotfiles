@@ -183,5 +183,86 @@ first paragraph only, no synopsis."
     (should (> (length pieces) 1))
     (should (<= (length (car (split-string (nth 1 pieces) "[^ ]" t))) 38))))
 
+;;; MEMBERS, RETURNS, example cap
+
+(ert-deftest mr-x-docs-test-members-mdn ()
+  (let* ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "mdn-intl.html") nil nil))
+         (members (plist-get pl :members)))
+    (should (equal (mapcar #'car members) '("Static properties" "Static methods")))
+    (should (equal (car (car (cdr (nth 1 members)))) "Intl.getCanonicalLocales()"))
+    (should (equal (cdr (car (cdr (nth 1 members)))) "Returns canonical locale names."))))
+
+(ert-deftest mr-x-docs-test-members-python-module ()
+  (let* ((pl (mr-x/docs--extract-python (mr-x-docs-test--fixture "python-json-module.html") nil
+                                        '(:name "json"))))
+    (should (string-prefix-p "JSON (JavaScript Object Notation)" (plist-get pl :blurb)))
+    (should (equal (car (car (plist-get pl :members))) "Functions"))
+    (should (equal (car (car (cdr (car (plist-get pl :members))))) "json.dump()"))))
+
+(ert-deftest mr-x-docs-test-members-go-package ()
+  (let* ((pl (mr-x/docs--extract-go (mr-x-docs-test--fixture "go-strings-index.html") nil
+                                    '(:name "strings"))))
+    (should (string-prefix-p "Package strings implements" (plist-get pl :blurb)))
+    (should (equal (car (car (plist-get pl :members))) "Index"))
+    (should (equal (car (car (cdr (car (plist-get pl :members))))) "func Clone(s string) string"))))
+
+(ert-deftest mr-x-docs-test-members-html-attributes ()
+  (let* ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "html-input.html") nil nil))
+         (group (car (plist-get pl :members))))
+    (should (equal (car group) "Attributes"))
+    (should (equal (car (car (cdr group))) "accept"))))
+
+(ert-deftest mr-x-docs-test-returns-mdn ()
+  (let ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "mdn-array-map.html") nil nil)))
+    (should (string-prefix-p "A new array with each element" (plist-get pl :returns)))))
+
+(ert-deftest mr-x-docs-test-render-members-and-returns ()
+  (let ((out (mr-x-docs-test--render
+              (list :title "T" :docset "d" :blurb "b" :synopsis "f(x)"
+                    :returns "A thing."
+                    :members (list (cons "Static methods"
+                                         (cl-loop for i from 1 to 25
+                                                  collect (cons (format "m%d()" i) "Does m."))))))))
+    (should (string-match-p "SYNOPSIS\n  f(x)\n\nRETURNS\n  A thing.\n\nMEMBERS\n  Static methods:\n  m1()    Does m.\n" out))
+    (should (string-match-p "\n  ... 5 more (m)\n" out))
+    (should-not (string-match-p "m21()" out))))
+
+(ert-deftest mr-x-docs-test-render-caps-example-lines ()
+  (let ((out (mr-x-docs-test--render
+              (list :title "T" :docset "d" :blurb "b"
+                    :examples (list (cons "Long" (mapconcat (lambda (i) (format "line%d" i))
+                                                            (number-sequence 1 30) "\n")))))))
+    (should (string-match-p "    line12\n    ...\n" out))
+    (should-not (string-match-p "line13" out))))
+
+(ert-deftest mr-x-docs-test-follow-member-resolves-name-variants ()
+  "RET on a member row finds the entry whether the index name has () or not,
+and maps a Go index line to pkg.Name()."
+  (let ((entries '((:name "Intl.getCanonicalLocales" :slug "javascript" :path "x")
+                   (:name "strings.Clone()" :slug "go" :path "strings/index" :anchor "Clone"))))
+    (cl-letf (((symbol-function 'mr-x/docs--entries) (lambda () entries)))
+      (should (equal (plist-get (mr-x/docs--member-entry "Intl.getCanonicalLocales()" "javascript" "Intl") :name)
+                     "Intl.getCanonicalLocales"))
+      (should (equal (plist-get (mr-x/docs--member-entry "func Clone(s string) string" "go" "Package strings") :name)
+                     "strings.Clone()"))
+      (should (null (mr-x/docs--member-entry "nothing" "go" "x"))))))
+
+(ert-deftest mr-x-docs-test-members-strip-read-only-and-truncate ()
+  (let ((out (mr-x-docs-test--render
+              (list :title "T" :docset "d" :blurb "b"
+                    :members (list (cons "Instance properties"
+                                         (list (cons "origin" (make-string 200 ?x))
+                                               (cons "hash" "short"))))))))
+    (should (string-match-p "\n  origin   x+…\n" out))
+    (should-not (seq-some (lambda (l) (> (length l) 80)) (split-string out "\n")))))
+
+(ert-deftest mr-x-docs-test-dl-pairs-strip-badges ()
+  (let* ((dom (with-temp-buffer
+                (insert "<dl><dt><code>origin</code> <span>Read only</span></dt><dd><p>A.</p></dd>"
+                        "<dt><code>x</code> Optional Deprecated</dt><dd><p>B.</p></dd></dl>")
+                (libxml-parse-html-region (point-min) (point-max))))
+         (pairs (mr-x/docs--dl-pairs (car (dom-by-tag dom 'dl)))))
+    (should (equal (mapcar #'car pairs) '("origin" "x")))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
