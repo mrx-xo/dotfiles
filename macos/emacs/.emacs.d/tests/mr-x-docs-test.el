@@ -37,5 +37,25 @@
                                           (mr-x/docs--entries))
                                :anchor))))))
 
+(ert-deftest mr-x-docs-test-candidates-unique ()
+  (mr-x-docs-test--with-data
+    (with-temp-file (expand-file-name "fake/index" mr-x/docs-data-dir)
+      (prin1 '((pages . ["a" "b"])
+               (entries . [((name . "same") (path . "a") (type . "T"))
+                           ((name . "same") (path . "b") (type . "T"))]))
+             (current-buffer)))
+    (let ((cands (mr-x/docs--candidates)))
+      (should (= 2 (length cands)))
+      (should (= 2 (length (delete-dups (mapcar #'car cands)))))
+      (should (equal "same" (substring-no-properties (car (car cands)) 0 4))))))
+
+(ert-deftest mr-x-docs-test-preferred-slugs ()
+  (with-temp-buffer
+    (python-mode)
+    (should (equal (mr-x/docs--preferred-slugs) '("python~3.12"))))
+  (with-temp-buffer
+    (fundamental-mode)
+    (should (null (mr-x/docs--preferred-slugs)))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
