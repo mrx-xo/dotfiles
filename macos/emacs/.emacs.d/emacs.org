@@ -4003,8 +4003,9 @@ not visible yet."
             ;; Parked questions list (SPC c u l)
             syzygy-park-list-mode
             "\\*Async Shell Command\\*"
-            ;; DevDocs
-            devdocs-mode))
+            ;; DevDocs (devdocs-mode is the stock page; mr-x/docs-mode the digest)
+            devdocs-mode
+            mr-x/docs-mode))
     :config
     ;; Placement lives in `display-buffer-alist' (rule below); popper only
     ;; TRACKS popups: toggle, cycle, echo, perspective grouping.  Callers
@@ -4038,8 +4039,8 @@ returning a number is a silent no-op."
       (let* ((buf (window-buffer win))
              (fixed (when (or (string-match-p "\\*Agent-Shell Buffers\\*"
                                               (buffer-name buf))
-                              (eq (buffer-local-value 'major-mode buf)
-                                  'devdocs-mode))
+                              (memq (buffer-local-value 'major-mode buf)
+                                    '(devdocs-mode mr-x/docs-mode)))
                       (floor (frame-height) 2.5))))
         (fit-window-to-buffer win
                               (or fixed (floor (frame-height) 3))
@@ -5601,6 +5602,7 @@ Its existence means emx is running on the tablet."
     (seq-find (lambda (f) (not (display-graphic-p f))) (frame-list)))
 
   (defun mr-x/calliope--await-frame (callback deadline)
+        "? c" '(mr-x/docs :wk "Code docs")
     "Poll for the CALLIOPE frame until DEADLINE, then call CALLBACK with it.
 Re-schedules itself once a second; gives up (with a message) past DEADLINE."
     (let ((frame (mr-x/calliope-frame)))
@@ -6681,8 +6683,22 @@ made is deleted and the evidence stays; the review shows why."
 
     ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
     (defvar mr-x-line-highlight-colors
+  ;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
+  ;; installed docset at once and renders a digest in the tldr layout.
+  ;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
+  (require 'mr-x-docs)
+
       '(("#fb4934" . "#1d2021")   ; red
         ("#fe8019" . "#1d2021")   ; orange
+=SPC ? c= is the way to read these docs; the stock =devdocs-lookup= page is
+only what =m= appends below the digest. To add a docset, =M-x devdocs-install=
+and it appears in the search on the next lookup (=mr-x/docs-refresh= if an
+index was replaced under a running session). Docset types =mdn=, =python=
+and =go= have extractors in =lisp/mr-x-docs.el= (=mr-x/docs-extractors=);
+any other type falls back to title plus first paragraph, with =m= for the
+rest. Which docsets sort first per major mode is =mr-x/docs-mode-docsets=.
+Design: =docs/active/specs/2026-11-17-docs-lookup-design.md=.
+
         ("#fabd2f" . "#1d2021")   ; yellow
         ("#b8bb26" . "#1d2021")   ; green
         ("#83a598" . "#1d2021")   ; blue
@@ -7110,12 +7126,12 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
       '(menu-item "copy buffer path" mr-x/embark-copy-buffer-path
                   :filter (lambda (cmd) (and buffer-file-name cmd))))
 
-    ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
-    (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
-    (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
+    ;; d = code docs on the symbol at point (find-definition stays on RET/dwim)
+    (define-key embark-identifier-map (kbd "d") #'mr-x/docs)
+    (define-key embark-symbol-map (kbd "d") #'mr-x/docs)
     ;; Search the target text, then let the user choose an actual index entry.
     (add-to-list 'embark-target-injection-hooks
-                 '(devdocs-lookup embark--allow-edit))
+                 '(mr-x/docs embark--allow-edit))
 
     ;; ? = rig lookup on any target; embark injects the target into the
     ;; consult search, so it opens pre-filled with the thing at point.

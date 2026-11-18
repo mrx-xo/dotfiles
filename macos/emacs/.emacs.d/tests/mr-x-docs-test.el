@@ -149,5 +149,18 @@
         (should (equal called '("agent-open" nil "agent-open"
                                 "https://devdocs.io/go/strings/index#Fields")))))))
 
+(ert-deftest mr-x-docs-test-read-with-nil-initial ()
+  (mr-x-docs-test--with-data
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _coll &rest args) (ignore args) "alpha")))
+      (should (equal (plist-get (mr-x/docs--read nil) :name) "alpha")))))
+
+(ert-deftest mr-x-docs-test-render-fills-long-blurb ()
+  (let ((out (mr-x-docs-test--render
+              (list :title "t" :docset "d"
+                    :blurb (mapconcat #'identity (make-list 30 "word") " ")))))
+    (should (string-match-p "^  word\\( word\\)+\n  word" out))
+    (should-not (seq-some (lambda (l) (> (length l) 72)) (split-string out "\n")))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here

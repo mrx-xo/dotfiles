@@ -377,6 +377,18 @@ node satisfying STOP, if given."
       (push current pieces)
       (nreverse pieces))))
 
+(defun mr-x/docs--fill (text width)
+  "Return TEXT filled to WIDTH columns, keeping its existing line breaks."
+  (with-temp-buffer
+    (insert text)
+    (let ((fill-column width))
+      (goto-char (point-min))
+      (while (not (eobp))
+        (let ((end (line-end-position)))
+          (fill-region-as-paragraph (line-beginning-position) end)
+          (forward-line 1))))
+    (buffer-string)))
+
 (defun mr-x/docs--render (pl)
   "Insert the digest PL at point using the `*tldr*' layout."
   (let* ((title (or (plist-get pl :title) ""))
@@ -386,7 +398,9 @@ node satisfying STOP, if given."
     (mr-x/docs--ins title 'mr-x/docs-title)
     (insert (make-string (max 1 (- 70 (length title) (length docset))) ?\s))
     (mr-x/docs--ins (concat docset "\n") 'mr-x/docs-docset)
-    (dolist (line (split-string (or (plist-get pl :blurb) "") "\n"))
+    ;; HTML prose carries no line breaks of its own (unlike tldr markdown),
+    ;; so the blurb is filled to 70 columns; existing breaks are kept.
+    (dolist (line (split-string (mr-x/docs--fill (or (plist-get pl :blurb) "") 70) "\n"))
       (mr-x/docs--ins (concat "  " line "\n") 'mr-x/docs-description))
     (when (plist-get pl :synopsis)
       (insert "\n")
