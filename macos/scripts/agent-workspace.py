@@ -3,14 +3,22 @@
 
 Application names are not ownership: personal Brave stays unrestricted.
 Only known browser profile directories and the named sandbox daemon qualify.
+
+`park <app regex>` moves an agent tool's windows (an emulator, the iOS
+Simulator) out of the way: onto the visible space of the external landscape
+monitor when one is connected, else onto the agent space; never focused.
+`launch <app regex> -- <command...>` starts the tool, parks its windows as
+they appear and hands focus back to where it was.
 """
 import argparse
 from contextlib import contextmanager
+import ctypes
 import fcntl
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -82,12 +90,13 @@ def snapshot():
             "visible": [s["id"] for s in spaces if s["is-visible"]]}
 
 
-def restore(saved, background=False):
+def restore(saved, background=False, ours=()):
     spaces, windows = query("spaces"), query("windows")
     focused = next((w for w in windows if w["has-focus"]), None)
-    # A deliberate switch to another personal window wins over our snapshot.
+    # A deliberate switch to another personal window wins over our snapshot;
+    # `ours` names the pids of a tool we just launched, whose focus grab is not.
     if (background and focused and focused["id"] != saved["window"]
-            and focused["pid"] not in agent_pids()):
+            and focused["pid"] not in agent_pids() and focused["pid"] not in set(ours)):
         return
     for s in spaces:
         if s["id"] in saved["visible"] and not s["is-visible"]:
@@ -113,6 +122,75 @@ def background_launch():
             yield
         finally:
             restore(saved, background=True)
+
+
+def builtin_display(display_id):
+    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cg.CGDisplayIsBuiltin.argtypes = [ctypes.c_uint32]
+    cg.CGDisplayIsBuiltin.restype = ctypes.c_uint32
+    return bool(cg.CGDisplayIsBuiltin(display_id))
+
+
+def park_target():
+    """Where a parked window goes: the visible space of the largest external
+    landscape monitor, so the tool stays in view beside the work; without
+    one, the agent space."""
+    external = [d for d in query("displays")
+                if d["frame"]["w"] > d["frame"]["h"] and not builtin_display(d["id"])]
+    if not external:
+        return ensure_space()
+    display = max(external, key=lambda d: d["frame"]["w"] * d["frame"]["h"])
+    return next(s for s in query("spaces") if s["display"] == display["index"] and s["is-visible"])
+
+
+def park(pattern):
+    """Move every window of the apps matching `pattern` to park_target().
+    Returns the pids seen, and whether anything moved."""
+    target = park_target()
+    pids, moved = set(), False
+    for w in query("windows"):
+        if not re.search(pattern, w["app"]):
+            continue
+        pids.add(w["pid"])
+        if w["space"] != target["index"]:
+            # Helper windows without a role make yabai complain; they follow the app anyway.
+            yabai("window", str(w["id"]), "--space", str(target["index"]), check=False)
+            moved = True
+    return pids, moved
+
+
+def launch(pattern, command, wait=90):
+    """Start `command` detached, park its windows as they appear and give focus
+    back. Polls for `wait` seconds at most, and stops two seconds after the
+    last window moved."""
+    if not command:
+        raise ValueError("launch needs a command after --")
+    STATE.mkdir(parents=True, exist_ok=True)
+    with (STATE / "launch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        saved = snapshot()
+        # Not start_new_session: a GUI app started in a new session shows up in
+        # yabai with no accessibility role, and no window command can reach it.
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        deadline, settled, pids, exited = time.time() + wait, None, set(), None
+        while time.time() < deadline:
+            seen, moved = park(pattern)
+            pids |= seen
+            if moved:
+                settled = time.time() + 2
+                restore(saved, background=True, ours=pids)
+            elif settled and time.time() > settled:
+                break
+            elif not pids and proc.poll() is not None:
+                # A launcher that spawns the real app and exits (the Android
+                # emulator) still gets 15 s for its window; a dead one does not.
+                exited = exited or time.time()
+                if time.time() > exited + 15:
+                    break
+            time.sleep(0.5)
+        restore(saved, background=True, ours=pids)
+    return pids
 
 
 def toggle(state_file=None):
@@ -149,24 +227,81 @@ def browser_ready():
         return False
 
 
+def start_fresh():
+    """Quitting the agent Brave means "done": open the next launch on one new tab.
+
+    Without this, every relaunch restores all earlier tabs (after a clean quit
+    and after a crash alike) plus a new blank one, so empty tabs pile up.
+    """
+    # The restore_on_startup preference cannot be set from outside: Brave
+    # protects it with a MAC in Secure Preferences and silently resets it.
+    # Deleting the saved session itself is what works. Cookies and logins live
+    # elsewhere in the profile and are kept.
+    for name in ("Sessions", "Sessions_Encrypted"):
+        shutil.rmtree(PROFILE / "Default" / name, ignore_errors=True)
+    prefs = PROFILE / "Default" / "Preferences"
+    try:
+        data = json.loads(prefs.read_text())
+    except (OSError, ValueError):
+        return  # new profile
+    data.setdefault("profile", {})["exit_type"] = "Normal"  # no "restore pages?" bubble
+    temporary = prefs.with_suffix(".tmp")
+    temporary.write_text(json.dumps(data))
+    temporary.replace(prefs)
+
+
+def launch_browser():
+    """Start the agent Brave if its DevTools port is not up. Caller holds the lock."""
+    if browser_ready():
+        return
+    PROFILE.mkdir(parents=True, exist_ok=True)
+    start_fresh()
+    # -n is essential: do not send URLs or arguments to personal Brave.
+    # -g keeps the startup window in the background; callers route() it.
+    # Never add --no-startup-window: combined with --remote-debugging-port it
+    # makes Brave ignore Quit (Dock, Cmd+Q, AppleEvent), verified 2026-11-11.
+    # That flag is why agent Brave instances could not be closed.
+    run("open", "-g", "-n", "-a", "Brave Browser", "--args",
+        f"--remote-debugging-port={PORT}", f"--user-data-dir={PROFILE}",
+        "--no-first-run", "--no-default-browser-check")
+    for _ in range(60):
+        if browser_ready():
+            return
+        time.sleep(0.1)
+    raise RuntimeError("Agent Brave did not expose DevTools; personal Brave was not used.")
+
+
+def page_count():
+    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=2) as response:
+        return sum(1 for t in json.load(response) if t.get("type") == "page")
+
+
+def ensure_browser():
+    """Agent Brave up with one window on the agent space, for agent-devtools-mcp.
+
+    The window is created here, in the background, so the DevTools MCP only
+    ever adds tabs to it: a page it creates in a windowless browser would open
+    a new window wherever macOS likes and may take focus.
+    """
+    with background_launch():
+        run(HERE / "agent-space-ensure")
+        launch_browser()
+        if page_count() == 0:
+            run(HERE / "agent-browser-newtab", "about:blank")
+        for _ in range(30):
+            pids = agent_pids(PROFILE)
+            if any(w["app"] == "Brave Browser" and w["pid"] in pids for w in query("windows")):
+                route(pids=pids)
+                return
+            time.sleep(0.1)
+
+
 def open_url(url):
     if not url.startswith(("http://", "https://", "file://")):
         raise ValueError("Expected an http, https, or file URL")
     with background_launch():
         run(HERE / "agent-space-ensure")
-        if not browser_ready():
-            PROFILE.mkdir(parents=True, exist_ok=True)
-            # -n is essential: do not send URLs or arguments to personal Brave.
-            # Only the background CDP path creates its window.
-            run("open", "-g", "-n", "-a", "Brave Browser", "--args",
-                f"--remote-debugging-port={PORT}", f"--user-data-dir={PROFILE}",
-                "--no-first-run", "--no-default-browser-check", "--no-startup-window")
-            for _ in range(60):
-                if browser_ready():
-                    break
-                time.sleep(0.1)
-            else:
-                raise RuntimeError("Agent Brave did not expose DevTools; personal Brave was not used.")
+        launch_browser()
         # Failure is reported, never retried through an activating URL handler.
         run(HERE / "agent-browser-newtab", url)
         for _ in range(30):
@@ -210,8 +345,9 @@ def sandbox_frame(show=False, test=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("toggle", "route", "open", "sandbox-frame"), nargs="?", default="toggle")
+    parser.add_argument("command", choices=("toggle", "route", "open", "ensure-browser", "sandbox-frame", "park", "launch"), nargs="?", default="toggle")
     parser.add_argument("value", nargs="?")
+    parser.add_argument("rest", nargs=argparse.REMAINDER, help="launch: the command, after --")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--test", action="store_true")
     args = parser.parse_args()
@@ -219,8 +355,15 @@ def main():
         toggle()
     elif args.command == "route":
         route(int(args.value) if args.value else None)
+    elif args.command == "park":
+        park(args.value or "")
+    elif args.command == "launch":
+        rest = args.rest[1:] if args.rest[:1] == ["--"] else args.rest
+        launch(args.value or "", rest)
     elif args.command == "open":
         open_url(args.value or "")
+    elif args.command == "ensure-browser":
+        ensure_browser()
     else:
         sandbox_frame(args.show, args.test)
 
