@@ -3806,8 +3806,9 @@ not visible yet."
             ;; Parked questions list (SPC c u l)
             syzygy-park-list-mode
             "\\*Async Shell Command\\*"
-            ;; DevDocs
-            devdocs-mode))
+            ;; DevDocs (devdocs-mode is the stock page; mr-x/docs-mode the digest)
+            devdocs-mode
+            mr-x/docs-mode))
     :config
     ;; Placement lives in `display-buffer-alist' (rule below); popper only
     ;; TRACKS popups: toggle, cycle, echo, perspective grouping.  Callers
@@ -3841,8 +3842,8 @@ returning a number is a silent no-op."
       (let* ((buf (window-buffer win))
              (fixed (when (or (string-match-p "\\*Agent-Shell Buffers\\*"
                                               (buffer-name buf))
-                              (eq (buffer-local-value 'major-mode buf)
-                                  'devdocs-mode))
+                              (memq (buffer-local-value 'major-mode buf)
+                                    '(devdocs-mode mr-x/docs-mode)))
                       (floor (frame-height) 2.5))))
         (fit-window-to-buffer win
                               (or fixed (floor (frame-height) 3))
@@ -5349,6 +5350,7 @@ Re-schedules itself once a second; gives up (with a message) past DEADLINE."
        (frame (funcall callback frame))
        ((time-less-p deadline (current-time))
         (message "emx didn't connect within %ss — check the tablet"
+        "? c" '(mr-x/docs :wk "Code docs")
                  mr-x/calliope-emx-timeout))
        (t (run-with-timer 1 nil #'mr-x/calliope--await-frame callback deadline)))))
 
@@ -6357,6 +6359,11 @@ made is deleted and the evidence stays; the review shows why."
             (overlay-put o 'mr-x-hl t)
             (overlay-put o 'face 'mr-x-line-highlight)))))
 
+;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
+;; installed docset at once and renders a digest in the tldr layout.
+;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
+(require 'mr-x-docs)
+
     (defun mr-x/highlight-line-clear-buffer ()
       "Remove all pure-visual line highlights in the current buffer."
       (interactive)
@@ -6764,12 +6771,12 @@ Pasteable into Finder, Slack, Mail, etc.  (\"w\" copies the path as text.)"
       '(menu-item "copy buffer path" mr-x/embark-copy-buffer-path
                   :filter (lambda (cmd) (and buffer-file-name cmd))))
 
-    ;; d = devdocs on the symbol at point (find-definition stays on RET/dwim)
-    (define-key embark-identifier-map (kbd "d") #'devdocs-lookup)
-    (define-key embark-symbol-map (kbd "d") #'devdocs-lookup)
+    ;; d = code docs on the symbol at point (find-definition stays on RET/dwim)
+    (define-key embark-identifier-map (kbd "d") #'mr-x/docs)
+    (define-key embark-symbol-map (kbd "d") #'mr-x/docs)
     ;; Search the target text, then let the user choose an actual index entry.
     (add-to-list 'embark-target-injection-hooks
-                 '(devdocs-lookup embark--allow-edit))
+                 '(mr-x/docs embark--allow-edit))
 
     ;; ? = rig lookup on any target; embark injects the target into the
     ;; consult search, so it opens pre-filled with the thing at point.
