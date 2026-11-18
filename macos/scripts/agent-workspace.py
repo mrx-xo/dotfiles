@@ -5,14 +5,15 @@ Application names are not ownership: personal Brave stays unrestricted.
 Only known browser profile directories and the named sandbox daemon qualify.
 
 `park <app regex>` moves an agent tool's windows (an emulator, the iOS
-Simulator) out of the way: onto the visible space of the external landscape
-monitor when one is connected, else onto the agent space; never focused.
+Simulator) out of the way: onto the visible space of the parking monitor
+named in ~/.config/agent-workspace/park-display (one line, a yabai display
+uuid; `yabai -m query --displays`) when it is connected, else onto the
+agent space; never focused.
 `launch <app regex> -- <command...>` starts the tool, parks its windows as
 they appear and hands focus back to where it was.
 """
 import argparse
 from contextlib import contextmanager
-import ctypes
 import fcntl
 import json
 import os
@@ -26,6 +27,7 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 STATE = Path.home() / ".local/state/agent-workspace"
+PARK_DISPLAY = Path.home() / ".config/agent-workspace/park-display"
 PROFILE = Path.home() / ".local/share/agent-browser"
 PORT = int(os.environ.get("AGENT_BROWSER_PORT", "9333"))
 
@@ -124,22 +126,14 @@ def background_launch():
             restore(saved, background=True)
 
 
-def builtin_display(display_id):
-    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
-    cg.CGDisplayIsBuiltin.argtypes = [ctypes.c_uint32]
-    cg.CGDisplayIsBuiltin.restype = ctypes.c_uint32
-    return bool(cg.CGDisplayIsBuiltin(display_id))
-
-
 def park_target():
-    """Where a parked window goes: the visible space of the largest external
-    landscape monitor, so the tool stays in view beside the work; without
-    one, the agent space."""
-    external = [d for d in query("displays")
-                if d["frame"]["w"] > d["frame"]["h"] and not builtin_display(d["id"])]
-    if not external:
+    """Where a parked window goes: the visible space of the parking monitor
+    (its yabai uuid in PARK_DISPLAY, so the tool stays in view beside the
+    work); when that monitor is not connected, the agent space."""
+    want = PARK_DISPLAY.read_text().strip() if PARK_DISPLAY.exists() else ""
+    display = next((d for d in query("displays") if want and d["uuid"] == want), None)
+    if display is None:
         return ensure_space()
-    display = max(external, key=lambda d: d["frame"]["w"] * d["frame"]["h"])
     return next(s for s in query("spaces") if s["display"] == display["index"] and s["is-visible"])
 
 
