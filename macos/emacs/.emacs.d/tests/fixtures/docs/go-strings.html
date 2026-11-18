@@ -1,0 +1,5 @@
+<h1> Package strings  </h1>
+<h2 id="Fields">func <span>Fields</span>  </h2> <pre data-language="go">func Fields(s string) []string</pre> <p>Fields splits the string s around each instance of one or more consecutive white space characters, as defined by <span>unicode.IsSpace</span>, returning a slice of substrings of s or an empty slice if s contains only white space. Every element of the returned slice is non-empty. Unlike <a href="#Split">Split</a>, leading and trailing runs of white space characters are discarded. </p>   <h4 id="example_Fields"> <span class="text">Example</span>
+</h4> <p>Code:</p> <pre class="code" data-language="go">fmt.Printf("Fields are: %q", strings.Fields("  foo bar  baz   "))
+</pre> <p>Output:</p> <pre class="output" data-language="go">Fields are: ["foo" "bar" "baz"]
+</pre>   

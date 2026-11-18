@@ -143,5 +143,180 @@ plain name."
     (or (funcall entry choice)
         (user-error "No docs entry named %s" choice))))
 
+;;; Pages and DOM helpers
+
+(defun mr-x/docs--page (slug path)
+  "Return the parsed DOM of docset SLUG's page at PATH (no anchor)."
+  (let ((file (expand-file-name (concat slug "/" (url-hexify-string path) ".html")
+                                mr-x/docs-data-dir)))
+    (unless (file-readable-p file)
+      (user-error "No page on disk for %s/%s; run `devdocs-update-all'" slug path))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (libxml-parse-html-region (point-min) (point-max)))))
+
+(defun mr-x/docs--by-id (dom id)
+  "Return the first node in DOM whose id attribute is ID, or nil."
+  (car (dom-search dom (lambda (n) (equal (dom-attr n 'id) id)))))
+
+(defun mr-x/docs--nodes (dom)
+  "Return every element node of DOM in document order."
+  (let (acc)
+    (cl-labels ((walk (n)
+                  (when (consp n)
+                    (push n acc)
+                    (dolist (c (dom-children n)) (walk c)))))
+      (walk dom))
+    (nreverse acc)))
+
+(defun mr-x/docs--first-after (dom start pred &optional stop)
+  "Return the first node after START in DOM satisfying PRED.
+With START nil, search from the top.  Stop and return nil at the first
+node satisfying STOP, if given."
+  (let ((seen (null start)))
+    (seq-find (lambda (n)
+                (cond ((eq n start) (setq seen t) nil)
+                      ((not seen) nil)
+                      ((and stop (funcall stop n)) (setq seen 'stopped) nil)
+                      ((eq seen 'stopped) nil)
+                      (t (funcall pred n))))
+              (mr-x/docs--nodes dom))))
+
+(defun mr-x/docs--tag-p (tag)
+  "Return a predicate matching nodes of TAG (a symbol or list of symbols)."
+  (let ((tags (ensure-list tag)))
+    (lambda (n) (memq (dom-tag n) tags))))
+
+(defun mr-x/docs--text (node)
+  "Return NODE's text with whitespace collapsed, or nil for a nil NODE."
+  (and node
+       (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " (dom-texts node "")))))
+
+(defun mr-x/docs--pre-text (node)
+  "Return NODE's text verbatim, trailing whitespace trimmed."
+  (and node (string-trim-right (dom-texts node ""))))
+
+(defun mr-x/docs--first-sentence (text)
+  "Return TEXT up to and including its first sentence end."
+  (if (and text (string-match "\\`\\(.*?[.!?]\\)\\( \\|\\'\\)" text))
+      (match-string 1 text)
+    text))
+
+(defun mr-x/docs--direct-child (node tag)
+  "Return NODE's first direct child element with TAG."
+  (seq-find (lambda (c) (and (consp c) (eq (dom-tag c) tag))) (dom-children node)))
+
+;;; Extractors
+;; Each takes (DOM ANCHOR-NODE ENTRY) and returns a plist with :title
+;; :blurb :synopsis :examples :params.  ANCHOR-NODE is nil for page-level
+;; entries and for anchors the page no longer carries.
+
+(defun mr-x/docs--extract-mdn (dom _anchor _entry)
+  "Extractor for MDN pages (javascript, dom, html, css docsets)."
+  (let* ((h1 (car (dom-by-tag dom 'h1)))
+         (blurb (car (dom-by-tag (car (dom-by-class dom "\\`content-section\\'")) 'p)))
+         (syntax (mr-x/docs--by-id dom "syntax"))
+         (sig (and syntax (mr-x/docs--first-after dom syntax (mr-x/docs--tag-p 'pre)
+                                                  (mr-x/docs--tag-p 'h2))))
+         (params-h (mr-x/docs--by-id dom "parameters"))
+         (dl (and params-h (mr-x/docs--direct-child (dom-parent dom params-h) 'dl)))
+         (examples-h (mr-x/docs--by-id dom "examples"))
+         (examples
+          ;; Each example is its own <section>: an h3 then a pre, siblings of
+          ;; the Examples heading's section, running until the next h2.
+          (when examples-h
+            (let (acc (n 0) (seen nil))
+              (cl-block scan
+                (dolist (node (mr-x/docs--nodes dom))
+                  (cond ((eq node examples-h) (setq seen t))
+                        ((not seen))
+                        ((eq (dom-tag node) 'h2) (cl-return-from scan))
+                        ((and (eq (dom-tag node) 'h3) (< n 3))
+                         (let ((pre (mr-x/docs--first-after dom node (mr-x/docs--tag-p 'pre)
+                                                            (mr-x/docs--tag-p '(h2 h3)))))
+                           (when pre
+                             (cl-incf n)
+                             (push (cons (mr-x/docs--text node) (mr-x/docs--pre-text pre))
+                                   acc)))))))
+              (nreverse acc)))))
+    (list :title (mr-x/docs--text h1)
+          :blurb (mr-x/docs--text blurb)
+          :synopsis (mr-x/docs--pre-text sig)
+          :params (when dl
+                    (let (acc name)
+                      (dolist (c (dom-children dl) (nreverse acc))
+                        (when (consp c)
+                          (pcase (dom-tag c)
+                            ('dt (setq name (mr-x/docs--text c)))
+                            ('dd (let* ((optional (and name (string-suffix-p " Optional" name)))
+                                        (desc (mr-x/docs--first-sentence
+                                               (mr-x/docs--text (or (car (dom-by-tag c 'p)) c)))))
+                                   (push (list (if optional (string-remove-suffix " Optional" name) name)
+                                               desc (and optional t))
+                                         acc))))))))
+          :examples examples)))
+
+(defun mr-x/docs--extract-python (dom anchor entry)
+  "Extractor for Sphinx pages (python docset)."
+  (if (null anchor)
+      (mr-x/docs--extract-fallback dom nil entry)
+    (let* ((dd (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'dd)))
+           (p (and dd (car (dom-by-tag dd 'p))))
+           (pres (and dd (seq-take (dom-by-tag dd 'pre) 3))))
+      (list :title (plist-get entry :name)
+            :blurb (mr-x/docs--text p)
+            :synopsis (replace-regexp-in-string "¶" "" (mr-x/docs--text anchor))
+            :examples (mapcar (lambda (pre) (cons "Example" (mr-x/docs--pre-text pre))) pres)
+            :params nil))))
+
+(defun mr-x/docs--extract-go (dom anchor entry)
+  "Extractor for Go package pages (go docset)."
+  (if (null anchor)
+      (mr-x/docs--extract-fallback dom nil entry)
+    (let* ((heading (mr-x/docs--tag-p '(h2 h3)))
+           (pre (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'pre) heading))
+           (p (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'p) heading))
+           (ex-h (mr-x/docs--by-id dom (concat "example_" (dom-attr anchor 'id))))
+           (code (and ex-h (mr-x/docs--first-after dom ex-h (mr-x/docs--tag-p 'pre) heading)))
+           (out (and code (mr-x/docs--first-after dom code (mr-x/docs--tag-p 'pre) heading))))
+      (list :title (plist-get entry :name)
+            :blurb (mr-x/docs--text p)
+            :synopsis (mr-x/docs--pre-text pre)
+            :examples (and code
+                           (list (cons "Example"
+                                       (concat (mr-x/docs--pre-text code)
+                                               (and out (concat "\n// Output: "
+                                                                (mr-x/docs--pre-text out)))))))
+            :params nil))))
+
+(defun mr-x/docs--extract-fallback (dom anchor entry)
+  "Extractor for docset types without a dedicated one: title and first paragraph."
+  (let ((p (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'p))))
+    (list :title (or (and (not anchor) (mr-x/docs--text (car (dom-by-tag dom 'h1))))
+                     (plist-get entry :name))
+          :blurb (or (mr-x/docs--text p) "")
+          :synopsis nil :examples nil :params nil)))
+
+(defvar mr-x/docs-extractors
+  '(("mdn" . mr-x/docs--extract-mdn)
+    ("python" . mr-x/docs--extract-python)
+    ("go" . mr-x/docs--extract-go))
+  "Alist of docset TYPE (from its metadata) to extractor function.")
+
+(defun mr-x/docs--url (entry)
+  "Return ENTRY's page on devdocs.io."
+  (concat "https://devdocs.io/" (plist-get entry :slug) "/" (plist-get entry :path)
+          (and (plist-get entry :anchor) (concat "#" (plist-get entry :anchor)))))
+
+(defun mr-x/docs--digest (entry)
+  "Return the digest plist for ENTRY: the extractor's plist plus :docset and :url."
+  (let* ((slug (plist-get entry :slug))
+         (type (cdr (assoc slug (mr-x/docs--docsets))))
+         (extract (or (cdr (assoc type mr-x/docs-extractors)) #'mr-x/docs--extract-fallback))
+         (dom (mr-x/docs--page slug (plist-get entry :path)))
+         (anchor (and (plist-get entry :anchor) (mr-x/docs--by-id dom (plist-get entry :anchor))))
+         (pl (funcall extract dom anchor entry)))
+    (append pl (list :docset slug :url (mr-x/docs--url entry)))))
+
 (provide 'mr-x-docs)
 ;;; mr-x-docs.el ends here
