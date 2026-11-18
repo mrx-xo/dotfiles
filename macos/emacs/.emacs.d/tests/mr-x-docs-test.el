@@ -121,5 +121,33 @@
                     :synopsis (concat "json.loads(" (make-string 90 ?a) ", b=None)")))))
     (should (string-match-p "\n             " out))))
 
+(ert-deftest mr-x-docs-test-full-page-once ()
+  (let ((dom (mr-x-docs-test--fixture "mdn-array-map.html")))
+    (cl-letf (((symbol-function 'mr-x/docs--page) (lambda (&rest _) dom))
+              ((symbol-function 'mr-x/docs--docsets) (lambda () '(("javascript" . "mdn")))))
+      (save-window-excursion
+        (mr-x/docs '(:name "Array.prototype.map()" :path "global_objects/array/map"
+                     :anchor nil :slug "javascript"))
+        (with-current-buffer "*docs*"
+          (should (eq major-mode 'mr-x/docs-mode))
+          (mr-x/docs-show-full)
+          (let ((len (buffer-size)))
+            (should (> len 1000))
+            (mr-x/docs-show-full)
+            (should (= len (buffer-size)))
+            (should (= (point) mr-x/docs--full-shown))))
+        (kill-buffer "*docs*")))))
+
+(ert-deftest mr-x-docs-test-open-uses-agent-open ()
+  (let (called)
+    (cl-letf (((symbol-function 'start-process)
+               (lambda (&rest args) (setq called args) nil)))
+      (with-temp-buffer
+        (mr-x/docs-mode)
+        (setq mr-x/docs--entry '(:slug "go" :path "strings/index" :anchor "Fields"))
+        (mr-x/docs-open)
+        (should (equal called '("agent-open" nil "agent-open"
+                                "https://devdocs.io/go/strings/index#Fields")))))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here

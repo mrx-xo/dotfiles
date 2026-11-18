@@ -420,5 +420,66 @@ node satisfying STOP, if given."
 (define-derived-mode mr-x/docs-mode special-mode "docs"
   "Major mode for the `*docs*' digest buffer.")
 
+;;; Commands
+
+(defun mr-x/docs-show-full ()
+  "Append the full page below the digest, or jump to it if already shown."
+  (interactive)
+  (cond
+   (mr-x/docs--full-shown
+    (goto-char mr-x/docs--full-shown)
+    (recenter 0))
+   (t
+    (let* ((entry mr-x/docs--entry)
+           (dom (mr-x/docs--page (plist-get entry :slug) (plist-get entry :path)))
+           (inhibit-read-only t)
+           (start nil))
+      (require 'devdocs nil t)              ; its shr face overrides, when installed
+      (require 'shr)
+      (goto-char (point-max))
+      (insert "\n" (make-string 70 ?─) "\n\n")
+      (setq start (point))
+      (let ((shr-max-width 90)
+            (shr-use-fonts nil)
+            (shr-bullet "  • "))
+        (shr-insert-document dom))
+      (setq mr-x/docs--full-shown start)
+      (goto-char start)
+      (recenter 0)))))
+
+(defun mr-x/docs-open ()
+  "Open this entry on devdocs.io in the agent browser."
+  (interactive)
+  (unless mr-x/docs--entry (user-error "No docs entry in this buffer"))
+  (start-process "agent-open" nil "agent-open" (mr-x/docs--url mr-x/docs--entry)))
+
+(let ((map mr-x/docs-mode-map))
+  (define-key map (kbd "m") #'mr-x/docs-show-full)
+  (define-key map (kbd "o") #'mr-x/docs-open))
+
+(with-eval-after-load 'evil
+  (evil-define-key 'normal mr-x/docs-mode-map
+    (kbd "m") #'mr-x/docs-show-full
+    (kbd "o") #'mr-x/docs-open))
+
+;;;###autoload
+(defun mr-x/docs (entry)
+  "Look up ENTRY in the installed DevDocs docsets and show its digest.
+Interactively, complete over every entry of every docset, prefilled with
+the symbol at point.  In the `*docs*' buffer, `m' appends the full page
+and `o' opens the entry on devdocs.io."
+  (interactive (list (mr-x/docs--read (thing-at-point 'symbol t))))
+  (let ((pl (mr-x/docs--digest entry)))
+    (mr-x/docs--sync-faces)
+    (with-current-buffer (get-buffer-create "*docs*")
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (mr-x/docs--render pl)
+        (mr-x/docs-mode)
+        (setq mr-x/docs--entry entry
+              mr-x/docs--full-shown nil)
+        (goto-char (point-min)))
+      (pop-to-buffer (current-buffer)))))
+
 (provide 'mr-x-docs)
 ;;; mr-x-docs.el ends here
