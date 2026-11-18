@@ -211,10 +211,26 @@ node satisfying STOP, if given."
 ;; :blurb :synopsis :examples :params.  ANCHOR-NODE is nil for page-level
 ;; entries and for anchors the page no longer carries.
 
+(defun mr-x/docs--mdn-lead-paragraph (dom)
+  "Return the first top-level <p> of an MDN page outside details/notecards."
+  (let ((skip (lambda (n) (and (consp n)
+                               (or (eq (dom-tag n) 'details)
+                                   (string-match-p "notecard"
+                                                   (or (dom-attr n 'class) "")))))))
+    (cl-labels ((walk (n)
+                  (when (and (consp n) (not (funcall skip n)))
+                    (if (eq (dom-tag n) 'p)
+                        n
+                      (seq-some #'walk (dom-children n))))))
+      (walk dom))))
+
 (defun mr-x/docs--extract-mdn (dom _anchor _entry)
   "Extractor for MDN pages (javascript, dom, html, css docsets)."
   (let* ((h1 (car (dom-by-tag dom 'h1)))
-         (blurb (car (dom-by-tag (car (dom-by-class dom "\\`content-section\\'")) 'p)))
+         (blurb (or (car (dom-by-tag (car (dom-by-class dom "\\`content-section\\'")) 'p))
+                    ;; dom/html pages have no content-section: take the first
+                    ;; paragraph that is not Baseline chrome or a notecard.
+                    (mr-x/docs--mdn-lead-paragraph dom)))
          (syntax (mr-x/docs--by-id dom "syntax"))
          (sig (and syntax (mr-x/docs--first-after dom syntax (mr-x/docs--tag-p 'pre)
                                                   (mr-x/docs--tag-p 'h2))))
@@ -258,8 +274,9 @@ node satisfying STOP, if given."
 
 (defun mr-x/docs--extract-python (dom anchor entry)
   "Extractor for Sphinx pages (python docset)."
-  (if (null anchor)
-      (mr-x/docs--extract-fallback dom nil entry)
+  (if (not (and anchor (eq (dom-tag anchor) 'dt)))
+      ;; Section, paragraph and index anchors are prose, not signatures.
+      (mr-x/docs--extract-fallback dom anchor entry)
     (let* ((dd (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'dd)))
            (p (and dd (car (dom-by-tag dd 'p))))
            (pres (and dd (seq-take (dom-by-tag dd 'pre) 3))))
@@ -364,7 +381,7 @@ node satisfying STOP, if given."
   (if (<= (length line) width)
       (list line)
     (let* ((paren (string-search "(" line))
-           (indent (make-string (if paren (1+ paren) 4) ?\s))
+           (indent (make-string (min (if paren (1+ paren) 4) (/ width 2)) ?\s))
            (pieces nil)
            (current ""))
       (dolist (part (split-string line ", "))
