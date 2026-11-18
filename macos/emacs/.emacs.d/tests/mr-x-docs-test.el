@@ -100,5 +100,26 @@
         (should (equal (plist-get pl :url) "https://devdocs.io/x/p#nope"))
         (should (stringp (plist-get pl :blurb)))))))
 
+(defun mr-x-docs-test--render (pl)
+  (with-temp-buffer (mr-x/docs--render pl)
+                    (buffer-substring-no-properties (point-min) (point-max))))
+
+(ert-deftest mr-x-docs-test-render-layout ()
+  (let ((out (mr-x-docs-test--render
+              '(:title "f()" :docset "go" :blurb "Does a thing.\nSecond line."
+                :synopsis "func f()" :examples (("Basic" . "f()"))
+                :params (("x" "An x" nil) ("why" "A y" t))))))
+    (should (string-match-p "^  f() +go\n  Does a thing.\n  Second line.\n\nSYNOPSIS\n  func f()\n\nEXAMPLES\n  Basic:\n\n    f()\n\nPARAMETERS\n  x     An x\n  why   A y \\[optional\\]\n" out))))
+
+(ert-deftest mr-x-docs-test-render-omits-empty-sections ()
+  (let ((out (mr-x-docs-test--render '(:title "t" :docset "d" :blurb "b"))))
+    (should-not (string-match-p "SYNOPSIS\\|EXAMPLES\\|PARAMETERS" out))))
+
+(ert-deftest mr-x-docs-test-render-wraps-long-synopsis ()
+  (let ((out (mr-x-docs-test--render
+              (list :title "t" :docset "d" :blurb "b"
+                    :synopsis (concat "json.loads(" (make-string 90 ?a) ", b=None)")))))
+    (should (string-match-p "\n             " out))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here

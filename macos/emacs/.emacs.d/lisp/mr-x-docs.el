@@ -318,5 +318,107 @@ node satisfying STOP, if given."
          (pl (funcall extract dom anchor entry)))
     (append pl (list :docset slug :url (mr-x/docs--url entry)))))
 
+;;; Faces
+
+(defgroup mr-x/docs nil "One-key DevDocs lookup." :group 'mr-x)
+
+(defface mr-x/docs-title '((t :weight bold)) "Entry name on the title line." :group 'mr-x/docs)
+(defface mr-x/docs-heading '((t :weight bold)) "Section headings." :group 'mr-x/docs)
+(defface mr-x/docs-synopsis '((t)) "Signature lines." :group 'mr-x/docs)
+(defface mr-x/docs-param '((t :weight bold)) "Parameter names." :group 'mr-x/docs)
+(defface mr-x/docs-code '((t)) "Example code." :group 'mr-x/docs)
+(defface mr-x/docs-description '((t)) "Prose." :group 'mr-x/docs)
+(defface mr-x/docs-docset '((t :slant italic)) "Docset tag on the title line." :group 'mr-x/docs)
+(defface mr-x/docs-optional '((t :inherit shadow)) "The [optional] marker." :group 'mr-x/docs)
+
+(defconst mr-x/docs--palette
+  '((mr-x/docs-title    . ansi-color-magenta)
+    (mr-x/docs-heading  . ansi-color-magenta)
+    (mr-x/docs-synopsis . ansi-color-cyan)
+    (mr-x/docs-code     . ansi-color-cyan)
+    (mr-x/docs-param    . ansi-color-yellow)
+    (mr-x/docs-docset   . ansi-color-green))
+  "Which ANSI colour each docs face borrows; the same palette as `mr-x/tldr'.")
+
+(defun mr-x/docs--sync-faces ()
+  "Point the docs faces at the current theme's ANSI colours (foreground only)."
+  (pcase-dolist (`(,face . ,ansi) mr-x/docs--palette)
+    (set-face-foreground face (face-foreground ansi nil t))))
+
+;;; Rendering
+
+(defvar-local mr-x/docs--entry nil
+  "The entry plist this `*docs*' buffer describes.")
+
+(defvar-local mr-x/docs--full-shown nil
+  "Position of the full page once appended to this buffer, else nil.")
+
+(defun mr-x/docs--ins (text face)
+  (insert (propertize text 'face face)))
+
+(defun mr-x/docs--heading (name)
+  (mr-x/docs--ins (concat name "\n") 'mr-x/docs-heading))
+
+(defun mr-x/docs--wrap-synopsis (line width)
+  "Split LINE after commas so no piece exceeds WIDTH, continuing under the open paren."
+  (if (<= (length line) width)
+      (list line)
+    (let* ((paren (string-search "(" line))
+           (indent (make-string (if paren (1+ paren) 4) ?\s))
+           (pieces nil)
+           (current ""))
+      (dolist (part (split-string line ", "))
+        (let ((candidate (if (string-empty-p current) part (concat current ", " part))))
+          (if (and (not (string-empty-p current))
+                   (> (+ (length indent) (length candidate)) width))
+              (progn (push (concat current ",") pieces)
+                     (setq current (concat indent part)))
+            (setq current candidate))))
+      (push current pieces)
+      (nreverse pieces))))
+
+(defun mr-x/docs--render (pl)
+  "Insert the digest PL at point using the `*tldr*' layout."
+  (let* ((title (or (plist-get pl :title) ""))
+         (docset (or (plist-get pl :docset) ""))
+         (width (- (if (window-live-p (selected-window)) (window-width) 80) 4)))
+    (insert "\n  ")
+    (mr-x/docs--ins title 'mr-x/docs-title)
+    (insert (make-string (max 1 (- 70 (length title) (length docset))) ?\s))
+    (mr-x/docs--ins (concat docset "\n") 'mr-x/docs-docset)
+    (dolist (line (split-string (or (plist-get pl :blurb) "") "\n"))
+      (mr-x/docs--ins (concat "  " line "\n") 'mr-x/docs-description))
+    (when (plist-get pl :synopsis)
+      (insert "\n")
+      (mr-x/docs--heading "SYNOPSIS")
+      (dolist (line (split-string (plist-get pl :synopsis) "\n"))
+        (dolist (piece (mr-x/docs--wrap-synopsis line width))
+          (mr-x/docs--ins (concat "  " piece "\n") 'mr-x/docs-synopsis))))
+    (when (plist-get pl :examples)
+      (insert "\n")
+      (mr-x/docs--heading "EXAMPLES")
+      (let ((first t))
+        (pcase-dolist (`(,label . ,code) (plist-get pl :examples))
+          (unless first (insert "\n"))
+          (setq first nil)
+          (mr-x/docs--ins (concat "  " label ":") 'mr-x/docs-description)
+          (insert "\n\n")
+          (dolist (line (split-string code "\n"))
+            (mr-x/docs--ins (concat (if (string-empty-p line) "" (concat "    " line)) "\n")
+                            'mr-x/docs-code)))))
+    (when (plist-get pl :params)
+      (insert "\n")
+      (mr-x/docs--heading "PARAMETERS")
+      (let ((w (apply #'max (mapcar (lambda (p) (length (car p))) (plist-get pl :params)))))
+        (pcase-dolist (`(,name ,desc ,optional) (plist-get pl :params))
+          (mr-x/docs--ins (concat "  " name (make-string (+ 3 (- w (length name))) ?\s))
+                          'mr-x/docs-param)
+          (mr-x/docs--ins (or desc "") 'mr-x/docs-description)
+          (when optional (mr-x/docs--ins " [optional]" 'mr-x/docs-optional))
+          (insert "\n"))))))
+
+(define-derived-mode mr-x/docs-mode special-mode "docs"
+  "Major mode for the `*docs*' digest buffer.")
+
 (provide 'mr-x-docs)
 ;;; mr-x-docs.el ends here
