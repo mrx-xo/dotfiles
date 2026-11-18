@@ -5259,6 +5259,7 @@ background, and inheriting them whole paints text over itself."
         "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
         "? t" '(mr-x/tldr :wk "tldr (examples)")
         "? m" '(consult-man :wk "Man (search all pages)")
+        "? c" '(mr-x/docs :wk "Code docs")
         "F" '(mr-x/insert-file-at-point :wk "Insert file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)")
         "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask focus/hide"))
@@ -5350,7 +5351,6 @@ Re-schedules itself once a second; gives up (with a message) past DEADLINE."
        (frame (funcall callback frame))
        ((time-less-p deadline (current-time))
         (message "emx didn't connect within %ss — check the tablet"
-        "? c" '(mr-x/docs :wk "Code docs")
                  mr-x/calliope-emx-timeout))
        (t (run-with-timer 1 nil #'mr-x/calliope--await-frame callback deadline)))))
 
@@ -6238,6 +6238,11 @@ made is deleted and the evidence stays; the review shows why."
           (lambda () (setq-local devdocs-current-docs
                                  '("javascript" "dom" "html"))))
 
+;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
+;; installed docset at once and renders a digest in the tldr layout.
+;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
+(require 'mr-x-docs)
+
 
 
 (use-package link-hint
@@ -6358,11 +6363,6 @@ made is deleted and the evidence stays; the review shows why."
                                  (min (point-max) (1+ (line-end-position))))))
             (overlay-put o 'mr-x-hl t)
             (overlay-put o 'face 'mr-x-line-highlight)))))
-
-;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
-;; installed docset at once and renders a digest in the tldr layout.
-;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
-(require 'mr-x-docs)
 
     (defun mr-x/highlight-line-clear-buffer ()
       "Remove all pure-visual line highlights in the current buffer."

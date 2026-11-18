@@ -5493,6 +5493,7 @@ background, and inheriting them whole paints text over itself."
         "? D" '(osx-dictionary-search-input :wk "Dictionary (type word)")
         "? t" '(mr-x/tldr :wk "tldr (examples)")
         "? m" '(consult-man :wk "Man (search all pages)")
+        "? c" '(mr-x/docs :wk "Code docs")
         "F" '(mr-x/insert-file-at-point :wk "Insert file path")
         "q" '(mr-x/quick-ask :wk "Quick question (AI)")
         "Q" '(mr-x/quick-ask-toggle :wk "Quick Ask focus/hide"))
@@ -5602,7 +5603,6 @@ Its existence means emx is running on the tablet."
     (seq-find (lambda (f) (not (display-graphic-p f))) (frame-list)))
 
   (defun mr-x/calliope--await-frame (callback deadline)
-        "? c" '(mr-x/docs :wk "Code docs")
     "Poll for the CALLIOPE frame until DEADLINE, then call CALLBACK with it.
 Re-schedules itself once a second; gives up (with a message) past DEADLINE."
     (let ((frame (mr-x/calliope-frame)))
@@ -6544,7 +6544,21 @@ made is deleted and the evidence stays; the review shows why."
             (lambda () (setq-local devdocs-current-docs
                                    '("javascript" "dom" "html"))))
 
+  ;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
+  ;; installed docset at once and renders a digest in the tldr layout.
+  ;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
+  (require 'mr-x-docs)
+
 #+end_src
+
+=SPC ? c= is the way to read these docs; the stock =devdocs-lookup= page is
+only what =m= appends below the digest. To add a docset, =M-x devdocs-install=
+and it appears in the search on the next lookup (=mr-x/docs-refresh= if an
+index was replaced under a running session). Docset types =mdn=, =python=
+and =go= have extractors in =lisp/mr-x-docs.el= (=mr-x/docs-extractors=);
+any other type falls back to title plus first paragraph, with =m= for the
+rest. Which docsets sort first per major mode is =mr-x/docs-mode-docsets=.
+Design: =docs/active/specs/2026-11-17-docs-lookup-design.md=.
 
 *** You need a hint
 #+begin_src emacs-lisp
@@ -6683,22 +6697,8 @@ made is deleted and the evidence stays; the review shows why."
 
     ;; Gruvbox palette to cycle through — each entry is (BACKGROUND . FOREGROUND).
     (defvar mr-x-line-highlight-colors
-  ;; The lookup itself is ours: `SPC ? c' (lisp/mr-x-docs.el) searches every
-  ;; installed docset at once and renders a digest in the tldr layout.
-  ;; devdocs.el stays the downloader (`devdocs-install', `devdocs-update-all').
-  (require 'mr-x-docs)
-
       '(("#fb4934" . "#1d2021")   ; red
         ("#fe8019" . "#1d2021")   ; orange
-=SPC ? c= is the way to read these docs; the stock =devdocs-lookup= page is
-only what =m= appends below the digest. To add a docset, =M-x devdocs-install=
-and it appears in the search on the next lookup (=mr-x/docs-refresh= if an
-index was replaced under a running session). Docset types =mdn=, =python=
-and =go= have extractors in =lisp/mr-x-docs.el= (=mr-x/docs-extractors=);
-any other type falls back to title plus first paragraph, with =m= for the
-rest. Which docsets sort first per major mode is =mr-x/docs-mode-docsets=.
-Design: =docs/active/specs/2026-11-17-docs-lookup-design.md=.
-
         ("#fabd2f" . "#1d2021")   ; yellow
         ("#b8bb26" . "#1d2021")   ; green
         ("#83a598" . "#1d2021")   ; blue
