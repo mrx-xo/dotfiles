@@ -57,5 +57,48 @@
     (fundamental-mode)
     (should (null (mr-x/docs--preferred-slugs)))))
 
+(defun mr-x-docs-test--fixture (name)
+  (with-temp-buffer
+    (insert-file-contents
+     (expand-file-name (concat "fixtures/docs/" name)
+                       (file-name-directory (or load-file-name buffer-file-name
+                                                (expand-file-name "tests/x")))))
+    (libxml-parse-html-region (point-min) (point-max))))
+
+(ert-deftest mr-x-docs-test-extract-mdn ()
+  (let ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "mdn-array-map.html") nil nil)))
+    (should (equal (plist-get pl :title) "Array.prototype.map()"))
+    (should (string-prefix-p "The map() method" (plist-get pl :blurb)))
+    (should (equal (plist-get pl :synopsis) "map(callbackFn)\nmap(callbackFn, thisArg)"))
+    (should (equal (mapcar #'car (plist-get pl :params)) '("callbackFn" "thisArg")))
+    (should (equal (nth 2 (nth 1 (plist-get pl :params))) t))
+    (should (equal (car (car (plist-get pl :examples)))
+                   "Mapping an array of numbers to an array of square roots"))
+    (should (<= (length (plist-get pl :examples)) 3))))
+
+(ert-deftest mr-x-docs-test-extract-python ()
+  (let* ((dom (mr-x-docs-test--fixture "python-json.html"))
+         (pl (mr-x/docs--extract-python dom (mr-x/docs--by-id dom "json.loads")
+                                        '(:name "json.loads()"))))
+    (should (string-prefix-p "json.loads(s, *, cls=None" (plist-get pl :synopsis)))
+    (should (string-prefix-p "Identical to load()" (plist-get pl :blurb)))
+    (should (null (plist-get pl :examples)))))
+
+(ert-deftest mr-x-docs-test-extract-go ()
+  (let* ((dom (mr-x-docs-test--fixture "go-strings.html"))
+         (pl (mr-x/docs--extract-go dom (mr-x/docs--by-id dom "Fields")
+                                    '(:name "strings.Fields()"))))
+    (should (equal (plist-get pl :synopsis) "func Fields(s string) []string"))
+    (should (string-prefix-p "Fields splits" (plist-get pl :blurb)))
+    (should (string-match-p "Output: Fields are" (cdr (car (plist-get pl :examples)))))))
+
+(ert-deftest mr-x-docs-test-digest-missing-anchor-and-unknown-type ()
+  (let ((dom (mr-x-docs-test--fixture "mdn-array-map.html")))
+    (cl-letf (((symbol-function 'mr-x/docs--page) (lambda (&rest _) dom))
+              ((symbol-function 'mr-x/docs--docsets) (lambda () '(("x" . "weird")))))
+      (let ((pl (mr-x/docs--digest '(:name "n" :path "p" :anchor "nope" :slug "x"))))
+        (should (equal (plist-get pl :url) "https://devdocs.io/x/p#nope"))
+        (should (stringp (plist-get pl :blurb)))))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
