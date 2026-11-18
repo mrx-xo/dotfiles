@@ -8869,7 +8869,8 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   (setq lsp-signature-render-documentation nil)
   (setq lsp-eldoc-enable-hover t)
   (setq lsp-completion-provider :none)  ;; Let Corfu handle completion
-  (setq lsp-enable-snippet t))
+  (setq lsp-enable-snippet t)
+  (setq lsp-auto-guess-root t))         ;; take the git/project root, never ask
 
 ;; Python LSP via basedpyright (lsp-pyright supports both pyright and basedpyright)
 (use-package lsp-pyright
