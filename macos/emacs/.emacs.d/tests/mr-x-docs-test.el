@@ -162,5 +162,26 @@
     (should (string-match-p "^  word\\( word\\)+\n  word" out))
     (should-not (seq-some (lambda (l) (> (length l) 72)) (split-string out "\n")))))
 
+(ert-deftest mr-x-docs-test-extract-mdn-blurb-outside-content-section ()
+  "DOM and HTML pages have no section.content-section: the blurb is the
+first paragraph outside the Baseline details and the notecards."
+  (let ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "dom-abort.html") nil nil)))
+    (should (string-prefix-p "The abort() method of the AbortController" (plist-get pl :blurb)))))
+
+(ert-deftest mr-x-docs-test-extract-python-section-anchor ()
+  "A Python anchor on a <section> is prose, not a signature: title and
+first paragraph only, no synopsis."
+  (let* ((dom (mr-x-docs-test--fixture "python-venv.html"))
+         (pl (mr-x/docs--extract-python dom (mr-x/docs--by-id dom "managing-packages-with-pip")
+                                        '(:name "12.3. Managing Packages with pip"))))
+    (should (null (plist-get pl :synopsis)))
+    (should (string-prefix-p "You can install" (plist-get pl :blurb)))))
+
+(ert-deftest mr-x-docs-test-wrap-synopsis-caps-indent ()
+  (let* ((line (concat (make-string 60 ?x) "(" (make-string 30 ?a) ", " (make-string 30 ?b) ")"))
+         (pieces (mr-x/docs--wrap-synopsis line 76)))
+    (should (> (length pieces) 1))
+    (should (<= (length (car (split-string (nth 1 pieces) "[^ ]" t))) 38))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
