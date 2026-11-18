@@ -5294,7 +5294,8 @@ background, and inheriting them whole paints text over itself."
         "; w" '(lsp-restart-workspace :wk "Restart workspace")
         "; I" '(:ignore t :wk "Imenu")
         "; I i" '(consult-imenu :wk "Imenu")
-        "; I I" '(lsp-ui-imenu :wk "LSP Imenu"))
+        "; I I" '(lsp-ui-imenu :wk "LSP Imenu")
+        "; I t" '(lsp-treemacs-symbols :wk "Symbol tree"))
 
   )
 
@@ -9016,6 +9017,83 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :init
   (setq lsp-tailwindcss-add-on-mode t)
   ;; resolve the server on PATH (nvm on some machines, brew on others) rather
+;; Treemacs, used only for the LSP symbol tree (SPC ; I t), not as a file
+;; browser. lsp-treemacs-symbols draws one icon per symbol kind.
+(use-package treemacs
+  :ensure t
+  :commands (treemacs))
+
+(use-package treemacs-evil
+  :ensure t
+  :after (treemacs evil))
+
+(use-package treemacs-nerd-icons
+  :ensure t
+  :after treemacs
+  :config
+  (treemacs-load-theme "nerd-icons"))
+
+(use-package lsp-treemacs
+  :ensure t
+  :after lsp-mode
+  :commands (lsp-treemacs-symbols)
+  :config
+  (advice-add 'lsp-treemacs-symbols :around
+              #'mr-x/lsp-treemacs-symbols-respect-pane))
+
+;; lsp-treemacs-symbols hardcodes display-buffer-in-side-window, so the
+;; tree took the frame's left edge and pushed the major pane inward (or
+;; narrowed it on tall frames, pane above).  Open it as a right split of
+;; the code window instead; the pane keeps its edge and size.
+(defun mr-x/lsp-treemacs--work-window ()
+  "Most relevant code window: not the major pane, a side window or dedicated."
+  (let ((ordinary (lambda (w)
+                    (not (or (window-parameter w 'major-pane)
+                             (window-parameter w 'window-side)
+                             (window-dedicated-p w))))))
+    (if (funcall ordinary (selected-window))
+        (selected-window)
+      (car (sort (seq-filter ordinary (window-list nil 'nomini))
+                 (lambda (a b) (> (window-use-time a) (window-use-time b))))))))
+
+(defun mr-x/lsp-treemacs--display-in-work-area (orig buffer alist)
+  "Show the symbol tree as a right split of the code window.
+Other side-window callers go through ORIG with BUFFER and ALIST unchanged."
+  (if (not (equal (buffer-name buffer) lsp-treemacs-symbols-buffer-name))
+      (funcall orig buffer alist)
+    (or (get-buffer-window buffer)
+        (let ((code (mr-x/lsp-treemacs--work-window)))
+          (if (not code)
+              (funcall orig buffer alist)
+            (let ((win (split-window code (- treemacs-width) 'right)))
+              (set-window-buffer win buffer)
+              ;; Dedicated, so treemacs's q (bury-buffer) deletes the split.
+              (set-window-dedicated-p win t)
+              (window-preserve-size win t t)
+              win))))))
+
+(defun mr-x/lsp-treemacs-symbols-respect-pane (orig &rest args)
+  "Run ORIG with ARGS, placing the symbol tree beside the code, not the pane."
+  (cl-letf* ((side (symbol-function 'display-buffer-in-side-window))
+             ((symbol-function 'display-buffer-in-side-window)
+              (lambda (buffer alist)
+                (mr-x/lsp-treemacs--display-in-work-area side buffer alist))))
+    (prog1 (apply orig args)
+      (when-let ((buf (get-buffer lsp-treemacs-symbols-buffer-name)))
+        ;; Evil's per-buffer map only.  local-set-key would write into the
+        ;; shared treemacs-mode-map and clobber the file tree's o prefix.
+        (with-current-buffer buf
+          (evil-local-set-key 'treemacs (kbd "o")
+                              #'mr-x/lsp-treemacs-show-symbol))))))
+
+(defun mr-x/lsp-treemacs-show-symbol ()
+  "Jump the code to the symbol at point, keeping the cursor in the tree.
+Bound to o in the symbol tree only; the file tree keeps its o prefix."
+  (interactive)
+  (let ((tree (selected-window)))
+    (treemacs-RET-action)
+    (select-window tree)))
+
   ;; than hardcoding a brew path — exec-path-from-shell makes it findable.
   (when-let ((server (executable-find "tailwindcss-language-server")))
     (setq lsp-tailwindcss-server-path server))
