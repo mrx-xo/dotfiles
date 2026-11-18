@@ -224,6 +224,42 @@ node satisfying STOP, if given."
                       (seq-some #'walk (dom-children n))))))
       (walk dom))))
 
+(defconst mr-x/docs--badge-re
+  "\\(?: *\\(?:Optional\\|Deprecated\\|Experimental\\|Non-standard\\|Read only\\)\\)+\\'"
+  "MDN status badges that trail a dt name.")
+
+(defun mr-x/docs--dl-pairs (dl)
+  "Return DL's (NAME . FIRST-SENTENCE) pairs, MDN badges stripped from NAME."
+  (let (acc name)
+    (dolist (c (dom-children dl) (nreverse acc))
+      (when (consp c)
+        (pcase (dom-tag c)
+          ('dt (setq name (replace-regexp-in-string mr-x/docs--badge-re ""
+                                                    (mr-x/docs--text c))))
+          ('dd (push (cons name (mr-x/docs--first-sentence
+                                 (mr-x/docs--text (or (car (dom-by-tag c 'p)) c))))
+                     acc)))))))
+
+(defconst mr-x/docs--mdn-member-sections
+  '(("constructor" . "Constructor")
+    ("static_properties" . "Static properties")
+    ("static_methods" . "Static methods")
+    ("instance_properties" . "Instance properties")
+    ("instance_methods" . "Instance methods")
+    ("attributes" . "Attributes"))
+  "MDN heading ids that list members, with the label the digest shows.")
+
+(defun mr-x/docs--mdn-members (dom)
+  "Return MDN member groups: a list of (LABEL . ((NAME . DESC) ...))."
+  (let (acc)
+    (pcase-dolist (`(,id . ,label) mr-x/docs--mdn-member-sections)
+      (let* ((h (mr-x/docs--by-id dom id))
+             (dl (and h (mr-x/docs--first-after dom h (mr-x/docs--tag-p 'dl)
+                                                (mr-x/docs--tag-p 'h2))))
+             (pairs (and dl (mr-x/docs--dl-pairs dl))))
+        (when pairs (push (cons label pairs) acc))))
+    (nreverse acc)))
+
 (defun mr-x/docs--extract-mdn (dom _anchor _entry)
   "Extractor for MDN pages (javascript, dom, html, css docsets)."
   (let* ((h1 (car (dom-by-tag dom 'h1)))
@@ -234,6 +270,9 @@ node satisfying STOP, if given."
          (syntax (mr-x/docs--by-id dom "syntax"))
          (sig (and syntax (mr-x/docs--first-after dom syntax (mr-x/docs--tag-p 'pre)
                                                   (mr-x/docs--tag-p 'h2))))
+         (returns-h (mr-x/docs--by-id dom "return_value"))
+         (returns (and returns-h (mr-x/docs--first-after dom returns-h (mr-x/docs--tag-p 'p)
+                                                         (mr-x/docs--tag-p '(h2 h3)))))
          (params-h (mr-x/docs--by-id dom "parameters"))
          (dl (and params-h (mr-x/docs--direct-child (dom-parent dom params-h) 'dl)))
          (examples-h (mr-x/docs--by-id dom "examples"))
@@ -258,25 +297,35 @@ node satisfying STOP, if given."
     (list :title (mr-x/docs--text h1)
           :blurb (mr-x/docs--text blurb)
           :synopsis (mr-x/docs--pre-text sig)
+          :returns (mr-x/docs--text returns)
           :params (when dl
                     (let (acc name)
                       (dolist (c (dom-children dl) (nreverse acc))
                         (when (consp c)
                           (pcase (dom-tag c)
                             ('dt (setq name (mr-x/docs--text c)))
-                            ('dd (let* ((optional (and name (string-suffix-p " Optional" name)))
+                            ('dd (let* ((optional (and name (string-match-p " Optional\\b" name)))
+                                        (clean (replace-regexp-in-string mr-x/docs--badge-re "" name))
                                         (desc (mr-x/docs--first-sentence
                                                (mr-x/docs--text (or (car (dom-by-tag c 'p)) c)))))
-                                   (push (list (if optional (string-remove-suffix " Optional" name) name)
-                                               desc (and optional t))
-                                         acc))))))))
+                                   (push (list clean desc (and optional t)) acc))))))))
+          :members (mr-x/docs--mdn-members dom)
           :examples examples)))
 
 (defun mr-x/docs--extract-python (dom anchor entry)
   "Extractor for Sphinx pages (python docset)."
-  (if (not (and anchor (eq (dom-tag anchor) 'dt)))
-      ;; Section, paragraph and index anchors are prose, not signatures.
-      (mr-x/docs--extract-fallback dom anchor entry)
+  (cond
+   ((null anchor)
+    ;; A module page: title, lead paragraph, and its functions/classes.
+    (let ((p (seq-find (lambda (n) (not (string-prefix-p "Source code:" (mr-x/docs--text n))))
+                       (dom-by-tag dom 'p))))
+      (list :title (mr-x/docs--text (car (dom-by-tag dom 'h1)))
+            :blurb (or (mr-x/docs--text p) "")
+            :members (mr-x/docs--python-members dom))))
+   ((not (eq (dom-tag anchor) 'dt))
+    ;; Section, paragraph and index anchors are prose, not signatures.
+    (mr-x/docs--extract-fallback dom anchor entry))
+   (t
     (let* ((dd (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'dd)))
            (p (and dd (car (dom-by-tag dd 'p))))
            (pres (and dd (seq-take (dom-by-tag dd 'pre) 3))))
@@ -284,12 +333,37 @@ node satisfying STOP, if given."
             :blurb (mr-x/docs--text p)
             :synopsis (replace-regexp-in-string "¶" "" (mr-x/docs--text anchor))
             :examples (mapcar (lambda (pre) (cons "Example" (mr-x/docs--pre-text pre))) pres)
-            :params nil))))
+            :params nil)))))
+
+(defun mr-x/docs--python-members (dom)
+  "Return a Sphinx module page's functions, classes and exceptions as member groups."
+  (let (acc)
+    (pcase-dolist (`(,class . ,label) '(("function" . "Functions") ("class" . "Classes")
+                                        ("exception" . "Exceptions")))
+      (let (pairs)
+        (dolist (dl (dom-by-class dom (concat "\\`py " class "\\'")))
+          (let* ((dt (car (dom-by-tag dl 'dt)))
+                 (dd (car (dom-by-tag dl 'dd)))
+                 (sig (replace-regexp-in-string "¶" "" (mr-x/docs--text dt)))
+                 (name (string-remove-prefix
+                        "exception " (string-remove-prefix "class " (car (split-string sig "(")))))
+                 (name (if (and (equal class "function") (string-search "(" sig))
+                           (concat (string-trim name) "()")
+                         (string-trim name))))
+            (push (cons name (mr-x/docs--first-sentence
+                              (mr-x/docs--text (and dd (car (dom-by-tag dd 'p))))))
+                  pairs)))
+        (when pairs (push (cons label (nreverse pairs)) acc))))
+    (nreverse acc)))
 
 (defun mr-x/docs--extract-go (dom anchor entry)
   "Extractor for Go package pages (go docset)."
   (if (null anchor)
-      (mr-x/docs--extract-fallback dom nil entry)
+      (let* ((nav (mr-x/docs--by-id dom "manual-nav"))
+             (items (and nav (mapcar (lambda (li) (cons (mr-x/docs--text li) nil))
+                                     (dom-by-tag nav 'li)))))
+        (append (mr-x/docs--extract-fallback dom nil entry)
+                (and items (list :members (list (cons "Index" items))))))
     (let* ((heading (mr-x/docs--tag-p '(h2 h3)))
            (pre (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'pre) heading))
            (p (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'p) heading))
@@ -364,6 +438,12 @@ node satisfying STOP, if given."
 
 ;;; Rendering
 
+(defvar mr-x/docs-member-rows 20
+  "How many member rows the digest shows before deferring to `m'.")
+
+(defvar mr-x/docs-example-lines 12
+  "How many lines of one example the digest shows before eliding.")
+
 (defvar-local mr-x/docs--entry nil
   "The entry plist this `*docs*' buffer describes.")
 
@@ -425,6 +505,41 @@ node satisfying STOP, if given."
       (dolist (line (split-string (plist-get pl :synopsis) "\n"))
         (dolist (piece (mr-x/docs--wrap-synopsis line width))
           (mr-x/docs--ins (concat "  " piece "\n") 'mr-x/docs-synopsis))))
+    (when (plist-get pl :returns)
+      (insert "\n")
+      (mr-x/docs--heading "RETURNS")
+      (dolist (line (split-string (mr-x/docs--fill (plist-get pl :returns) 70) "\n"))
+        (mr-x/docs--ins (concat "  " line "\n") 'mr-x/docs-description)))
+    (when (plist-get pl :members)
+      (insert "\n")
+      (mr-x/docs--heading "MEMBERS")
+      (let ((budget mr-x/docs-member-rows) (total 0) (first t))
+        (dolist (group (plist-get pl :members))
+          (cl-incf total (length (cdr group))))
+        (cl-block groups
+          (dolist (group (plist-get pl :members))
+            (unless first (insert "\n"))
+            (setq first nil)
+            (mr-x/docs--ins (concat "  " (car group) ":\n") 'mr-x/docs-description)
+            (let ((w (apply #'max (mapcar (lambda (m) (length (car m))) (cdr group)))))
+              (dolist (m (cdr group))
+                (when (<= budget 0)
+                  (mr-x/docs--ins (format "  ... %d more (m)\n" (- total mr-x/docs-member-rows))
+                                  'mr-x/docs-optional)
+                  (cl-return-from groups))
+                (cl-decf budget)
+                (mr-x/docs--ins (concat "  " (car m)) 'mr-x/docs-param)
+                (when (cdr m)
+                  (insert (make-string (+ 3 (- w (length (car m)))) ?\s))
+                  ;; One line per member: cut the sentence to the window.
+                  (let* ((room (max 10 (- (min width 78) (current-column))))
+                         (desc (cdr m)))
+                    (mr-x/docs--ins (if (> (length desc) room)
+                                        (concat (substring desc 0 (1- room)) "…")
+                                      desc)
+                                    'mr-x/docs-description)))
+                (put-text-property (line-beginning-position) (point) 'mr-x/docs-member (car m))
+                (insert "\n")))))))
     (when (plist-get pl :examples)
       (insert "\n")
       (mr-x/docs--heading "EXAMPLES")
@@ -434,9 +549,12 @@ node satisfying STOP, if given."
           (setq first nil)
           (mr-x/docs--ins (concat "  " label ":") 'mr-x/docs-description)
           (insert "\n\n")
-          (dolist (line (split-string code "\n"))
-            (mr-x/docs--ins (concat (if (string-empty-p line) "" (concat "    " line)) "\n")
-                            'mr-x/docs-code)))))
+          (let ((lines (split-string code "\n")))
+            (dolist (line (seq-take lines mr-x/docs-example-lines))
+              (mr-x/docs--ins (concat (if (string-empty-p line) "" (concat "    " line)) "\n")
+                              'mr-x/docs-code))
+            (when (> (length lines) mr-x/docs-example-lines)
+              (mr-x/docs--ins "    ...\n" 'mr-x/docs-optional))))))
     (when (plist-get pl :params)
       (insert "\n")
       (mr-x/docs--heading "PARAMETERS")
@@ -478,6 +596,34 @@ node satisfying STOP, if given."
       (goto-char start)
       (recenter 0)))))
 
+(defun mr-x/docs--member-entry (name slug title)
+  "Return the entry a MEMBERS row NAME refers to, preferring docset SLUG.
+TITLE is the current page title, used to qualify Go index lines
+\"func Clone(...)\" as \"strings.Clone()\".  Nil when nothing matches."
+  (let* ((bare (if (string-match "\\`func \\(?:([^)]*) \\)?\\([A-Za-z0-9_]+\\)" name)
+                   (concat (string-remove-prefix "Package " title) "." (match-string 1 name) "()")
+                 name))
+         (variants (delete-dups
+                    (list bare
+                          (string-remove-suffix "()" bare)
+                          (concat (string-remove-suffix "()" bare) "()"))))
+         (hits (seq-filter (lambda (e) (member (plist-get e :name) variants))
+                           (mr-x/docs--entries))))
+    (or (seq-find (lambda (e) (equal (plist-get e :slug) slug)) hits)
+        (car hits))))
+
+(defun mr-x/docs-follow ()
+  "Look up the member on this line, or do nothing if the line is not a member."
+  (interactive)
+  (let ((name (get-text-property (line-beginning-position) 'mr-x/docs-member)))
+    (unless name (user-error "Not on a member row"))
+    (let ((entry (mr-x/docs--member-entry name (plist-get mr-x/docs--entry :slug)
+                                          (save-excursion (goto-char (point-min))
+                                                          (forward-line 1)
+                                                          (string-trim (car (split-string (thing-at-point 'line t) "  +" t)))))))
+      (unless entry (user-error "No docs entry for %s" name))
+      (mr-x/docs entry))))
+
 (defun mr-x/docs-open ()
   "Open this entry on devdocs.io in the agent browser."
   (interactive)
@@ -486,12 +632,14 @@ node satisfying STOP, if given."
 
 (let ((map mr-x/docs-mode-map))
   (define-key map (kbd "m") #'mr-x/docs-show-full)
-  (define-key map (kbd "o") #'mr-x/docs-open))
+  (define-key map (kbd "o") #'mr-x/docs-open)
+  (define-key map (kbd "RET") #'mr-x/docs-follow))
 
 (with-eval-after-load 'evil
   (evil-define-key 'normal mr-x/docs-mode-map
     (kbd "m") #'mr-x/docs-show-full
-    (kbd "o") #'mr-x/docs-open))
+    (kbd "o") #'mr-x/docs-open
+    (kbd "RET") #'mr-x/docs-follow))
 
 ;;;###autoload
 (defun mr-x/docs (entry)
