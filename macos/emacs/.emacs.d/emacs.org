@@ -2316,6 +2316,14 @@ left alone."
                                                      (error-message-string err)))))))))
   ;; Enabled 2026-09-09 after the Phase 2 round trip passed. No-op off MrX.
   (mr-x/arca-caldav-enable-timer)
+
+  ;; Casa's task card draws the tree Org works out for the tasks file
+  ;; (lisp/casa-agenda.el): posted in the background after a save and after
+  ;; each sync, from the one syncing daemon only. The endpoint lives in
+  ;; ~/.config/casa-agenda/url, outside this public repo; no file, no post.
+  (when (require 'casa-agenda nil t)
+    (setq casa-agenda-enabled-function #'mr-x/arca-caldav-on-sync-machine-p)
+    (casa-agenda-mode 1))
   ;; END org-caldav (ARCA)
 #+end_src
 
