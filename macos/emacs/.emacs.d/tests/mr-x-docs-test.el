@@ -287,5 +287,20 @@ and maps a Go index line to pkg.Name()."
                  '("go"))))
     (should (equal sorted '("os.Open()" "elf.Open()" "macho.Open()" "Window.open")))))
 
+(ert-deftest mr-x-docs-test-fontify-uses-language-mode ()
+  "Code is fontified with the docset's major mode, so keywords carry font-lock faces."
+  (let ((out (mr-x/docs--fontify "func Open(name string) (*File, error)" "go")))
+    (should (equal (substring-no-properties out) "func Open(name string) (*File, error)"))
+    (should (memq (get-text-property 0 'face out) '(font-lock-keyword-face))))
+  ;; unknown docset: plain string, no error
+  (should (equal (mr-x/docs--fontify "x" "nope") "x")))
+
+(ert-deftest mr-x-docs-test-render-synopsis-keeps-fontification ()
+  (let ((buf (with-temp-buffer
+               (mr-x/docs--render '(:title "t" :docset "go" :blurb "b" :synopsis "func F() int"))
+               (buffer-string))))
+    (let ((i (string-search "func F" buf)))
+      (should (memq 'font-lock-keyword-face (ensure-list (get-text-property i 'face buf)))))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here

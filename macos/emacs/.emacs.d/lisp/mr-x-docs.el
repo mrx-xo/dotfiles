@@ -501,6 +501,35 @@ node satisfying STOP, if given."
       (push current pieces)
       (nreverse pieces))))
 
+(defconst mr-x/docs--modes
+  '(("javascript" js-ts-mode js-mode)
+    ("dom" js-ts-mode js-mode)
+    ("html" mhtml-mode html-mode)
+    ("python" python-ts-mode python-mode)
+    ("go" go-ts-mode go-mode))
+  "Docset slug prefix -> major modes to try, in order, for fontifying code.")
+
+(defun mr-x/docs--fontify (code slug)
+  "Return CODE with the font-lock faces SLUG's language mode gives it.
+Unknown slugs, or modes that fail to load, return CODE unchanged."
+  (let* ((row (seq-find (lambda (r) (string-prefix-p (car r) (or slug ""))) mr-x/docs--modes))
+         (mode (seq-find #'fboundp (cdr row))))
+    (if (null mode)
+        code
+      (condition-case nil
+          (with-temp-buffer
+            (insert code)
+            (delay-mode-hooks (funcall mode))
+            (font-lock-ensure)
+            (buffer-string))
+        (error code)))))
+
+(defun mr-x/docs--ins-code (text face)
+  "Insert TEXT keeping its font-lock faces, with FACE underneath for the rest."
+  (let ((s (copy-sequence text)))
+    (add-face-text-property 0 (length s) face t s)
+    (insert s)))
+
 (defun mr-x/docs--fill (text width)
   "Return TEXT filled to WIDTH columns, keeping its existing line breaks."
   (with-temp-buffer
@@ -529,9 +558,9 @@ node satisfying STOP, if given."
     (when (plist-get pl :synopsis)
       (insert "\n")
       (mr-x/docs--heading "SYNOPSIS")
-      (dolist (line (split-string (plist-get pl :synopsis) "\n"))
+      (dolist (line (split-string (mr-x/docs--fontify (plist-get pl :synopsis) docset) "\n"))
         (dolist (piece (mr-x/docs--wrap-synopsis line width))
-          (mr-x/docs--ins (concat "  " piece "\n") 'mr-x/docs-synopsis))))
+          (mr-x/docs--ins-code (concat "  " piece "\n") 'mr-x/docs-synopsis))))
     (when (plist-get pl :returns)
       (insert "\n")
       (mr-x/docs--heading "RETURNS")
@@ -576,10 +605,10 @@ node satisfying STOP, if given."
           (setq first nil)
           (mr-x/docs--ins (concat "  " label ":") 'mr-x/docs-description)
           (insert "\n\n")
-          (let ((lines (split-string code "\n")))
+          (let ((lines (split-string (mr-x/docs--fontify code docset) "\n")))
             (dolist (line (seq-take lines mr-x/docs-example-lines))
-              (mr-x/docs--ins (concat (if (string-empty-p line) "" (concat "    " line)) "\n")
-                              'mr-x/docs-code))
+              (mr-x/docs--ins-code (concat (if (string-empty-p line) "" (concat "    " line)) "\n")
+                                   'mr-x/docs-code))
             (when (> (length lines) mr-x/docs-example-lines)
               (mr-x/docs--ins "    ...\n" 'mr-x/docs-optional))))))
     (when (plist-get pl :params)
