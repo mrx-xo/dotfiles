@@ -111,6 +111,35 @@ plain name."
               acc)))
     (nreverse acc)))
 
+(defun mr-x/docs--sort-candidates (strings slug-of preferred)
+  "Order STRINGS: docsets in PREFERRED first, then shorter names, then alphabetical.
+SLUG-OF maps a candidate string to its docset slug."
+  (sort (copy-sequence strings)
+        (lambda (a b)
+          (let ((pa (if (member (funcall slug-of a) preferred) 0 1))
+                (pb (if (member (funcall slug-of b) preferred) 0 1)))
+            (cond ((/= pa pb) (< pa pb))
+                  ((/= (length a) (length b)) (< (length a) (length b)))
+                  (t (string< a b)))))))
+
+(defun mr-x/docs--symbol-at-point ()
+  "Return the qualified name at point when some entry contains it, else the bare symbol.
+`os.Open' and `json.loads' are indexed qualified; `rows.map' is not, so the
+receiver is dropped and `map' is searched."
+  (when-let* ((bounds (bounds-of-thing-at-point 'symbol))
+              (bare (buffer-substring-no-properties (car bounds) (cdr bounds))))
+    (let* ((start (save-excursion
+                    (goto-char (car bounds))
+                    (skip-chars-backward "A-Za-z0-9_.")
+                    (point)))
+           (qualified (string-trim (buffer-substring-no-properties start (cdr bounds)) "\\."))
+           (needle (downcase qualified)))
+      (if (and (not (equal qualified bare))
+               (seq-some (lambda (c) (string-search needle (downcase (car c))))
+                         (mr-x/docs--candidates)))
+          qualified
+        bare))))
+
 (defun mr-x/docs--read (initial)
   "Prompt for an entry with INITIAL input and return the chosen entry plist."
   (let* ((cands (mr-x/docs--candidates))
@@ -120,10 +149,8 @@ plain name."
          (entry (lambda (cand) (gethash cand table-hash)))
          (preferred (mr-x/docs--preferred-slugs))
          (sort (lambda (strings)
-                 (seq-sort-by (lambda (s) (if (member (plist-get (funcall entry s) :slug)
-                                                      preferred)
-                                              0 1))
-                              #'< strings)))
+                 (mr-x/docs--sort-candidates
+                  strings (lambda (s) (plist-get (funcall entry s) :slug)) preferred)))
          (table (lambda (string pred action)
                   (if (eq action 'metadata)
                       `(metadata
@@ -647,7 +674,7 @@ TITLE is the current page title, used to qualify Go index lines
 Interactively, complete over every entry of every docset, prefilled with
 the symbol at point.  In the `*docs*' buffer, `m' appends the full page
 and `o' opens the entry on devdocs.io."
-  (interactive (list (mr-x/docs--read (thing-at-point 'symbol t))))
+  (interactive (list (mr-x/docs--read (mr-x/docs--symbol-at-point))))
   (let ((pl (mr-x/docs--digest entry)))
     (mr-x/docs--sync-faces)
     (with-current-buffer (get-buffer-create "*docs*")

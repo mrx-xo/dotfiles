@@ -264,5 +264,28 @@ and maps a Go index line to pkg.Name()."
          (pairs (mr-x/docs--dl-pairs (car (dom-by-tag dom 'dl)))))
     (should (equal (mapcar #'car pairs) '("origin" "x")))))
 
+(ert-deftest mr-x-docs-test-symbol-at-point-keeps-qualifier-when-indexed ()
+  (cl-letf (((symbol-function 'mr-x/docs--candidates)
+             (lambda () '(("os.Open()" . (:name "os.Open()")) ("Array.map" . (:name "Array.map"))))))
+    (with-temp-buffer
+      (insert "file, err := os.Open(path)")
+      (search-backward "Open")
+      (should (equal (mr-x/docs--symbol-at-point) "os.Open")))
+    (with-temp-buffer
+      (insert "const ids = rows.map((r) => r.id)")
+      (search-backward "map")
+      ;; rows.map matches no entry, so the bare symbol is used
+      (should (equal (mr-x/docs--symbol-at-point) "map")))
+    (with-temp-buffer
+      (insert "   ")
+      (should (null (mr-x/docs--symbol-at-point))))))
+
+(ert-deftest mr-x-docs-test-sort-preferred-then-shorter ()
+  (let ((sorted (mr-x/docs--sort-candidates
+                 '("elf.Open()" "os.Open()" "Window.open" "macho.Open()")
+                 (lambda (s) (if (string-prefix-p "Window" s) "dom" "go"))
+                 '("go"))))
+    (should (equal sorted '("os.Open()" "elf.Open()" "macho.Open()" "Window.open")))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
