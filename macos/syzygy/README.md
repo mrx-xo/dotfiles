@@ -237,6 +237,14 @@ disabled. Those actions would otherwise run on the hub's own Emacs, so the
 hub answers their routes with **501** (`remote machine actions arrive in a
 later step`) whenever the request names a machine other than itself.
 
+Card status (`generating`, permission, idle) does follow remote chats: the
+hub's `/api/statuses` asks each node for its statuses and merges them with its
+own (acp-mobile `4267ff1`). A node gets one second to answer; one that fails
+is skipped for ten seconds, and its cards show no status during that window.
+A hub's status poll does not count as the phone viewing the node's page, so
+it never holds back that node's pushes. All machines need this build: an older
+node treats the hub's poll as a presence heartbeat and parks its pushes.
+
 ### Troubleshooting: a peer shows `asleep`
 
 `asleep` means the hub's fetch to that node failed. Check, in order:
