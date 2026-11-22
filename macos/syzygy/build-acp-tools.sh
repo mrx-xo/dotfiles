@@ -128,7 +128,8 @@ ACP_MULTIPLEX_COMMIT="2383bebbe5787441ddacb58ea612b3077e11f804"
 # + local b3c0c00 (startup waits up to two minutes for Tailscale before binding; each failed attempt logged; no wait when the CLI is missing)
 # + local 6e24e68 (hub forwards a remote chat's /api/kill to the owning machine and relays its answer; phone keeps delete on remote cards; project falls back to the buffer name where no cwd is readable)
 # + local 4267ff1 (hub merges every node's statuses into /api/statuses, so remote cards keep busy/permission state; a peer's status poll is no presence heartbeat)
-ACP_MOBILE_COMMIT="4267ff1ef665362b3908b6aaae5ce20348dd64c7"
+# + local 3c7b824 (hub forwards a remote chat's /api/fork, probe included, to the owning machine; Fork enabled on remote chats; forwardToMachine keeps the caller's query)
+ACP_MOBILE_COMMIT="3c7b824c5145de6fe30a6501c59de3cafc2f7403"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
