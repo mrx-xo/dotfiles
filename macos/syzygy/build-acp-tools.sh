@@ -21,7 +21,8 @@ BIN_DIR="$HOME/.local/bin"
 # + local fdfb2cf (synthesize `[steer]` user chunk for `_session/steering`)
 # + local 9577ffd (fake-phone scripts and README)
 # + local 88eacdd (portable process liveness probe; builds for Windows/NEMESIS)
-ACP_MULTIPLEX_COMMIT="88eacdd381c83920f7ffd0bb411c040a97e6046e"
+# + local 2383beb (turn_complete with stopReason "history" after a successful session/load or session/resume, so a fresh fork or resumed chat no longer replays as generating)
+ACP_MULTIPLEX_COMMIT="2383bebbe5787441ddacb58ea612b3077e11f804"
 # a2b52e4 (upstream) + local 71d9f81 (self-authenticating web clips)
 # + local 8787b16 (gruvbox theme, real session names via replay preview
 # + labels.json sidecar, iOS standalone polish)
