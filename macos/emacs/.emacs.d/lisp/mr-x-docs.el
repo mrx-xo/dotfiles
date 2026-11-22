@@ -14,6 +14,7 @@
 (require 'dom)
 (require 'ansi-color)
 (require 'url-util)
+(require 'mr-x-docs-usage)
 
 (defvar mr-x/docs-data-dir
   (expand-file-name "var/devdocs/data/" user-emacs-directory)
@@ -669,11 +670,13 @@ TITLE is the current page title, used to qualify Go index lines
     (or (seq-find (lambda (e) (equal (plist-get e :slug) slug)) hits)
         (car hits))))
 
-(defun mr-x/docs-follow ()
-  "Look up the member on this line, or do nothing if the line is not a member."
+(cl-defun mr-x/docs-follow ()
+  "Look up the member on this line, or visit the usage hit on this line."
   (interactive)
+  (when (get-text-property (line-beginning-position) 'mr-x/docs-usage)
+    (cl-return-from mr-x/docs-follow (mr-x/docs-visit-usage)))
   (let ((name (get-text-property (line-beginning-position) 'mr-x/docs-member)))
-    (unless name (user-error "Not on a member row"))
+    (unless name (user-error "Not on a member or usage row"))
     (let ((entry (mr-x/docs--member-entry name (plist-get mr-x/docs--entry :slug)
                                           (save-excursion (goto-char (point-min))
                                                           (forward-line 1)
@@ -705,17 +708,65 @@ Interactively, complete over every entry of every docset, prefilled with
 the symbol at point.  In the `*docs*' buffer, `m' appends the full page
 and `o' opens the entry on devdocs.io."
   (interactive (list (mr-x/docs--read (mr-x/docs--symbol-at-point))))
-  (let ((pl (mr-x/docs--digest entry)))
+  (let ((pl (mr-x/docs--digest entry))
+        (usage (mr-x/docs--usage-for entry))   ; from the caller's project
+        (root (mr-x/docs-usage-root)))
     (mr-x/docs--sync-faces)
     (with-current-buffer (get-buffer-create "*docs*")
       (let ((inhibit-read-only t))
         (erase-buffer)
         (mr-x/docs--render pl)
+        (when usage (mr-x/docs--render-usage (car usage) (cdr usage)))
         (mr-x/docs-mode)
         (setq mr-x/docs--entry entry
-              mr-x/docs--full-shown nil)
+              mr-x/docs--full-shown nil
+              mr-x/docs--usage-root root)
         (goto-char (point-min)))
       (pop-to-buffer (current-buffer)))))
+
+;;; Project usage
+
+(defun mr-x/docs--render-usage (usage project)
+  "Insert the USAGE section for USAGE (from `mr-x/docs-usage') in PROJECT.
+Inserts nothing when there are no hits."
+  (when (and usage (> (plist-get usage :count) 0))
+    (insert "\n")
+    (mr-x/docs--ins (format "USAGE  %d hit%s in %d file%s (project: %s)\n"
+                            (plist-get usage :count)
+                            (if (= 1 (plist-get usage :count)) "" "s")
+                            (plist-get usage :files)
+                            (if (= 1 (plist-get usage :files)) "" "s")
+                            project)
+                    'mr-x/docs-heading)
+    (let* ((locs (mapcar (lambda (h) (format "%s:%d" (car h) (cadr h))) (plist-get usage :hits)))
+           (w (apply #'max (mapcar #'length locs))))
+      (cl-loop for hit in (plist-get usage :hits)
+               for loc in locs
+               do (let ((start (point)))
+                    (mr-x/docs--ins (concat "  " loc (make-string (+ 2 (- w (length loc))) ?\s))
+                                    'mr-x/docs-param)
+                    (mr-x/docs--ins (concat (nth 2 hit) "\n") 'mr-x/docs-description)
+                    (put-text-property start (point) 'mr-x/docs-usage
+                                       (list (car hit) (cadr hit))))))))
+
+(defun mr-x/docs--usage-for (entry)
+  "Return (USAGE . PROJECT-NAME) for ENTRY in the current project, or nil."
+  (when-let* ((root (mr-x/docs-usage-root))
+              (pattern (mr-x/docs-usage-pattern (plist-get entry :name) (plist-get entry :slug)))
+              (usage (ignore-errors (mr-x/docs-usage-search pattern root))))
+    (cons usage (file-name-nondirectory (directory-file-name root)))))
+
+(defun mr-x/docs-visit-usage ()
+  "Jump to the project file and line of the USAGE row at point."
+  (interactive)
+  (let ((loc (get-text-property (line-beginning-position) 'mr-x/docs-usage)))
+    (unless loc (user-error "Not on a usage row"))
+    (find-file-other-window (expand-file-name (car loc) mr-x/docs--usage-root))
+    (goto-char (point-min))
+    (forward-line (1- (cadr loc)))))
+
+(defvar-local mr-x/docs--usage-root nil
+  "Project root the USAGE rows of this buffer are relative to.")
 
 (provide 'mr-x-docs)
 ;;; mr-x-docs.el ends here

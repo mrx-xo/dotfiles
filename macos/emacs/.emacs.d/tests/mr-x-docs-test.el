@@ -305,5 +305,21 @@ and maps a Go index line to pkg.Name()."
       ;; punctuation stays default, not the flat synopsis colour
       (should-not (memq 'mr-x/docs-synopsis (ensure-list (get-text-property j 'face buf)))))))
 
+(ert-deftest mr-x-docs-test-render-usage-section ()
+  (let ((out (with-temp-buffer
+               (mr-x/docs--render-usage '(:count 14 :files 6
+                                          :hits (("web/src/api.ts" 42 "const ids = rows.map((r) => r.id);")
+                                                 ("web/src/store.ts" 118 "return items.map(normalize);")))
+                                        "acp-mobile")
+               (buffer-string))))
+    (should (string-match-p "\nUSAGE  14 hits in 6 files (project: acp-mobile)\n  web/src/api.ts:42     const ids = rows.map((r) => r.id);\n  web/src/store.ts:118  return items.map(normalize);\n" out))
+    (should (equal (get-text-property (string-search "web/src/api" out) 'mr-x/docs-usage out)
+                   '("web/src/api.ts" 42)))))
+
+(ert-deftest mr-x-docs-test-render-usage-omits-when-empty ()
+  (should (equal "" (with-temp-buffer (mr-x/docs--render-usage '(:count 0 :files 0 :hits nil) "p")
+                                      (buffer-string))))
+  (should (equal "" (with-temp-buffer (mr-x/docs--render-usage nil "p") (buffer-string)))))
+
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
