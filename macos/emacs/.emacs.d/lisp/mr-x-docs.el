@@ -234,6 +234,64 @@ node satisfying STOP, if given."
   "Return NODE's first direct child element with TAG."
   (seq-find (lambda (c) (and (consp c) (eq (dom-tag c) tag))) (dom-children node)))
 
+(defun mr-x/docs--mdn-status (dom)
+  "Return the MDN baseline and warning status for DOM, or nil."
+  (let* ((baseline (seq-find (lambda (n)
+                               (and (eq (dom-tag n) 'details)
+                                    (string-match-p "baseline-indicator"
+                                                    (or (dom-attr n 'class) ""))))
+                             (mr-x/docs--nodes dom)))
+         (level (and baseline (dom-attr baseline 'class)))
+         (span (and baseline
+                    (seq-find (lambda (n) (eq (dom-tag n) 'span))
+                              (mr-x/docs--nodes baseline))))
+         (base (cond ((string-match-p "high" (or level ""))
+                      "Baseline: widely available")
+                     ((string-match-p "low" (or level ""))
+                      "Baseline: newly available")
+                     (span "Limited availability")))
+         (card (seq-find (lambda (n)
+                           (and (eq (dom-tag n) 'div)
+                                (or (string-match-p "deprecated"
+                                                    (or (dom-attr n 'class) ""))
+                                    (string-match-p "experimental"
+                                                    (or (dom-attr n 'class) ""))
+                                    (string-match-p "warning"
+                                                    (or (dom-attr n 'class) "")))))
+                         (mr-x/docs--nodes dom)))
+         (prefix (and card
+                      (cond ((string-match-p "deprecated" (dom-attr card 'class))
+                             "Deprecated. ")
+                            ((string-match-p "experimental" (dom-attr card 'class))
+                             "Experimental. ")
+                            (t "Warning. ")))))
+    (and base (concat (or prefix "") base))))
+
+(defun mr-x/docs--python-status (dd)
+  "Return up to two version status sentences from Python entry DD."
+  (when dd
+    (let (statuses)
+      (dolist (node (dom-by-class dd "\\`version\\(?:added\\|changed\\)\\'"))
+        (let ((text (mr-x/docs--text (car (dom-by-tag node 'p)))))
+          (when (and text (string-match-p "\\`\\(?:Added\\|Changed\\) in version 3\\." text))
+            (push (replace-regexp-in-string "[.!?]\\'" ""
+                                            (mr-x/docs--first-sentence text))
+                  statuses))))
+      (when statuses (string-join (seq-take (nreverse statuses) 2) "; ")))))
+
+(defun mr-x/docs--page-examples (dom call-forms synopsis)
+  "Return up to two page PRE examples matching CALL-FORMS.
+Skip signature PREs and a PRE equal to SYNOPSIS."
+  (let (examples)
+    (dolist (pre (dom-by-tag dom 'pre))
+      (let ((text (mr-x/docs--pre-text pre)))
+        (when (and (< (length examples) 2)
+                   (seq-some (lambda (form) (string-search form text)) call-forms)
+                   (not (string-prefix-p "func " text))
+                   (not (equal text synopsis)))
+          (push (cons "Usage on the page" text) examples))))
+    (nreverse examples)))
+
 ;;; Extractors
 ;; Each takes (DOM ANCHOR-NODE ENTRY) and returns a plist with :title
 ;; :blurb :synopsis :examples :params.  ANCHOR-NODE is nil for page-level
@@ -326,6 +384,7 @@ node satisfying STOP, if given."
           :blurb (mr-x/docs--text blurb)
           :synopsis (mr-x/docs--pre-text sig)
           :returns (mr-x/docs--text returns)
+          :status (mr-x/docs--mdn-status dom)
           :params (when dl
                     (let (acc name)
                       (dolist (c (dom-children dl) (nreverse acc))
@@ -353,15 +412,27 @@ node satisfying STOP, if given."
    ((not (eq (dom-tag anchor) 'dt))
     ;; Section, paragraph and index anchors are prose, not signatures.
     (mr-x/docs--extract-fallback dom anchor entry))
-   (t
-    (let* ((dd (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'dd)))
-           (p (and dd (car (dom-by-tag dd 'p))))
-           (pres (and dd (seq-take (dom-by-tag dd 'pre) 3))))
-      (list :title (plist-get entry :name)
-            :blurb (mr-x/docs--text p)
-            :synopsis (replace-regexp-in-string "¶" "" (mr-x/docs--text anchor))
-            :examples (mapcar (lambda (pre) (cons "Example" (mr-x/docs--pre-text pre))) pres)
-            :params nil)))))
+    (t
+     (let* ((dd (mr-x/docs--first-after dom anchor (mr-x/docs--tag-p 'dd)))
+            (p (and dd (car (dom-by-tag dd 'p))))
+            (pres (and dd (seq-take (dom-by-tag dd 'pre) 3))))
+       (list :title (plist-get entry :name)
+             :blurb (mr-x/docs--text p)
+             :synopsis (replace-regexp-in-string "¶" "" (mr-x/docs--text anchor))
+             :status (mr-x/docs--python-status dd)
+             :examples (or (mapcar (lambda (pre)
+                                     (cons "Example" (mr-x/docs--pre-text pre)))
+                                   pres)
+                           (mr-x/docs--page-examples
+                            dom
+                            (let ((id (dom-attr anchor 'id)))
+                              (delete-dups
+                               (list (concat id "(")
+                                     (concat (car (last (split-string id "\\.")))
+                                             "("))))
+                            (replace-regexp-in-string "¶" ""
+                                                      (mr-x/docs--text anchor))))
+             :params nil)))))
 
 (defun mr-x/docs--python-members (dom)
   "Return a Sphinx module page's functions, classes and exceptions as member groups."
@@ -400,13 +471,21 @@ node satisfying STOP, if given."
            (out (and code (mr-x/docs--first-after dom code (mr-x/docs--tag-p 'pre) heading))))
       (list :title (plist-get entry :name)
             :blurb (mr-x/docs--text p)
-            :synopsis (mr-x/docs--pre-text pre)
-            :examples (and code
-                           (list (cons "Example"
-                                       (concat (mr-x/docs--pre-text code)
-                                               (and out (concat "\n// Output: "
-                                                                (mr-x/docs--pre-text out)))))))
-            :params nil))))
+             :synopsis (mr-x/docs--pre-text pre)
+             :examples (or (and code
+                                (list (cons "Example"
+                                            (concat (mr-x/docs--pre-text code)
+                                                    (and out
+                                                         (concat "\n// Output: "
+                                                                 (mr-x/docs--pre-text out)))))))
+                           (mr-x/docs--page-examples
+                            dom
+                            (list (concat (string-remove-prefix "Package "
+                                                                (mr-x/docs--text
+                                                                 (car (dom-by-tag dom 'h1))))
+                                          "." (dom-attr anchor 'id) "("))
+                            (mr-x/docs--pre-text pre)))
+             :params nil))))
 
 (defun mr-x/docs--extract-fallback (dom anchor entry)
   "Extractor for docset types without a dedicated one: title and first paragraph."
@@ -557,6 +636,10 @@ default colour exactly as in a source buffer; unfontified text gets FACE."
     ;; so the blurb is filled to 70 columns; existing breaks are kept.
     (dolist (line (split-string (mr-x/docs--fill (or (plist-get pl :blurb) "") 70) "\n"))
       (mr-x/docs--ins (concat "  " line "\n") 'mr-x/docs-description))
+    (when (plist-get pl :status)
+      (insert "\n")
+      (dolist (line (split-string (mr-x/docs--fill (plist-get pl :status) 70) "\n"))
+        (mr-x/docs--ins (concat "  " line "\n") 'mr-x/docs-optional)))
     (when (plist-get pl :synopsis)
       (insert "\n")
       (mr-x/docs--heading "SYNOPSIS")

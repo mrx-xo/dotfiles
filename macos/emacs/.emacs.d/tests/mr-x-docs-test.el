@@ -76,6 +76,12 @@
                    "Mapping an array of numbers to an array of square roots"))
     (should (<= (length (plist-get pl :examples)) 3))))
 
+(ert-deftest mr-x-docs-test-extract-mdn-status ()
+  (let ((pl (mr-x/docs--extract-mdn (mr-x-docs-test--fixture "mdn-deprecated.html")
+                                    nil nil)))
+    (should (equal (plist-get pl :status)
+                   "Deprecated. Baseline: widely available"))))
+
 (ert-deftest mr-x-docs-test-extract-python ()
   (let* ((dom (mr-x-docs-test--fixture "python-json.html"))
          (pl (mr-x/docs--extract-python dom (mr-x/docs--by-id dom "json.loads")
@@ -84,6 +90,20 @@
     (should (string-prefix-p "Identical to load()" (plist-get pl :blurb)))
     (should (null (plist-get pl :examples)))))
 
+(ert-deftest mr-x-docs-test-extract-python-status ()
+  (let* ((dom (mr-x-docs-test--fixture "python-json-status.html"))
+         (pl (mr-x/docs--extract-python dom (mr-x/docs--by-id dom "json.loads")
+                                        '(:name "json.loads()"))))
+    (should (equal (plist-get pl :status)
+                   "Changed in version 3.6: s can now be of type bytes or bytearray; Changed in version 3.9: the keyword argument encoding has been removed"))))
+
+(ert-deftest mr-x-docs-test-extract-python-page-examples ()
+  (let* ((dom (mr-x-docs-test--fixture "python-json-examples.html"))
+         (pl (mr-x/docs--extract-python dom (mr-x/docs--by-id dom "json.loads")
+                                        '(:name "json.loads()"))))
+    (should (= (length (plist-get pl :examples)) 1))
+    (should (string-match-p "json.loads(" (cdar (plist-get pl :examples))))))
+
 (ert-deftest mr-x-docs-test-extract-go ()
   (let* ((dom (mr-x-docs-test--fixture "go-strings.html"))
          (pl (mr-x/docs--extract-go dom (mr-x/docs--by-id dom "Fields")
@@ -91,6 +111,15 @@
     (should (equal (plist-get pl :synopsis) "func Fields(s string) []string"))
     (should (string-prefix-p "Fields splits" (plist-get pl :blurb)))
     (should (string-match-p "Output: Fields are" (cdr (car (plist-get pl :examples)))))))
+
+(ert-deftest mr-x-docs-test-extract-go-page-examples ()
+  (let* ((dom (mr-x-docs-test--fixture "go-os-index.html"))
+         (pl (mr-x/docs--extract-go dom (mr-x/docs--by-id dom "Open")
+                                    '(:name "os.Open()"))))
+    (should (= (length (plist-get pl :examples)) 1))
+    (should (string-match-p "os.Open(\"file.go\")"
+                            (cdar (plist-get pl :examples))))
+    (should-not (string-prefix-p "func Open" (cdar (plist-get pl :examples))))))
 
 (ert-deftest mr-x-docs-test-digest-missing-anchor-and-unknown-type ()
   (let ((dom (mr-x-docs-test--fixture "mdn-array-map.html")))
@@ -114,6 +143,15 @@
 (ert-deftest mr-x-docs-test-render-omits-empty-sections ()
   (let ((out (mr-x-docs-test--render '(:title "t" :docset "d" :blurb "b"))))
     (should-not (string-match-p "SYNOPSIS\\|EXAMPLES\\|PARAMETERS" out))))
+
+(ert-deftest mr-x-docs-test-render-status-before-synopsis ()
+  (let ((out (mr-x-docs-test--render
+              '(:title "t" :docset "d" :blurb "b"
+                :status "Deprecated. Baseline: widely available"
+                :synopsis "f()"))))
+    (should (string-match-p
+             "  b\n\n  Deprecated\\. Baseline: widely available\n\nSYNOPSIS"
+             out))))
 
 (ert-deftest mr-x-docs-test-render-wraps-long-synopsis ()
   (let ((out (mr-x-docs-test--render
