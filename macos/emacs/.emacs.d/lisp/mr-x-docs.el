@@ -525,10 +525,11 @@ Unknown slugs, or modes that fail to load, return CODE unchanged."
         (error code)))))
 
 (defun mr-x/docs--ins-code (text face)
-  "Insert TEXT keeping its font-lock faces, with FACE underneath for the rest."
-  (let ((s (copy-sequence text)))
-    (add-face-text-property 0 (length s) face t s)
-    (insert s)))
+  "Insert TEXT.  Fontified text is inserted as is, so punctuation keeps the
+default colour exactly as in a source buffer; unfontified text gets FACE."
+  (if (text-property-not-all 0 (length text) 'face nil text)
+      (insert text)
+    (mr-x/docs--ins text face)))
 
 (defun mr-x/docs--fill (text width)
   "Return TEXT filled to WIDTH columns, keeping its existing line breaks."

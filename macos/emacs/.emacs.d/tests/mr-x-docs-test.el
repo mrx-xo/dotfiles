@@ -299,8 +299,11 @@ and maps a Go index line to pkg.Name()."
   (let ((buf (with-temp-buffer
                (mr-x/docs--render '(:title "t" :docset "go" :blurb "b" :synopsis "func F() int"))
                (buffer-string))))
-    (let ((i (string-search "func F" buf)))
-      (should (memq 'font-lock-keyword-face (ensure-list (get-text-property i 'face buf)))))))
+    (let ((i (string-search "func F" buf))
+          (j (string-search "()" buf)))
+      (should (memq 'font-lock-keyword-face (ensure-list (get-text-property i 'face buf))))
+      ;; punctuation stays default, not the flat synopsis colour
+      (should-not (memq 'mr-x/docs-synopsis (ensure-list (get-text-property j 'face buf)))))))
 
 (provide 'mr-x-docs-test)
 ;;; mr-x-docs-test.el ends here
