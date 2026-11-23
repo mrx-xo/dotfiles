@@ -94,9 +94,22 @@ The key t serves as the fallback default."
   :group 'major-pane)
 
 (defcustom major-pane-prompt-label-on-start nil
-  "When non-nil, prompt for a label when a new conversation is created."
-  :type 'boolean
+  "Whether a new conversation asks for a name.
+nil never asks.  t asks for every new conversation, including ones
+started by a timer or another process (phone, restore, fork).
+`launch' asks only inside a keyboard launch, one that let-binds
+`major-pane-launch-prompt-label'.  The prompt is pre-filled with
+`major-pane--default-label'; Enter keeps that as a provisional name."
+  :type '(choice (const :tag "Never" nil)
+                 (const :tag "Every new conversation" t)
+                 (const :tag "Keyboard launches only" launch))
   :group 'major-pane)
+
+(defvar major-pane-launch-prompt-label nil
+  "Non-nil while a keyboard launch is creating a conversation.
+Let-bind it around a launch command so that, with
+`major-pane-prompt-label-on-start' set to `launch', the new
+conversation asks for a name.")
 
 ;;; Faces
 ;;
@@ -490,17 +503,16 @@ buffer is marked ejected instead of registered (no label prompt)."
   ;; Kill hook even when born ejected: adopting registers the buffer,
   ;; and killing it after that must still unregister.
   (add-hook 'kill-buffer-hook #'major-pane--unregister-conversation nil t)
-  (when (and major-pane-prompt-label-on-start
+  ;; Decide now, while the launch's let-bindings are still in effect;
+  ;; ask on the next tick so the new conversation is displayed first.
+  (when (and (major-pane--prompt-label-p)
              (not major-pane-launch-ejected))
     (let ((buf (current-buffer)))
       (run-at-time 0 nil
                    (lambda ()
                      (when (buffer-live-p buf)
-                       (let ((input (read-string
-                                     (format "Label for %s (empty = none): "
-                                             (buffer-name buf)))))
-                         (unless (string-empty-p input)
-                           (major-pane-set-buffer-label buf input)))))))))
+                       (major-pane--prompt-start-label
+                        buf (major-pane--default-label buf))))))))
 
 ;; Register on every mode in `major-pane-modes' — derived modes fire the
 ;; parent's hook too, so agent-shell derivatives are covered by the one
@@ -515,11 +527,67 @@ buffer is marked ejected instead of registered (no label prompt)."
 Owned by this package; other packages (e.g. agent-shell-manager)
 should read/write this table for consistent labels everywhere.")
 
-(defun major-pane-set-buffer-label (buffer label)
-  "Set BUFFER's display LABEL, or clear it with nil or an empty string."
-  (if (or (null label) (equal label ""))
-      (remhash buffer major-pane--labels)
-    (puthash buffer label major-pane--labels)))
+(defvar-local major-pane--label-provisional nil
+  "Non-nil when this conversation's label is a placeholder default.
+A provisional label may be replaced automatically; a typed one never is.")
+
+(defun major-pane-set-buffer-label (buffer label &optional provisional)
+  "Set BUFFER's display LABEL, or clear it with nil or an empty string.
+With PROVISIONAL non-nil, mark LABEL as a placeholder that may be
+replaced automatically later (see `major-pane-label-provisional-p')."
+  (let ((clear (or (null label) (equal label ""))))
+    (if clear
+        (remhash buffer major-pane--labels)
+      (puthash buffer label major-pane--labels))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (setq major-pane--label-provisional (and provisional (not clear) t))))))
+
+(defun major-pane-label-provisional-p (buffer)
+  "Return non-nil when BUFFER's label is a provisional placeholder."
+  (and (buffer-live-p buffer)
+       (gethash buffer major-pane--labels)
+       (buffer-local-value 'major-pane--label-provisional buffer)))
+
+(defun major-pane--prompt-label-p ()
+  "Return non-nil when a conversation being created now should ask for a name."
+  (pcase major-pane-prompt-label-on-start
+    ('nil nil)
+    ('launch major-pane-launch-prompt-label)
+    (_ t)))
+
+(defun major-pane--default-label (buffer)
+  "Return a default name for BUFFER: its project name and the first free number."
+  (let* ((dir (buffer-local-value 'default-directory buffer))
+         (root (or (when-let ((proj (with-current-buffer buffer
+                                      (project-current nil dir))))
+                     (project-root proj))
+                   dir))
+         ;; "~/.dotfiles" reads better as "dotfiles 1" than ".dotfiles 1".
+         (base (string-trim-left
+                (file-name-nondirectory (directory-file-name root)) "\\.+"))
+         (taken (let (labels)
+                  (maphash (lambda (buf label)
+                             (unless (eq buf buffer) (push label labels)))
+                           major-pane--labels)
+                  labels))
+         (n 1))
+    (while (member (format "%s %d" base n) taken)
+      (setq n (1+ n)))
+    (format "%s %d" base n)))
+
+(defun major-pane--prompt-start-label (buffer default)
+  "Ask for BUFFER's name, offering DEFAULT.
+A typed name is final.  Enter, a blank answer, or \\[keyboard-quit]
+keep DEFAULT as a provisional name."
+  (let* ((input (condition-case nil
+                    (read-string (format "Name (Enter = %s): " default)
+                                 nil nil default)
+                  (quit nil)))
+         (name (and input (string-trim input))))
+    (if (or (null name) (string-empty-p name) (equal name default))
+        (major-pane-set-buffer-label buffer default 'provisional)
+      (major-pane-set-buffer-label buffer name))))
 
 (defun major-pane--display-name (buf)
   "Return display name for buffer BUF.

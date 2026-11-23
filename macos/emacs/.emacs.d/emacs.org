@@ -11294,6 +11294,13 @@ silent context-only capture with no marker."
         :config
         ;; Position manager window (options: left, right, top, bottom, nil for no auto-display)
         (setq agent-shell-manager-side nil)
+        ;; The pane owns chat names: the manager shows and edits the same
+        ;; labels as the pane tabs instead of keeping its own list.
+        (require 'major-pane)
+        (setq agent-shell-manager-label-function
+              (lambda (buffer) (gethash buffer major-pane--labels))
+              agent-shell-manager-set-label-function
+              #'major-pane-set-buffer-label)
         ;; Evil keybindings — preview, filter, and navigation all built-in now
         (evil-define-key 'normal agent-shell-manager-mode-map
           (kbd "p") #'agent-shell-manager-enter-preview
@@ -11476,6 +11483,25 @@ silent context-only capture with no marker."
                    major-pane-set-label
                    major-pane-pick-buffer
                    major-pane-goto-conversation))
+
+      ;; Every new chat started from the keyboard asks for a name, offering
+      ;; a default like "dotfiles 3": a typed name is final, Enter keeps the
+      ;; default as a provisional name.  Only these launchers bind the flag,
+      ;; so chats from the phone, a fork, a restore or an agent-recall resume
+      ;; never pop a prompt.  The project dashboard's `a' calls
+      ;; `mr-x/agent-shell-start-preset', so it is covered.  The defvar makes
+      ;; the let-binding dynamic before major-pane is loaded.
+      (defvar major-pane-launch-prompt-label)
+      (setq major-pane-prompt-label-on-start 'launch)
+      (defun mr-x/major-pane-launch-with-name-prompt (orig &rest args)
+        "Call ORIG with ARGS as a keyboard launch that asks for a chat name."
+        (let ((major-pane-launch-prompt-label t))
+          (apply orig args)))
+      (dolist (launcher '(mr-x/agent-shell-new-smart
+                          mr-x/agent-shell-clone
+                          mr-x/agent-shell-start-preset
+                          major-pane-new-chat))
+        (advice-add launcher :around #'mr-x/major-pane-launch-with-name-prompt))
 
       ;; Send commands (region/file/screenshot → conversation) live in
       ;; lisp/mr-x-agent-send.el — content routing, not pane management.
