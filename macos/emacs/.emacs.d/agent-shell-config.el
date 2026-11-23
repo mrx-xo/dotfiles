@@ -1623,7 +1623,7 @@ silent context-only capture with no marker."
 
       ;; Agent Shell Manager - Dashboard for managing multiple agent sessions
       (use-package agent-shell-manager
-        :ensure (:host github :repo "Marx-A00/agent-shell-manager")
+        :ensure (:host github :repo "mrx-xo/agent-shell-manager")
         :after agent-shell
         :config
         ;; Position manager window (options: left, right, top, bottom, nil for no auto-display)
