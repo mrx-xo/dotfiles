@@ -2653,6 +2653,63 @@ Output lands in the *calliope* buffer."
     (no-littering-theme-backups))
 
 #+end_src
+** Portal
+Native WebKit pages and Ghostty terminals inside Emacs windows
+(github.com/xiaoxinghu/portal). Needs Emacs 31 NS. Runs from the fork
+worktree =~/src/portal-mrx= (branch =mrx/page-actions=, off upstream
+=main=), which adds fixed page actions: scrolling and Vimium-style link
+hints. Emacs can only name one of the module's built-in scripts and pass it
+a string of data, never JavaScript of its own, so nothing in Emacs can run
+code inside a logged-in page. Build with its own =./build.sh=, then restart
+Emacs, since a loaded module is not reloaded. Nothing loads until a =SPC k=
+command runs (bindings live in the Keybindings section), and the native
+module only loads when a view opens.
+
+In a page with Emacs holding the keyboard (=○= in the mode line), keys are
+Vimium's: =j= =k= =h= =l= scroll, =d= =u= half a screen, =gg= =G= top and
+bottom, =f= link hints, =/= =?= =n= =N= find, =H= =L= back and forward,
+=r= reload, =i= enters the page (=●=). =⌘.= or Escape twice returns to
+Emacs, =q= hides the view.
+#+begin_src emacs-lisp
+
+  (use-package portal
+    :ensure nil
+    :if (and (>= emacs-major-version 31)
+             (file-directory-p "~/src/portal-mrx"))
+    :load-path "~/src/portal-mrx"
+    :commands (portal-open-url portal-render-markdown portal-render-html
+               portal-terminal portal-terminal-new portal-excalidraw
+               portal-web-bookmark-open portal-web-bookmark-set
+               portal-hello)
+    :init
+    ;; Escape twice leaves a page, as Escape leaves insert state.
+    (setq portal-input-double-escape 0.3)
+    :config
+    (with-eval-after-load 'portal-web
+      (when (fboundp 'portal-web-hints)   ; the fork's page actions
+        (evil-define-key 'normal portal-web-mode-map
+          "j" #'portal-web-scroll-down
+          "k" #'portal-web-scroll-up
+          "h" #'portal-web-scroll-left
+          "l" #'portal-web-scroll-right
+          "d" #'portal-web-scroll-half-down
+          "u" #'portal-web-scroll-half-up
+          (kbd "C-d") #'portal-web-scroll-half-down
+          (kbd "C-u") #'portal-web-scroll-half-up
+          "gg" #'portal-web-scroll-top
+          "G" #'portal-web-scroll-bottom
+          "f" #'portal-web-hints))
+      (evil-define-key 'normal portal-web-mode-map
+        "i" #'portal-input-focus
+        "H" #'portal-web-back
+        "L" #'portal-web-forward
+        "r" #'portal-web-reload
+        "/" #'portal-web-find
+        "?" #'portal-web-find-backward
+        "n" #'portal-web-find-next
+        "N" #'portal-web-find-previous)))
+
+#+end_src
 ** Terminal
 #+begin_src emacs-lisp
 
@@ -4533,6 +4590,17 @@ and re-selects the original window. =C-o= goes back through it.
           (let ((line (string-trim (thing-at-point 'line t))))
             (kill-new line)
             (message "Copied: %s" line))))
+
+      ;; Portal (see the Portal heading); commands autoload from ~/src/portal
+      (mr-x/leader-def
+        "k" '(:ignore t :wk "portal")
+        "k u" '(portal-open-url :wk "open url")
+        "k t" '(portal-terminal :wk "terminal")
+        "k T" '(portal-terminal-new :wk "new terminal")
+        "k m" '(portal-render-markdown :wk "markdown preview")
+        "k x" '(portal-excalidraw :wk "excalidraw")
+        "k b" '(portal-web-bookmark-open :wk "open bookmark")
+        "k B" '(portal-web-bookmark-set :wk "bookmark page"))
 
       (mr-x/leader-def
         "y" '(:ignore t :wk "yank")

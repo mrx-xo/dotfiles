@@ -2496,6 +2496,45 @@ Output lands in the *calliope* buffer."
 
 
 
+(use-package portal
+  :ensure nil
+  :if (and (>= emacs-major-version 31)
+           (file-directory-p "~/src/portal-mrx"))
+  :load-path "~/src/portal-mrx"
+  :commands (portal-open-url portal-render-markdown portal-render-html
+             portal-terminal portal-terminal-new portal-excalidraw
+             portal-web-bookmark-open portal-web-bookmark-set
+             portal-hello)
+  :init
+  ;; Escape twice leaves a page, as Escape leaves insert state.
+  (setq portal-input-double-escape 0.3)
+  :config
+  (with-eval-after-load 'portal-web
+    (when (fboundp 'portal-web-hints)   ; the fork's page actions
+      (evil-define-key 'normal portal-web-mode-map
+        "j" #'portal-web-scroll-down
+        "k" #'portal-web-scroll-up
+        "h" #'portal-web-scroll-left
+        "l" #'portal-web-scroll-right
+        "d" #'portal-web-scroll-half-down
+        "u" #'portal-web-scroll-half-up
+        (kbd "C-d") #'portal-web-scroll-half-down
+        (kbd "C-u") #'portal-web-scroll-half-up
+        "gg" #'portal-web-scroll-top
+        "G" #'portal-web-scroll-bottom
+        "f" #'portal-web-hints))
+    (evil-define-key 'normal portal-web-mode-map
+      "i" #'portal-input-focus
+      "H" #'portal-web-back
+      "L" #'portal-web-forward
+      "r" #'portal-web-reload
+      "/" #'portal-web-find
+      "?" #'portal-web-find-backward
+      "n" #'portal-web-find-next
+      "N" #'portal-web-find-previous)))
+
+
+
 
     (use-package vterm
       :ensure t
@@ -4299,6 +4338,17 @@ Falls back to a one-liner if fastfetch isn't installed."
           (let ((line (string-trim (thing-at-point 'line t))))
             (kill-new line)
             (message "Copied: %s" line))))
+
+      ;; Portal (see the Portal heading); commands autoload from ~/src/portal
+      (mr-x/leader-def
+        "k" '(:ignore t :wk "portal")
+        "k u" '(portal-open-url :wk "open url")
+        "k t" '(portal-terminal :wk "terminal")
+        "k T" '(portal-terminal-new :wk "new terminal")
+        "k m" '(portal-render-markdown :wk "markdown preview")
+        "k x" '(portal-excalidraw :wk "excalidraw")
+        "k b" '(portal-web-bookmark-open :wk "open bookmark")
+        "k B" '(portal-web-bookmark-set :wk "bookmark page"))
 
       (mr-x/leader-def
         "y" '(:ignore t :wk "yank")
@@ -9026,6 +9076,16 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   :init
   (setq lsp-tailwindcss-add-on-mode t)
   ;; resolve the server on PATH (nvm on some machines, brew on others) rather
+  ;; than hardcoding a brew path — exec-path-from-shell makes it findable.
+  (when-let ((server (executable-find "tailwindcss-language-server")))
+    (setq lsp-tailwindcss-server-path server))
+  :config
+  (add-to-list 'lsp-tailwindcss-major-modes 'tsx-ts-mode)
+  (add-to-list 'lsp-tailwindcss-major-modes 'typescript-ts-mode))
+
+
+
+
 ;; Treemacs, used only for the LSP symbol tree (SPC ; I t), not as a file
 ;; browser. lsp-treemacs-symbols draws one icon per symbol kind.
 (use-package treemacs
@@ -9102,16 +9162,6 @@ Bound to o in the symbol tree only; the file tree keeps its o prefix."
   (let ((tree (selected-window)))
     (treemacs-RET-action)
     (select-window tree)))
-
-  ;; than hardcoding a brew path — exec-path-from-shell makes it findable.
-  (when-let ((server (executable-find "tailwindcss-language-server")))
-    (setq lsp-tailwindcss-server-path server))
-  :config
-  (add-to-list 'lsp-tailwindcss-major-modes 'tsx-ts-mode)
-  (add-to-list 'lsp-tailwindcss-major-modes 'typescript-ts-mode))
-
-
-
 
   ;; Add the tree-sitter grammar source
 (add-to-list 'treesit-language-source-alist
