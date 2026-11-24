@@ -77,7 +77,7 @@ agent-shell, otherwise pop to it. Honours viewport interaction."
       (pop-to-buffer shell-buffer))))
 
 (defvar mr-x/agent-shell-presets
-  '((?f "Fable 5.1 · Full" "claude-fable-5-1"    "bypassPermissions")
+  '((?f "Fable 5.2 · Full" "fable"               "bypassPermissions")
     (?o "Opus 5.5 · Full"  "opus"                "bypassPermissions")
     (?s "Sonnet 5.5 · Accept edits" "sonnet"     "acceptEdits")
     (?p "Opus 5.5 · Plan"  "default"             "plan")

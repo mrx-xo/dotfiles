@@ -238,8 +238,10 @@ be loaded."
 ;; Both `:default-model-id' and `:default-session-mode-id' are
 ;; config-level and applied the instant a session starts, so a "preset"
 ;; is just the preferred config with those two overridden.
-;; Valid IDs (from the live ACP session): models "default" (Opus 5.5 1M)
-;; "opus[1m]" "fable[1m]" "sonnet" "haiku"; modes "auto"
+;; Valid IDs (from a live claude-agent-acp 0.104.1 session, 2026-11-20):
+;; models "default" "opus" (Opus 5.5) "fable" (Fable 5.2, the alias
+;; follows the newest Fable) "sonnet" "haiku", plus pinned ids such as
+;; "claude-fable-5-1"; modes "auto"
 ;; "default" "acceptEdits" "plan" "dontAsk" "bypassPermissions".
 ;; Codex IDs (from a live codex-acp 2.2.2 session here, 2026-10-10).  The
 ;; session's model list shows suffixed ids ("gpt-5.6-sol[high]") but those
@@ -260,7 +262,7 @@ be loaded."
 ;; `mr-x/agent-shell--display-new') come from syzygy-rig.el, which falls
 ;; back to plain text where the Mac palette and Codex helpers are absent.
 (defvar mr-x/agent-shell-presets
-  '((?f "Fable 5.1 · Bypass" "fable[1m]" "bypassPermissions")
+  '((?f "Fable 5.2 · Bypass" "fable"     "bypassPermissions")
     (?o "Opus 5.5 · Bypass"  "opus[1m]"  "bypassPermissions")
     (?s "Sonnet 5 · Accept"  "sonnet"    "acceptEdits")
     (?p "Opus 5.5 · Plan"    "default"   "plan")

@@ -230,11 +230,13 @@ cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
 ### What remote sessions can do in step 1
 
 From the hub's phone app a remote session (a card with another machine's
-badge) can be viewed and replied to, and carries its machine badge. Nothing
-else yet: no kill, fork, clone, label, pin, push or model change, no delete
-or peek on remote cards, and the in-chat actions that run Lisp are
-disabled. Those actions would otherwise run on the hub's own Emacs, so the
-hub answers their routes with **501** (`remote machine actions arrive in a
+badge) can be viewed and replied to, and carries its machine badge. Kill
+and fork work too: the hub forwards `/api/kill` and `/api/fork` (probe
+included) to the machine that owns the chat and relays its answer (kill
+since acp-mobile `6e24e68`, fork since `3c7b824`). Nothing else yet: no
+clone, label, pin, push or model change, and no peek on remote cards.
+Those actions would otherwise run on the hub's own Emacs, so the hub
+answers their routes with **501** (`remote machine actions arrive in a
 later step`) whenever the request names a machine other than itself.
 
 Card status (`generating`, permission, idle) does follow remote chats: the
@@ -313,9 +315,13 @@ setting and preserve the adapter's error; daemon `*Messages*` also records
 the failure and buffer name. A late success never sends a held prompt.
 
 Claude presets and saved drafts/pins keep historical model IDs through an
-explicit, Claude-only alias map. The saved Fable 5.1 IDs `claude-fable-5-1`
-and `fable[1m]` also resolve to `fable` when the adapter advertises that short
-ID as **Fable 5.1**; a different advertised version is not substituted.
+explicit, Claude-only alias map. The adapter lists the newest Fable as the
+short ID `fable` in a new session (Fable 5.2 since 2026-11-20) but as its
+pinned ID (`claude-fable-5-2`) when it resumes a session that ran it; the
+preset uses `fable` and the map accepts either. A saved version-specific ID
+(`claude-fable-5-1`, `fable[1m]`, `claude-fable-5-2`) also resolves to `fable`
+only when the adapter advertises that short ID as the **same** Fable version;
+a different advertised version is not substituted.
 `opus[1m]` remains compatible too. An adapter-added 1M suffix is accepted for a bare ID;
 different model generations and permission modes are never treated as equal.
 Warm catalogues do not invent unsupported preset choices. Sonnet's preset

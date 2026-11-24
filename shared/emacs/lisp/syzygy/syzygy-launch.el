@@ -24,8 +24,19 @@ session. Clear an entry to re-read it.")
 (defconst syzygy-launch--claude-model-aliases
   '(("fable[1m]" "claude-fable-5-1[1m]" "claude-fable-5-1")
     ("claude-fable-5-1" "claude-fable-5-1" "claude-fable-5-1[1m]" "claude-fable-5-1-1m")
+    ;; The adapter lists the newest Fable as "fable" in a new session but
+    ;; as its pinned id when it resumes a session that ran it.
+    ("fable" "fable" "claude-fable-5-2" "claude-fable-5-2[1m]")
     ("opus[1m]" "opus[1m]" "opus"))
   "Historical rig IDs and their supported advertised replacements.")
+
+(defun syzygy-launch--fable-version (model)
+  "The Fable version MODEL names, as \"5.1\", or nil.
+\"fable[1m]\" is the rig's historical id for Fable 5.1."
+  (cond ((equal model "fable[1m]") "5.1")
+        ((and (stringp model)
+              (string-match "\\`claude-fable-\\([0-9]+\\)-\\([0-9]+\\)\\'" model))
+         (concat (match-string 1 model) "." (match-string 2 model)))))
 
 (defun syzygy-launch--opencode-cli-output ()
   "Return the stdout of `opencode models', or nil when it fails."
@@ -119,11 +130,14 @@ the same models without that historical suffix.  Unknown IDs stay unknown."
                   (and (stringp model)
                        (list model (concat model "[1m]") (concat model "-1m")))))))
     (or (seq-find (lambda (id) (syzygy-launch--known choices id)) candidates)
-        ;; Recent adapters expose Fable by a short ID. Verify the advertised
-        ;; version before translating a saved, version-specific selection.
+        ;; Recent adapters expose the newest Fable by a short ID. Verify the
+        ;; advertised version before translating a saved, version-specific
+        ;; selection; a different version is never substituted.
         (and (equal agent "claude")
-             (member model '("fable[1m]" "claude-fable-5-1"))
-             (equal (alist-get 'name (syzygy-launch--known choices "fable")) "Fable 5.1")
+             (let ((version (syzygy-launch--fable-version model)))
+               (and version
+                    (equal (alist-get 'name (syzygy-launch--known choices "fable"))
+                           (concat "Fable " version))))
              "fable")
         model)))
 

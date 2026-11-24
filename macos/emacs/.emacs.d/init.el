@@ -4414,8 +4414,9 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;; already wearing that model + permission profile.
       ;;
       ;; Valid IDs (from the live ACP session, `agent-shell--get-available-*'):
-      ;;   models: "default" (Opus 5.5 1M) "opus[1m]" "fable[1m]"
-      ;;           "sonnet" "haiku"
+      ;;   models: "default" "opus" (Opus 5.5) "fable" (Fable 5.2; the
+      ;;           alias follows the newest Fable) "sonnet" "haiku", plus
+      ;;           pinned ids such as "claude-fable-5-1" (2026-11-20)
       ;;   modes:  "auto" "default" "acceptEdits" "plan"
       ;;           "bypassPermissions"
       ;; Codex IDs (from a live codex-acp session).  GOTCHA: the session's

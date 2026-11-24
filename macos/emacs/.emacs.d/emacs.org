@@ -4666,8 +4666,9 @@ Display uses agent-shell's normal path so major-pane controls placement."
       ;; already wearing that model + permission profile.
       ;;
       ;; Valid IDs (from the live ACP session, `agent-shell--get-available-*'):
-      ;;   models: "default" (Opus 5.5 1M) "opus[1m]" "fable[1m]"
-      ;;           "sonnet" "haiku"
+      ;;   models: "default" "opus" (Opus 5.5) "fable" (Fable 5.2; the
+      ;;           alias follows the newest Fable) "sonnet" "haiku", plus
+      ;;           pinned ids such as "claude-fable-5-1" (2026-11-20)
       ;;   modes:  "auto" "default" "acceptEdits" "plan"
       ;;           "bypassPermissions"
       ;; Codex IDs (from a live codex-acp session).  GOTCHA: the session's
@@ -10834,13 +10835,17 @@ agent-shell writing to one transcript together corrupts it."
 
         ;; Use existing Claude CLI login
         ;; Value must be the config-option *id* the agent advertises under
-        ;; "Available models", NOT the underlying model string. Valid ids:
-        ;;   default      -> Opus 4.6 (1M context) · most capable  <-- this one
-        ;;   sonnet       -> Sonnet 4.6
-        ;;   sonnet[1m]   -> Sonnet 4.6 (1M context)
-        ;;   haiku        -> Haiku 4.5
-        ;; (nil also works: the agent falls back to "default" = Opus 4.6 1M.)
-        (setq agent-shell-anthropic-default-model-id "default")
+        ;; "Available models", NOT the underlying model string. Family
+        ;; aliases track the newest model of that family; a pinned id such as
+        ;; "claude-fable-5-1" stays on that version. Ids as of claude-agent-acp
+        ;; 0.104.1 / Claude Code 2.1.322 (2026-11-20):
+        ;;   fable        -> Fable 5.2 (1M context) · most capable  <-- this one
+        ;;   default      -> whatever Claude Code resolves (was Fable 5.1)
+        ;;   opus[1m]     -> Opus 5.5 (1M context)
+        ;;   sonnet       -> Sonnet 5.5
+        ;;   haiku        -> Haiku 5.5
+        ;; (nil also works: the agent falls back to "default".)
+        (setq agent-shell-anthropic-default-model-id "fable")
         (setq agent-shell-anthropic-authentication
               (agent-shell-anthropic-make-authentication :login t))
         ;; Resolve Claude Code at runtime: it self-updates and relocates itself

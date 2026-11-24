@@ -381,7 +381,20 @@
           (should (equal (syzygy-launch--resolve-model
                           "claude" id '(((id . "fable") (name . "Fable 5.1")))) "fable"))
           (should (equal (syzygy-launch--resolve-model
-                          "claude" id '(((id . "fable") (name . "Fable 5.2")))) id)))))))
+                          "claude" id '(((id . "fable") (name . "Fable 5.2")))) id))))))
+  ;; The same rule for a pinned Fable 5.2 id, and the alias both ways: a
+  ;; resumed session lists the pinned id instead of "fable".
+  (should (equal (syzygy-launch--resolve-model
+                  "claude" "claude-fable-5-2" '(((id . "fable") (name . "Fable 5.2")))) "fable"))
+  (should (equal (syzygy-launch--resolve-model
+                  "claude" "claude-fable-5-2" '(((id . "fable") (name . "Fable 5.1"))))
+                 "claude-fable-5-2"))
+  (should (equal (syzygy-launch--resolve-model
+                  "claude" "fable" '(((id . "claude-fable-5-2") (name . "Fable 5.2"))))
+                 "claude-fable-5-2"))
+  (should (equal (syzygy-launch--resolve-model
+                  "claude" "fable" '(((id . "claude-fable-5-1") (name . "Fable 5.1"))))
+                 "fable")))
 
 (ert-deftest syzygy-launch-context-only-catalogue-keeps-bare-preset-usable ()
   (let ((mr-x/agent-shell-presets '((?f "Fable" "claude-fable-5-1" "bypassPermissions")))
