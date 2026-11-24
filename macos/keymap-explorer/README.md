@@ -287,6 +287,11 @@ portrait Dell, the Iris on top and KOMAX centred below it. See
   `~/.dotfiles/macos/scripts/keymap-widget-hid.py`. It needs the broadcast
   build flashed (see ROADMAP.md); until then the widget stays on Base and
   the listener retries every 30 s.
+  The host uses `/opt/homebrew/bin/python3.14`, with `hidapi` installed for
+  that interpreter. Keep this version explicit: Homebrew's `python3` can
+  advance without carrying over installed modules. If tracking stops, check
+  the Hammerspoon console for `keymap-widget hid[ir]` errors and verify
+  `/opt/homebrew/bin/python3.14 -c 'import hid'` succeeds.
 
 The floating panel stays above ordinary app windows and requests full-screen
 auxiliary behavior; native full-screen apps need separate live verification.

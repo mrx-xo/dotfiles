@@ -146,7 +146,8 @@
      ("keymap explorer" . "~/roaming/projects/keymap-explorer/")
      ("Learning Elisp" . "~/roaming/code/learning/elisp/")
      ("Gaia" . "~/roaming/projects/gaia/") ("testing" . "~/testing/")
-     ("AIDOS" . "~/src/aidos/") ("Channel 5" . "~/channel5/"))))
+     ("AIDOS" . "~/src/aidos/") ("Channel 5" . "~/channel5/")
+     ("portfolio" . "~/roaming/projects/mrx-xo.github.io/"))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.

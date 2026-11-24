@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/opt/homebrew/bin/python3.14
 """keyboard-lights off|on: the good night / good morning message to every keyboard.
 
 Sends the night-lights frame over QMK raw HID to each connected board and

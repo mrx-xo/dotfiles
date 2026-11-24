@@ -210,7 +210,9 @@ M.keyTap:start()   -- flash enabled by default; ⌘⌃⇧K or keymapWidget.toggl
 -- change and once at boot). One listener per board, each line routed to that
 -- board's webview. A task dies on unplug/sleep; respawn with 2s→30s backoff,
 -- fall back to the board's resting layer while down.
-local HID_PY = "/opt/homebrew/bin/python3"
+-- hidapi is installed for this Python version; Homebrew's unversioned
+-- python3 can advance to a version without that module after an upgrade.
+local HID_PY = "/opt/homebrew/bin/python3.14"
 local HID_SCRIPT = os.getenv("HOME") .. "/.dotfiles/macos/scripts/keymap-widget-hid.py"
 -- No KOMAX entry: it runs Keychron's stock firmware, which never sends the
 -- 0x4C layer frame, so its view stays on its base layer.

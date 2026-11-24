@@ -156,6 +156,9 @@
 
 (setq native-comp-async-report-warnings-errors 'silent)
 
+(require 'warnings)
+(add-to-list 'warning-suppress-log-types '(files missing-lexbind-cookie))
+
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (add-to-list 'load-path (expand-file-name "~/.dotfiles/shared/emacs/lisp/syzygy"))
 
@@ -8985,6 +8988,16 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
          (web-mode . lsp-deferred))
   :init
   (setq lsp-keymap-prefix "C-c l")
+  ;; Set this before LSP starts so servers negotiate semantic tokens.
+  ;; Tree-sitter still supplies syntax colors where no token is returned.
+  (defun mr-x/enable-lsp-semantic-highlighting ()
+    "Use language-server symbol colors in the current buffer."
+    (setq-local lsp-semantic-tokens-enable t))
+  (dolist (hook '(python-mode-hook python-ts-mode-hook
+                  typescript-mode-hook typescript-ts-mode-hook
+                  tsx-ts-mode-hook js-mode-hook js-ts-mode-hook
+                  js2-mode-hook js2-jsx-mode-hook))
+    (add-hook hook #'mr-x/enable-lsp-semantic-highlighting -10))
   :config
   ;; Performance tuning (gc-cons-threshold is set globally above)
   (setq read-process-output-max (* 1024 1024)) ;; 1mb
@@ -9001,6 +9014,42 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   (setq lsp-completion-provider :none)  ;; Let Corfu handle completion
   (setq lsp-enable-snippet t)
   (setq lsp-auto-guess-root t))         ;; take the git/project root, never ask
+
+;; Luau: install the macOS binary from JohnnyMorganz/luau-lsp releases
+;; in ~/.local/bin.  A .luaurc opts a project's .lua files into Luau;
+;; .luau files opt in directly.  Ordinary Lua configs keep their own mode.
+(add-to-list 'auto-mode-alist '("\\.luau\\'" . lua-ts-mode))
+
+(with-eval-after-load 'lsp-mode
+  (lsp-register-custom-settings
+   '(("luau-lsp.platform.type" "standard")
+     ("luau-lsp.sourcemap.enabled" nil t)))
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection
+    (lsp-stdio-connection
+     (lambda ()
+       (list (or (executable-find "luau-lsp")
+                 (expand-file-name "~/.local/bin/luau-lsp"))
+             "lsp")))
+    :activation-fn (lsp-activate-on "luau")
+    :server-id 'luau-lsp
+    :synchronize-sections '("luau-lsp"))))
+
+(defun mr-x/luau-lsp-maybe-start ()
+  "Start Luau LSP for local .luau files or projects with a .luaurc."
+  (when (and buffer-file-name
+             (not (file-remote-p buffer-file-name))
+             (or (string-suffix-p ".luau" buffer-file-name)
+                 (locate-dominating-file buffer-file-name ".luaurc")))
+    (require 'lsp-mode)
+    (setq-local lsp-language-id-configuration
+                (cons (cons major-mode "luau") lsp-language-id-configuration))
+    (setq-local lsp-enabled-clients '(luau-lsp))
+    (lsp-deferred)))
+
+(add-hook 'lua-mode-hook #'mr-x/luau-lsp-maybe-start)
+(add-hook 'lua-ts-mode-hook #'mr-x/luau-lsp-maybe-start)
 
 ;; Python LSP via basedpyright (lsp-pyright supports both pyright and basedpyright)
 (use-package lsp-pyright
@@ -9026,6 +9075,83 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
 (use-package consult-lsp
   :ensure t
   :after (lsp-mode consult))
+
+;; Treemacs, used only for the LSP symbol tree (SPC ; I t), not as a file
+;; browser. lsp-treemacs-symbols draws one icon per symbol kind.
+(use-package treemacs
+  :ensure t
+  :commands (treemacs))
+
+(use-package treemacs-evil
+  :ensure t
+  :after (treemacs evil))
+
+(use-package treemacs-nerd-icons
+  :ensure t
+  :after treemacs
+  :config
+  (treemacs-load-theme "nerd-icons"))
+
+(use-package lsp-treemacs
+  :ensure t
+  :after lsp-mode
+  :commands (lsp-treemacs-symbols)
+  :config
+  (advice-add 'lsp-treemacs-symbols :around
+              #'mr-x/lsp-treemacs-symbols-respect-pane))
+
+;; lsp-treemacs-symbols hardcodes display-buffer-in-side-window, so the
+;; tree took the frame's left edge and pushed the major pane inward (or
+;; narrowed it on tall frames, pane above).  Open it as a right split of
+;; the code window instead; the pane keeps its edge and size.
+(defun mr-x/lsp-treemacs--work-window ()
+  "Most relevant code window: not the major pane, a side window or dedicated."
+  (let ((ordinary (lambda (w)
+                    (not (or (window-parameter w 'major-pane)
+                             (window-parameter w 'window-side)
+                             (window-dedicated-p w))))))
+    (if (funcall ordinary (selected-window))
+        (selected-window)
+      (car (sort (seq-filter ordinary (window-list nil 'nomini))
+                 (lambda (a b) (> (window-use-time a) (window-use-time b))))))))
+
+(defun mr-x/lsp-treemacs--display-in-work-area (orig buffer alist)
+  "Show the symbol tree as a right split of the code window.
+Other side-window callers go through ORIG with BUFFER and ALIST unchanged."
+  (if (not (equal (buffer-name buffer) lsp-treemacs-symbols-buffer-name))
+      (funcall orig buffer alist)
+    (or (get-buffer-window buffer)
+        (let ((code (mr-x/lsp-treemacs--work-window)))
+          (if (not code)
+              (funcall orig buffer alist)
+            (let ((win (split-window code (- treemacs-width) 'right)))
+              (set-window-buffer win buffer)
+              ;; Dedicated, so treemacs's q (bury-buffer) deletes the split.
+              (set-window-dedicated-p win t)
+              (window-preserve-size win t t)
+              win))))))
+
+(defun mr-x/lsp-treemacs-symbols-respect-pane (orig &rest args)
+  "Run ORIG with ARGS, placing the symbol tree beside the code, not the pane."
+  (cl-letf* ((side (symbol-function 'display-buffer-in-side-window))
+             ((symbol-function 'display-buffer-in-side-window)
+              (lambda (buffer alist)
+                (mr-x/lsp-treemacs--display-in-work-area side buffer alist))))
+    (prog1 (apply orig args)
+      (when-let ((buf (get-buffer lsp-treemacs-symbols-buffer-name)))
+        ;; Evil's per-buffer map only.  local-set-key would write into the
+        ;; shared treemacs-mode-map and clobber the file tree's o prefix.
+        (with-current-buffer buf
+          (evil-local-set-key 'treemacs (kbd "o")
+                              #'mr-x/lsp-treemacs-show-symbol))))))
+
+(defun mr-x/lsp-treemacs-show-symbol ()
+  "Jump the code to the symbol at point, keeping the cursor in the tree.
+Bound to o in the symbol tree only; the file tree keeps its o prefix."
+  (interactive)
+  (let ((tree (selected-window)))
+    (treemacs-RET-action)
+    (select-window tree)))
 
 ;; Optional: Kind icon for completion candidates
 (use-package kind-icon
@@ -9157,83 +9283,6 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
 
 
 
-
-;; Treemacs, used only for the LSP symbol tree (SPC ; I t), not as a file
-;; browser. lsp-treemacs-symbols draws one icon per symbol kind.
-(use-package treemacs
-  :ensure t
-  :commands (treemacs))
-
-(use-package treemacs-evil
-  :ensure t
-  :after (treemacs evil))
-
-(use-package treemacs-nerd-icons
-  :ensure t
-  :after treemacs
-  :config
-  (treemacs-load-theme "nerd-icons"))
-
-(use-package lsp-treemacs
-  :ensure t
-  :after lsp-mode
-  :commands (lsp-treemacs-symbols)
-  :config
-  (advice-add 'lsp-treemacs-symbols :around
-              #'mr-x/lsp-treemacs-symbols-respect-pane))
-
-;; lsp-treemacs-symbols hardcodes display-buffer-in-side-window, so the
-;; tree took the frame's left edge and pushed the major pane inward (or
-;; narrowed it on tall frames, pane above).  Open it as a right split of
-;; the code window instead; the pane keeps its edge and size.
-(defun mr-x/lsp-treemacs--work-window ()
-  "Most relevant code window: not the major pane, a side window or dedicated."
-  (let ((ordinary (lambda (w)
-                    (not (or (window-parameter w 'major-pane)
-                             (window-parameter w 'window-side)
-                             (window-dedicated-p w))))))
-    (if (funcall ordinary (selected-window))
-        (selected-window)
-      (car (sort (seq-filter ordinary (window-list nil 'nomini))
-                 (lambda (a b) (> (window-use-time a) (window-use-time b))))))))
-
-(defun mr-x/lsp-treemacs--display-in-work-area (orig buffer alist)
-  "Show the symbol tree as a right split of the code window.
-Other side-window callers go through ORIG with BUFFER and ALIST unchanged."
-  (if (not (equal (buffer-name buffer) lsp-treemacs-symbols-buffer-name))
-      (funcall orig buffer alist)
-    (or (get-buffer-window buffer)
-        (let ((code (mr-x/lsp-treemacs--work-window)))
-          (if (not code)
-              (funcall orig buffer alist)
-            (let ((win (split-window code (- treemacs-width) 'right)))
-              (set-window-buffer win buffer)
-              ;; Dedicated, so treemacs's q (bury-buffer) deletes the split.
-              (set-window-dedicated-p win t)
-              (window-preserve-size win t t)
-              win))))))
-
-(defun mr-x/lsp-treemacs-symbols-respect-pane (orig &rest args)
-  "Run ORIG with ARGS, placing the symbol tree beside the code, not the pane."
-  (cl-letf* ((side (symbol-function 'display-buffer-in-side-window))
-             ((symbol-function 'display-buffer-in-side-window)
-              (lambda (buffer alist)
-                (mr-x/lsp-treemacs--display-in-work-area side buffer alist))))
-    (prog1 (apply orig args)
-      (when-let ((buf (get-buffer lsp-treemacs-symbols-buffer-name)))
-        ;; Evil's per-buffer map only.  local-set-key would write into the
-        ;; shared treemacs-mode-map and clobber the file tree's o prefix.
-        (with-current-buffer buf
-          (evil-local-set-key 'treemacs (kbd "o")
-                              #'mr-x/lsp-treemacs-show-symbol))))))
-
-(defun mr-x/lsp-treemacs-show-symbol ()
-  "Jump the code to the symbol at point, keeping the cursor in the tree.
-Bound to o in the symbol tree only; the file tree keeps its o prefix."
-  (interactive)
-  (let ((tree (selected-window)))
-    (treemacs-RET-action)
-    (select-window tree)))
 
   ;; Add the tree-sitter grammar source
 (add-to-list 'treesit-language-source-alist
