@@ -545,7 +545,7 @@ permission set to allow, the OpenCode analogue of bypassPermissions."
   (should
    (equal (mapcar (lambda (preset) (cons (car preset) (nth 1 preset)))
                   mr-x/agent-shell-presets)
-          '((?f . "Fable 5.1 · Full")
+          '((?f . "Fable 5.2 · Full")
             (?o . "Opus 5.5 · Full")
             (?s . "Sonnet 5.5 · Accept edits")
             (?p . "Opus 5.5 · Plan")
@@ -976,6 +976,77 @@ Popper must NOT control display, the popup rule must be present, and a
   (should (fboundp 'mr-x/save-session-state))
   (should (fboundp 'mr-x/restore-session-state))
   (should (fboundp 'mr-x/session-state-summary)))
+
+(defmacro config-test--with-session-files (&rest body)
+  "Run BODY with the session layout and convo files in a temp directory."
+  (declare (indent 0))
+  `(let* ((dir (make-temp-file "session-test-" t))
+          (mr-x/session-file (expand-file-name "session-state.el" dir))
+          (mr-x/session-workspace-file (expand-file-name "session-workspace.el" dir))
+          (mr-x/crash-workspace-current nil)
+          (mr-x/session-restore-result nil)
+          (mr-x/session-restore-operation nil))
+     (unwind-protect (progn ,@body)
+       (delete-directory dir t))))
+
+(ert-deftest config-test-session-restore-resumes-saved-convos-by-default ()
+  "The restart restore hands the saved convo list over, so convos not shown
+in any window come back too; LAYOUT-ONLY hands over none."
+  (config-test--with-session-files
+    (let ((convos (list (list :session-id "sid-a" :cwd "/tmp/" :agent 'claude-code)
+                        (list :session-id "sid-b" :cwd "/tmp/" :agent 'codex)))
+          calls)
+      (mr-x/crash-capture--write mr-x/session-file nil)
+      (mr-x/crash-capture--write mr-x/session-workspace-file convos)
+      (cl-letf (((symbol-function 'mr-x/crash-restore-legacy-session) (lambda (s) s))
+                ((symbol-function 'mr-x/crash-workspace-start)
+                 (lambda (_owner workspace &rest _) (push workspace calls) 'op)))
+        (mr-x/restore-session-state)
+        (mr-x/restore-session-state t))
+      (should (equal (nreverse calls) (list convos nil))))))
+
+(ert-deftest config-test-session-restore-without-convo-file-is-layout-only ()
+  "A layout saved before the convo file existed still restores."
+  (config-test--with-session-files
+    (let (calls)
+      (mr-x/crash-capture--write mr-x/session-file nil)
+      (cl-letf (((symbol-function 'mr-x/crash-restore-legacy-session) (lambda (s) s))
+                ((symbol-function 'mr-x/crash-workspace-start)
+                 (lambda (_owner workspace &rest _) (push workspace calls) 'op)))
+        (mr-x/restore-session-state))
+      (should (equal calls (list nil))))))
+
+(ert-deftest config-test-session-capture-saves-convos-with-layout ()
+  "Each capture writes the convo list next to the frame layout."
+  (config-test--with-session-files
+    (let ((entries (list (list :session-id "sid-a" :cwd "/tmp/" :agent 'claude-code)))
+          (mr-x/session-capture-last nil)
+          (mr-x/crash-runtime--identity nil))
+      (cl-letf (((symbol-function 'mr-x/--session-frames) (lambda () nil))
+                ((symbol-function 'mr-x/--session-save-legacy-placement) #'ignore))
+        (mr-x/session-capture entries))
+      (should (equal (mr-x/crash-capture--read mr-x/session-workspace-file) entries)))))
+
+(ert-deftest config-test-session-restore-report-names-failures ()
+  (should (equal (mr-x/--session-restore-report '(:status restored))
+                 "Session restore: restored"))
+  (should (equal (mr-x/--session-restore-report
+                  '(:status restored :failed ((:label "TV") (:buffer-name "Codex B Agent @ x"))))
+                 "Session restore: restored, 2 failed: TV, Codex B Agent @ x")))
+
+(ert-deftest config-test-codex-session-resolves-to-owning-account ()
+  "A Codex convo resumes under the account whose sessions/ holds its rollout."
+  (let* ((home (make-temp-file "codex-b-" t))
+         (day (expand-file-name "sessions/2026/11/11" home))
+         (mr-x/agent-shell-codex-accounts (list (cons "main" nil) (cons "B" home))))
+    (unwind-protect
+        (progn
+          (make-directory day t)
+          (write-region "" nil (expand-file-name "rollout-2026-11-11T16-00-57-sid-b.jsonl" day))
+          (should (equal (car (mr-x/agent-shell--codex-account-for-session "sid-b")) "B"))
+          (should-not (mr-x/agent-shell--codex-account-for-session "sid-main"))
+          (should-not (mr-x/agent-shell--codex-account-for-session "")))
+      (delete-directory home t))))
 
 ;; ── Sketchybar ─────────────────────────────────────────────────────────────
 

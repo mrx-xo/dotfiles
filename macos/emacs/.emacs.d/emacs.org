@@ -4803,6 +4803,46 @@ Matches an Agent header of the form \"Codex NAME\" against
       (advice-add 'agent-recall--agent-config-for-transcript :before-until
                   #'mr-x/agent-shell--codex-account-config-for-transcript)
 
+      ;; Workspace restore and bookmarks resume by agent identifier alone,
+      ;; and every Codex account shares the identifier `codex', so a
+      ;; "Codex B" convo came back under the main ~/.codex and failed with
+      ;; "The recorded session could not be restored".  The rollout file is
+      ;; the ground truth: whichever account's sessions/ holds it owns it.
+      (defun mr-x/agent-shell--codex-account-for-session (session-id)
+        "Return the non-default Codex account holding SESSION-ID, or nil."
+        (when (and (stringp session-id) (not (string-empty-p session-id)))
+          (let ((pattern (concat (regexp-quote session-id) "\\.jsonl\\'")))
+            (seq-find
+             (lambda (account)
+               (when-let* ((home (cdr account))
+                           (sessions (expand-file-name "sessions" home))
+                           ((file-directory-p sessions)))
+                 (directory-files-recursively sessions pattern)))
+             mr-x/agent-shell-codex-accounts))))
+
+      (defun mr-x/agent-shell--bookmark-resume-codex-account
+          (orig session-id project-path agent-identifier &rest rest)
+        "Resume a Codex SESSION-ID under the account that owns its rollout."
+        (if-let* (((equal (format "%s" agent-identifier) "codex"))
+                  (account (mr-x/agent-shell--codex-account-for-session session-id)))
+            (let* ((find (symbol-function 'agent-shell-bookmark--find-config))
+                   (config (progn (require 'agent-shell-openai)
+                                  (mr-x/agent-shell--config-for-codex-account
+                                   (or (funcall find agent-identifier)
+                                       (agent-shell-openai-make-codex-config))
+                                   account))))
+              (cl-letf (((symbol-function 'agent-shell-bookmark--find-config)
+                         (lambda (identifier)
+                           (if (equal (format "%s" identifier) "codex")
+                               config
+                             (funcall find identifier)))))
+                (apply orig session-id project-path agent-identifier rest)))
+          (apply orig session-id project-path agent-identifier rest)))
+
+      (with-eval-after-load 'agent-shell-bookmark
+        (advice-add 'agent-shell-bookmark--resume :around
+                    #'mr-x/agent-shell--bookmark-resume-codex-account))
+
       ;; Moved to shared/emacs/lisp/syzygy/syzygy-rig.el (syzygy-rig).
 
       (defun mr-x/agent-shell-apply-preset (&optional char)
@@ -4999,6 +5039,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c / b d" '(agent-recall-browse-project :wk "Directory")
         "c / r" '(agent-recall-resume :wk "Resume")
         "c / w" '(major-pane-workspace-resume :wk "Workspace (last open)")
+        "c / W" '(major-pane-workspace-resume-all :wk "Workspace: resume all")
         "c / B" '(agent-recall-backfill :wk "Backfill")
         "c / t" '(agent-recall-stats :wk "Stats"))
 
@@ -5849,6 +5890,12 @@ adb fallback — see the script."
     (expand-file-name "session-state.el" user-emacs-directory)
     "File to store session state before daemon restart.")
 
+  (defvar mr-x/session-workspace-file
+    (expand-file-name "session-workspace.el" user-emacs-directory)
+    "The open-convo list saved at the same moment as `mr-x/session-file'.
+`mr-x/restore-session-state' resumes these after a restart, so the
+layout and the convo set always come from one capture.")
+
   (defun mr-x/--buffer-restore-spec (buffer)
     "Return a restore-spec for BUFFER, or nil for plain buffers.
 Each spec is a list whose car is a type tag dispatched on at restore time.
@@ -6088,22 +6135,45 @@ the frame transaction cannot consume a bundle after an incomplete restore."
   (defvar mr-x/session-restore-result nil)
   (defvar mr-x/session-restore-operation nil)
 
-  (defun mr-x/restore-session-state ()
-    "Asynchronously restore the saved frames with verified agent sessions.
-The legacy restart script polls `mr-x/session-restore-result' before placement."
-    (interactive)
+  (defun mr-x/--session-restore-workspace ()
+    "The convo list saved with the layout, or nil when there is none."
+    (when (file-exists-p mr-x/session-workspace-file)
+      (mr-x/crash-capture--read mr-x/session-workspace-file)))
+
+  (defun mr-x/--session-restore-report (result)
+    "One-line summary of a session restore RESULT, naming failed convos."
+    (let ((failed (plist-get result :failed)))
+      (format "Session restore: %s%s" (plist-get result :status)
+              (if failed
+                  (format ", %d failed: %s" (length failed)
+                          (mapconcat (lambda (e) (or (plist-get e :label)
+                                                     (plist-get e :buffer-name)
+                                                     (plist-get e :session-id)))
+                                     failed ", "))
+                ""))))
+
+  (defun mr-x/restore-session-state (&optional layout-only)
+    "Asynchronously restore the saved frames and resume the saved convos.
+By default every convo open at save time is resumed, including ones not
+shown in any window; open ones are skipped.  With LAYOUT-ONLY (prefix
+argument interactively) restore just the frames and the convos they
+show.  The restart script polls `mr-x/session-restore-result' before
+placement."
+    (interactive "P")
     (unless (file-exists-p mr-x/session-file) (user-error "No session state file found"))
     (when mr-x/crash-workspace-current (user-error "A workspace restore is already running"))
     (let ((session (mr-x/crash-restore-legacy-session
-                    (mr-x/crash-capture--read mr-x/session-file))))
+                    (mr-x/crash-capture--read mr-x/session-file)))
+          (workspace (unless layout-only (mr-x/--session-restore-workspace))))
       (setq mr-x/session-restore-result '(:status pending))
       (condition-case err
           (setq mr-x/session-restore-operation
                 (mr-x/crash-workspace-start
-                 (format "manual-restore-%s" (float-time)) nil session #'mr-x/--crash-replay-tree
+                 (format "manual-restore-%s" (float-time)) workspace session
+                 #'mr-x/--crash-replay-tree
                  (lambda (result)
                    (setq mr-x/session-restore-result result)
-                   (message "Session restore: %s" (plist-get result :status))
+                   (message "%s" (mr-x/--session-restore-report result))
                    (major-pane-workspace-request-save))))
         ((error quit)
          (setq mr-x/session-restore-result
@@ -6211,6 +6281,7 @@ This remains separate from validated crash-bundle placement."
           ;; The legacy mirror and picker history use this collection too.
           (make-directory (file-name-directory mr-x/session-file) t)
           (mr-x/crash-capture--write mr-x/session-file frames)
+          (mr-x/crash-capture--write mr-x/session-workspace-file entries)
           (setq mr-x/session-capture-last (copy-tree pair))))
       (mr-x/--session-save-legacy-placement frames)))
 

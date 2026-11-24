@@ -1,12 +1,16 @@
 #!/bin/bash
 # Restart Emacs daemon with full session restore
-# Saves: buffers, window splits, frame geometry, yabai space assignments
-# Restores everything after daemon restart
+# Saves: buffers, window splits, frame geometry, yabai space assignments,
+#        and the list of open agent convos
+# Restores everything after daemon restart, resuming every saved convo
+# (also the ones not shown in any window)
 #
 # Usage:
 #   emacs-restart-restore.sh              # full restart + restore
 #   emacs-restart-restore.sh save         # only save state (no restart)
 #   emacs-restart-restore.sh restore      # only restore from saved state
+#   ... full|restore --layout-only        # frames + the convos they show;
+#                                         # background convos stay closed
 #   emacs-restart-restore.sh save-yabai   # only save yabai window state
 #   emacs-restart-restore.sh save-emacs   # only save emacs session state
 #   emacs-restart-restore.sh restore-yabai # only restore yabai space assignments
@@ -17,6 +21,15 @@ PLIST=~/Library/LaunchAgents/com.marcosandrade.emacsdaemon.plist
 # crash recovery can point it at the crash-state copy.
 YABAI_STATE="${YABAI_STATE:-$HOME/.emacs.d/yabai-state.json}"
 RESTORE_FLAG="/tmp/emacs-restore-session"
+
+COMMAND=""
+LAYOUT_ONLY=nil
+for arg in "$@"; do
+    case "$arg" in
+        --layout-only) LAYOUT_ONLY=t ;;
+        *) [ -z "$COMMAND" ] && COMMAND="$arg" ;;
+    esac
+done
 
 # ── Helpers ──
 
@@ -145,13 +158,16 @@ restore_emacs() {
         (delete-frame (car frames))))' 2>/dev/null
 
     local result state attempt=0
-    result=$($EMACSCLIENT -e '(mr-x/restore-session-state)' 2>/dev/null) || return 1
+    result=$($EMACSCLIENT -e "(mr-x/restore-session-state $LAYOUT_ONLY)" 2>/dev/null) || return 1
     log "EMACS" "$result"
     # Agent startup is asynchronous. Placement must wait for verified sessions.
     while [ "$attempt" -lt 3000 ]; do
         state=$($EMACSCLIENT -e '(plist-get mr-x/session-restore-result :status)' 2>/dev/null) || return 1
         case "$state" in
-            restored) return 0 ;;
+            restored)
+                result=$($EMACSCLIENT -e '(mr-x/--session-restore-report mr-x/session-restore-result)' 2>/dev/null)
+                log "EMACS" "$result"
+                return 0 ;;
             pending) sleep 0.2 ;;
             *)
                 result=$($EMACSCLIENT -e 'mr-x/session-restore-result' 2>/dev/null)
@@ -220,7 +236,7 @@ restore_yabai() {
 
 # ── Main ──
 
-case "${1:-full}" in
+case "${COMMAND:-full}" in
     save)
         save_yabai
         save_emacs
@@ -271,7 +287,7 @@ case "${1:-full}" in
         log "DONE" "Full restart + restore complete"
         ;;
     *)
-        echo "Usage: $0 [save|save-yabai|save-emacs|restore|restore-yabai|full]"
+        echo "Usage: $0 [save|save-yabai|save-emacs|restore|restore-yabai|full] [--layout-only]"
         exit 1
         ;;
 esac

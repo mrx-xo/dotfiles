@@ -11,3 +11,6 @@ session-state.el
 crash-state/
 clean-exit
 yabai-state.json
+session-workspace.el
+pre-logout-chats.eld
+forge-database-*.db

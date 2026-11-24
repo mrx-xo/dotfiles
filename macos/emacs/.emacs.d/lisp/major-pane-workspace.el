@@ -23,8 +23,12 @@
 ;;   `agent-recall-transcript' category, so RET opens the transcript
 ;;   read-only and embark `r' (s-r r) resumes the session, picker
 ;;   staying open.  Convos already open are marked and `r' just switches
-;;   to them.  The first row resumes every closed convo in tab order.
-;;   With a prefix argument, pick an older snapshot first.  Without
+;;   to them.  The first row, "[resume all N]", resumes every closed
+;;   convo in tab order (RET on it accepts, see
+;;   `major-pane-workspace--visit-or-accept-all').
+;;   `major-pane-workspace-resume-all' (SPC c / W) does the same without
+;;   a picker.  With a prefix argument, either command picks an older
+;;   snapshot first.  Without
 ;;   agent-recall (or for an unindexed session) RET resumes directly
 ;;   through `agent-shell-bookmark--resume'.
 ;;
@@ -370,35 +374,106 @@ the same category."
          (choice (completing-read "Workspace from: " (mapcar #'car rows) nil t)))
     (cdr (assoc choice rows))))
 
+(defun major-pane-workspace--snapshot-for (older)
+  "The snapshot to act on: picked by the user when OLDER, else the default."
+  (let ((snapshots (major-pane-workspace--read)))
+    (cond ((null snapshots) (user-error "No workspace snapshot yet"))
+          (older (major-pane-workspace--pick-snapshot snapshots))
+          (t (major-pane-workspace--default-snapshot snapshots)))))
+
+(defvar major-pane-workspace--all-row nil
+  "The \"[resume all N]\" row of the picker currently open, or nil.")
+
+(defun major-pane-workspace--row-key (candidate)
+  "CANDIDATE's plain text without Consult's trailing tofu characters.
+agent-recall's suspendable picker appends one (`consult--tofu-char',
+#x100000 and up, the last private-use plane) to every row, on the highlighted candidate and on the choice
+it returns alike."
+  (let* ((key (substring-no-properties candidate))
+         (end (length key)))
+    (while (and (> end 0) (>= (aref key (1- end)) #x100000))
+      (setq end (1- end)))
+    (substring key 0 end)))
+
+(defun major-pane-workspace--all-row-p (candidate &optional all-row)
+  "Whether CANDIDATE is ALL-ROW, default the open picker's \"[resume all N]\"."
+  (let ((all-row (or all-row major-pane-workspace--all-row)))
+    (and all-row (stringp candidate)
+         (equal (major-pane-workspace--row-key candidate)
+                (major-pane-workspace--row-key all-row)))))
+
+(defun major-pane-workspace--visit-or-accept-all (&rest _)
+  "Before-until advice on agent-recall's picker RET.
+That RET visits the highlighted row's transcript and refuses rows
+without one, so on the \"[resume all N]\" row accept it instead;
+every other row keeps visiting its transcript."
+  (when (and major-pane-workspace--all-row
+             (fboundp 'agent-recall-consult--current-candidate)
+             (fboundp 'vertico-exit)
+             (let ((candidate (agent-recall-consult--current-candidate)))
+               (or (major-pane-workspace--all-row-p candidate)
+                   (major-pane-workspace--all-row-p
+                    (ignore-errors
+                      (agent-recall-consult--lookup-candidate
+                       candidate
+                       (bound-and-true-p agent-recall-consult--picker-lookup)))))))
+    (vertico-exit)
+    t))
+
+(with-eval-after-load 'agent-recall-consult
+  (advice-add 'agent-recall-consult--visit :before-until
+              #'major-pane-workspace--visit-or-accept-all))
+
+(defun major-pane-workspace--start-all (snapshot entries)
+  "Resume ENTRIES of SNAPSHOT in order, skipping open ones; report at the end."
+  (unless entries (user-error "Snapshot %s has no convos" (plist-get snapshot :started)))
+  (require 'mr-x-crash-workspace)
+  (message "Resuming %d convo(s) from %s..." (length entries) (plist-get snapshot :started))
+  (mr-x/crash-workspace-start
+   (format "workspace-resume-all-%s" (float-time)) entries nil #'ignore
+   (lambda (result)
+     (let ((failed (plist-get result :failed)))
+       (message "Workspace resume: %s%s" (plist-get result :status)
+                (if failed
+                    (format ", %d failed: %s" (length failed)
+                            (mapconcat (lambda (e) (or (plist-get e :label)
+                                                       (plist-get e :buffer-name)))
+                                       failed ", "))
+                  "")))
+     (major-pane-workspace-request-save))))
+
 ;;;###autoload
 (defun major-pane-workspace-resume (&optional older)
   "List the convos of the last snapshot, agent-recall browse style.
-RET opens the transcript read-only; embark `r' resumes the session
-(open ones are switched to).  The first row resumes every closed convo
-of the snapshot in tab order.  With prefix OLDER, choose which snapshot
-(this Emacs, the previous one, ...) to pick from."
+The first row resumes every closed convo of the snapshot in tab order.
+On any other row RET opens the transcript read-only and embark `r'
+resumes the session (open ones are switched to).  With prefix OLDER,
+choose which snapshot (this Emacs, the previous one, ...) to pick from."
   (interactive "P")
   (when (fboundp 'agent-recall--setup-embark)
     (agent-recall--setup-embark))
-  (let* ((snapshots (major-pane-workspace--read))
-         (snapshot (cond ((null snapshots)
-                          (user-error "No workspace snapshot yet"))
-                         (older (major-pane-workspace--pick-snapshot snapshots))
-                         (t (major-pane-workspace--default-snapshot snapshots))))
+  (let* ((snapshot (major-pane-workspace--snapshot-for older))
          (rows (major-pane-workspace--candidates snapshot))
          (all-row (major-pane-workspace--make-row
                    (format "[resume all %d]" (length rows)) nil))
-         (candidates (cons all-row (mapcar #'car rows)))
-         (choice (major-pane-workspace--read-choice candidates snapshot)))
-    (if (equal choice all-row)
-        (progn
-          (require 'mr-x-crash-workspace)
-          (mr-x/crash-workspace-start
-           (format "workspace-picker-%s" (float-time)) (mapcar #'cdr rows) nil #'ignore
-           (lambda (result)
-             (message "Workspace resume: %s" (plist-get result :status))
-             (major-pane-workspace-request-save))))
-      (major-pane-workspace--select-entry (cdr (assoc choice rows))))))
+         (choice (let ((major-pane-workspace--all-row all-row))
+                   (major-pane-workspace--read-choice
+                    (cons all-row (mapcar #'car rows)) snapshot))))
+    (if (major-pane-workspace--all-row-p choice all-row)
+        (major-pane-workspace--start-all snapshot (mapcar #'cdr rows))
+      (major-pane-workspace--select-entry
+       (cdr (assoc (major-pane-workspace--row-key choice) rows
+                   (lambda (row key)
+                     (equal (major-pane-workspace--row-key row) key))))))))
+
+;;;###autoload
+(defun major-pane-workspace-resume-all (&optional older)
+  "Resume every closed convo of the last snapshot, in tab order, no picker.
+Convos already open are skipped.  With prefix OLDER, choose which
+snapshot to restore first."
+  (interactive "P")
+  (let ((snapshot (major-pane-workspace--snapshot-for older)))
+    (major-pane-workspace--start-all snapshot (plist-get snapshot :convos))))
 
  ;;; Wiring
 

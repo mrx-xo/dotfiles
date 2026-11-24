@@ -379,6 +379,84 @@ the chosen row maps back to its entry."
               (should (equal opened file))))
         (delete-file file)))))
 
+(ert-deftest major-pane-workspace-resume-all-row-starts-every-entry ()
+  "Choosing the \"[resume all N]\" row hands the whole snapshot over."
+  (mpw-test--with-convos ()
+    (let* ((entries (list (list :session-id "sid-a" :cwd "/tmp/" :agent "claude-code")
+                          (list :session-id "sid-b" :cwd "/tmp/" :agent "codex")))
+           started)
+      (cl-letf (((symbol-function 'major-pane-workspace--read-choice)
+                 (lambda (candidates _snapshot) (car candidates)))
+                ((symbol-function 'mr-x/crash-workspace-start)
+                 (lambda (_owner workspace &rest _) (setq started workspace))))
+        (major-pane-workspace--write
+         (list (list :started "x" :saved "x" :convos entries)))
+        (major-pane-workspace-resume)
+        (should (equal started entries))))))
+
+;; agent-recall's suspendable picker appends an invisible Consult tofu
+;; character (>= #x100000) to every row, so both RET and the returned
+;; choice carry it.
+(ert-deftest major-pane-workspace-all-row-matches-through-consult-tofu ()
+  (let ((encoded (concat "[resume all 3]" (string #x100003))))
+    (should (major-pane-workspace--all-row-p encoded "[resume all 3]"))
+    (should-not (major-pane-workspace--all-row-p
+                 (concat "A [proj] alpha" (string #x100001)) "[resume all 3]"))))
+
+(ert-deftest major-pane-workspace-resume-accepts-encoded-choices ()
+  "The all row and a plain row are both recognised with a tofu suffix."
+  (mpw-test--with-convos ()
+    (let* ((entries (list (list :session-id "sid-a" :cwd "/tmp/" :agent "claude-code")
+                          (list :session-id "sid-b" :cwd "/tmp/" :agent "codex")))
+           (pick 0) started selected)
+      (cl-letf (((symbol-function 'major-pane-workspace--read-choice)
+                 (lambda (candidates _snapshot)
+                   (concat (nth pick candidates) (string (+ #x100000 pick)))))
+                ((symbol-function 'mr-x/crash-workspace-start)
+                 (lambda (_owner workspace &rest _) (setq started workspace)))
+                ((symbol-function 'major-pane-workspace--select-entry)
+                 (lambda (entry) (setq selected entry))))
+        (major-pane-workspace--write
+         (list (list :started "x" :saved "x" :convos entries)))
+        (major-pane-workspace-resume)
+        (should (equal started entries))
+        (setq pick 2)
+        (major-pane-workspace-resume)
+        (should (equal selected (nth 1 entries)))))))
+
+(ert-deftest major-pane-workspace-ret-on-all-row-accepts ()
+  "agent-recall's picker RET accepts the all row instead of refusing it,
+and still visits on any other row."
+  (let ((major-pane-workspace--all-row (propertize "[resume all 3]" 'x 1))
+        exited current)
+    (cl-letf (((symbol-function 'agent-recall-consult--current-candidate)
+               (lambda () current))
+              ((symbol-function 'agent-recall-consult--lookup-candidate)
+               (lambda (c _lookup) c))
+              ((symbol-function 'vertico-exit) (lambda () (setq exited t))))
+      (setq current "[resume all 3]")
+      (should (major-pane-workspace--visit-or-accept-all))
+      (should exited)
+      (setq exited nil current "A [proj] Sep 06  alpha")
+      (should-not (major-pane-workspace--visit-or-accept-all))
+      (should-not exited))))
+
+(ert-deftest major-pane-workspace-resume-all-starts-every-entry-without-picker ()
+  "resume-all hands the whole snapshot to crash-workspace, in order, and
+never opens a picker."
+  (mpw-test--with-convos ()
+    (let* ((entries (list (list :session-id "sid-a" :cwd "/tmp/" :agent "claude-code")
+                          (list :session-id "sid-b" :cwd "/tmp/" :agent "codex")))
+           started)
+      (cl-letf (((symbol-function 'mr-x/crash-workspace-start)
+                 (lambda (_owner workspace &rest _) (setq started workspace)))
+                ((symbol-function 'major-pane-workspace--read-choice)
+                 (lambda (&rest _) (error "Picker must not open"))))
+        (major-pane-workspace--write
+         (list (list :started "x" :saved "x" :convos entries)))
+        (major-pane-workspace-resume-all)
+        (should (equal started entries))))))
+
 (provide 'major-pane-workspace-test)
 ;;; major-pane-workspace-test.el ends here
 
