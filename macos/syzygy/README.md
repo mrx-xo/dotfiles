@@ -227,17 +227,74 @@ NEMESIS redeploys as in
 [`windows/README.md`](../../windows/README.md#syzygy-phone-access-acp-mobile-on-nemesis):
 cross-compile, stop the task, `scp`, rerun the task script with `-Start`.
 
-### What remote sessions can do in step 1
+### What remote sessions can do (fleet step 3)
 
 From the hub's phone app a remote session (a card with another machine's
-badge) can be viewed and replied to, and carries its machine badge. Kill
-and fork work too: the hub forwards `/api/kill` and `/api/fork` (probe
-included) to the machine that owns the chat and relays its answer (kill
-since acp-mobile `6e24e68`, fork since `3c7b824`). Nothing else yet: no
-clone, label, pin, push or model change, and no peek on remote cards.
-Those actions would otherwise run on the hub's own Emacs, so the hub
-answers their routes with **501** (`remote machine actions arrive in a
-later step`) whenever the request names a machine other than itself.
+badge) gets every action a hub chat has: view, reply, kill, fork, clone,
+label, model change, pin, catalogue, peek, git status, diff review. New chat
+lists projects from every awake machine with a badge; the picked project
+decides the machine, and the agents, models and presets offered are that
+machine's. History lists every awake machine's transcripts, opens each from
+its own machine and resumes it there (acp-mobile `99adf70`).
+
+How it works: the phone sends `machine` with every request about a chat or
+project on another machine (query for GET, JSON body field for POST). The
+hub's `fleetRoute` wrapper replays such a request, unchanged, on the owning
+machine as a peer call and relays the answer. A request with no `machine`, or
+naming the hub, runs on the hub exactly as before. A peer's call is never
+forwarded again. A body that is not exactly one JSON value, or is over 1 MiB,
+is refused (400, 413) before any handler runs.
+
+Three lists are merged by the hub instead: `/api/projects`,
+`/api/transcripts` and `/api/transcript-search`, only when asked with
+`?fleet=1`. Each entry carries `machine`. Without the flag they answer for
+the hub alone, so a phone page older than this build never sees another
+machine's entries. The hub's own lookup runs beside the peers and is cut off
+after 8 seconds; a machine that fails is left out and logged as
+`fleet: <path> on <id>: <err>`.
+
+Limits:
+
+- The push bell stays disabled on remote chats until nodes forward
+  notifications to the hub (fleet step 4).
+- A typed project path in New chat starts on the hub. To start on another
+  machine, pick a listed project.
+- A forward waits 15 s, except spawn (270 s: four launch stages of 60 s),
+  fork (60 s) and resume (45 s).
+- Declared gaps (`gaps` in the registry) render as disabled controls with a
+  reason. Windows has no per-chat working directory yet, so file listing and
+  diff review fail on a Windows node until a cwd source exists or the gaps
+  `files` and `diff-review` are declared for it.
+
+Emacs replies no longer depend on how `emacsclient` prints: Emacs writes the
+value to a temp file and prints `t`. `emacsclient` 30 corrupts printed
+replies longer than its receive buffer (about 1 KB on macOS, 512 bytes on
+Windows), which broke presets, launch options and model lists on nodes.
+
+Check a node the way the hub sees it, from the hub (read-only; needs `jq`
+and the registry):
+
+```bash
+~/src/acp-mobile/docs/fleet-node-sweep.sh <machine-id>
+```
+
+Every line should be 200. `--launch` also starts one idle chat on that node
+and kills it again.
+
+Troubleshooting:
+
+- An action answers `<NAME> did not answer` (502): the node is asleep or its
+  acp-mobile is down. Check its row state, then `agent-fleet-check`.
+- `unknown machine <id>` (404): the id is not in the registry; SIGHUP the hub
+  after editing it.
+- A node's History is missing from the merged list: look for
+  `fleet: /api/transcripts on <id>` in the hub log, then run the sweep on that
+  node. `history unavailable` from the node means its Emacs could not build
+  the list (on a Windows node, an `agent-recall` older than the catalogue
+  functions gives `void-function agent-recall-catalogue-get`).
+- New chat on a node answers 409 with a Lisp error: the error comes from that
+  node's Emacs; reproduce it there with `M-x` New chat before looking at
+  acp-mobile.
 
 Card status (`generating`, permission, idle) does follow remote chats: the
 hub's `/api/statuses` asks each node for its statuses and merges them with its
