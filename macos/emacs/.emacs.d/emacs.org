@@ -4987,7 +4987,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c B" '(agent-shell-manager-toggle :wk "Buffer manager")
         "c z" '(agent-shell-manager-toggle-frame :wk "Manager frame")
         "c S" '(mr-x/agent-panel-spawn-test-env :wk "Spawn test env")
-        "c j" '(agent-shell-attention-jump :wk "Jump to pending")
+        "c j" '(mr-x/attention-jump :wk "Next that needs me")
         "c ," '(:ignore t :wk "Prompts")
         "c , p" '(agent-shell-prompt-compose :wk "Compose prompt")
         "c , r" '(mr-x/agent-shell-test-prompt :wk "Random test prompt")
@@ -11704,6 +11704,19 @@ silent context-only capture with no marker."
                           mr-x/agent-shell-start-preset
                           major-pane-new-chat))
         (advice-add launcher :around #'mr-x/major-pane-launch-with-name-prompt))
+
+      ;; SPC c j walks the "needs me next" queue: chats waiting on an
+      ;; approval or a question first, then finished turns you have not
+      ;; read, oldest first.  Each press moves one along and says why
+      ;; ("2/4  waiting: approval").  Any prefix keeps the old
+      ;; agent-shell-attention behaviour: SPC u = picker, SPC u SPC u =
+      ;; its dashboard.
+      (defun mr-x/attention-jump (&optional prompt)
+        "Go to the next chat that needs you; with PROMPT, pick from all chats."
+        (interactive "P")
+        (if prompt
+            (agent-shell-attention-jump prompt)
+          (major-pane-attention-next)))
 
       ;; Send commands (region/file/screenshot → conversation) live in
       ;; lisp/mr-x-agent-send.el — content routing, not pane management.

@@ -1510,11 +1510,29 @@ IS-ACTIVE selects the active/inactive face."
 (defvar major-pane-attention-event-alist
   '((input-submitted . busy)
     (permission-response . busy)
+    (elicitation-response . busy)
     (permission-request . perms)
+    (elicitation-request . perms)
     (turn-complete . done))
   "Map agent-shell events to attention states (`busy'/`perms'/`done').
-`input-submitted' starts a turn; `permission-response' resumes one
-after the user answers, so both land on `busy'.")
+`input-submitted' starts a turn; `permission-response' and
+`elicitation-response' resume one after the user answers, so they land
+on `busy'.  An agent's question (`elicitation-request') waits on you
+exactly like a permission request, so both are `perms'.")
+
+(defvar major-pane-attention-reason-alist
+  '((permission-request . approval)
+    (elicitation-request . question)
+    (turn-complete . finished))
+  "Map the events that need you to the reason shown for them.")
+
+(defvar-local major-pane--attention-reason nil
+  "Why this conversation needs you: `approval', `question' or `finished'.
+nil when it needs nothing.  Set with `major-pane--tab-attention'.")
+
+(defvar-local major-pane--attention-since nil
+  "When this conversation started needing you, or nil.
+Orders `major-pane-attention-queue' oldest first.")
 
 (defun major-pane--attention-note-event (&rest args)
   "Track the emitting shell buffer's turn lifecycle on its tab.
@@ -1540,12 +1558,108 @@ is skipped."
         (unless (eq major-pane--tab-attention new)
           (setq major-pane--tab-attention new
                 ;; stamp the finish time so the ping/decay can age it
-                major-pane--done-at (and (eq new 'done) (current-time)))
+                major-pane--done-at (and (eq new 'done) (current-time))
+                major-pane--attention-reason
+                (and (memq new '(perms done))
+                     (alist-get event major-pane-attention-reason-alist))
+                major-pane--attention-since
+                (and (memq new '(perms done)) (current-time)))
           (major-pane--spinner-sync)
           (force-mode-line-update t))))))
 
 (with-eval-after-load 'agent-shell
   (advice-add 'agent-shell--emit-event :after #'major-pane--attention-note-event))
+
+;;; "Needs me next" queue
+;;
+;; One list of the conversations waiting on you: approvals and questions
+;; first, then finished turns you have not engaged with, oldest first in
+;; each group.  A finished chat stays queued after its tab's green fades
+;; (`major-pane-done-green-seconds'); only engaging (insert state,
+;; `major-pane-mark-read') or a new turn removes it.
+
+(defun major-pane--finished-unread-p (buffer)
+  "Non-nil when BUFFER finished a turn you have not engaged with yet.
+True whether or not the tab's green has faded."
+  (and (buffer-live-p buffer)
+       (eq (buffer-local-value 'major-pane--attention-reason buffer) 'finished)
+       (not (memq (buffer-local-value 'major-pane--tab-attention buffer)
+                  '(busy perms)))))
+
+(defun major-pane--clear-finished ()
+  "Mark the current conversation's finished turn as seen."
+  (when (eq major-pane--tab-attention 'done)
+    (setq major-pane--tab-attention nil))
+  (setq major-pane--done-at nil
+        major-pane--attention-reason nil
+        major-pane--attention-since nil))
+
+(defun major-pane--attention-oldest-first (buffers)
+  "Return BUFFERS sorted by `major-pane--attention-since', oldest first."
+  (sort (copy-sequence buffers)
+        (lambda (a b)
+          (let ((ta (buffer-local-value 'major-pane--attention-since a))
+                (tb (buffer-local-value 'major-pane--attention-since b)))
+            (cond ((and ta tb) (time-less-p ta tb))
+                  (ta t)
+                  (t nil))))))
+
+(defun major-pane-attention-queue ()
+  "Return the conversations that need you, in the order to visit them.
+Waiting on an approval or a question first, then finished and not yet
+engaged with; oldest first within each group."
+  (let* ((convos (cl-remove-if-not #'buffer-live-p
+                                   (major-pane-state-conversations major-pane--state)))
+         (waiting (cl-remove-if-not
+                   (lambda (b) (eq (buffer-local-value 'major-pane--tab-attention b)
+                                   'perms))
+                   convos))
+         (finished (cl-remove-if-not #'major-pane--finished-unread-p convos)))
+    (append (major-pane--attention-oldest-first waiting)
+            (major-pane--attention-oldest-first finished))))
+
+(defun major-pane--attention-reason-text (buffer)
+  "Return a short phrase for why BUFFER needs you."
+  (pcase (buffer-local-value 'major-pane--attention-reason buffer)
+    ('approval "waiting: approval")
+    ('question "waiting: question")
+    ('finished "finished, unread")
+    (_ (if (eq (buffer-local-value 'major-pane--tab-attention buffer) 'perms)
+           "waiting"
+         "needs you"))))
+
+(defun major-pane--attention-walk (delta)
+  "Visit the next conversation in the attention queue in direction DELTA.
+From a conversation that is in the queue, step to its neighbour (wrapping);
+from anywhere else, go to the head of the queue (or its tail for -1)."
+  (let* ((queue (major-pane-attention-queue))
+         (len (length queue))
+         (here (cl-position (current-buffer) queue :test #'eq))
+         (target (cond ((zerop len) nil)
+                       (here (nth (mod (+ here delta) len) queue))
+                       ((> delta 0) (car queue))
+                       (t (car (last queue))))))
+    (if (not target)
+        (message "Nothing needs you")
+      (major-pane--focus-conversation target)
+      (message "%d/%d  %s  %s"
+               (1+ (cl-position target queue :test #'eq)) len
+               (major-pane--attention-reason-text target)
+               (major-pane--display-name target)))))
+
+;;;###autoload
+(defun major-pane-attention-next ()
+  "Go to the next conversation that needs you.
+Approvals and questions first, then finished turns you have not read,
+oldest first.  Repeat to walk the whole queue."
+  (interactive)
+  (major-pane--attention-walk 1))
+
+;;;###autoload
+(defun major-pane-attention-previous ()
+  "Go to the previous conversation that needs you."
+  (interactive)
+  (major-pane--attention-walk -1))
 
 (defun major-pane--attention-clear-on-insert ()
   "Clear a conversation's `done' flag when the user enters insert state.
@@ -1553,12 +1667,11 @@ Insert state is the engagement signal: you're typing a reply, so the
 response has actually been read — not just scrolled past.  Only `done'
 clears here; `perms' means a prompt is still pending (typing doesn't
 answer it) and `busy' is live status."
-  (when (and (eq major-pane--tab-attention 'done)
+  (when (and (major-pane--finished-unread-p (current-buffer))
              major-pane--state
              (memq (current-buffer)
                    (major-pane-state-conversations major-pane--state)))
-    (setq major-pane--tab-attention nil
-          major-pane--done-at nil)
+    (major-pane--clear-finished)
     (major-pane--spinner-sync)           ; may have been the last fresh finisher
     (force-mode-line-update t)))
 
@@ -1581,10 +1694,9 @@ active conversation.  Only `done' clears — `perms' (pending prompt) and
     (if (not (buffer-live-p buf))
         (user-error "No conversation to mark read")
       (with-current-buffer buf
-        (if (eq major-pane--tab-attention 'done)
+        (if (major-pane--finished-unread-p buf)
             (progn
-              (setq major-pane--tab-attention nil
-                    major-pane--done-at nil)
+              (major-pane--clear-finished)
               (major-pane--spinner-sync)
               (force-mode-line-update t)
               (message "Marked read: %s" (major-pane--display-name buf)))

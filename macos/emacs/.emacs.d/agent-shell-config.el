@@ -1843,6 +1843,19 @@ silent context-only capture with no marker."
                           major-pane-new-chat))
         (advice-add launcher :around #'mr-x/major-pane-launch-with-name-prompt))
 
+      ;; SPC c j walks the "needs me next" queue: chats waiting on an
+      ;; approval or a question first, then finished turns you have not
+      ;; read, oldest first.  Each press moves one along and says why
+      ;; ("2/4  waiting: approval").  Any prefix keeps the old
+      ;; agent-shell-attention behaviour: SPC u = picker, SPC u SPC u =
+      ;; its dashboard.
+      (defun mr-x/attention-jump (&optional prompt)
+        "Go to the next chat that needs you; with PROMPT, pick from all chats."
+        (interactive "P")
+        (if prompt
+            (agent-shell-attention-jump prompt)
+          (major-pane-attention-next)))
+
       ;; Send commands (region/file/screenshot → conversation) live in
       ;; lisp/mr-x-agent-send.el — content routing, not pane management.
       ;; They use major-pane only for the picker and goto.

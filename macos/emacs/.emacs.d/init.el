@@ -4728,7 +4728,7 @@ the `?c' preset from `mr-x/agent-shell-presets'."
         "c B" '(agent-shell-manager-toggle :wk "Buffer manager")
         "c z" '(agent-shell-manager-toggle-frame :wk "Manager frame")
         "c S" '(mr-x/agent-panel-spawn-test-env :wk "Spawn test env")
-        "c j" '(agent-shell-attention-jump :wk "Jump to pending")
+        "c j" '(mr-x/attention-jump :wk "Next that needs me")
         "c ," '(:ignore t :wk "Prompts")
         "c , p" '(agent-shell-prompt-compose :wk "Compose prompt")
         "c , r" '(mr-x/agent-shell-test-prompt :wk "Random test prompt")
