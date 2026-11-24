@@ -1,0 +1,91 @@
+#!/usr/bin/env node
+// agent-devtools-mcp: chrome-devtools-mcp pointed at the ONE shared agent Brave.
+//
+// Stock chrome-devtools-mcp launches its own Brave per session. With a dozen
+// agent-shell sessions that meant a dozen Dock icons, stray empty windows, and
+// instances that came back as soon as you quit them. Instead every session
+// connects (--browserUrl) to the agent-open Brave on port 9333, which lives on
+// the yabai "agent" space.
+//
+// This file is a transparent stdio proxy. Its only job: before forwarding a
+// tools/call, make sure that browser is running and has a window, starting it in
+// the background if needed (agent-workspace.py ensure-browser). So quitting the
+// agent Brave (Cmd+Q, Dock > Quit) is always fine: nothing restarts it until an
+// agent actually uses a browser tool again. chrome-devtools-mcp reconnects on
+// its own after a restart.
+//
+// Extra arguments are passed through to chrome-devtools-mcp.
+'use strict';
+const { spawn, execFile } = require('node:child_process');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const PORT = process.env.AGENT_BROWSER_PORT || '9333';
+const HERE = path.dirname(fs.realpathSync(__filename));
+const ENSURE = [path.join(HERE, 'agent-workspace.py'), 'ensure-browser'];
+
+const child = spawn('npx', ['-y', 'chrome-devtools-mcp@latest',
+  '--browserUrl', `http://127.0.0.1:${PORT}`, ...process.argv.slice(2)],
+  { stdio: ['pipe', 'inherit', 'inherit'] });
+child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+child.stdin.on('error', () => {});
+
+async function hasPage() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/json/list`,
+      { signal: AbortSignal.timeout(1500) });
+    return (await res.json()).some(t => t.type === 'page');
+  } catch {
+    return false;
+  }
+}
+
+function ensureBrowser() {
+  return new Promise(resolve => {
+    execFile('python3', ENSURE, { timeout: 30000 }, (err, _out, stderr) => {
+      // Not fatal: the tool call goes through and chrome-devtools-mcp reports
+      // "Could not connect" to the agent, which is the honest answer.
+      if (err) process.stderr.write(`agent-devtools-mcp: ${stderr || err.message}\n`);
+      resolve();
+    });
+  });
+}
+
+// Messages are forwarded strictly in order; a tools/call waits for the check.
+let queue = Promise.resolve();
+let buffer = '';
+function forward(line) {
+  queue = queue.then(async () => {
+    let msg;
+    try { msg = JSON.parse(line); } catch {}
+    if (msg && msg.method === 'tools/call') {
+      if (!(await hasPage())) await ensureBrowser();
+      // The agent Brave lives on another space: raising a tab activates Brave
+      // and drags focus away from whatever you are doing. new_page defaults to
+      // foreground, so force both off. Background tabs still render and
+      // screenshot normally (verified with two concurrent sessions).
+      const args = msg.params && msg.params.arguments;
+      const name = msg.params && msg.params.name;
+      if (args && name === 'new_page') args.background = true;
+      if (args && name === 'select_page') args.bringToFront = false;
+      line = JSON.stringify(msg);
+    }
+    child.stdin.write(line + '\n');
+  });
+}
+
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  let i;
+  while ((i = buffer.indexOf('\n')) >= 0) {
+    const line = buffer.slice(0, i);
+    buffer = buffer.slice(i + 1);
+    if (line.trim()) forward(line);
+  }
+});
+process.stdin.on('end', () => {
+  if (buffer.trim()) forward(buffer);
+  queue.then(() => child.stdin.end());
+});
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => child.kill(sig));

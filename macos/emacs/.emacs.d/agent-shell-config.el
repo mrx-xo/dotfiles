@@ -1185,13 +1185,15 @@ with  secret --cache \"gemini-api-token\"."
     	     (args . ["/Users/marcosandrade/roaming/projects/MCP servers/ask-user-mcp/build/index.js"])
     	     (env . []))
 
-                ;; --executablePath: drive Brave instead of Chrome (any
-                ;; Chromium works; remove the flag to go back to Chrome)
+                ;; chrome-devtools-mcp through a wrapper that connects every
+                ;; session to the ONE shared agent Brave (the agent-open one,
+                ;; port 9333, on the yabai agent space) instead of launching
+                ;; a Brave per session. It starts that browser in the
+                ;; background on the first browser tool call; quitting it is
+                ;; always safe. See macos/scripts/agent-devtools-mcp.
                 ((name . "chrome-devtools")
-                 (command . "npx")
-                 (args . ["-y" "chrome-devtools-mcp@latest"
-                          "--executablePath"
-                          "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"])
+                 (command . ,(expand-file-name "~/.dotfiles/macos/scripts/agent-devtools-mcp"))
+                 (args . [])
                  (env . []))
 
                 ;; axiom disabled: mcp-remote triggers an OAuth browser
