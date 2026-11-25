@@ -1758,6 +1758,20 @@ silent context-only capture with no marker."
         (agent-recall-show-provider-icons t)
         :hook (agent-shell-mode . agent-recall-track-sessions)
         :config
+        ;; Override package defaults here; the header discovers active keys.
+        ;; Use a/u for catalogue/back, leaving s/b to their ordinary commands.
+        (define-key agent-recall-transcript-mode-map (kbd "s") nil)
+        (define-key agent-recall-transcript-mode-map (kbd "b") nil)
+        (with-eval-after-load 'evil
+          (evil-define-key* 'normal agent-recall-transcript-mode-map
+            (kbd "s") nil
+            (kbd "b") nil
+            (kbd "r") #'agent-recall-resume-current
+            (kbd "R") #'agent-recall-force-resume-current
+            (kbd "c") #'agent-recall-clean-view
+            (kbd "a") #'agent-recall-catalogue
+            (kbd "u") #'agent-recall-browse-from-transcript
+            (kbd "q") #'agent-recall-quit-transcript))
         ;; Persist major-pane conversation labels across resumes via the
         ;; agent-recall sidecar metadata store (v0.7.0+).  Capture only
         ;; contributes when major-pane is loaded — returning (label . nil)
