@@ -13,6 +13,10 @@
 ;; Loaded here so the resume path's own `require' does not reload the
 ;; real module over a `cl-letf' stub mid-test.
 (require 'agent-shell-bookmark)
+;; Same for `major-pane-workspace--start-all', which requires this before
+;; calling `mr-x/crash-workspace-start'; loading it there would replace
+;; the test's stub.
+(require 'mr-x-crash-workspace)
 
 (defvar agent-shell--state)
 ;; Declared special so the `let' in the path tests binds it dynamically.
