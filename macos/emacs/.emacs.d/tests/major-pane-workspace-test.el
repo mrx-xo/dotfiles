@@ -160,6 +160,17 @@ not the one this process is writing."
     (should (equal (plist-get (major-pane-workspace--default-snapshot snaps) :started)
                    "before"))))
 
+(ert-deftest major-pane-workspace-default-snapshot-skips-empty-older ()
+  "A previous process that ended with no convos does not hide the set
+before it: the newest older snapshot that holds convos is the default."
+  (let ((major-pane-workspace--boot "now")
+        (snaps (list (list :started "now" :convos '((:session-id "open")))
+                     (list :started "blip" :convos nil)
+                     (list :started "before" :convos '((:session-id "a")))
+                     (list :started "older" :convos '((:session-id "b"))))))
+    (should (equal (plist-get (major-pane-workspace--default-snapshot snaps) :started)
+                   "before"))))
+
 (ert-deftest major-pane-workspace-default-snapshot-falls-back-to-own ()
   "With no older snapshot on file, the current process's one is used."
   (let ((major-pane-workspace--boot "now")

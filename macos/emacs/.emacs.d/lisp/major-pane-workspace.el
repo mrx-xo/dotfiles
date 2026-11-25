@@ -337,11 +337,16 @@ Rows are built with agent-recall's browse recipe when it is loaded."
 (defun major-pane-workspace--default-snapshot (snapshots)
   "The snapshot to offer by default: the newest one not written by this
 process, so right after a restart the previous set is what you see.
-Falls back to this process's own entry when nothing older exists."
-  (or (cl-find-if-not (lambda (s) (equal (plist-get s :started)
-                                         major-pane-workspace--boot))
-                      snapshots)
-      (car snapshots)))
+An older snapshot that holds convos wins over an empty one: a short
+run that never opened a chat (a quick second restart) must not hide the
+set before it.  Falls back to this process's own entry when nothing
+older exists."
+  (let ((older (cl-remove-if (lambda (s) (equal (plist-get s :started)
+                                                major-pane-workspace--boot))
+                             snapshots)))
+    (or (cl-find-if (lambda (s) (plist-get s :convos)) older)
+        (car older)
+        (car snapshots))))
 
 (defun major-pane-workspace--read-choice (candidates snapshot)
   "Pick one of CANDIDATES (rows of SNAPSHOT) and return it.
