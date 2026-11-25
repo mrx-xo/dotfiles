@@ -1532,7 +1532,7 @@ nil when it needs nothing.  Set with `major-pane--tab-attention'.")
 
 (defvar-local major-pane--attention-since nil
   "When this conversation started needing you, or nil.
-Orders `major-pane-attention-queue' oldest first.")
+Orders `major-pane-attention-queue', newest first.")
 
 (defun major-pane--attention-note-event (&rest args)
   "Track the emitting shell buffer's turn lifecycle on its tab.
@@ -1573,8 +1573,9 @@ is skipped."
 ;;; "Needs me next" queue
 ;;
 ;; One list of the conversations waiting on you: approvals and questions
-;; first, then finished turns you have not engaged with, oldest first in
-;; each group.  A finished chat stays queued after its tab's green fades
+;; first, then finished turns you have not engaged with.  It is a stack:
+;; newest first in each group, so the chat that just finished (or just
+;; asked) is the next one you visit.  A finished chat stays queued after its tab's green fades
 ;; (`major-pane-done-green-seconds'); only engaging (insert state,
 ;; `major-pane-mark-read') or a new turn removes it.
 
@@ -1594,20 +1595,20 @@ True whether or not the tab's green has faded."
         major-pane--attention-reason nil
         major-pane--attention-since nil))
 
-(defun major-pane--attention-oldest-first (buffers)
-  "Return BUFFERS sorted by `major-pane--attention-since', oldest first."
+(defun major-pane--attention-newest-first (buffers)
+  "Return BUFFERS sorted by `major-pane--attention-since', newest first."
   (sort (copy-sequence buffers)
         (lambda (a b)
           (let ((ta (buffer-local-value 'major-pane--attention-since a))
                 (tb (buffer-local-value 'major-pane--attention-since b)))
-            (cond ((and ta tb) (time-less-p ta tb))
+            (cond ((and ta tb) (time-less-p tb ta))
                   (ta t)
                   (t nil))))))
 
 (defun major-pane-attention-queue ()
   "Return the conversations that need you, in the order to visit them.
 Waiting on an approval or a question first, then finished and not yet
-engaged with; oldest first within each group."
+engaged with; newest first within each group (a stack)."
   (let* ((convos (cl-remove-if-not #'buffer-live-p
                                    (major-pane-state-conversations major-pane--state)))
          (waiting (cl-remove-if-not
@@ -1615,8 +1616,8 @@ engaged with; oldest first within each group."
                                    'perms))
                    convos))
          (finished (cl-remove-if-not #'major-pane--finished-unread-p convos)))
-    (append (major-pane--attention-oldest-first waiting)
-            (major-pane--attention-oldest-first finished))))
+    (append (major-pane--attention-newest-first waiting)
+            (major-pane--attention-newest-first finished))))
 
 (defun major-pane--attention-reason-text (buffer)
   "Return a short phrase for why BUFFER needs you."
@@ -1651,7 +1652,7 @@ from anywhere else, go to the head of the queue (or its tail for -1)."
 (defun major-pane-attention-next ()
   "Go to the next conversation that needs you.
 Approvals and questions first, then finished turns you have not read,
-oldest first.  Repeat to walk the whole queue."
+newest first.  Repeat to walk the whole queue."
   (interactive)
   (major-pane--attention-walk 1))
 

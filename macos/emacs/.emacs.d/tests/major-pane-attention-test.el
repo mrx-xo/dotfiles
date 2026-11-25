@@ -52,8 +52,8 @@
     (should (eq (buffer-local-value 'major-pane--tab-attention b) 'done))
     (should (eq (buffer-local-value 'major-pane--attention-reason b) 'finished))))
 
-(ert-deftest major-pane-attention-queue-waiting-first-then-oldest ()
-  "Waiting chats come before finished ones; each group is oldest first."
+(ert-deftest major-pane-attention-queue-waiting-first-then-newest ()
+  "Waiting chats come before finished ones; each group is newest first."
   (major-pane-attention-test--with-chats (fin-old fin-new wait-new wait-old busy idle)
     (major-pane-attention-test--set fin-old 'done 'finished 300)
     (major-pane-attention-test--set fin-new 'done 'finished 10)
@@ -61,7 +61,7 @@
     (major-pane-attention-test--set wait-old 'perms 'question 200)
     (major-pane-attention-test--set busy 'busy nil 1)
     (should (equal (major-pane-attention-queue)
-                   (list wait-old wait-new fin-old fin-new)))))
+                   (list wait-new wait-old fin-new fin-old)))))
 
 (ert-deftest major-pane-attention-finished-outlives-the-green-fade ()
   "A finished chat stays queued after its tab fades; engaging removes it."
@@ -96,12 +96,13 @@
                    (setf (major-pane-state-active major-pane--state) buf)))
                 ((symbol-function 'message) #'ignore))
         (setf (major-pane-state-active major-pane--state) outside)
+        ;; Queue is a (waiting), then c (finished 10s ago), then b (20s ago).
         (with-current-buffer outside (major-pane-attention-next))
         (with-current-buffer a (major-pane-attention-next))
-        (with-current-buffer b (major-pane-attention-next))
         (with-current-buffer c (major-pane-attention-next))
+        (with-current-buffer b (major-pane-attention-next))
         (with-current-buffer a (major-pane-attention-previous))
-        (should (equal (nreverse visited) (list a b c a c)))))))
+        (should (equal (nreverse visited) (list a c b a b)))))))
 
 (ert-deftest major-pane-attention-next-reports-position-and-reason ()
   (major-pane-attention-test--with-chats (a b)

@@ -1641,6 +1641,15 @@ silent context-only capture with no marker."
               (lambda (buffer) (gethash buffer major-pane--labels))
               agent-shell-manager-set-label-function
               #'major-pane-set-buffer-label)
+        ;; The Needs you column and the `Needs me' filter (f) show the pane's
+        ;; SPC c j stack, numbered in the order SPC c j visits it.
+        (setq agent-shell-manager-attention-function
+              (lambda (buffer)
+                (let* ((queue (major-pane-attention-queue))
+                       (pos (cl-position buffer queue :test #'eq)))
+                  (when pos
+                    (cons pos (format "%d %s" (1+ pos)
+                                      (major-pane--attention-reason-text buffer)))))))
         ;; Evil keybindings — preview, filter, and navigation all built-in now
         (evil-define-key 'normal agent-shell-manager-mode-map
           (kbd "p") #'agent-shell-manager-enter-preview
