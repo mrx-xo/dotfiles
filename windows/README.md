@@ -15,6 +15,15 @@ Personal Windows configs, managed as symlinks from this repo.
 The repo is the source of truth — edit files here (or in their live location, since
 they're symlinked, it's the same file) and git tracks the changes.
 
+## Emacs at login
+
+`Emacs Frame.lnk` is the sole Emacs Startup entry. It runs
+`emacsclientw -c -a ""`, which starts a daemon when needed and opens a frame.
+Do not add a separate daemon Startup entry: Windows starts both concurrently,
+and the client can start a second daemon before the first is ready. Both would
+then write the same scratch persistence file. Bootstrap retires the old
+`Emacs Daemon.lnk` to `Emacs Daemon.lnk.disabled` when present.
+
 ## Agent-shell pane tabs
 
 Inside an agent-shell buffer in the major pane, use Ctrl+Tab for the next

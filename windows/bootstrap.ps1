@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Symlink dotfiles from this repo into their live Windows locations, and
-  create the Emacs daemon-autostart and client launcher shortcuts.
+  create the Emacs client shortcuts (the client starts the daemon if needed).
 .NOTES
   Requires either Developer Mode ON (Settings > Privacy & security > For developers)
   or running this script as Administrator, so that symlinks can be created.
@@ -69,7 +69,7 @@ function Test-StartupDisabled([string]$lnkPath) {
 }
 
 # ---------------------------------------------------------------------------
-# Emacs daemon: autostart on login + a client launcher shortcut.
+# Emacs: one login launcher + a desktop client shortcut.
 # Shortcuts can't be symlinked from the repo, so we (re)create them here.
 # ---------------------------------------------------------------------------
 # Prefer the scoop shims: they're stable across version bumps, whereas
@@ -77,24 +77,23 @@ function Test-StartupDisabled([string]$lnkPath) {
 # between releases, leaving shortcuts pointing at a missing runemacs.exe).
 $shims        = "$env:USERPROFILE\scoop\shims"
 $emacsBin     = "$env:USERPROFILE\scoop\apps\emacs\current\bin"
-$runemacs     = if (Test-Path "$shims\runemacs.exe")     { "$shims\runemacs.exe" }     else { "$emacsBin\runemacs.exe" }
 $emacsclientw = if (Test-Path "$shims\emacsclientw.exe") { "$shims\emacsclientw.exe" } else { "$emacsBin\emacsclientw.exe" }
 $emacsExe     = if (Test-Path "$shims\emacs.exe")        { "$shims\emacs.exe" }        else { "$emacsBin\emacs.exe" }
 
-if (Test-Path $runemacs) {
+if (Test-Path $emacsclientw) {
     $ws = New-Object -ComObject WScript.Shell
 
-    # Autostart the daemon (windowless) on login.
+    # Retire the old independent daemon launcher. Windows runs Startup entries
+    # concurrently: the frame's -a "" can start a second daemon before this one
+    # has opened its server socket. Keep only the frame launcher below.
     $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Daemon.lnk"
-    if (-not (Test-StartupDisabled $startupLnk)) {
-        $sc = $ws.CreateShortcut($startupLnk)
-        $sc.TargetPath       = $runemacs
-        $sc.Arguments        = "--daemon"
-        $sc.WorkingDirectory = $env:USERPROFILE
-        $sc.Description       = "Start Emacs server (daemon) on login"
-        $sc.WindowStyle      = 7   # minimized / no window
-        $sc.Save()
-        Write-Host "Created startup shortcut -> $startupLnk" -ForegroundColor Green
+    if (Test-Path -LiteralPath $startupLnk) {
+        if (Test-Path -LiteralPath "$startupLnk.disabled") {
+            Remove-Item -LiteralPath $startupLnk
+        } else {
+            Move-Item -LiteralPath $startupLnk -Destination "$startupLnk.disabled"
+        }
+        Write-Host "Retired duplicate daemon startup -> $startupLnk" -ForegroundColor Green
     }
 
     # Desktop launcher: open a frame, starting the daemon if it isn't running.
@@ -110,8 +109,7 @@ if (Test-Path $runemacs) {
     $sc.Save()
     Write-Host "Created client shortcut  -> $clientLnk" -ForegroundColor Green
 
-    # Autostart a client frame on login (matches the macOS launchd emacsclient job).
-    # Connects to the daemon started above; -a "" cold-starts one if it lost the race.
+    # Sole Emacs login entry: -a "" starts the daemon if needed, then connects.
     $frameLnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Emacs Frame.lnk"
     if (-not (Test-StartupDisabled $frameLnk)) {
         $sc = $ws.CreateShortcut($frameLnk)
