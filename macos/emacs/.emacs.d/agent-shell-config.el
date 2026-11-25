@@ -1776,13 +1776,21 @@ silent context-only capture with no marker."
                                (memq (current-buffer)
                                      (major-pane-state-conversations
                                       major-pane--state)))
-                      `((label . ,(gethash (current-buffer) major-pane--labels))))))
+                      ;; The provisional mark rides along so a resumed
+                      ;; "dotfiles 3" can still take the agent's title.
+                      `((label . ,(gethash (current-buffer) major-pane--labels))
+                        (label-provisional
+                         . ,(and (fboundp 'major-pane-label-provisional-p)
+                                 (major-pane-label-provisional-p (current-buffer))
+                                 t))))))
         (add-hook 'agent-recall-restore-functions
                   (defun mr-x/agent-recall-restore-label (metadata shell-buffer)
                     (when-let ((label (alist-get 'label metadata)))
                       (when (and (require 'major-pane nil t)
                                  (boundp 'major-pane--labels))
-                        (major-pane-set-buffer-label shell-buffer label))))))
+                        (major-pane-set-buffer-label
+                         shell-buffer label
+                         (alist-get 'label-provisional metadata)))))))
         ;; agent-recall registers its embark keymap (o/r/R on transcript
         ;; rows) only when `agent-recall-browse' runs, so in a fresh daemon
         ;; the consult-search and workspace pickers had no `r' until you had

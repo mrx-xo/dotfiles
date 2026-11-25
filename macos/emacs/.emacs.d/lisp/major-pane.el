@@ -589,6 +589,26 @@ keep DEFAULT as a provisional name."
         (major-pane-set-buffer-label buffer default 'provisional)
       (major-pane-set-buffer-label buffer name))))
 
+(defun major-pane--title-note-event (&rest args)
+  "Name a conversation after the agent's session title, provisionally.
+Advice on `agent-shell--emit-event'.  On `session-title-changed', a
+conversation with no name or a provisional one (the Enter-on-default
+`dotfiles 3') takes the agent's title, still marked provisional so a
+later title updates it again.  A name you typed is never touched."
+  (when (eq (plist-get args :event) 'session-title-changed)
+    (let* ((buf (current-buffer))
+           (title (string-trim (or (alist-get :title (plist-get args :data)) ""))))
+      (when (and (not (string-empty-p title))
+                 major-pane--state
+                 (memq buf (major-pane-state-conversations major-pane--state))
+                 (or (null (gethash buf major-pane--labels))
+                     (major-pane-label-provisional-p buf)))
+        (major-pane-set-buffer-label buf title 'provisional)
+        (force-mode-line-update t)))))
+
+(with-eval-after-load 'agent-shell
+  (advice-add 'agent-shell--emit-event :after #'major-pane--title-note-event))
+
 (defun major-pane--display-name (buf)
   "Return display name for buffer BUF.
 Shows label + dimmed buffer name if labeled, otherwise just buffer

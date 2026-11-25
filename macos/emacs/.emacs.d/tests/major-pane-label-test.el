@@ -96,4 +96,63 @@
               (should (major-pane-label-provisional-p buf)))
           (kill-buffer buf))))))
 
+;;; Agent session titles
+
+(defun major-pane-label-test--title (buffer title)
+  "Deliver a `session-title-changed' event with TITLE to BUFFER."
+  (with-current-buffer buffer
+    (major-pane--title-note-event :event 'session-title-changed
+                                  :data (list (cons :title title)))))
+
+(ert-deftest major-pane-label-title-replaces-provisional-name ()
+  "The agent's title replaces a provisional name and stays provisional."
+  (major-pane-label-test--with-state
+    (let ((buf (major-pane-label-test--chat default-directory)))
+      (unwind-protect
+          (progn
+            (major-pane-set-buffer-label buf "dotfiles 1" 'provisional)
+            (major-pane-label-test--title buf "Castor updates")
+            (should (equal (gethash buf major-pane--labels) "Castor updates"))
+            (should (major-pane-label-provisional-p buf))
+            (major-pane-label-test--title buf "Castor updates and Emacs rebuild")
+            (should (equal (gethash buf major-pane--labels)
+                           "Castor updates and Emacs rebuild")))
+        (kill-buffer buf)))))
+
+(ert-deftest major-pane-label-title-never-replaces-typed-name ()
+  (major-pane-label-test--with-state
+    (let ((buf (major-pane-label-test--chat default-directory)))
+      (unwind-protect
+          (progn
+            (major-pane-set-buffer-label buf "release notes")
+            (major-pane-label-test--title buf "Castor updates")
+            (should (equal (gethash buf major-pane--labels) "release notes"))
+            (should-not (major-pane-label-provisional-p buf)))
+        (kill-buffer buf)))))
+
+(ert-deftest major-pane-label-title-names-an-unnamed-chat ()
+  "A chat with no name (phone, old restore) takes the title provisionally."
+  (major-pane-label-test--with-state
+    (let ((buf (major-pane-label-test--chat default-directory)))
+      (unwind-protect
+          (progn
+            (major-pane-label-test--title buf "Castor updates")
+            (should (equal (gethash buf major-pane--labels) "Castor updates"))
+            (should (major-pane-label-provisional-p buf)))
+        (kill-buffer buf)))))
+
+(ert-deftest major-pane-label-title-ignores-other-buffers-and-blanks ()
+  (major-pane-label-test--with-state
+    (let ((outside (generate-new-buffer " *not-a-chat*"))
+          (buf (major-pane-label-test--chat default-directory)))
+      (unwind-protect
+          (progn
+            (major-pane-label-test--title outside "Castor updates")
+            (should-not (gethash outside major-pane--labels))
+            (major-pane-set-buffer-label buf "dotfiles 1" 'provisional)
+            (major-pane-label-test--title buf "   ")
+            (should (equal (gethash buf major-pane--labels) "dotfiles 1")))
+        (kill-buffer outside)
+        (kill-buffer buf)))))
+
 ;;; major-pane-label-test.el ends here
