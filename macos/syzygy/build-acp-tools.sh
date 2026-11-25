@@ -130,7 +130,8 @@ ACP_MULTIPLEX_COMMIT="2383bebbe5787441ddacb58ea612b3077e11f804"
 # + local 4267ff1 (hub merges every node's statuses into /api/statuses, so remote cards keep busy/permission state; a peer's status poll is no presence heartbeat)
 # + local 3c7b824 (hub forwards a remote chat's /api/fork, probe included, to the owning machine; Fork enabled on remote chats; forwardToMachine keeps the caller's query)
 # + local 99adf70 (fleet step 3: every machine-scoped route forwards to the owning machine through fleetRoute; projects, history and search merge across machines with fleet=1; Emacs replies travel through a temp file; the phone names the machine on every action, New chat follows the project's machine, History opens and resumes on the entry's machine)
-ACP_MOBILE_COMMIT="99adf70c38d04b48fa16e4b1429186f3028e9592"
+# + local 5f22baf (a Windows transcript path under the home folder is allowed whatever its drive-letter case: History lists on a Windows node)
+ACP_MOBILE_COMMIT="5f22baf455d4ad55acdc315413a1d6121a004e05"
 
 mkdir -p "$SRC_DIR" "$BIN_DIR"
 
