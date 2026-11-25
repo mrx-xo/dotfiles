@@ -1668,7 +1668,8 @@ silent context-only capture with no marker."
           (kbd "M") #'agent-shell-manager-set-model
           (kbd "C-c C-c") #'agent-shell-manager-interrupt
           (kbd "t") #'agent-shell-manager-view-traffic
-          (kbd "l") #'agent-shell-manager-toggle-logging))
+          (kbd "l") #'agent-shell-manager-toggle-logging
+          (kbd "n") #'agent-shell-manager-set-label))
 
       (use-package deadgrep
         :ensure t
