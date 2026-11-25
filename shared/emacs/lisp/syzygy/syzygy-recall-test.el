@@ -357,6 +357,79 @@ it, get returns nil for an unknown session."
               (should (equal original (list "kept" file))))))
       (delete-file file))))
 
+(defmacro syzygy-recall-test--without-catalogue (&rest body)
+  "Run BODY as on a machine whose agent-recall has no catalogue API.
+The four catalogue functions are unbound, as in a stock agent-recall
+that predates the catalogue."
+  (declare (indent 0))
+  `(cl-letf (((symbol-function 'agent-recall--index-ensure) #'ignore)
+             ((symbol-function 'syzygy-recall--resume-readiness)
+              (lambda (_file _entry) (cons t "")))
+             ((symbol-function 'agent-recall-session-label) (lambda (_id) nil))
+             ((symbol-function 'syzygy-recall--agent) (lambda (_file) "Claude"))
+             ((symbol-function 'agent-recall-catalogue-get) nil)
+             ((symbol-function 'agent-recall-catalogue-put) nil)
+             ((symbol-function 'agent-recall-catalogue-remove) nil)
+             ((symbol-function 'agent-recall-catalogue-tags) nil))
+     ,@body))
+
+(ert-deftest syzygy-recall-transcripts-json-without-a-catalogue ()
+  "History must still list on a machine whose agent-recall has no catalogue."
+  (let ((agent-recall--index (make-hash-table :test #'equal))
+        (file (make-temp-file "syzygy-recall-" nil ".md")))
+    (unwind-protect
+        (progn
+          (puthash file
+                   '(:project "syzygy" :timestamp "2026-09-01-12-00-00"
+                     :preview "Search the archive" :session-id "session-1")
+                   agent-recall--index)
+          (syzygy-recall-test--without-catalogue
+            (should-not (fboundp 'agent-recall-catalogue-get))
+            (let ((row (car (syzygy-recall-test--decode
+                             (syzygy-recall-transcripts-json 1)))))
+              (should (equal (alist-get 'sessionId row) "session-1"))
+              (should (equal (alist-get 'catalogued row) ""))
+              (should (equal (alist-get 'note row) ""))
+              (should (equal (alist-get 'tags row) nil)))))
+      (delete-file file))))
+
+(ert-deftest syzygy-recall-catalogue-get-json-without-a-catalogue ()
+  "Reading catalogue state without a catalogue answers not catalogued."
+  (let ((agent-recall--index (make-hash-table :test #'equal))
+        (file (make-temp-file "syzygy-recall-" nil ".md")))
+    (unwind-protect
+        (progn
+          (puthash file '(:session-id "session-1") agent-recall--index)
+          (syzygy-recall-test--without-catalogue
+            (let ((row (syzygy-recall-test--decode
+                        (syzygy-recall-catalogue-get-json
+                         (syzygy-recall-test--b64 "session-1")))))
+              (should (equal (alist-get 'sessionId row) "session-1"))
+              (should (equal (alist-get 'catalogued row) ""))
+              (should (equal (alist-get 'allTags row) nil)))))
+      (delete-file file))))
+
+(ert-deftest syzygy-recall-catalogue-json-without-a-catalogue-says-so ()
+  "Cataloguing without a catalogue fails with a message a person can read."
+  (let ((agent-recall--index (make-hash-table :test #'equal))
+        (file (make-temp-file "syzygy-recall-" nil ".md")))
+    (unwind-protect
+        (progn
+          (puthash file '(:session-id "session-1") agent-recall--index)
+          (syzygy-recall-test--without-catalogue
+            (let ((err (should-error
+                        (syzygy-recall-catalogue-json
+                         (syzygy-recall-test--b64 "session-1")
+                         (syzygy-recall-test--b64 "why kept")
+                         (syzygy-recall-test--b64 "[]"))
+                        :type 'user-error)))
+              (should (equal (cadr err)
+                             "Catalogue is not available on this machine")))
+            (should-error (syzygy-recall-uncatalogue-json
+                           (syzygy-recall-test--b64 "session-1"))
+                          :type 'user-error)))
+      (delete-file file))))
+
 (provide 'syzygy-recall-test)
 ;;; syzygy-recall-test.el ends here
 

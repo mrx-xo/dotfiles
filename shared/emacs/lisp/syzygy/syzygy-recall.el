@@ -746,7 +746,8 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
                        (e (cdr fe))
                        (session-id (or (plist-get e :session-id) ""))
                        (readiness (syzygy-recall--resume-readiness file e))
-                       (catalogue (and (not (string-empty-p session-id))
+                       (catalogue (and (syzygy-recall--catalogue-available-p)
+                                       (not (string-empty-p session-id))
                                        (agent-recall-catalogue-get session-id))))
                   `((file . ,file)
                     (project . ,(or (plist-get e :project) ""))
@@ -781,14 +782,27 @@ Base64 because emacsclient octal-escapes non-ASCII in printed strings
                   agent-recall--index)
          nil)))
 
+(defun syzygy-recall--catalogue-available-p ()
+  "Return non-nil when this machine's agent-recall has the catalogue API.
+A stock agent-recall that predates the catalogue lacks all four
+functions; History must still list, open and resume there."
+  (fboundp 'agent-recall-catalogue-get))
+
+(defun syzygy-recall--require-catalogue ()
+  "Signal a `user-error' when this machine has no catalogue."
+  (unless (syzygy-recall--catalogue-available-p)
+    (user-error "Catalogue is not available on this machine")))
+
 (defun syzygy-recall--catalogue-result (session-id)
-  "Return the JSON-ready catalogue state of SESSION-ID."
-  (let ((entry (agent-recall-catalogue-get session-id)))
+  "Return the JSON-ready catalogue state of SESSION-ID.
+Without a catalogue every session reads as not catalogued."
+  (let* ((available (syzygy-recall--catalogue-available-p))
+         (entry (and available (agent-recall-catalogue-get session-id))))
     `((sessionId . ,session-id)
       (catalogued . ,(or (alist-get 'catalogued entry) ""))
       (note . ,(or (alist-get 'note entry) ""))
       (tags . ,(vconcat (alist-get 'tags entry)))
-      (allTags . ,(vconcat (agent-recall-catalogue-tags))))))
+      (allTags . ,(vconcat (and available (agent-recall-catalogue-tags)))))))
 
 (defun syzygy-recall-catalogue-get-json (session-base64)
   "Return the catalogue state of the session named by SESSION-BASE64.
@@ -811,6 +825,7 @@ Return the new state as base64 JSON, or nil for an unknown session."
       (let ((note (syzygy-bridge-decode-base64 note-base64))
             (tags (when-let ((json (syzygy-bridge-decode-base64 tags-base64)))
                     (append (json-parse-string json :array-type 'array) nil))))
+        (syzygy-recall--require-catalogue)
         (agent-recall-catalogue-put session-id :note note :tags tags)
         (syzygy-bridge-encode-json
          (syzygy-recall--catalogue-result session-id))))))
@@ -821,6 +836,7 @@ Return the new state as base64 JSON, or nil for an unknown session."
   (require 'agent-recall)
   (let ((session-id (syzygy-bridge-decode-base64 session-base64)))
     (when (syzygy-recall--session-known-p session-id)
+      (syzygy-recall--require-catalogue)
       (agent-recall-catalogue-remove session-id)
       (syzygy-bridge-encode-json
        (syzygy-recall--catalogue-result session-id)))))
