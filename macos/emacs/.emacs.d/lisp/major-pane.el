@@ -59,6 +59,32 @@ buffers in tests/labs, buffers created before their mode is set)."
   :type '(repeat symbol)
   :group 'major-pane)
 
+(defcustom major-pane-title-max-words 4
+  "Most words kept when a conversation adopts the agent's session title.
+Trailing filler words (\"and\", \"the\", \"for\" ...) left by the cut are
+dropped too.  nil keeps the whole title.  A name you type is never cut."
+  :type '(choice (const :tag "No limit" nil) natnum)
+  :group 'major-pane)
+
+(defconst major-pane--title-filler-words
+  '("a" "an" "and" "as" "at" "by" "for" "from" "in" "into" "of" "on" "or"
+    "the" "to" "via" "with" "-" "--" "—" "–" "&" "+" "|" "/" ":")
+  "Words a shortened title should not end on.")
+
+(defun major-pane--shorten-title (title)
+  "Return TITLE cut to `major-pane-title-max-words' words.
+Trailing filler words and punctuation are dropped after the cut."
+  (let ((words (split-string title "[ \t\n]+" t)))
+    (if (or (null major-pane-title-max-words)
+            (<= (length words) major-pane-title-max-words))
+        title
+      (let ((kept (seq-take words major-pane-title-max-words)))
+        (while (and (cdr kept)
+                    (member (downcase (car (last kept)))
+                            major-pane--title-filler-words))
+          (setq kept (butlast kept)))
+        (string-trim-right (string-join kept " ") "[,;:.—–-]+")))))
+
 (defcustom major-pane-buffer-pattern "Agent @ "
   "Regex fallback identifying agent conversation buffers by name.
 agent-shell names buffers \"<Agent> Agent @ <project>\" for every
@@ -593,11 +619,13 @@ keep DEFAULT as a provisional name."
   "Name a conversation after the agent's session title, provisionally.
 Advice on `agent-shell--emit-event'.  On `session-title-changed', a
 conversation with no name or a provisional one (the Enter-on-default
-`dotfiles 3') takes the agent's title, still marked provisional so a
+`dotfiles 3') takes the agent's title, cut to
+`major-pane-title-max-words', still marked provisional so a
 later title updates it again.  A name you typed is never touched."
   (when (eq (plist-get args :event) 'session-title-changed)
     (let* ((buf (current-buffer))
-           (title (string-trim (or (alist-get :title (plist-get args :data)) ""))))
+           (title (major-pane--shorten-title
+                   (string-trim (or (alist-get :title (plist-get args :data)) "")))))
       (when (and (not (string-empty-p title))
                  major-pane--state
                  (memq buf (major-pane-state-conversations major-pane--state))

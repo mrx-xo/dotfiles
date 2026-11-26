@@ -116,8 +116,25 @@
             (should (major-pane-label-provisional-p buf))
             (major-pane-label-test--title buf "Castor updates and Emacs rebuild")
             (should (equal (gethash buf major-pane--labels)
-                           "Castor updates and Emacs rebuild")))
+                           "Castor updates and Emacs")))
         (kill-buffer buf)))))
+
+(ert-deftest major-pane-label-title-is-shortened ()
+  "Adopted titles keep at most `major-pane-title-max-words' words."
+  (let ((major-pane-title-max-words 4))
+    (should (equal (major-pane--shorten-title "Fix the login bug") "Fix the login bug"))
+    (should (equal (major-pane--shorten-title "Strip Claude trailers from dotfiles history")
+                   "Strip Claude trailers"))
+    (should (equal (major-pane--shorten-title "Mac clone: move onto rewritten history")
+                   "Mac clone: move onto"))
+    (should (equal (major-pane--shorten-title "Sketchybar - battery widget broken again")
+                   "Sketchybar - battery widget"))
+    (should (equal (major-pane--shorten-title "Review, then ship the release")
+                   "Review, then ship"))
+    (should (equal (major-pane--shorten-title "Single") "Single")))
+  (let ((major-pane-title-max-words nil))
+    (should (equal (major-pane--shorten-title "one two three four five six")
+                   "one two three four five six"))))
 
 (ert-deftest major-pane-label-title-never-replaces-typed-name ()
   (major-pane-label-test--with-state
