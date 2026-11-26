@@ -8996,7 +8996,8 @@ MODE is `tab' for a normal browser tab or `app' for a dedicated window."
   (dolist (hook '(python-mode-hook python-ts-mode-hook
                   typescript-mode-hook typescript-ts-mode-hook
                   tsx-ts-mode-hook js-mode-hook js-ts-mode-hook
-                  js2-mode-hook js2-jsx-mode-hook))
+                  js2-mode-hook js2-jsx-mode-hook
+                  lua-mode-hook lua-ts-mode-hook))
     (add-hook hook #'mr-x/enable-lsp-semantic-highlighting -10))
   :config
   ;; Performance tuning (gc-cons-threshold is set globally above)
@@ -9198,13 +9199,14 @@ Bound to o in the symbol tree only; the file tree keeps its o prefix."
 
 ;; Modern TypeScript setup with tree-sitter and LSP
 
-;; CommonJS files need the same JavaScript highlighting in buffers and diffs.
-(add-to-list 'auto-mode-alist '("\\.cjs\\'" . js-ts-mode))
+;; .js, .mjs, .cjs and .jsx all get the same JavaScript highlighting and
+;; LSP, in buffers and diffs.
+(add-to-list 'auto-mode-alist '("\\.[cm]?jsx?\\'" . js-ts-mode))
 
 ;; Use built-in tree-sitter modes for TypeScript/TSX (Emacs 29+)
 ;; These provide better syntax highlighting and structural editing
 (use-package typescript-ts-mode
-  :mode (("\\.ts\\'" . typescript-ts-mode)
+  :mode (("\\.[cm]?ts\\'" . typescript-ts-mode)
          ("\\.tsx\\'" . tsx-ts-mode))
   :config
   (setq typescript-indent-level 2))
