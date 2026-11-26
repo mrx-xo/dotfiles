@@ -2451,7 +2451,7 @@ hook and `tangle-emacs-org.sh' use, and therefore the one that generated
 the checked-in files.  Do NOT switch this to a `--batch -Q' subprocess:
 built-in Org 9.7 strips leading indentation from indented src blocks where
 Elpaca's 10.0-pre preserves it, so a -Q tangle disagrees with every file
-this repo has ever checked in (that swap happened in d670e8b on 2026-09-02
+this repo has ever checked in (that swap happened in be5bb48 on 2026-09-02
 and inverted the canon until it was reverted)."
   (require 'org)
   (let* ((src (expand-file-name "emacs.org" user-emacs-directory))

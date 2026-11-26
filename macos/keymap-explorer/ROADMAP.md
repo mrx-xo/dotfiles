@@ -37,6 +37,6 @@ Firmware identity and physical acceptance details: [VERSIONS.md](VERSIONS.md).
    deployed dictation task is one specific action. Preserve the documented
    armed-set routing contract and use fixed, allowlisted task names.
 
-Earlier hotdox76v2 / Creator Micro plans remain in Git history through `c39eb8b`.
+Earlier hotdox76v2 / Creator Micro plans remain in Git history through `e7f8ee6`.
 The superseded October desk/flash recipes are preserved in private `~/docs`
 commit `de6641f`; current operation lives here and in the rig runbook.

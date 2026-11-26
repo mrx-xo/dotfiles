@@ -1,7 +1,7 @@
 # Flashing the Keebio Iris SE
 
 Verified on MrX on 2026-09-28 during the v1 flash. The hotdox76v2 runbook
-this file replaced is in git history up to `c39eb8b`.
+this file replaced is in git history up to `e7f8ee6`.
 
 KOMAX (Keychron K0 Max) is flashed too, from Keychron's QMK fork; see
 [KOMAX: flashing from Keychron's fork](#komax-flashing-from-keychrons-fork)
@@ -93,7 +93,7 @@ A prebuilt `keebio_iris_rev8_mrx.uf2` lands in `~/qmk_firmware` after any
 Bootloader entry, USB flashing and lighting by cable and dongle verified
 2026-10-22. Physical desk-grammar and hidden Fn/re-pair acceptance remain
 pending; see VERSIONS.md. The old Launcher section is in git history up to
-`cb63fe1`.
+`15c31f2`.
 
 ### Facts
 

@@ -8,7 +8,7 @@ the old current is marked retired, and the explorer's `cur` maps are updated
 to match `keymap.c`.
 
 The hotdox76v2 (v1-v4 draft) and Creator Micro (v1-v5 draft) ledgers are in
-git history up to `c39eb8b`. Both boards died on 2026-08-03.
+git history up to `e7f8ee6`. Both boards died on 2026-08-03.
 
 KOMAX is flashed like the Iris since 2026-10-22, from a checkout of
 Keychron's QMK fork (`~/qmk_keychron`, branch `2025q3`, keymap on local
@@ -83,7 +83,7 @@ branch `mrx`). Its entries cite that checkout's commit.
   without Shift (explorer only).
 - Nav #5 (last blank on the daily-driver row) -> `LCG(KC_B)`, the
   Hammerspoon bookmark popup (`bookmark-popup.lua`, Cmd+Ctrl+B).
-- Emacs layer (5) ported from the hotdox v4 d1 draft (`8457210`): each key
+- Emacs layer (5) ported from the hotdox v4 d1 draft (`0bfd18e`): each key
   sends `HYPR(letter)` on its own Dvorak position. Live in `emacs.org`:
   i b g s r p o d. Bound 2026-10-22 (hybrid): q x direct; c m v w open
   their SPC menus.

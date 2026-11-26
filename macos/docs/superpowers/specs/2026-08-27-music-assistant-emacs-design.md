@@ -2,7 +2,7 @@
 
 Date: 2026-08-27
 Revalidated: 2026-09-02 against Music Assistant 2.9.13 / schema 31
-Status: V1 shipped and merged into main on 2026-09-03 (`b954f16`)
+Status: V1 shipped and merged into main on 2026-09-03 (`6fa01a9`)
 Status reconciled: 2026-09-16
 
 This document records the V1 design. The canonical cross-system roadmap is

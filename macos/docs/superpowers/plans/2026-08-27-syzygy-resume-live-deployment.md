@@ -282,7 +282,7 @@ Expected: `go vet` exits `0`; Node reports five passing tests and no failures.
 ```bash
 set -euo pipefail
 git -C /Users/marcosandrade/.dotfiles/.worktrees/syzygy-resume-history \
-  diff --check 3d5809364ca877200d1218b1d44bd14e851e53c7..44b31d35bd0e6b9be31da3267166b3ef11a0474c
+  diff --check 4b0dde6b85f80dc11ee918f35164df8cdb6250b2..44b31d35bd0e6b9be31da3267166b3ef11a0474c
 
 git -C /Users/marcosandrade/src/acp-mobile/.worktrees/syzygy-resume-history \
   diff --check ffe4bdea462d01d45817a986a2a568746ce364b4..d9a88b2aa24823f7f1784cc7ef2126e1fbdf5cc0

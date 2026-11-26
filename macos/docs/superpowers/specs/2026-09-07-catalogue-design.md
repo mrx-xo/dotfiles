@@ -158,7 +158,7 @@ phone changes.
 - agent-recall `dev` = `main` at `6765179`: sidecar metadata store public,
   persistent picker navigation, provider icons, transcript-mode evil keys on
   the mode map (fixes Enter bailing out of the picker), truename matching.
-- Dotfiles `4a3c7d6`: `mr-x/escape-quit` leaves vertico-suspend parked pickers
+- Dotfiles `83a57bf`: `mr-x/escape-quit` leaves vertico-suspend parked pickers
   alone (fixes Escape yanking to another chat).
 - acp-mobile `69a2cfa`: `callElisp` helper; label, push, kill migrated.
 

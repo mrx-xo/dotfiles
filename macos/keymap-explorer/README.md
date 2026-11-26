@@ -9,7 +9,7 @@ between them.
 
 The hotdox76v2 and the Creator Micro used to live here too. Both boards are
 gone (2026-08-03); their explorers, ledgers and flashing runbook are in git
-history up to `c39eb8b`. KOMAX took over the Creator Micro's slot on
+history up to `e7f8ee6`. KOMAX took over the Creator Micro's slot on
 2026-10-21: page, widget, ledger and docs.
 
 - **Next steps: [ROADMAP.md](ROADMAP.md)**

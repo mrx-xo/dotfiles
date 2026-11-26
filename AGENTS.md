@@ -86,8 +86,8 @@ each other and with every `init.el` this repo has committed.
 
 If that test fails after you tangled, the fix is to re-tangle with the script,
 never to re-tangle with `-Q` and never to change the test to shell out to a
-`--batch -Q` subprocess. That swap was made in `d670e8b` (2026-09-02) and
-silently inverted the canon: `840f6c8` had already restyled `init.el` with
+`--batch -Q` subprocess. That swap was made in `be5bb48` (2026-09-02) and
+silently inverted the canon: `5f3ea46` had already restyled `init.el` with
 built-in Org, burying ~140 lines of whitespace churn in an unrelated feature
 diff. Both were reverted on 2026-09-03.
 

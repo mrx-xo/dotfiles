@@ -23,16 +23,16 @@ from the web app opens that web app on tap. HA leaves the loop.
 ## Current state (all committed, all live)
 
 dotfiles, branch main:
-- `b55079b` agent-shell-push.el: buffer-local `agent-shell-push-mode`, off by
+- `53b1f79` agent-shell-push.el: buffer-local `agent-shell-push-mode`, off by
   default, `SPC c N`. Pushes on done / failed / permission by advising
   `agent-shell-attention--handle-success`, `--handle-failure`,
   `--handle-event`.
-- `0d87ea2` `agent-shell-push-set` (called by acp-mobile) + sidecar
+- `73b5885` `agent-shell-push-set` (called by acp-mobile) + sidecar
   `~/.acp-mobile/push.json` of armed session ids.
-- `7ddbc9a` phone-initiated turns: advice on `agent-shell--on-notification`
+- `0b51c23` phone-initiated turns: advice on `agent-shell--on-notification`
   catches acp-multiplex's synthetic `session/update turn_complete`, guarded
   by `agent-shell--active-requests-p`.
-- `61184fa` pin + doc.
+- `f81bfc7` pin + doc.
 - Tests: `macos/emacs/.emacs.d/tests/agent-shell-push-test.el` (21 ERT) and
   `config-test-agent-shell-push-integration` in `config-tests.el`.
 
